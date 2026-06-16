@@ -17,15 +17,16 @@ export default function RootLayout() {
     })();
   }, []);
 
-  useEffect(() => {
-    if (isLoading) return;
-    const inAuth = segments[0] === '(auth)';
-    if (!isAuthenticated && !inAuth) {
-      router.replace('/(auth)/welcome');
-    } else if (isAuthenticated && inAuth) {
-      router.replace('/(tabs)/map');
-    }
-  }, [isAuthenticated, isLoading, segments]);
+  // DEV: auth guard disabled for testing
+  // useEffect(() => {
+  //   if (isLoading) return;
+  //   const inAuth = segments[0] === '(auth)';
+  //   if (!isAuthenticated && !inAuth) {
+  //     router.replace('/(auth)/welcome');
+  //   } else if (isAuthenticated && inAuth) {
+  //     router.replace('/(tabs)/map');
+  //   }
+  // }, [isAuthenticated, isLoading, segments]);
 
   return (
     <SafeAreaProvider>

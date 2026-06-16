@@ -8,14 +8,11 @@ const SOCKET_URL = API_URL.replace(/^http/, 'ws');
 export default function MapTab() {
   const { isAuthenticated, accessToken, user } = useAuthStore();
 
-  if (!isAuthenticated || !accessToken || !user) {
-    return <GuestMapScreen />;
-  }
-
+  // DEV: bypass auth check for testing — always show the live map
   return (
     <MapScreen
       groupId=""
-      accessToken={accessToken}
+      accessToken={accessToken ?? ''}
       socketUrl={SOCKET_URL}
     />
   );
