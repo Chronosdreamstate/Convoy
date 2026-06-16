@@ -9,8 +9,11 @@ import {
   ActivityIndicator,
   Switch,
   Alert,
+  Share,
 } from 'react-native';
+import { useRouter } from 'expo-router';
 import { apiClient } from '../../services/apiClient';
+import { authService } from '../../services/AuthService';
 
 interface Settings {
   hazardAlertDistanceM: number;
@@ -130,6 +133,7 @@ function ChipSelector<T extends string | number>({ options, selected, onSelect }
 // ---------------------------------------------------------------------------
 
 export default function SettingsScreen() {
+  const router = useRouter();
   const [settings, setSettings] = useState<Settings | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -205,23 +209,33 @@ export default function SettingsScreen() {
     }
   };
 
-  const handleExportData = () => {
-    Alert.alert('Export My Data', 'Your data export will be emailed to you within 24 hours.', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Request Export', onPress: () => { /* TODO: call export API */ } },
-    ]);
+  const handleExportData = async () => {
+    try {
+      const res = await apiClient.get('/api/v1/account/export');
+      const json = JSON.stringify(res.data, null, 2);
+      await Share.share({ message: json, title: 'My CONVOY Data' });
+    } catch {
+      Alert.alert('Error', 'Failed to export data. Please try again.');
+    }
   };
 
-  const handleDeleteAccount = () => {
+  const handleDeleteAccount = async () => {
     Alert.alert(
       'Delete Account',
-      'This will permanently delete your account and all associated data. This cannot be undone.',
+      'This permanently deletes your account and all data. This cannot be undone.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Delete Account',
+          text: 'Delete',
           style: 'destructive',
-          onPress: () => { /* TODO: call delete account API */ },
+          onPress: async () => {
+            try {
+              await apiClient.delete('/api/v1/account');
+              await authService.signOut();
+            } catch {
+              Alert.alert('Error', 'Failed to delete account. Please try again.');
+            }
+          },
         },
       ],
     );
@@ -255,7 +269,7 @@ export default function SettingsScreen() {
           <SettingRow
             icon="👤"
             label="Edit Profile"
-            onPress={() => { /* TODO: navigate to profile edit */ }}
+            onPress={() => router.push('/(tabs)/profile')}
           />
           <SettingRow
             icon="📤"
@@ -328,8 +342,8 @@ export default function SettingsScreen() {
           />
         </View>
 
-        {/* ── PRIVACY ─────────────────────────────────────────────────────── */}
-        <SectionHeader title="PRIVACY" />
+        {/* ── MAP ─────────────────────────────────────────────────────────── */}
+        <SectionHeader title="MAP" />
         <View style={styles.sectionCard}>
           <SettingRow
             icon="🗺"
@@ -343,7 +357,11 @@ export default function SettingsScreen() {
               onSelect={(v) => { setMapStyle(v); mark(); }}
             />
           </View>
+        </View>
 
+        {/* ── PRIVACY ─────────────────────────────────────────────────────── */}
+        <SectionHeader title="PRIVACY" />
+        <View style={styles.sectionCard}>
           <SettingRow
             icon="🌄"
             label="Scenic Routing"

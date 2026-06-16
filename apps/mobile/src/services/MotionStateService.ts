@@ -33,13 +33,29 @@ export function deriveMotionState(speedKph: number): MotionState {
 export class MotionStateService {
   private _state: MotionState = 'parked';
   private listeners: Set<MotionStateListener> = new Set();
+  private belowThresholdCount = 0;
+  private static readonly PARKED_SAMPLES_REQUIRED = 3;
 
   /** Feed each GPS speed reading — call from LocationService. */
   update(speedKph: number): void {
-    const next = deriveMotionState(speedKph);
-    if (next !== this._state) {
-      this._state = next;
-      this.listeners.forEach((l) => l(next));
+    const derived = deriveMotionState(speedKph);
+
+    if (derived === 'in_motion') {
+      this.belowThresholdCount = 0;
+      if (this._state !== 'in_motion') {
+        this._state = 'in_motion';
+        this.listeners.forEach((l) => l('in_motion'));
+      }
+    } else {
+      this.belowThresholdCount++;
+      if (
+        this._state === 'in_motion' &&
+        this.belowThresholdCount >= MotionStateService.PARKED_SAMPLES_REQUIRED
+      ) {
+        this._state = 'parked';
+        this.belowThresholdCount = 0;
+        this.listeners.forEach((l) => l('parked'));
+      }
     }
   }
 

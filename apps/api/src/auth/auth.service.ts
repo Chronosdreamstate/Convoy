@@ -251,7 +251,7 @@ export function setRefreshCookie(
 ): void {
   reply.setCookie('refreshToken', refreshToken, {
     httpOnly: true,
-    secure: nodeEnv !== 'test', // allow http in test
+    secure: nodeEnv === 'production', // only enforce HTTPS in production
     sameSite: 'strict',
     path: '/',
     // 30 days in seconds

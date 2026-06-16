@@ -74,10 +74,16 @@ export class SyncService {
   private async syncDrives(): Promise<void> {
     const drives = await this.db.getPendingDrives();
     if (drives.length === 0) return;
+    let firstError: unknown;
     for (const drive of drives) {
-      await this.retryWithBackoff(() => this.api.postDrive(drive), MAX_RETRIES);
+      try {
+        await this.retryWithBackoff(() => this.api.postDrive(drive), MAX_RETRIES);
+        await this.db.clearDrives([drive.id]);
+      } catch (err) {
+        firstError = err;
+      }
     }
-    await this.db.clearDrives(drives.map((d) => d.id));
+    if (firstError) throw firstError;
   }
 
   private async retryWithBackoff<T>(fn: () => Promise<T>, maxRetries: number): Promise<T> {

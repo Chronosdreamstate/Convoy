@@ -64,6 +64,8 @@ export default function ProfileScreen() {
 
   // Inline-edit state
   const [displayName, setDisplayName] = useState('');
+  const [pttCallsign, setPttCallsign] = useState('');
+  const [privacy, setPrivacy] = useState<'open' | 'invite_only'>('open');
   const [isDirty, setIsDirty] = useState(false);
 
   useEffect(() => {
@@ -78,6 +80,8 @@ export default function ProfileScreen() {
       const p = res.data;
       setProfile(p);
       setDisplayName(p.displayName);
+      setPttCallsign(p.pttCallsign ?? '');
+      setPrivacy(p.privacy);
       setIsDirty(false);
     } catch {
       setError('Failed to load profile. Please try again.');
@@ -86,7 +90,7 @@ export default function ProfileScreen() {
     }
   };
 
-  const handleSaveName = async () => {
+  const handleSaveProfile = async () => {
     const trimmed = displayName.trim();
     if (!trimmed || !isDirty) return;
 
@@ -95,12 +99,16 @@ export default function ProfileScreen() {
     try {
       const res = await apiClient.patch<Profile>('/api/v1/users/me', {
         displayName: trimmed,
+        pttCallsign: pttCallsign.trim() || null,
+        privacy,
       });
       setProfile(res.data);
       setDisplayName(res.data.displayName);
+      setPttCallsign(res.data.pttCallsign ?? '');
+      setPrivacy(res.data.privacy);
       setIsDirty(false);
     } catch {
-      setError('Failed to update display name.');
+      setError('Failed to update profile.');
     } finally {
       setIsSaving(false);
     }
@@ -112,8 +120,8 @@ export default function ProfileScreen() {
       {
         text: 'Sign Out',
         style: 'destructive',
-        onPress: () => {
-          signOut();
+        onPress: async () => {
+          await signOut();
           router.replace('/(auth)/welcome');
         },
       },
@@ -153,34 +161,65 @@ export default function ProfileScreen() {
           ) : null}
         </View>
 
-        {/* Display name inline edit */}
+        {/* Display name + callsign + privacy */}
         <View style={styles.card}>
           <Text style={styles.cardLabel}>Display Name</Text>
           <TextInput
             style={styles.nameInput}
             value={displayName}
-            onChangeText={(v) => {
-              setDisplayName(v);
-              setIsDirty(true);
-            }}
+            onChangeText={(v) => { setDisplayName(v); setIsDirty(true); }}
             placeholder="Your display name"
             placeholderTextColor="#555555"
             maxLength={100}
-            returnKeyType="done"
-            onSubmitEditing={handleSaveName}
+            returnKeyType="next"
             accessibilityLabel="Display name input"
           />
+
+          <Text style={[styles.cardLabel, { marginTop: 14 }]}>PTT Callsign</Text>
+          <TextInput
+            style={styles.nameInput}
+            value={pttCallsign}
+            onChangeText={(v) => { setPttCallsign(v); setIsDirty(true); }}
+            placeholder="e.g. Alpha-1 (optional)"
+            placeholderTextColor="#555555"
+            maxLength={32}
+            autoCapitalize="none"
+            returnKeyType="done"
+            onSubmitEditing={handleSaveProfile}
+            accessibilityLabel="PTT callsign input"
+          />
+
+          <Text style={[styles.cardLabel, { marginTop: 14 }]}>Group Privacy</Text>
+          <View style={styles.privacyRow}>
+            <TouchableOpacity
+              style={[styles.privacyBtn, privacy === 'open' && styles.privacyBtnActive]}
+              onPress={() => { setPrivacy('open'); setIsDirty(true); }}
+              accessibilityRole="button"
+              accessibilityLabel="Open — anyone can join"
+            >
+              <Text style={[styles.privacyBtnText, privacy === 'open' && styles.privacyBtnTextActive]}>Open</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.privacyBtn, privacy === 'invite_only' && styles.privacyBtnActive]}
+              onPress={() => { setPrivacy('invite_only'); setIsDirty(true); }}
+              accessibilityRole="button"
+              accessibilityLabel="Invite only"
+            >
+              <Text style={[styles.privacyBtnText, privacy === 'invite_only' && styles.privacyBtnTextActive]}>Invite Only</Text>
+            </TouchableOpacity>
+          </View>
+
           <TouchableOpacity
-            style={[styles.saveNameBtn, (!isDirty || isSaving) && styles.btnDisabled]}
-            onPress={handleSaveName}
+            style={[styles.saveNameBtn, (!isDirty || isSaving) && styles.btnDisabled, { marginTop: 16 }]}
+            onPress={handleSaveProfile}
             disabled={!isDirty || isSaving}
             accessibilityRole="button"
-            accessibilityLabel="Save display name"
+            accessibilityLabel="Save profile"
           >
             {isSaving ? (
               <ActivityIndicator color="#fff" size="small" />
             ) : (
-              <Text style={styles.saveNameBtnText}>Save Name</Text>
+              <Text style={styles.saveNameBtnText}>Save Profile</Text>
             )}
           </TouchableOpacity>
         </View>
@@ -310,6 +349,32 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontSize: 15,
     fontWeight: '600',
+  },
+  privacyRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 4,
+  },
+  privacyBtn: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#2A2A2A',
+    alignItems: 'center',
+    backgroundColor: '#0A0A0A',
+  },
+  privacyBtnActive: {
+    borderColor: '#DC143C',
+    backgroundColor: '#1A0505',
+  },
+  privacyBtnText: {
+    color: '#888888',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  privacyBtnTextActive: {
+    color: '#DC143C',
   },
 
   // Friends button

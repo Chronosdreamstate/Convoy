@@ -155,7 +155,7 @@ export class DriveService {
 
     // Always save to SQLite first (Req 19.7)
     const offlineDrive: OfflineDrive = {
-      id: `drive-offline-${this.sessionStartMs}`,
+      id: `drive-offline-${this.sessionStartMs}-${Math.random().toString(36).slice(2, 7)}`,
       groupId: params.groupId ?? '',
       startedAt: this.sessionStartMs,
       endedAt: nowMs,

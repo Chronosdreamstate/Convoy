@@ -66,7 +66,7 @@ export default function FuelSuggestionBanner({
       <View style={styles.panel}>
         <View style={styles.header}>
           <Text style={styles.title}>Fuel Stations Nearby</Text>
-          <TouchableOpacity onPress={() => setStations(null)}>
+          <TouchableOpacity onPress={() => { setStations(null); onDismiss(); }}>
             <Text style={styles.close}>Done</Text>
           </TouchableOpacity>
         </View>
@@ -80,7 +80,8 @@ export default function FuelSuggestionBanner({
             renderItem={({ item: s }) => (
               <TouchableOpacity
                 style={styles.stationRow}
-                onPress={() => { onSelectStation(s); setStations(null); }}
+                onPress={() => { if (isAdmin) { onSelectStation(s); setStations(null); } }}
+                disabled={!isAdmin}
               >
                 <View style={styles.stationInfo}>
                   <Text style={styles.stationName}>{s.name}</Text>

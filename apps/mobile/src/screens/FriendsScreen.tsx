@@ -149,7 +149,7 @@ function RequestsTab() {
   const [requests, setRequests] = useState<FriendRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [acting, setActing] = useState<string | null>(null);
+  const [acting, setActing] = useState<{ id: string; action: 'accept' | 'decline' } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -171,7 +171,7 @@ function RequestsTab() {
   }, [load]);
 
   const handleAccept = async (id: string) => {
-    setActing(id);
+    setActing({ id, action: 'accept' });
     try {
       await apiClient.post(`/api/v1/friends/requests/${id}/accept`);
       setRequests((prev) => prev.filter((r) => r.id !== id));
@@ -183,7 +183,7 @@ function RequestsTab() {
   };
 
   const handleDecline = async (id: string) => {
-    setActing(id);
+    setActing({ id, action: 'decline' });
     try {
       await apiClient.post(`/api/v1/friends/requests/${id}/decline`);
       setRequests((prev) => prev.filter((r) => r.id !== id));
@@ -224,11 +224,11 @@ function RequestsTab() {
             <TouchableOpacity
               style={[styles.actionBtn, styles.acceptBtn]}
               onPress={() => handleAccept(req.id)}
-              disabled={acting === req.id}
+              disabled={acting?.id === req.id}
               accessibilityRole="button"
               accessibilityLabel={`Accept request from ${req.displayName}`}
             >
-              {acting === req.id ? (
+              {acting?.id === req.id && acting.action === 'accept' ? (
                 <ActivityIndicator color="#fff" size="small" />
               ) : (
                 <Text style={styles.acceptBtnText}>Accept</Text>
@@ -237,11 +237,15 @@ function RequestsTab() {
             <TouchableOpacity
               style={[styles.actionBtn, styles.declineBtn]}
               onPress={() => handleDecline(req.id)}
-              disabled={acting === req.id}
+              disabled={acting?.id === req.id}
               accessibilityRole="button"
               accessibilityLabel={`Decline request from ${req.displayName}`}
             >
-              <Text style={styles.declineBtnText}>Decline</Text>
+              {acting?.id === req.id && acting.action === 'decline' ? (
+                <ActivityIndicator color="#888" size="small" />
+              ) : (
+                <Text style={styles.declineBtnText}>Decline</Text>
+              )}
             </TouchableOpacity>
           </View>
         </View>

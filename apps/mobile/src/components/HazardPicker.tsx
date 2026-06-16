@@ -65,29 +65,33 @@ export default function HazardPicker({ visible, isInMotion, onSelect, onClose }:
       animationType="slide"
       onRequestClose={onClose}
     >
-      <Pressable style={styles.backdrop} onPress={onClose} />
-      <View style={styles.sheet}>
-        <View style={styles.handle} />
-        <Text style={styles.title}>Report a Hazard</Text>
-        <View style={styles.grid}>
-          {types.map((type) => {
-            const { label, emoji } = HAZARD_LABELS[type];
-            return (
-              <TouchableOpacity
-                key={type}
-                style={[styles.tile, tileSize]}
-                onPress={() => { onSelect(type); onClose(); }}
-                activeOpacity={0.75}
-              >
-                <Text style={styles.emoji}>{emoji}</Text>
-                <Text style={styles.label}>{label}</Text>
-              </TouchableOpacity>
-            );
-          })}
+      <View style={styles.modalContainer}>
+        <Pressable style={StyleSheet.absoluteFillObject} onPress={onClose} />
+        <View style={styles.sheet}>
+          <View style={styles.handle} />
+          <Text style={styles.title}>Report a Hazard</Text>
+          <View style={styles.grid}>
+            {types.map((type) => {
+              const { label, emoji } = HAZARD_LABELS[type];
+              return (
+                <TouchableOpacity
+                  key={type}
+                  style={[styles.tile, tileSize]}
+                  onPress={() => { onSelect(type); onClose(); }}
+                  activeOpacity={0.75}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${emoji} ${label}`}
+                >
+                  <Text style={styles.emoji}>{emoji}</Text>
+                  <Text style={styles.label}>{label}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+          <TouchableOpacity style={styles.cancel} onPress={onClose}>
+            <Text style={styles.cancelText}>Cancel</Text>
+          </TouchableOpacity>
         </View>
-        <TouchableOpacity style={styles.cancel} onPress={onClose}>
-          <Text style={styles.cancelText}>Cancel</Text>
-        </TouchableOpacity>
       </View>
     </Modal>
   );
@@ -101,12 +105,13 @@ const TILE_NORMAL = 90;
 const TILE_LARGE = 120;
 
 const styles = StyleSheet.create({
-  backdrop: {
+  modalContainer: {
     flex: 1,
+    justifyContent: 'flex-end',
     backgroundColor: 'rgba(0,0,0,0.4)',
   },
   sheet: {
-    backgroundColor: '#ffffff',
+    backgroundColor: '#1C1C1E',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     paddingTop: 8,
@@ -124,7 +129,7 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 18,
     fontWeight: '700',
-    color: '#111827',
+    color: '#F0F0F0',
     textAlign: 'center',
     marginBottom: 16,
   },
@@ -136,7 +141,7 @@ const styles = StyleSheet.create({
   },
   tile: {
     borderRadius: 12,
-    backgroundColor: '#f3f4f6',
+    backgroundColor: '#2A2A2A',
     alignItems: 'center',
     justifyContent: 'center',
     padding: 8,
@@ -156,7 +161,7 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 11,
     fontWeight: '600',
-    color: '#374151',
+    color: '#D1D5DB',
     textAlign: 'center',
   },
   cancel: {

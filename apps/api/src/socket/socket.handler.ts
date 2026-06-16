@@ -68,7 +68,10 @@ export async function handleLocationUpdate(params: {
   const { groupId, userId, location, redis, db, io, now = Date.now() } = params;
   const locKey = `loc:${groupId}:${userId}`;
 
-  // 1. Write to Redis with 10-second sliding-window TTL (Req 8.2)
+  // 1a. Read the previous location BEFORE overwriting it (needed for distance accumulation)
+  const prevLocRaw = await redis.hgetall(locKey);
+
+  // 1b. Write new location to Redis with 10-second sliding-window TTL (Req 8.2)
   await redis.hset(locKey, {
     lat: String(location.lat),
     lng: String(location.lng),
@@ -77,6 +80,22 @@ export async function handleLocationUpdate(params: {
     ts: String(location.ts),
   });
   await redis.expire(locKey, 10);
+
+  // 1c. Accumulate per-member movement into the group distance counter (fuel suggestion, Req 21.1)
+  if (prevLocRaw && prevLocRaw.lat && prevLocRaw.lng) {
+    const delta = haversineMeters(
+      { lat: Number(prevLocRaw.lat), lng: Number(prevLocRaw.lng) },
+      { lat: location.lat, lng: location.lng },
+    );
+    if (delta > 0) {
+      const distanceKey = `group:${groupId}:distance_m`;
+      const isNew = await redis.exists(distanceKey) === 0;
+      await redis.incrbyfloat(distanceKey, delta);
+      if (isNew) {
+        await redis.expire(distanceKey, 86_400); // 24-hour TTL
+      }
+    }
+  }
 
   // 2. Fan-out to every member in the group room (Req 8.2)
   io.to(`group:${groupId}`).emit('location:update', { userId, ...location });
@@ -207,6 +226,9 @@ export async function handlePttEnd(params: {
   );
   const log = logResult.rows[0];
   if (!log) return;
+
+  // Stamp ended_at before computing duration
+  await db.query('UPDATE ptt_log SET ended_at = NOW() WHERE id = $1', [logId]);
 
   const groupResult = await db.query<{ ptt_max_seconds: number }>(
     'SELECT ptt_max_seconds FROM convoy_groups WHERE id = $1',
@@ -369,9 +391,10 @@ export function registerSocketHandlers(
       });
     });
 
-    // Notify group on disconnect (Req 8.3)
+    // Notify group on disconnect and clean up Redis presence (Req 8.3)
     socket.on('disconnect', () => {
       io.to(`group:${groupId}`).emit('member:left', { userId });
+      void fastify.redis.del(`loc:${groupId}:${userId}`);
     });
   };
 }

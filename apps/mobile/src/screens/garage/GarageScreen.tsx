@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -10,6 +10,7 @@ import {
   TextInput,
   Modal,
   Alert,
+  RefreshControl,
 } from 'react-native';
 import { apiClient } from '../../services/apiClient';
 
@@ -43,6 +44,9 @@ export default function GarageScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isActivating, setIsActivating] = useState<string | null>(null);
+
   // Form modal state
   const [modalVisible, setModalVisible] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -51,7 +55,13 @@ export default function GarageScreen() {
   const [formError, setFormError] = useState<string | null>(null);
 
   useEffect(() => {
-    loadVehicles();
+    void loadVehicles();
+  }, []);
+
+  const handleRefresh = useCallback(async () => {
+    setIsRefreshing(true);
+    await loadVehicles();
+    setIsRefreshing(false);
   }, []);
 
   const loadVehicles = async () => {
@@ -95,8 +105,15 @@ export default function GarageScreen() {
 
   const handleSave = async () => {
     setFormError(null);
+
+    const yearNum = form.year ? parseInt(form.year, 10) : null;
+    if (form.year.trim() && (isNaN(yearNum!) || yearNum! < 1885 || yearNum! > new Date().getFullYear() + 1)) {
+      setFormError(`Enter a valid year between 1885 and ${new Date().getFullYear() + 1}.`);
+      return;
+    }
+
     const payload = {
-      year: form.year ? parseInt(form.year, 10) : null,
+      year: yearNum,
       make: form.make.trim() || null,
       model: form.model.trim() || null,
       color: form.color.trim() || null,
@@ -142,7 +159,8 @@ export default function GarageScreen() {
   };
 
   const handleActivate = async (v: Vehicle) => {
-    if (v.isActive) return;
+    if (v.isActive || isActivating) return;
+    setIsActivating(v.id);
     try {
       const response = await apiClient.post<Vehicle>(`/api/v1/vehicles/${v.id}/activate`);
       setVehicles((prev) =>
@@ -153,6 +171,8 @@ export default function GarageScreen() {
       );
     } catch {
       Alert.alert('Error', 'Failed to activate vehicle.');
+    } finally {
+      setIsActivating(null);
     }
   };
 
@@ -171,6 +191,14 @@ export default function GarageScreen() {
       <ScrollView
         contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={handleRefresh}
+            tintColor="#DC143C"
+            colors={['#DC143C']}
+          />
+        }
       >
         <View style={styles.header}>
           <Text style={styles.title}>Garage</Text>
@@ -214,7 +242,9 @@ export default function GarageScreen() {
                   <Text style={styles.vehicleDetail}>{v.color}</Text>
                 ) : null}
                 {!v.isActive && (
-                  <Text style={styles.tapToActivate}>Tap to set active</Text>
+                  isActivating === v.id
+                    ? <ActivityIndicator color="#DC143C" size="small" style={{ marginTop: 3 }} />
+                    : <Text style={styles.tapToActivate}>Tap to set active</Text>
                 )}
               </View>
 

@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
+  Platform,
   Share,
   StyleSheet,
   Text,
@@ -150,6 +151,7 @@ function DriveDetail({ drive, onBack, onShare, sharing }: DetailProps) {
 export default function DriveHistoryScreen() {
   const [drives, setDrives] = useState<DriveRecord[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
   const [selected, setSelected] = useState<DriveRecord | null>(null);
@@ -173,11 +175,12 @@ export default function DriveHistoryScreen() {
   useEffect(() => { void fetchDrives(1, true); }, [fetchDrives]);
 
   const loadMore = useCallback(() => {
-    if (!hasMore || loading) return;
+    if (!hasMore || loading || loadingMore) return;
     const next = page + 1;
     setPage(next);
-    void fetchDrives(next, false);
-  }, [hasMore, loading, page, fetchDrives]);
+    setLoadingMore(true);
+    void fetchDrives(next, false).finally(() => setLoadingMore(false));
+  }, [hasMore, loading, loadingMore, page, fetchDrives]);
 
   const handleShare = useCallback(async (driveId: string) => {
     setSharingId(driveId);
@@ -186,7 +189,11 @@ export default function DriveHistoryScreen() {
         `/api/v1/drives/${driveId}/summary-card`,
       );
       const { summaryCardUrl } = res.data;
-      await Share.share({ url: summaryCardUrl, message: 'Check out my CONVOY drive!' });
+      await Share.share(
+        Platform.OS === 'ios'
+          ? { url: summaryCardUrl, message: 'Check out my CONVOY drive!' }
+          : { message: `Check out my CONVOY drive! ${summaryCardUrl}` },
+      );
       setDrives((prev) => prev.map((d) => (d.id === driveId ? { ...d, summaryCardUrl } : d)));
     } catch {
       Alert.alert('Error', 'Could not generate summary card.');
@@ -237,45 +244,47 @@ export default function DriveHistoryScreen() {
           </View>
         }
         renderItem={({ item: drive }) => (
-          <TouchableOpacity
-            style={styles.driveCard}
-            onPress={() => setSelected(drive)}
-            accessibilityLabel={`Drive on ${formatDate(drive.endedAt)}, ${formatDistance(drive.distanceM)}`}
-          >
-            {/* Left: map thumbnail */}
-            <MapThumb />
+          <View style={styles.driveCardRow}>
+            <TouchableOpacity
+              style={styles.driveCard}
+              onPress={() => setSelected(drive)}
+              accessibilityLabel={`Drive on ${formatDate(drive.endedAt)}, ${formatDistance(drive.distanceM)}`}
+            >
+              {/* Left: map thumbnail */}
+              <MapThumb />
 
-            {/* Right: info */}
-            <View style={styles.driveCardContent}>
-              <View style={styles.driveHeader}>
-                <Text style={styles.driveDate}>{formatDate(drive.endedAt)}</Text>
-                <Text style={styles.driveTime}>{formatTime(drive.endedAt)}</Text>
-              </View>
+              {/* Right: info */}
+              <View style={styles.driveCardContent}>
+                <View style={styles.driveHeader}>
+                  <Text style={styles.driveDate}>{formatDate(drive.endedAt)}</Text>
+                  <Text style={styles.driveTime}>{formatTime(drive.endedAt)}</Text>
+                </View>
 
-              {/* Stats row */}
-              <View style={styles.driveStatsRow}>
-                <View style={styles.driveStat}>
-                  <Text style={styles.driveStatIcon}>📍</Text>
-                  <Text style={styles.driveStatValue}>{formatDistance(drive.distanceM)}</Text>
-                </View>
-                <View style={styles.driveStat}>
-                  <Text style={styles.driveStatIcon}>⏱</Text>
-                  <Text style={styles.driveStatValue}>{formatDuration(drive.durationS)}</Text>
-                </View>
-                {drive.avgSpeedKph != null && (
+                {/* Stats row */}
+                <View style={styles.driveStatsRow}>
                   <View style={styles.driveStat}>
-                    <Text style={styles.driveStatIcon}>💨</Text>
-                    <Text style={styles.driveStatValue}>{drive.avgSpeedKph.toFixed(0)} km/h</Text>
+                    <Text style={styles.driveStatIcon}>📍</Text>
+                    <Text style={styles.driveStatValue}>{formatDistance(drive.distanceM)}</Text>
                   </View>
+                  <View style={styles.driveStat}>
+                    <Text style={styles.driveStatIcon}>⏱</Text>
+                    <Text style={styles.driveStatValue}>{formatDuration(drive.durationS)}</Text>
+                  </View>
+                  {drive.avgSpeedKph != null && (
+                    <View style={styles.driveStat}>
+                      <Text style={styles.driveStatIcon}>💨</Text>
+                      <Text style={styles.driveStatValue}>{drive.avgSpeedKph.toFixed(0)} km/h</Text>
+                    </View>
+                  )}
+                </View>
+
+                {drive.memberCount > 1 && (
+                  <Text style={styles.driveMembers}>👥 {drive.memberCount} members</Text>
                 )}
               </View>
+            </TouchableOpacity>
 
-              {drive.memberCount > 1 && (
-                <Text style={styles.driveMembers}>👥 {drive.memberCount} members</Text>
-              )}
-            </View>
-
-            {/* Share button */}
+            {/* Share button — outside card touch area to prevent propagation */}
             <TouchableOpacity
               style={styles.shareIcon}
               onPress={() => void handleShare(drive.id)}
@@ -288,7 +297,7 @@ export default function DriveHistoryScreen() {
                 : <Text style={styles.shareIconText}>↑</Text>
               }
             </TouchableOpacity>
-          </TouchableOpacity>
+          </View>
         )}
       />
     </View>
@@ -323,12 +332,18 @@ const styles = StyleSheet.create({
   emptyTitle: { color: '#F0F0F0', fontSize: 20, fontWeight: '700', marginBottom: 8 },
   emptySubtitle: { color: '#888888', fontSize: 14, textAlign: 'center', lineHeight: 22 },
 
-  // Drive card
+  // Drive card row + card
+  driveCardRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 10,
+  },
   driveCard: {
+    flex: 1,
     backgroundColor: '#1C1C1C',
     borderRadius: 14,
     padding: 14,
-    marginBottom: 10,
     borderWidth: 1,
     borderColor: '#2A2A2A',
     flexDirection: 'row',

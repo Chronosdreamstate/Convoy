@@ -3,7 +3,7 @@
  * Requirements: 7.1–7.9, 8.4–8.5, 9.1–9.3, 15.4, 36.5, 36.6
  */
 
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -15,6 +15,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
 import { apiClient } from '../services/apiClient';
 
 // ---------------------------------------------------------------------------
@@ -57,6 +58,14 @@ export default function ConvoyScreen({ userId }: Props) {
 
   const isAdmin = group?.adminId === userId;
 
+  // ── Load members when group becomes non-null ──────────────────────────────
+  useEffect(() => {
+    if (!group) return;
+    apiClient.get(`/api/v1/groups/${group.id}/members`)
+      .then((res) => setMembers(res.data))
+      .catch(() => {/* silently fail – user will see empty list */});
+  }, [group?.id]);
+
   // ── Create group (Req 7.1–7.3) ────────────────────────────────────────────
   const handleCreate = useCallback(async () => {
     if (!groupName.trim()) return Alert.alert('Error', 'Enter a group name.');
@@ -97,14 +106,21 @@ export default function ConvoyScreen({ userId }: Props) {
     });
   }, [group]);
 
-  // ── Copy join code — shares the raw code string so the OS handles copy ──
-  const handleCopyCode = useCallback(async () => {
+  // ── Copy join code — copies to clipboard, falls back to share ──
+  const handleCopyCode = async () => {
     if (!group) return;
-    await Share.share({ message: group.joinCode });
-  }, [group]);
+    try {
+      await Clipboard.setStringAsync(group.joinCode);
+      Alert.alert('Copied!', `Join code ${group.joinCode} copied to clipboard.`);
+    } catch {
+      await Share.share({ message: `Join my convoy! Code: ${group.joinCode}` });
+    }
+  };
 
   // ── Leave group (Req 7.7) ─────────────────────────────────────────────────
   const handleLeave = useCallback(() => {
+    const currentGroup = group;
+    if (!currentGroup) return;
     Alert.alert('Leave Group', 'Are you sure you want to leave this convoy?', [
       { text: 'Cancel', style: 'cancel' },
       {
@@ -112,7 +128,7 @@ export default function ConvoyScreen({ userId }: Props) {
         style: 'destructive',
         onPress: async () => {
           try {
-            await apiClient.post(`/api/v1/groups/${group!.id}/leave`);
+            await apiClient.post(`/api/v1/groups/${currentGroup.id}/leave`);
             setGroup(null);
             setMembers([]);
           } catch {
@@ -125,6 +141,8 @@ export default function ConvoyScreen({ userId }: Props) {
 
   // ── End group (Admin only, Req 7.9) ──────────────────────────────────────
   const handleEnd = useCallback(() => {
+    const currentGroup = group;
+    if (!currentGroup) return;
     Alert.alert('End Convoy', 'This will end the session for all members.', [
       { text: 'Cancel', style: 'cancel' },
       {
@@ -132,7 +150,7 @@ export default function ConvoyScreen({ userId }: Props) {
         style: 'destructive',
         onPress: async () => {
           try {
-            await apiClient.post(`/api/v1/groups/${group!.id}/end`);
+            await apiClient.post(`/api/v1/groups/${currentGroup.id}/end`);
             setGroup(null);
             setMembers([]);
           } catch {

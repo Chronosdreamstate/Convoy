@@ -55,6 +55,11 @@ export class WebSocketService {
   }
 
   connect(): Socket {
+    if (this.socket) {
+      this.socket.disconnect();
+      this.socket = null;
+    }
+
     const opts: Partial<ManagerOptions & SocketOptions> = {
       transports: ['websocket'],
       auth: this.config.auth,

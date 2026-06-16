@@ -18,7 +18,7 @@ export async function authenticate(
   try {
     await request.jwtVerify();
   } catch {
-    throw reply.unauthorized('Authentication required');
+    return reply.unauthorized('Authentication required');
   }
 }
 

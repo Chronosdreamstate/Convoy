@@ -1,7 +1,29 @@
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { Redirect } from 'expo-router';
 import { useAuthStore } from '../src/stores/authStore';
 
-// DEV: skip auth for testing
 export default function Index() {
-  return <Redirect href="/(tabs)/map" />;
+  const { isAuthenticated, isLoading } = useAuthStore();
+
+  if (isLoading) {
+    return (
+      <View style={styles.center}>
+        <ActivityIndicator size="large" />
+      </View>
+    );
+  }
+
+  if (isAuthenticated) {
+    return <Redirect href="/(tabs)/map" />;
+  }
+
+  return <Redirect href="/(auth)/welcome" />;
 }
+
+const styles = StyleSheet.create({
+  center: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+});

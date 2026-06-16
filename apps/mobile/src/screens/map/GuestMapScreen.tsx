@@ -15,30 +15,46 @@ const DEFAULT_REGION = {
 export default function GuestMapScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const [region, setRegion] = useState(DEFAULT_REGION);
+  const [initialRegion, setInitialRegion] = useState(DEFAULT_REGION);
+  const [permissionDenied, setPermissionDenied] = useState(false);
+  const mapRef = React.useRef<MapView>(null);
 
   useEffect(() => {
     (async () => {
       const { status } = await ExpoLocation.requestForegroundPermissionsAsync();
-      if (status !== 'granted') return;
+      if (status !== 'granted') {
+        setPermissionDenied(true);
+        return;
+      }
       const loc = await ExpoLocation.getCurrentPositionAsync({});
-      setRegion({
+      const region = {
         latitude: loc.coords.latitude,
         longitude: loc.coords.longitude,
         latitudeDelta: 0.05,
         longitudeDelta: 0.05,
-      });
+      };
+      setInitialRegion(region);
+      mapRef.current?.animateToRegion(region, 500);
     })();
   }, []);
 
   return (
     <View style={styles.container}>
       <MapView
+        ref={mapRef}
         provider={PROVIDER_DEFAULT}
         style={StyleSheet.absoluteFill}
-        region={region}
+        initialRegion={initialRegion}
         showsUserLocation
       />
+
+      {permissionDenied && (
+        <View style={styles.permissionBanner}>
+          <Text style={styles.permissionText}>
+            Location access denied — enable it in Settings to center the map on you.
+          </Text>
+        </View>
+      )}
 
       {/* Bottom card */}
       <View style={[styles.card, { bottom: Math.max(insets.bottom, 16) + 16 }]}>
@@ -66,6 +82,25 @@ export default function GuestMapScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+
+  permissionBanner: {
+    position: 'absolute',
+    top: 16,
+    left: 16,
+    right: 16,
+    backgroundColor: '#1C1C1Ef0',
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderWidth: 1,
+    borderColor: '#DC143C40',
+  },
+  permissionText: {
+    color: '#F0F0F0',
+    fontSize: 13,
+    textAlign: 'center',
+    lineHeight: 18,
+  },
 
   card: {
     position: 'absolute',

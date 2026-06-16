@@ -56,6 +56,11 @@ class RallyService {
     return res.data;
   }
 
+  /** Cancel a standalone SOS pin (no active group). */
+  async cancelStandaloneSos(sosId: string): Promise<void> {
+    await apiClient.delete(`/api/v1/sos/${sosId}`);
+  }
+
   /** Cancel an SOS pin (Req 25.6). */
   async cancelSos(groupId: string, sosId: string): Promise<void> {
     await apiClient.delete(`/api/v1/groups/${groupId}/sos/${sosId}`);

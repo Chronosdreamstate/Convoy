@@ -126,7 +126,10 @@ const driveBodySchema = z.object({
   memberCount: z.number().int().min(1).default(1),
   startedAt: z.string().datetime(),
   endedAt: z.string().datetime(),
-});
+}).refine(
+  (d) => new Date(d.endedAt) >= new Date(d.startedAt),
+  { message: 'endedAt must be >= startedAt', path: ['endedAt'] },
+);
 
 // ---------------------------------------------------------------------------
 // Route plugin
@@ -188,7 +191,11 @@ const drivesRoutes: FastifyPluginAsync = async (fastify) => {
     await request.jwtVerify();
     const userId = (request.user as { sub: string }).sub;
 
-    const body = driveBodySchema.parse(request.body);
+    const parsed = driveBodySchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ error: 'Invalid request body', details: parsed.error.flatten() });
+    }
+    const body = parsed.data;
 
     const result = await fastify.db.query<{ id: string; created_at: Date }>(
       `INSERT INTO drive_history

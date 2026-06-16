@@ -132,15 +132,17 @@ export class LocationService {
     await this.locationDB.saveLastKnownLocation(this.userId, location);
 
     // Emit to socket at most once per 3 seconds (Req 8.1)
-    if (this.socket.connected && !this.shouldThrottle(location.ts)) {
+    if (this.socket.connected && !this.shouldThrottle(Date.now())) {
       this.socket.emit('location:update', location);
     }
   }
 
   /** Start watching the device GPS. Call stop() to clean up. */
-  async start(): Promise<void> {
+  async start(): Promise<'granted' | 'denied'> {
+    if (this.subscription) return 'granted'; // already running
+
     const { status } = await ExpoLocation.requestForegroundPermissionsAsync();
-    if (status !== 'granted') return;
+    if (status !== 'granted') return 'denied';
 
     this.subscription = await ExpoLocation.watchPositionAsync(
       {
@@ -148,16 +150,19 @@ export class LocationService {
         timeInterval: GPS_UPDATE_INTERVAL_MS,
         distanceInterval: 0,
       },
-      async (pos) => {
-        await this.handleGPSUpdate({
+      (pos) => {
+        this.handleGPSUpdate({
           lat: pos.coords.latitude,
           lng: pos.coords.longitude,
           heading: pos.coords.heading ?? 0,
-          speed_kph: ((pos.coords.speed ?? 0) * 3.6), // m/s → km/h
+          speed_kph: (pos.coords.speed ?? 0) * 3.6, // m/s → km/h
           ts: pos.timestamp,
+        }).catch(() => {
+          // GPS callback errors are non-fatal; last-known position may be stale
         });
       },
     );
+    return 'granted';
   }
 
   stop(): void {

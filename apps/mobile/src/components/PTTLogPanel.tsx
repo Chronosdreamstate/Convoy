@@ -4,7 +4,7 @@
  * Entries displayed oldest-first; cleared automatically on group:ended.
  */
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { FlatList, StyleSheet, Text, View } from 'react-native';
 import { Socket } from 'socket.io-client';
 
@@ -32,6 +32,11 @@ interface Props {
 
 export default function PTTLogPanel({ socket, initialEntries = [] }: Props) {
   const [entries, setEntries] = useState<PttLogEntry[]>(initialEntries);
+  const flatListRef = useRef<FlatList>(null);
+
+  useEffect(() => {
+    flatListRef.current?.scrollToEnd({ animated: true });
+  }, [entries]);
 
   const handlePttTransmit = useCallback(
     (data: { logId: string; userId: string; channelId: string }) => {
@@ -75,6 +80,7 @@ export default function PTTLogPanel({ socket, initialEntries = [] }: Props) {
 
   return (
     <FlatList
+      ref={flatListRef}
       data={entries}
       keyExtractor={(e) => e.id}
       style={styles.list}
@@ -89,7 +95,7 @@ export default function PTTLogPanel({ socket, initialEntries = [] }: Props) {
 
 function LogRow({ entry }: { entry: PttLogEntry }) {
   const name = entry.callsign ?? entry.displayName;
-  const time = new Date(entry.startedAt).toUTCString().slice(17, 25); // HH:MM:SS
+  const time = new Date(entry.startedAt).toISOString().slice(11, 19); // HH:MM:SS
 
   return (
     <View style={styles.row}>

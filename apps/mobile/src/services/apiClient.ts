@@ -36,14 +36,17 @@ type FailedRequest = {
 let failedQueue: FailedRequest[] = [];
 
 function processQueue(error: unknown, token: string | null): void {
-  failedQueue.forEach(({ resolve, reject }) => {
+  const queue = failedQueue;
+  failedQueue = [];
+  queue.forEach(({ resolve, reject }) => {
     if (error) {
       reject(error);
     } else if (token) {
       resolve(token);
+    } else {
+      reject(new Error('Token refresh produced no token'));
     }
   });
-  failedQueue = [];
 }
 
 apiClient.interceptors.response.use(

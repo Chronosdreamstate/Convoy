@@ -26,6 +26,10 @@ export default function PhoneScreen() {
       setError('Please enter your phone number.');
       return;
     }
+    if (!/^\+[1-9]\d{6,14}$/.test(trimmed)) {
+      setError('Please enter a valid phone number in E.164 format (e.g. +15550001234).');
+      return;
+    }
 
     setError(null);
     setIsLoading(true);
@@ -34,10 +38,10 @@ export default function PhoneScreen() {
       const { devOtp } = await authService.requestOtp(trimmed);
       if (devOtp) {
         Alert.alert('Dev Mode — Your OTP', `Code: ${devOtp}`, [
-          { text: 'OK', onPress: () => router.push({ pathname: '/otp', params: { phone: trimmed } }) },
+          { text: 'OK', onPress: () => router.push({ pathname: '/(auth)/otp', params: { phone: trimmed } }) },
         ]);
       } else {
-        router.push({ pathname: '/otp', params: { phone: trimmed } });
+        router.push({ pathname: '/(auth)/otp', params: { phone: trimmed } });
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to send OTP. Please try again.';

@@ -3,7 +3,7 @@ import {
   Alert,
   FlatList,
   Modal,
-  ScrollView,
+  Pressable,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -16,7 +16,12 @@ import { io, Socket } from 'socket.io-client';
 import { useAuthStore } from '../../stores/authStore';
 import { useLocationStore, MemberLocation } from '../../stores/locationStore';
 import { rallyService, RallyPoint, SosPin } from '../../services/RallyService';
+import { apiClient } from '../../services/apiClient';
+import { HazardType } from '../../services/HazardService';
 import DestinationSearch, { SearchResult } from '../../components/DestinationSearch';
+import HazardPicker from '../../components/HazardPicker';
+import SpeedLimitHUD from '../../components/SpeedLimitHUD';
+import FuelSuggestionBanner from '../../components/FuelSuggestionBanner';
 
 interface GapAlert { memberId: string; distanceM: number }
 interface SosAlert { pin: SosPin; memberName: string }
@@ -26,6 +31,8 @@ interface Props {
   accessToken: string;
   socketUrl: string;
   gapThresholdM?: number;
+  isAdmin?: boolean;
+  pttChannelId?: string;
 }
 
 function formatElapsed(receivedAt: number): string {
@@ -33,9 +40,9 @@ function formatElapsed(receivedAt: number): string {
   return s < 60 ? `${s}s ago` : `${Math.floor(s / 60)}m ago`;
 }
 
-export default function MapScreen({ groupId, accessToken, socketUrl }: Props) {
+export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = false, pttChannelId }: Props) {
   const { user, token } = useAuthStore();
-  const { memberLocations, updateMemberLocation, clearGroup } = useLocationStore();
+  const { memberLocations, updateMemberLocation, clearGroup, evictStale } = useLocationStore();
   const insets = useSafeAreaInsets();
 
   const [gapAlerts, setGapAlerts]     = useState<GapAlert[]>([]);
@@ -50,9 +57,20 @@ export default function MapScreen({ groupId, accessToken, socketUrl }: Props) {
   const [pendingSosName, setPendingSosName]    = useState<string>('');
   const [showSosPicker, setShowSosPicker]     = useState(false);
   const [myLocation, setMyLocation]           = useState<{ lat: number; lng: number } | null>(null);
+  const [mySpeedKph, setMySpeedKph]           = useState(0);
+  const [isOnline, setIsOnline]               = useState(true);
+  const [isPttTransmitting, setIsPttTransmitting] = useState(false);
+  const [showHazardPicker, setShowHazardPicker]   = useState(false);
+  const [showFuelBanner, setShowFuelBanner]         = useState(false);
 
   const socketRef = useRef<Socket | null>(null);
   const mapRef    = useRef<MapView>(null);
+
+  // Evict members who haven't reported a location in 30s
+  useEffect(() => {
+    const interval = setInterval(() => evictStale(30_000), 30_000);
+    return () => clearInterval(interval);
+  }, [evictStale]);
 
   // Track own location for SOS targeting
   useEffect(() => {
@@ -62,7 +80,10 @@ export default function MapScreen({ groupId, accessToken, socketUrl }: Props) {
       if (status !== 'granted') return;
       sub = await ExpoLocation.watchPositionAsync(
         { accuracy: ExpoLocation.Accuracy.High, distanceInterval: 10 },
-        (loc) => setMyLocation({ lat: loc.coords.latitude, lng: loc.coords.longitude }),
+        (loc) => {
+          setMyLocation({ lat: loc.coords.latitude, lng: loc.coords.longitude });
+          setMySpeedKph((loc.coords.speed ?? 0) * 3.6);
+        },
       );
     })();
     return () => { sub?.remove(); };
@@ -73,8 +94,8 @@ export default function MapScreen({ groupId, accessToken, socketUrl }: Props) {
     if (!token || !groupId) return;
     const socket = io(socketUrl, { transports: ['websocket'], auth: { token, groupId } });
     socketRef.current = socket;
-    socket.on('connect', () => setIsConnected(true));
-    socket.on('disconnect', () => setIsConnected(false));
+    socket.on('connect', () => { setIsConnected(true); setIsOnline(true); });
+    socket.on('disconnect', () => { setIsConnected(false); setIsOnline(false); });
     socket.on('location:update', (d: { userId: string; lat: number; lng: number; heading: number; speed_kph: number; ts: number }) => {
       if (d.userId === user?.id) return;
       updateMemberLocation({ userId: d.userId, lat: d.lat, lng: d.lng, heading: d.heading, speedKph: d.speed_kph, ts: d.ts, receivedAt: Date.now() });
@@ -82,14 +103,28 @@ export default function MapScreen({ groupId, accessToken, socketUrl }: Props) {
     socket.on('gap:alert', (a: GapAlert) => setGapAlerts((p) => [...p.filter((x) => x.memberId !== a.memberId), a]));
     socket.on('rally:set', (r: RallyPoint) => { setRallyPoints((p) => new Map(p).set(r.id, r)); setRallyAlert(r); });
     socket.on('rally:cancelled', ({ rallyId }: { rallyId: string }) => { setRallyPoints((p) => { const n = new Map(p); n.delete(rallyId); return n; }); setRallyAlert((p) => p?.id === rallyId ? null : p); });
-    socket.on('sos:alert', (pin: SosPin) => { setSosPins((p) => new Map(p).set(pin.id, pin)); const name = pin.userId === user?.id ? 'You' : `Member ${pin.userId.slice(0, 6)}`; setSosAlerts((p) => [...p, { pin, memberName: name }]); });
+    socket.on('sos:alert', (data: SosPin) => {
+      setSosPins((p) => new Map(p).set(data.id, data));
+      setSosAlerts((prev) => {
+        if (prev.some((a) => a.pin.id === data.id)) return prev;
+        const name = data.userId === user?.id ? 'You' : `Member ${data.userId.slice(0, 6)}`;
+        return [...prev, { pin: data, memberName: name }];
+      });
+    });
     socket.on('sos:cancelled', ({ sosId }: { sosId: string }) => { setSosPins((p) => { const n = new Map(p); n.delete(sosId); return n; }); setSosAlerts((p) => p.filter((a) => a.pin.id !== sosId)); if (mySosId === sosId) setMySosId(null); });
     return () => { socket.disconnect(); clearGroup(); };
-  }, [token, groupId, socketUrl]);
+  }, [token, groupId, socketUrl, updateMemberLocation, user, clearGroup]);
 
   const recenter = useCallback(() => {
-    mapRef.current?.animateToRegion({ latitude: 37.7749, longitude: -122.4194, latitudeDelta: 0.05, longitudeDelta: 0.05 }, 600);
-  }, []);
+    if (!mapRef.current) return;
+    const loc = myLocation ?? { lat: 37.7749, lng: -122.4194 };
+    mapRef.current.animateToRegion({
+      latitude: loc.lat,
+      longitude: loc.lng,
+      latitudeDelta: 0.01,
+      longitudeDelta: 0.01,
+    }, 500);
+  }, [myLocation]);
 
   const handleLongPress = useCallback((e: LongPressEvent) => {
     if (!groupId) return;
@@ -141,7 +176,41 @@ export default function MapScreen({ groupId, accessToken, socketUrl }: Props) {
     );
   }, []);
 
-  const members    = Array.from(memberLocations.values());
+  const handlePttStart = useCallback(() => {
+    if (!socketRef.current || !pttChannelId) return;
+    setIsPttTransmitting(true);
+    socketRef.current.emit('ptt:start', { channelId: pttChannelId });
+  }, [pttChannelId]);
+
+  const handlePttEnd = useCallback(() => {
+    if (!socketRef.current) return;
+    setIsPttTransmitting(false);
+    socketRef.current.emit('ptt:end', { channelId: pttChannelId });
+  }, [pttChannelId]);
+
+  const handleHazardSelect = useCallback(async (type: HazardType) => {
+    if (!myLocation) {
+      Alert.alert('Location required', 'Enable location permissions to report a hazard.');
+      return;
+    }
+    try {
+      await apiClient.post('/api/v1/hazards', { type, lat: myLocation.lat, lng: myLocation.lng });
+    } catch {
+      Alert.alert('Error', 'Could not report hazard. It will sync when you reconnect.');
+    }
+  }, [myLocation]);
+
+  const handleFuelStationSelect = useCallback(async (station: { lat: number; lng: number; [key: string]: unknown }) => {
+    if (!groupId) return;
+    try {
+      await rallyService.broadcastRally(groupId, station.lat, station.lng);
+      setShowFuelBanner(false);
+    } catch {
+      Alert.alert('Error', 'Could not broadcast fuel stop waypoint.');
+    }
+  }, [groupId]);
+
+  const members    = Object.values(memberLocations);
   const rallies    = Array.from(rallyPoints.values());
   const sosPinList = Array.from(sosPins.values());
   const staleMs    = 30_000;
@@ -174,7 +243,7 @@ export default function MapScreen({ groupId, accessToken, socketUrl }: Props) {
       {/* Floating search bar — centered top, clears connection badge */}
       <View style={[styles.searchWrapper, { top: topBase }]}>
         <DestinationSearch
-          isOnline={true}
+          isOnline={isOnline}
           onSelect={handleSearchSelect}
         />
       </View>
@@ -193,13 +262,70 @@ export default function MapScreen({ groupId, accessToken, socketUrl }: Props) {
         <Text style={styles.recenterText}>⊕</Text>
       </TouchableOpacity>
 
-      {/* SOS button — only shown during an active convoy */}
+      {/* Speed limit HUD — bottom-left, above PTT */}
+      <View style={[styles.speedHudContainer, { bottom: insets.bottom + 230 }]}>
+        <SpeedLimitHUD postedLimitKph={null} currentSpeedKph={mySpeedKph} />
+      </View>
+
+      {/* PTT button — bottom-left, hold to talk */}
+      {pttChannelId && (
+        <Pressable
+          style={[styles.pttBtn, isPttTransmitting && styles.pttBtnActive, { bottom: insets.bottom + 150 }]}
+          onPressIn={handlePttStart}
+          onPressOut={handlePttEnd}
+          accessibilityLabel={isPttTransmitting ? 'Transmitting — release to stop' : 'Push to talk'}
+          accessibilityRole="button"
+        >
+          <Text style={styles.pttIcon}>🎙</Text>
+          <Text style={styles.pttLabel}>{isPttTransmitting ? 'LIVE' : 'PTT'}</Text>
+        </Pressable>
+      )}
+
+      {/* Hazard button — bottom-right, above SOS */}
       {user && groupId && (
-        <View style={styles.sosContainer}>
+        <TouchableOpacity
+          style={[styles.hazardBtn, { bottom: insets.bottom + 320 }]}
+          onPress={() => setShowHazardPicker(true)}
+          accessibilityLabel="Report a road hazard"
+          accessibilityRole="button"
+        >
+          <Text style={styles.hazardIcon}>⚠️</Text>
+        </TouchableOpacity>
+      )}
+
+      {/* Fuel button — bottom-right, above hazard */}
+      {user && groupId && (
+        <TouchableOpacity
+          style={[styles.fuelBtn, { bottom: insets.bottom + 392 }]}
+          onPress={() => setShowFuelBanner((v) => !v)}
+          accessibilityLabel="Find fuel nearby"
+          accessibilityRole="button"
+        >
+          <Text style={styles.fuelIcon}>⛽</Text>
+        </TouchableOpacity>
+      )}
+
+      {/* SOS button — bottom-right */}
+      {user && groupId && (
+        <View style={[styles.sosContainer, { bottom: insets.bottom + 240 }]}>
           {mySosId
             ? <TouchableOpacity style={styles.sosCancelBtn} onPress={cancelMySos} accessibilityLabel="Cancel SOS"><Text style={styles.sosText}>CANCEL SOS</Text></TouchableOpacity>
             : <TouchableOpacity style={styles.sosBtn} onPress={handleSosPress} accessibilityLabel="Send SOS emergency alert"><Text style={styles.sosText}>SOS</Text></TouchableOpacity>
           }
+        </View>
+      )}
+
+      {/* Fuel suggestion banner — above member panel */}
+      {showFuelBanner && myLocation && (
+        <View style={styles.fuelBannerWrapper}>
+          <FuelSuggestionBanner
+            groupId={groupId}
+            myLat={myLocation.lat}
+            myLng={myLocation.lng}
+            isAdmin={isAdmin}
+            onSelectStation={handleFuelStationSelect}
+            onDismiss={() => setShowFuelBanner(false)}
+          />
         </View>
       )}
 
@@ -266,15 +392,18 @@ export default function MapScreen({ groupId, accessToken, socketUrl }: Props) {
 
             {/* Yourself row */}
             <TouchableOpacity
-              style={styles.pickerRow}
+              style={[styles.pickerRow, !myLocation && styles.pickerRowDisabled]}
+              disabled={!myLocation}
               onPress={() => handlePickSosTarget('Yourself', myLocation?.lat ?? 0, myLocation?.lng ?? 0)}
             >
               <Text style={styles.pickerRowEmoji}>🙋</Text>
               <View style={styles.pickerRowBody}>
-                <Text style={styles.pickerRowName}>Yourself</Text>
-                <Text style={styles.pickerRowSub}>{myLocation ? 'Using your GPS location' : 'Location unavailable'}</Text>
+                <Text style={[styles.pickerRowName, !myLocation && styles.pickerRowNameDisabled]}>
+                  {myLocation ? 'Yourself' : 'Location unavailable – cannot broadcast'}
+                </Text>
+                <Text style={styles.pickerRowSub}>{myLocation ? 'Using your GPS location' : 'Enable location permissions to use this option'}</Text>
               </View>
-              <Text style={styles.pickerRowArrow}>›</Text>
+              {myLocation && <Text style={styles.pickerRowArrow}>›</Text>}
             </TouchableOpacity>
 
             {/* Convoy members */}
@@ -326,6 +455,14 @@ export default function MapScreen({ groupId, accessToken, socketUrl }: Props) {
           </View>
         </View>
       </Modal>
+
+      {/* Hazard picker bottom sheet */}
+      <HazardPicker
+        visible={showHazardPicker}
+        isInMotion={mySpeedKph > 5}
+        onSelect={handleHazardSelect}
+        onClose={() => setShowHazardPicker(false)}
+      />
     </View>
   );
 }
@@ -376,13 +513,96 @@ const styles = StyleSheet.create({
   },
   recenterText: { fontSize: 24 },
 
-  // SOS button — bottom-right, above member panel
+  // SOS button — bottom-right (bottom set inline with insets)
   sosContainer: {
     position: 'absolute',
-    bottom: 240,
     right: 16,
     alignItems: 'flex-end',
     zIndex: 10,
+  },
+
+  // Speed limit HUD — bottom-left
+  speedHudContainer: {
+    position: 'absolute',
+    left: 16,
+    zIndex: 10,
+  },
+
+  // PTT button — bottom-left, hold to talk
+  pttBtn: {
+    position: 'absolute',
+    left: 16,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: '#1C1C1C',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 3,
+    borderColor: '#555555',
+    shadowColor: '#000',
+    shadowOpacity: 0.4,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 6,
+    zIndex: 10,
+  },
+  pttBtnActive: {
+    backgroundColor: '#10b981',
+    borderColor: '#fff',
+  },
+  pttIcon: { fontSize: 22 },
+  pttLabel: { color: '#fff', fontSize: 9, fontWeight: '800', letterSpacing: 0.5 },
+
+  // Hazard button — bottom-right
+  hazardBtn: {
+    position: 'absolute',
+    right: 16,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: '#1C1C1C',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: '#F59E0B',
+    shadowColor: '#000',
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 5,
+    zIndex: 10,
+  },
+  hazardIcon: { fontSize: 20 },
+
+  // Fuel button — bottom-right
+  fuelBtn: {
+    position: 'absolute',
+    right: 16,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: '#1C1C1C',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: '#3b82f6',
+    shadowColor: '#000',
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 5,
+    zIndex: 10,
+  },
+  fuelIcon: { fontSize: 20 },
+
+  // Fuel banner — above member panel
+  fuelBannerWrapper: {
+    position: 'absolute',
+    bottom: 220,
+    left: 0,
+    right: 0,
+    zIndex: 8,
   },
   sosBtn: {
     width: 64,
@@ -520,6 +740,8 @@ const styles = StyleSheet.create({
   pickerRowEmoji: { fontSize: 24, marginRight: 12 },
   pickerRowBody: { flex: 1 },
   pickerRowName: { color: '#F0F0F0', fontSize: 15, fontWeight: '600' },
+  pickerRowNameDisabled: { color: '#555555' },
+  pickerRowDisabled: { opacity: 0.5 },
   pickerRowSub: { color: '#555555', fontSize: 12, marginTop: 2 },
   pickerRowArrow: { color: '#444444', fontSize: 22, marginLeft: 8 },
 

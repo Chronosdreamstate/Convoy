@@ -1,32 +1,43 @@
 import { useEffect } from 'react';
-import { Stack, useRouter, useSegments } from 'expo-router';
-import * as SecureStore from 'expo-secure-store';
+import { Stack, useRouter } from 'expo-router';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { useAuthStore } from '../src/stores/authStore';
+import { authService } from '../src/services/AuthService';
+import { apiClient } from '../src/services/apiClient';
 
 export default function RootLayout() {
-  const { isAuthenticated, isLoading, setAccessToken, setLoading } = useAuthStore();
+  const { isAuthenticated, isLoading, setUser, setLoading, signOut: storeSignOut } = useAuthStore();
   const router = useRouter();
-  const segments = useSegments();
 
+  // Startup: load stored token, refresh it, then fetch /me to hydrate the user
   useEffect(() => {
-    (async () => {
-      const token = await SecureStore.getItemAsync('convoy_access_token');
-      if (token) setAccessToken(token);
-      setLoading(false);
-    })();
+    let cancelled = false;
+    const init = async () => {
+      try {
+        const stored = await authService.loadStoredToken();
+        if (!stored) { storeSignOut(); return; }
+        const freshToken = await authService.refreshToken();
+        if (!freshToken) { await authService.signOut(); return; }
+        if (cancelled) return;
+        const res = await apiClient.get('/api/v1/users/me');
+        if (!cancelled) setUser(res.data);
+      } catch {
+        if (!cancelled) storeSignOut();
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+    init();
+    return () => { cancelled = true; };
   }, []);
 
-  // DEV: auth guard disabled for testing
-  // useEffect(() => {
-  //   if (isLoading) return;
-  //   const inAuth = segments[0] === '(auth)';
-  //   if (!isAuthenticated && !inAuth) {
-  //     router.replace('/(auth)/welcome');
-  //   } else if (isAuthenticated && inAuth) {
-  //     router.replace('/(tabs)/map');
-  //   }
-  // }, [isAuthenticated, isLoading, segments]);
+  // Navigation guard: redirect unauthenticated users to welcome screen
+  useEffect(() => {
+    if (isLoading) return;
+    if (!isAuthenticated) {
+      router.replace('/(auth)/welcome');
+    }
+  }, [isAuthenticated, isLoading]);
 
   return (
     <SafeAreaProvider>

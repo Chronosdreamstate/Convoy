@@ -57,7 +57,8 @@ export class HazardService {
   async report(type: HazardType, lat: number, lng: number): Promise<HazardReport | null> {
     if (!this.isOnline()) {
       const offlineHazard: OfflineHazard = {
-        id: `offline-${this.nowMs()}`,
+        // Use nowMs + random suffix to avoid collision when two reports land in same ms
+        id: `offline-${this.nowMs()}-${Math.random().toString(36).slice(2, 7)}`,
         lat,
         lng,
         type,
@@ -66,16 +67,37 @@ export class HazardService {
       await this.offlineCache.saveOfflineHazard(offlineHazard);
       return null;
     }
-    return this.api.createHazard(type, lat, lng);
+    try {
+      return await this.api.createHazard(type, lat, lng);
+    } catch (err) {
+      // Network failure while technically online — queue for later sync
+      const offlineHazard: OfflineHazard = {
+        id: `offline-${this.nowMs()}-${Math.random().toString(36).slice(2, 7)}`,
+        lat,
+        lng,
+        type,
+        createdAt: this.nowMs(),
+      };
+      await this.offlineCache.saveOfflineHazard(offlineHazard);
+      return null;
+    }
   }
 
   /** Confirms an existing hazard report (resets expiry + increments count). */
   async confirm(id: string): Promise<void> {
-    await this.api.confirmHazard(id);
+    try {
+      await this.api.confirmHazard(id);
+    } catch {
+      // Confirmation votes are best-effort; no offline queue for votes
+    }
   }
 
   /** Votes to dismiss an existing hazard report. */
   async dismiss(id: string): Promise<void> {
-    await this.api.dismissHazard(id);
+    try {
+      await this.api.dismissHazard(id);
+    } catch {
+      // Dismissal votes are best-effort; no offline queue for votes
+    }
   }
 }

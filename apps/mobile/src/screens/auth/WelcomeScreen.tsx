@@ -34,7 +34,7 @@ export default function WelcomeScreen() {
         {/* Phone auth */}
         <TouchableOpacity
           style={styles.primaryButton}
-          onPress={() => router.push('/phone')}
+          onPress={() => router.push('/(auth)/phone')}
           accessibilityRole="button"
           accessibilityLabel="Sign in with Phone"
         >
@@ -50,7 +50,7 @@ export default function WelcomeScreen() {
 
         <TouchableOpacity
           style={styles.secondaryButton}
-          onPress={() => router.push('/email')}
+          onPress={() => router.push('/(auth)/email')}
           accessibilityRole="button"
           accessibilityLabel="Sign in with Email"
         >

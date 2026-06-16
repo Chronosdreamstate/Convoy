@@ -442,6 +442,9 @@ async function groupsRoutes(
       client.release();
     }
 
+    // Notify all members in the group room that the group has ended (Req 7.9)
+    fastify.io.to(`group:${id}`).emit('group:ended', { endedBy: userId, groupId: id });
+
     return reply.status(200).send({ message: 'Group ended' });
   });
 

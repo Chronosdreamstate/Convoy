@@ -134,6 +134,14 @@ async function authRoutes(fastify: FastifyInstance, _opts: FastifyPluginOptions)
 
     const { email, password } = result.data;
 
+    // Brute-force protection: max 10 login attempts per email per 15 min
+    const loginKey = `rl:login:${email}`;
+    const attempts = await fastify.redis.incr(loginKey);
+    if (attempts === 1) await fastify.redis.expire(loginKey, 900);
+    if (attempts > 10) {
+      return reply.status(429).send({ error: { code: 'RATE_LIMITED', message: 'Too many login attempts. Try again later.' } });
+    }
+
     // Look up the user by email
     const userResult = await fastify.db.query<{
       id: string;

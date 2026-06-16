@@ -56,6 +56,7 @@ export class PTTService {
   private selfMuted = false;
   private adminMuted = false;
   private isTransmitting = false;
+  private listenersRegistered = false;
 
   constructor(
     private readonly engine: IAgoraEngine,
@@ -85,12 +86,15 @@ export class PTTService {
     });
 
     // Listen for ptt:transmit to apply media ducking (Req 10.9)
-    this.socket.on('ptt:transmit', () => {
-      this.engine.adjustPlaybackSignalVolume(DUCK_VOLUME);
-    });
-    this.socket.on('ptt:ended', () => {
-      this.engine.adjustPlaybackSignalVolume(FULL_VOLUME);
-    });
+    if (!this.listenersRegistered) {
+      this.socket.on('ptt:transmit', () => {
+        this.engine.adjustPlaybackSignalVolume(DUCK_VOLUME);
+      });
+      this.socket.on('ptt:ended', () => {
+        this.engine.adjustPlaybackSignalVolume(FULL_VOLUME);
+      });
+      this.listenersRegistered = true;
+    }
   }
 
   /** Called on PTT button hold-start. */
@@ -126,10 +130,12 @@ export class PTTService {
     this.engine.muteLocalAudioStream(true);
     this.engine.adjustPlaybackSignalVolume(FULL_VOLUME);
 
-    if (this.currentLogId) {
-      this.socket.emit('ptt:end', { logId: this.currentLogId });
-      this.currentLogId = null;
-    }
+    // Send end event even without a server-assigned logId (channel fallback)
+    this.socket.emit('ptt:end', {
+      logId: this.currentLogId ?? undefined,
+      channelId: this.session?.channelId,
+    });
+    this.currentLogId = null;
   }
 
   /** Records the logId returned by the server's ptt:transmit event. */
@@ -159,6 +165,7 @@ export class PTTService {
     if (this.isTransmitting) this.holdEnd();
     this.session = null;
     await this.engine.leaveChannel();
+    this.listenersRegistered = false;
   }
 
   get voiceAvailable(): boolean {

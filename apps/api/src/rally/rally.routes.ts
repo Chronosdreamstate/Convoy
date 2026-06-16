@@ -286,6 +286,39 @@ const rallyRoutes: FastifyPluginAsync = async (fastify) => {
     },
   );
 
+  // ── DELETE /sos/:sosId — cancel standalone SOS ───────────────────────────
+  fastify.delete<{ Params: { sosId: string } }>(
+    '/sos/:sosId',
+    async (request, reply) => {
+      await request.jwtVerify();
+      const userId = (request.user as { sub: string }).sub;
+      const { sosId } = request.params;
+
+      const sosRaw = await fastify.redis.get(`sos:${sosId}`);
+      if (!sosRaw) return reply.status(404).send({ error: 'SOS not found or already expired' });
+
+      const sos = JSON.parse(sosRaw) as { userId: string; groupId: string | null };
+      if (sos.userId !== userId) {
+        return reply.status(403).send({ error: 'Forbidden' });
+      }
+
+      await fastify.redis.del(`sos:${sosId}`);
+
+      // Notify friends that SOS was cancelled
+      const friendsResult = await fastify.db.query<{ friend_id: string }>(
+        `SELECT CASE WHEN requester_id = $1 THEN addressee_id ELSE requester_id END AS friend_id
+         FROM friendships
+         WHERE (requester_id = $1 OR addressee_id = $1) AND status = 'accepted'`,
+        [userId],
+      );
+      for (const { friend_id } of friendsResult.rows) {
+        fastify.io.to(`user:${friend_id}`).emit('sos:cancelled', { sosId, groupId: null });
+      }
+
+      return reply.status(200).send({ success: true, sosId });
+    },
+  );
+
   // ── POST /sos — standalone SOS (no active group) ─────────────────────────
   fastify.post('/sos', async (request, reply) => {
     await request.jwtVerify();
@@ -302,9 +335,9 @@ const rallyRoutes: FastifyPluginAsync = async (fastify) => {
 
     // Fetch accepted friends (Req 25.7)
     const friendsResult = await fastify.db.query<{ friend_id: string }>(
-      `SELECT CASE WHEN user_id = $1 THEN friend_id ELSE user_id END AS friend_id
+      `SELECT CASE WHEN requester_id = $1 THEN addressee_id ELSE requester_id END AS friend_id
        FROM friendships
-       WHERE (user_id = $1 OR friend_id = $1) AND status = 'accepted'`,
+       WHERE (requester_id = $1 OR addressee_id = $1) AND status = 'accepted'`,
       [userId],
     );
 

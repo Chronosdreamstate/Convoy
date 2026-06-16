@@ -35,13 +35,28 @@ async function socketioPlugin(fastify: FastifyInstance): Promise<void> {
   }
 
   // Reject connections with invalid or missing JWT before room join (Req 8.1)
-  io.use((socket, next) => {
+  io.use(async (socket, next) => {
     const token: string | undefined = socket.handshake.auth.token as string | undefined;
     if (!token) return next(new Error('Unauthorized'));
     try {
       const payload = jwt.verify(token, env.JWT_SECRET) as { sub: string };
-      socket.data.userId = payload.sub;
-      socket.data.groupId = (socket.handshake.auth.groupId as string) ?? '';
+      const userId = payload.sub;
+      const groupId = (socket.handshake.auth.groupId as string) ?? '';
+
+      // Verify the user is an active member of the claimed group
+      if (groupId) {
+        const memberResult = await fastify.db.query<{ id: string }>(
+          `SELECT cm.id FROM convoy_members cm
+           WHERE cm.group_id = $1 AND cm.user_id = $2 AND cm.left_at IS NULL`,
+          [groupId, userId],
+        );
+        if (memberResult.rows.length === 0) {
+          return next(new Error('Unauthorized'));
+        }
+      }
+
+      socket.data.userId = userId;
+      socket.data.groupId = groupId;
       next();
     } catch {
       next(new Error('Unauthorized'));

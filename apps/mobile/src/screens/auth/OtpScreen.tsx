@@ -16,7 +16,8 @@ import { useAuthStore } from '../../stores/authStore';
 
 export default function OtpScreen() {
   const router = useRouter();
-  const { phone } = useLocalSearchParams<{ phone: string }>();
+  const params = useLocalSearchParams<{ phone: string }>();
+  const phone = Array.isArray(params.phone) ? params.phone[0] : params.phone;
   const { setUser, setAccessToken } = useAuthStore();
 
   const [otp, setOtp] = useState('');
@@ -60,8 +61,12 @@ export default function OtpScreen() {
     setIsResending(true);
 
     try {
-      await authService.requestOtp(phone);
-      setResendMessage('A new code has been sent.');
+      const { devOtp } = await authService.requestOtp(phone);
+      if (devOtp) {
+        setResendMessage(`Dev mode — new OTP: ${devOtp}`);
+      } else {
+        setResendMessage('A new code has been sent.');
+      }
       setOtp('');
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to resend OTP.';

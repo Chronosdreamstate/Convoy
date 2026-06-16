@@ -34,6 +34,14 @@ export default function EmailScreen() {
       setError('Please enter your email and password.');
       return;
     }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+      setError('Please enter a valid email address.');
+      return;
+    }
+    if (mode === 'signup' && password.length < 8) {
+      setError('Password must be at least 8 characters.');
+      return;
+    }
 
     setError(null);
     setIsLoading(true);
@@ -63,6 +71,7 @@ export default function EmailScreen() {
   const toggleMode = () => {
     setMode((prev) => (prev === 'signin' ? 'signup' : 'signin'));
     setError(null);
+    setPassword('');
   };
 
   return (

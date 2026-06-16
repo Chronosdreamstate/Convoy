@@ -32,6 +32,7 @@ export interface NotificationPreferences {
 // ---------------------------------------------------------------------------
 
 export interface IExpoPushTokenProvider {
+  requestPermissionsAsync(): Promise<{ status: string }>;
   getExpoPushTokenAsync(): Promise<{ data: string }>;
   getPlatform(): 'ios' | 'android';
 }
@@ -56,9 +57,15 @@ export class NotificationService {
   /**
    * Register (or refresh) the FCM/APNs push token.
    * Called on first post-sign-in launch and each subsequent launch.
+   * On iOS, Expo requires explicit permission before getExpoPushTokenAsync() works.
    */
   async registerToken(): Promise<void> {
     try {
+      const { status } = await this.tokenProvider.requestPermissionsAsync();
+      if (status !== 'granted') {
+        // Permission denied — notifications won't arrive but app continues (Req 15.2)
+        return;
+      }
       const { data: pushToken } = await this.tokenProvider.getExpoPushTokenAsync();
       const platform = this.tokenProvider.getPlatform();
       await apiClient.post('/api/v1/devices', { pushToken, platform });

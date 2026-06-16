@@ -250,3 +250,23 @@ CREATE TABLE user_settings (
   notif_friend_requests    BOOLEAN NOT NULL DEFAULT true,
   notif_navigation         BOOLEAN NOT NULL DEFAULT true
 );
+
+-- ---------------------------------------------------------------------------
+-- Additional constraints and indexes (added post-initial-schema)
+-- ---------------------------------------------------------------------------
+
+-- Prevent duplicate auth providers per user (e.g. two email rows)
+ALTER TABLE auth_providers ADD CONSTRAINT auth_providers_user_provider_unique UNIQUE (user_id, provider);
+
+-- Enforce push token uniqueness at DB level
+ALTER TABLE devices ADD CONSTRAINT devices_push_token_unique UNIQUE (push_token);
+
+-- Only one "All" channel per group
+CREATE UNIQUE INDEX ptt_channels_one_all_per_group ON ptt_channels (group_id) WHERE is_all = true;
+
+ALTER TABLE hazard_reports ADD CONSTRAINT hazard_confirmation_count_nonneg CHECK (confirmation_count >= 0);
+ALTER TABLE hazard_reports ADD CONSTRAINT hazard_dismissal_count_nonneg CHECK (dismissal_count >= 0);
+
+CREATE INDEX IF NOT EXISTS ptt_log_user_id_idx ON ptt_log (user_id);
+
+ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now();

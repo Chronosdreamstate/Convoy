@@ -24,10 +24,12 @@ const accountRoutes: FastifyPluginAsync = async (fastify) => {
         [userId],
       ),
       fastify.db.query<{
-        id: string; group_id: string | null; distance_m: number; duration_s: number;
+        id: string; group_id: string | null; route_trace: unknown;
+        distance_m: number; duration_s: number;
         started_at: Date; ended_at: Date; member_count: number;
       }>(
-        `SELECT id, group_id, distance_m, duration_s, started_at, ended_at, member_count
+        `SELECT id, group_id, route_trace, distance_m, duration_s,
+                started_at, ended_at, member_count
          FROM drive_history WHERE user_id = $1 ORDER BY ended_at DESC`,
         [userId],
       ),
@@ -45,6 +47,7 @@ const accountRoutes: FastifyPluginAsync = async (fastify) => {
       driveHistory: drivesResult.rows.map((d) => ({
         id: d.id,
         groupId: d.group_id,
+        routeTrace: d.route_trace,
         distanceM: d.distance_m,
         durationS: d.duration_s,
         startedAt: d.started_at.toISOString(),
@@ -70,6 +73,9 @@ const accountRoutes: FastifyPluginAsync = async (fastify) => {
 
     // Cascade deletes handle all linked records (users has ON DELETE CASCADE)
     await fastify.db.query('DELETE FROM users WHERE id = $1', [userId]);
+
+    // Clear refresh-token cookie so the client can't reuse the old session
+    reply.clearCookie('refresh_token', { path: '/api/v1/auth/refresh' });
 
     return reply.send({ success: true, message: 'Account and all associated data deleted.' });
   });

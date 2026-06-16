@@ -12,9 +12,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import axios from 'axios';
-
-const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
+import { apiClient } from '../services/apiClient';
 
 export interface SearchResult {
   id: string;
@@ -52,18 +50,24 @@ export default function DestinationSearch({
   const [error, setError] = useState<string | null>(null);
   const [focused, setFocused] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   const runSearch = useCallback(
     async (q: string) => {
       if (!isOnline) { setResults([]); setError(null); return; }
       if (q.trim().length < 3) { setResults([]); return; }
+
+      // Cancel any in-flight request
+      abortRef.current?.abort();
+      abortRef.current = new AbortController();
+
       setLoading(true);
       setError(null);
       try {
-        const res = await axios.get<ApiPlace[]>(
-          `${API_URL}/api/v1/places/search`,
-          { params: { q: q.trim() }, timeout: 8000 },
-        );
+        const res = await apiClient.get<ApiPlace[]>('/api/v1/places/search', {
+          params: { q: q.trim() },
+          signal: abortRef.current.signal,
+        });
         const places = Array.isArray(res.data) ? res.data : [];
         setResults(
           places.slice(0, 10).map((p) => ({
@@ -75,7 +79,8 @@ export default function DestinationSearch({
             lng: p.lng,
           })),
         );
-      } catch {
+      } catch (err: unknown) {
+        if (err instanceof Error && err.name === 'CanceledError') return; // aborted — ignore
         setError('Search failed. Tap to retry.');
         setResults([]);
       } finally {
@@ -88,7 +93,10 @@ export default function DestinationSearch({
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => { void runSearch(query); }, 300);
-    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      abortRef.current?.abort();
+    };
   }, [query, runSearch]);
 
   const handleSelect = useCallback(
