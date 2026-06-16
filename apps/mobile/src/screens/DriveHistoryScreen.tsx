@@ -177,9 +177,10 @@ export default function DriveHistoryScreen() {
   const loadMore = useCallback(() => {
     if (!hasMore || loading || loadingMore) return;
     const next = page + 1;
-    setPage(next);
     setLoadingMore(true);
-    void fetchDrives(next, false).finally(() => setLoadingMore(false));
+    void fetchDrives(next, false)
+      .then(() => setPage(next))
+      .finally(() => setLoadingMore(false));
   }, [hasMore, loading, loadingMore, page, fetchDrives]);
 
   const handleShare = useCallback(async (driveId: string) => {
@@ -189,12 +190,14 @@ export default function DriveHistoryScreen() {
         `/api/v1/drives/${driveId}/summary-card`,
       );
       const { summaryCardUrl } = res.data;
-      await Share.share(
-        Platform.OS === 'ios'
-          ? { url: summaryCardUrl, message: 'Check out my CONVOY drive!' }
-          : { message: `Check out my CONVOY drive! ${summaryCardUrl}` },
-      );
       setDrives((prev) => prev.map((d) => (d.id === driveId ? { ...d, summaryCardUrl } : d)));
+      try {
+        await Share.share(
+          Platform.OS === 'ios'
+            ? { url: summaryCardUrl, message: 'Check out my CONVOY drive!' }
+            : { message: `Check out my CONVOY drive! ${summaryCardUrl}` },
+        );
+      } catch { /* user cancelled the share sheet */ }
     } catch {
       Alert.alert('Error', 'Could not generate summary card.');
     } finally {

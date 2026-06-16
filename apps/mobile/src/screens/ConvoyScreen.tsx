@@ -101,21 +101,25 @@ export default function ConvoyScreen({ userId }: Props) {
   // ── Share join code (Req 7.3) ─────────────────────────────────────────────
   const handleShareCode = useCallback(async () => {
     if (!group) return;
-    await Share.share({
-      message: `Join my CONVOY group "${group.name}" with code: ${group.joinCode}\nhttps://convoy.app/join/${group.joinCode}`,
-    });
+    try {
+      await Share.share({
+        message: `Join my CONVOY group "${group.name}" with code: ${group.joinCode}\nhttps://convoy.app/join/${group.joinCode}`,
+      });
+    } catch { /* user cancelled share sheet */ }
   }, [group]);
 
   // ── Copy join code — copies to clipboard, falls back to share ──
-  const handleCopyCode = async () => {
+  const handleCopyCode = useCallback(async () => {
     if (!group) return;
     try {
       await Clipboard.setStringAsync(group.joinCode);
       Alert.alert('Copied!', `Join code ${group.joinCode} copied to clipboard.`);
     } catch {
-      await Share.share({ message: `Join my convoy! Code: ${group.joinCode}` });
+      try {
+        await Share.share({ message: `Join my convoy! Code: ${group.joinCode}` });
+      } catch { /* user cancelled */ }
     }
-  };
+  }, [group]);
 
   // ── Leave group (Req 7.7) ─────────────────────────────────────────────────
   const handleLeave = useCallback(() => {
@@ -131,6 +135,7 @@ export default function ConvoyScreen({ userId }: Props) {
             await apiClient.post(`/api/v1/groups/${currentGroup.id}/leave`);
             setGroup(null);
             setMembers([]);
+            setView('home');
           } catch {
             Alert.alert('Error', 'Could not leave group.');
           }
@@ -153,6 +158,7 @@ export default function ConvoyScreen({ userId }: Props) {
             await apiClient.post(`/api/v1/groups/${currentGroup.id}/end`);
             setGroup(null);
             setMembers([]);
+            setView('home');
           } catch {
             Alert.alert('Error', 'Could not end convoy.');
           }
@@ -301,7 +307,7 @@ export default function ConvoyScreen({ userId }: Props) {
               </View>
             </View>
 
-            {isAdmin && (
+            {isAdmin && m.userId !== userId && (
               <TouchableOpacity
                 style={[styles.muteBtn, m.isMuted && styles.muteBtnActive]}
                 onPress={() => void handleMute(m.userId)}

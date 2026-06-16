@@ -3,7 +3,7 @@
  * Requirements: 10.1–10.13, 38.2, 38.3, 39.2, 43.3
  */
 
-import { Socket } from 'socket.io-client';
+import type { Socket } from 'socket.io-client';
 
 // ---------------------------------------------------------------------------
 // Injectable interfaces (Agora SDK + token fetcher)
@@ -57,11 +57,19 @@ export class PTTService {
   private adminMuted = false;
   private isTransmitting = false;
   private listenersRegistered = false;
+  private expiryListenerRegistered = false;
+
+  private readonly pttTransmitHandler = () => {
+    this.engine.adjustPlaybackSignalVolume(DUCK_VOLUME);
+  };
+  private readonly pttEndedHandler = () => {
+    this.engine.adjustPlaybackSignalVolume(FULL_VOLUME);
+  };
 
   constructor(
     private readonly engine: IAgoraEngine,
     private readonly tokenFetcher: ITokenFetcher,
-    private readonly socket: Pick<Socket, 'emit' | 'on'>,
+    private readonly socket: Pick<Socket, 'emit' | 'on' | 'off'>,
     private readonly haptic: IHapticFeedback,
     private readonly setTimeout_: typeof setTimeout = setTimeout,
     private readonly clearTimeout_: typeof clearTimeout = clearTimeout,
@@ -78,21 +86,20 @@ export class PTTService {
 
     await this.engine.joinChannel(token, channelName, uid);
 
-    // Auto-refresh before expiry (Req 38.2)
-    this.engine.onTokenPrivilegeWillExpire(async () => {
-      if (!this.session) return;
-      const refreshed = await this.tokenFetcher.fetchToken(groupId, channelId);
-      await this.engine.joinChannel(refreshed.token, refreshed.channelName, refreshed.uid);
-    });
+    // Auto-refresh before expiry (Req 38.2) — register only once to prevent accumulation
+    if (!this.expiryListenerRegistered) {
+      this.engine.onTokenPrivilegeWillExpire(async () => {
+        if (!this.session) return;
+        const refreshed = await this.tokenFetcher.fetchToken(groupId, channelId);
+        await this.engine.joinChannel(refreshed.token, refreshed.channelName, refreshed.uid);
+      });
+      this.expiryListenerRegistered = true;
+    }
 
     // Listen for ptt:transmit to apply media ducking (Req 10.9)
     if (!this.listenersRegistered) {
-      this.socket.on('ptt:transmit', () => {
-        this.engine.adjustPlaybackSignalVolume(DUCK_VOLUME);
-      });
-      this.socket.on('ptt:ended', () => {
-        this.engine.adjustPlaybackSignalVolume(FULL_VOLUME);
-      });
+      this.socket.on('ptt:transmit', this.pttTransmitHandler);
+      this.socket.on('ptt:ended', this.pttEndedHandler);
       this.listenersRegistered = true;
     }
   }
@@ -165,7 +172,11 @@ export class PTTService {
     if (this.isTransmitting) this.holdEnd();
     this.session = null;
     await this.engine.leaveChannel();
-    this.listenersRegistered = false;
+    if (this.listenersRegistered) {
+      this.socket.off('ptt:transmit', this.pttTransmitHandler);
+      this.socket.off('ptt:ended', this.pttEndedHandler);
+      this.listenersRegistered = false;
+    }
   }
 
   get voiceAvailable(): boolean {

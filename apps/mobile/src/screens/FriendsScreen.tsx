@@ -84,6 +84,7 @@ function FriendsTab() {
 
   const handleRemove = async (id: string) => {
     setRemoving(id);
+    setError(null);
     try {
       await apiClient.delete(`/api/v1/friends/${id}`);
       setFriends((prev) => prev.filter((f) => f.id !== id));
@@ -172,6 +173,7 @@ function RequestsTab() {
 
   const handleAccept = async (id: string) => {
     setActing({ id, action: 'accept' });
+    setError(null);
     try {
       await apiClient.post(`/api/v1/friends/requests/${id}/accept`);
       setRequests((prev) => prev.filter((r) => r.id !== id));
@@ -184,6 +186,7 @@ function RequestsTab() {
 
   const handleDecline = async (id: string) => {
     setActing({ id, action: 'decline' });
+    setError(null);
     try {
       await apiClient.post(`/api/v1/friends/requests/${id}/decline`);
       setRequests((prev) => prev.filter((r) => r.id !== id));
@@ -289,6 +292,7 @@ function FindPeopleTab() {
 
   const handleChangeText = (text: string) => {
     setQuery(text);
+    if (!text.trim()) setResults([]);
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
       void search(text);
@@ -304,7 +308,7 @@ function FindPeopleTab() {
   const handleAddFriend = async (userId: string) => {
     setSending(userId);
     try {
-      await apiClient.post('/api/v1/friends/requests', { recipientId: userId });
+      await apiClient.post('/api/v1/friends/requests', { addresseeId: userId });
       setSent((prev) => new Set(prev).add(userId));
     } catch {
       setError('Failed to send request.');

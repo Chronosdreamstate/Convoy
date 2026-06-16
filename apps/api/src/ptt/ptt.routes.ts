@@ -144,6 +144,9 @@ export default async function pttRoutes(fastify: FastifyInstance): Promise<void>
     );
     const member = memberResult.rows[0];
     if (!member) return reply.forbidden('You are not an active member of this group');
+    if (!canTransmit({ isActiveMember: true, isMuted: member.is_muted })) {
+      return reply.forbidden('You are muted and cannot transmit');
+    }
 
     // Verify channel belongs to group
     const channelResult = await pool.query<{ id: string; is_all: boolean }>(
@@ -202,6 +205,7 @@ export default async function pttRoutes(fastify: FastifyInstance): Promise<void>
     const { name } = request.body as { name: string };
 
     if (!name?.trim()) return reply.badRequest('Channel name is required');
+    if (name.trim().length > 100) return reply.badRequest('Channel name cannot exceed 100 characters');
 
     const group = await pool.query<{ admin_id: string }>(
       'SELECT admin_id FROM convoy_groups WHERE id = $1 AND status = $2',
@@ -236,13 +240,22 @@ export default async function pttRoutes(fastify: FastifyInstance): Promise<void>
       const { name } = request.body as { name: string };
 
       if (!name?.trim()) return reply.badRequest('Channel name is required');
+      if (name.trim().length > 100) return reply.badRequest('Channel name cannot exceed 100 characters');
 
-      const group = await pool.query<{ admin_id: string }>(
-        'SELECT admin_id FROM convoy_groups WHERE id = $1',
+      const group = await pool.query<{ admin_id: string; status: string }>(
+        'SELECT admin_id, status FROM convoy_groups WHERE id = $1',
         [id],
       );
       if (!group.rows[0]) return reply.notFound('Group not found');
+      if (group.rows[0].status !== 'active') return reply.gone('Group is already ended');
       if (group.rows[0].admin_id !== userId) return reply.forbidden('Only the Admin can rename channels');
+
+      const existingChannel = await pool.query<{ is_all: boolean }>(
+        'SELECT is_all FROM ptt_channels WHERE id = $1 AND group_id = $2',
+        [channelId, id],
+      );
+      if (!existingChannel.rows[0]) return reply.notFound('Channel not found');
+      if (existingChannel.rows[0].is_all) return reply.badRequest('The "All" channel cannot be renamed');
 
       const result = await pool.query<{ id: string; name: string; is_all: boolean }>(
         `UPDATE ptt_channels SET name = $1 WHERE id = $2 AND group_id = $3

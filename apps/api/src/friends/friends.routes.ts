@@ -201,7 +201,7 @@ async function friendsRoutes(
         [id, userId],
       );
 
-      if (result.rowCount === 0) {
+      if ((result.rowCount ?? 0) === 0) {
         return reply.notFound('Friend request not found');
       }
 
@@ -261,7 +261,7 @@ async function friendsRoutes(
       [id, userId],
     );
 
-    if (result.rowCount === 0) {
+    if ((result.rowCount ?? 0) === 0) {
       return reply.notFound('Friendship not found');
     }
 

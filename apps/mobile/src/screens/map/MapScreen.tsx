@@ -63,8 +63,12 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
   const [showHazardPicker, setShowHazardPicker]   = useState(false);
   const [showFuelBanner, setShowFuelBanner]         = useState(false);
 
-  const socketRef = useRef<Socket | null>(null);
-  const mapRef    = useRef<MapView>(null);
+  const socketRef   = useRef<Socket | null>(null);
+  const mapRef      = useRef<MapView>(null);
+  const mySosIdRef  = useRef<string | null>(null);
+
+  // Keep mySosIdRef in sync so the socket handler closure always sees the current value
+  useEffect(() => { mySosIdRef.current = mySosId; }, [mySosId]);
 
   // Evict members who haven't reported a location in 30s
   useEffect(() => {
@@ -75,9 +79,10 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
   // Track own location for SOS targeting
   useEffect(() => {
     let sub: ExpoLocation.LocationSubscription | null = null;
+    let mounted = true;
     (async () => {
       const { status } = await ExpoLocation.requestForegroundPermissionsAsync();
-      if (status !== 'granted') return;
+      if (status !== 'granted' || !mounted) return;
       sub = await ExpoLocation.watchPositionAsync(
         { accuracy: ExpoLocation.Accuracy.High, distanceInterval: 10 },
         (loc) => {
@@ -85,8 +90,9 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
           setMySpeedKph((loc.coords.speed ?? 0) * 3.6);
         },
       );
+      if (!mounted) sub.remove();
     })();
-    return () => { sub?.remove(); };
+    return () => { mounted = false; sub?.remove(); };
   }, []);
 
   // WebSocket
@@ -111,13 +117,17 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
         return [...prev, { pin: data, memberName: name }];
       });
     });
-    socket.on('sos:cancelled', ({ sosId }: { sosId: string }) => { setSosPins((p) => { const n = new Map(p); n.delete(sosId); return n; }); setSosAlerts((p) => p.filter((a) => a.pin.id !== sosId)); if (mySosId === sosId) setMySosId(null); });
+    socket.on('sos:cancelled', ({ sosId }: { sosId: string }) => { setSosPins((p) => { const n = new Map(p); n.delete(sosId); return n; }); setSosAlerts((p) => p.filter((a) => a.pin.id !== sosId)); if (mySosIdRef.current === sosId) setMySosId(null); });
     return () => { socket.disconnect(); clearGroup(); };
-  }, [token, groupId, socketUrl, updateMemberLocation, user, clearGroup]);
+  }, [token, groupId, socketUrl, updateMemberLocation, user?.id, clearGroup]);
 
   const recenter = useCallback(() => {
     if (!mapRef.current) return;
-    const loc = myLocation ?? { lat: 37.7749, lng: -122.4194 };
+    if (!myLocation) {
+      Alert.alert('Location unavailable', 'Waiting for a GPS fix.');
+      return;
+    }
+    const loc = myLocation;
     mapRef.current.animateToRegion({
       latitude: loc.lat,
       longitude: loc.lng,
@@ -183,7 +193,7 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
   }, [pttChannelId]);
 
   const handlePttEnd = useCallback(() => {
-    if (!socketRef.current) return;
+    if (!socketRef.current || !pttChannelId) return;
     setIsPttTransmitting(false);
     socketRef.current.emit('ptt:end', { channelId: pttChannelId });
   }, [pttChannelId]);
@@ -445,7 +455,7 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
               {pendingSosName ? `This will broadcast ${pendingSosName}'s location` : "This will broadcast your location"} to all convoy members as an emergency alert.
             </Text>
             <View style={styles.modalActions}>
-              <TouchableOpacity style={styles.modalCancel} onPress={() => { setShowSosConfirm(false); setPendingSosCoord(null); }}>
+              <TouchableOpacity style={styles.modalCancel} onPress={() => { setShowSosConfirm(false); setPendingSosCoord(null); setPendingSosName(''); }}>
                 <Text style={styles.modalCancelText}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.modalConfirm} onPress={confirmSos}>

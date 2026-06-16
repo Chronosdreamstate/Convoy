@@ -10,7 +10,7 @@
  *   3. Notifies DrivingModeService of connect/disconnect.
  */
 
-import { NativeEventEmitter, NativeModules, Platform } from 'react-native';
+import { EmitterSubscription, NativeEventEmitter, NativeModules, Platform } from 'react-native';
 
 // ---------------------------------------------------------------------------
 // Native module interface (implemented in Swift)
@@ -41,6 +41,8 @@ export class CarPlayService {
   private module: IConvoyCarPlayModule | null = null;
   private emitter: NativeEventEmitter | null = null;
   private listeners: Set<CarPlayListener> = new Set();
+  private connectSub: EmitterSubscription | null = null;
+  private disconnectSub: EmitterSubscription | null = null;
 
   constructor() {
     if (Platform.OS === 'ios' && NativeModules.ConvoyCarPlay) {
@@ -53,16 +55,22 @@ export class CarPlayService {
   start(): () => void {
     if (!this.emitter) return () => {};
 
-    const connectSub = this.emitter.addListener('CarPlayDidConnect', () => {
+    // Remove previous subscriptions before re-registering to prevent accumulation
+    this.connectSub?.remove();
+    this.disconnectSub?.remove();
+
+    this.connectSub = this.emitter.addListener('CarPlayDidConnect', () => {
       this.listeners.forEach((l) => l(true));
     });
-    const disconnectSub = this.emitter.addListener('CarPlayDidDisconnect', () => {
+    this.disconnectSub = this.emitter.addListener('CarPlayDidDisconnect', () => {
       this.listeners.forEach((l) => l(false));
     });
 
     return () => {
-      connectSub.remove();
-      disconnectSub.remove();
+      this.connectSub?.remove();
+      this.connectSub = null;
+      this.disconnectSub?.remove();
+      this.disconnectSub = null;
     };
   }
 

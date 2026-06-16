@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -23,8 +23,14 @@ export default function OtpScreen() {
   const [otp, setOtp] = useState('');
   const [isVerifying, setIsVerifying] = useState(false);
   const [isResending, setIsResending] = useState(false);
+  const [resendCooldown, setResendCooldown] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [resendMessage, setResendMessage] = useState<string | null>(null);
+  const cooldownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    return () => { if (cooldownRef.current) clearInterval(cooldownRef.current); };
+  }, []);
 
   const handleVerify = async () => {
     if (otp.length !== 6) {
@@ -54,7 +60,7 @@ export default function OtpScreen() {
   };
 
   const handleResend = async () => {
-    if (!phone) return;
+    if (!phone || resendCooldown > 0) return;
 
     setResendMessage(null);
     setError(null);
@@ -68,6 +74,17 @@ export default function OtpScreen() {
         setResendMessage('A new code has been sent.');
       }
       setOtp('');
+      setResendCooldown(30);
+      cooldownRef.current = setInterval(() => {
+        setResendCooldown((s) => {
+          if (s <= 1) {
+            clearInterval(cooldownRef.current!);
+            cooldownRef.current = null;
+            return 0;
+          }
+          return s - 1;
+        });
+      }, 1000);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to resend OTP.';
       setError(message);
@@ -101,7 +118,6 @@ export default function OtpScreen() {
             placeholder="••••••"
             placeholderTextColor="#555555"
             keyboardType="number-pad"
-            maxLength={6}
             textContentType="oneTimeCode"
             returnKeyType="done"
             onSubmitEditing={handleVerify}
@@ -129,12 +145,14 @@ export default function OtpScreen() {
             <Text style={styles.resendText}>Didn't get a code? </Text>
             <TouchableOpacity
               onPress={handleResend}
-              disabled={isResending}
+              disabled={isResending || resendCooldown > 0}
               accessibilityRole="button"
               accessibilityLabel="Resend OTP"
             >
               {isResending ? (
                 <ActivityIndicator size="small" color="#DC143C" />
+              ) : resendCooldown > 0 ? (
+                <Text style={[styles.resendLink, { color: '#555555' }]}>Resend in {resendCooldown}s</Text>
               ) : (
                 <Text style={styles.resendLink}>Resend OTP</Text>
               )}

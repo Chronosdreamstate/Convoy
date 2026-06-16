@@ -115,6 +115,9 @@ export default async function hazardsRoutes(fastify: FastifyInstance): Promise<v
     if (typeof lat !== 'number' || typeof lng !== 'number') {
       return reply.badRequest('lat and lng must be numbers');
     }
+    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+      return reply.badRequest('lat must be -90 to 90 and lng must be -180 to 180');
+    }
 
     const allowed = await checkRateLimit(redis, userId);
     if (!allowed) {
@@ -164,6 +167,10 @@ export default async function hazardsRoutes(fastify: FastifyInstance): Promise<v
     if (isNaN(latNum) || isNaN(lngNum) || isNaN(radiusM)) {
       return reply.badRequest('lat, lng, and radius must be valid numbers');
     }
+    if (latNum < -90 || latNum > 90 || lngNum < -180 || lngNum > 180) {
+      return reply.badRequest('lat must be -90 to 90 and lng must be -180 to 180');
+    }
+    const cappedRadiusM = Math.min(radiusM, 50_000);
 
     const result = await pool.query<RawHazardRow>(
       `SELECT
@@ -176,7 +183,7 @@ export default async function hazardsRoutes(fastify: FastifyInstance): Promise<v
          AND expires_at > now()
          AND ST_DWithin(location, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography, $3)
        ORDER BY created_at DESC`,
-      [lngNum, latNum, radiusM],
+      [lngNum, latNum, cappedRadiusM],
     );
 
     return result.rows.map(serializeHazardRow);
@@ -192,10 +199,15 @@ export default async function hazardsRoutes(fastify: FastifyInstance): Promise<v
     if (!Array.isArray(hazards) || hazards.length === 0) {
       return reply.badRequest('hazards must be a non-empty array');
     }
+    if (hazards.length > 100) {
+      return reply.badRequest('Maximum 100 hazards per bulk request');
+    }
 
     const inserted: string[] = [];
     for (const h of hazards) {
       if (!HAZARD_TYPES.includes(h.type as HazardType)) continue;
+      if (typeof h.lat !== 'number' || typeof h.lng !== 'number' ||
+          h.lat < -90 || h.lat > 90 || h.lng < -180 || h.lng > 180) continue;
       const created = h.createdAt ? new Date(h.createdAt) : new Date();
       const expires = computeExpiresAt(created.getTime());
       const r = await pool.query<{ id: string }>(
@@ -215,19 +227,27 @@ export default async function hazardsRoutes(fastify: FastifyInstance): Promise<v
     const userId = (request.user as { sub: string }).sub;
     const { id } = request.params as { id: string };
 
-    // Prevent double-voting via hazard_votes unique constraint
-    const existing = await pool.query(
-      `SELECT 1 FROM hazard_votes WHERE hazard_id = $1 AND user_id = $2`,
-      [id, userId],
+    // Verify hazard exists and is active before recording vote
+    const hazardCheck = await pool.query(
+      `SELECT 1 FROM hazard_reports WHERE id = $1 AND status = 'active' AND expires_at > now()`,
+      [id],
     );
-    if ((existing.rowCount ?? 0) > 0) {
-      return reply.conflict('Already voted on this hazard');
+    if ((hazardCheck.rowCount ?? 0) === 0) {
+      return reply.notFound('Hazard not found or already resolved');
     }
 
-    await pool.query(
-      `INSERT INTO hazard_votes (hazard_id, user_id, vote) VALUES ($1, $2, 'confirm')`,
-      [id, userId],
-    );
+    // Insert vote — catch unique constraint to handle concurrent requests safely
+    try {
+      await pool.query(
+        `INSERT INTO hazard_votes (hazard_id, user_id, vote) VALUES ($1, $2, 'confirm')`,
+        [id, userId],
+      );
+    } catch (err: unknown) {
+      if ((err as { code?: string }).code === '23505') {
+        return reply.conflict('Already voted on this hazard');
+      }
+      throw err;
+    }
 
     const expiresAt = computeExpiresAt(Date.now());
 
@@ -255,19 +275,26 @@ export default async function hazardsRoutes(fastify: FastifyInstance): Promise<v
     const userId = (request.user as { sub: string }).sub;
     const { id } = request.params as { id: string };
 
-    // Prevent double-voting
-    const existing = await pool.query(
-      `SELECT 1 FROM hazard_votes WHERE hazard_id = $1 AND user_id = $2`,
-      [id, userId],
+    // Verify hazard exists and is active before recording vote
+    const hazardCheck2 = await pool.query(
+      `SELECT 1 FROM hazard_reports WHERE id = $1 AND status = 'active' AND expires_at > now()`,
+      [id],
     );
-    if ((existing.rowCount ?? 0) > 0) {
-      return reply.conflict('Already voted on this hazard');
+    if ((hazardCheck2.rowCount ?? 0) === 0) {
+      return reply.notFound('Hazard not found or already resolved');
     }
 
-    await pool.query(
-      `INSERT INTO hazard_votes (hazard_id, user_id, vote) VALUES ($1, $2, 'dismiss')`,
-      [id, userId],
-    );
+    try {
+      await pool.query(
+        `INSERT INTO hazard_votes (hazard_id, user_id, vote) VALUES ($1, $2, 'dismiss')`,
+        [id, userId],
+      );
+    } catch (err: unknown) {
+      if ((err as { code?: string }).code === '23505') {
+        return reply.conflict('Already voted on this hazard');
+      }
+      throw err;
+    }
 
     // Atomically increment and update status when threshold reached (Req 11.6)
     const result = await pool.query<{ id: string; dismissal_count: number; status: string }>(

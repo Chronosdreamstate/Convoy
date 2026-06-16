@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { apiClient } from '../../services/apiClient';
+import { authService } from '../../services/AuthService';
 import { useAuthStore } from '../../stores/authStore';
 
 // ---------------------------------------------------------------------------
@@ -92,7 +93,11 @@ export default function ProfileScreen() {
 
   const handleSaveProfile = async () => {
     const trimmed = displayName.trim();
-    if (!trimmed || !isDirty) return;
+    if (!trimmed) {
+      setError('Display name cannot be empty.');
+      return;
+    }
+    if (!isDirty) return;
 
     setIsSaving(true);
     setError(null);
@@ -121,7 +126,7 @@ export default function ProfileScreen() {
         text: 'Sign Out',
         style: 'destructive',
         onPress: async () => {
-          await signOut();
+          await authService.signOut();
           router.replace('/(auth)/welcome');
         },
       },

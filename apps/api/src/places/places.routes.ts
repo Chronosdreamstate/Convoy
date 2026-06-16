@@ -34,8 +34,8 @@ export default async function placesRoutes(app: FastifyInstance) {
     url.searchParams.set('addressdetails', '1');
 
     if (isNearbySearch) {
-      // Nearby amenities search — use tight bounding box, bounded=1
-      url.searchParams.set('q', 'amenities');
+      // Nearby search — use the user's query or fall back to useful POI types
+      url.searchParams.set('q', q || 'fuel station restaurant');
       url.searchParams.set('limit', '15');
       url.searchParams.set('bounded', '1');
     } else {
@@ -45,18 +45,30 @@ export default async function placesRoutes(app: FastifyInstance) {
     }
 
     if (hasLocation) {
-      // ~50km bounding box: (lng-0.5),(lat+0.5),(lng+0.5),(lat-0.5)
-      const viewbox = `${lng! - 0.5},${lat! + 0.5},${lng! + 0.5},${lat! - 0.5}`;
+      // ~50km bounding box: (lng-0.5),(lat+0.5),(lng+0.5),(lat-0.5) — clamped to valid ranges
+      const minLng = Math.max(-180, lng! - 0.5);
+      const maxLng = Math.min(180, lng! + 0.5);
+      const maxLat = Math.min(90, lat! + 0.5);
+      const minLat = Math.max(-90, lat! - 0.5);
+      const viewbox = `${minLng},${maxLat},${maxLng},${minLat}`;
       url.searchParams.set('viewbox', viewbox);
       if (!isNearbySearch) {
         url.searchParams.set('bounded', '0');
       }
     }
 
-    const res = await fetch(url.toString(), {
-      headers: { 'User-Agent': 'ConvoyApp/1.0 (testing)' },
-      signal: AbortSignal.timeout(8000),
-    });
+    let res: Response;
+    try {
+      res = await fetch(url.toString(), {
+        headers: { 'User-Agent': 'ConvoyApp/1.0 (manjoytsunny13@gmail.com)' },
+        signal: AbortSignal.timeout(8000),
+      });
+    } catch (err: unknown) {
+      if (err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError')) {
+        return reply.send([]);
+      }
+      throw err;
+    }
 
     if (!res.ok) return reply.send([]);
 

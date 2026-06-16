@@ -111,9 +111,7 @@ export class LocationService {
    * Exposed for property testing.
    */
   shouldThrottle(now: number): boolean {
-    if (now - this.lastEmitTime < THROTTLE_MS) return true;
-    this.lastEmitTime = now;
-    return false;
+    return now - this.lastEmitTime < THROTTLE_MS;
   }
 
   /** Process a single GPS fix: update store, persist offline cache, maybe emit. */
@@ -132,14 +130,18 @@ export class LocationService {
     await this.locationDB.saveLastKnownLocation(this.userId, location);
 
     // Emit to socket at most once per 3 seconds (Req 8.1)
-    if (this.socket.connected && !this.shouldThrottle(Date.now())) {
+    const now = Date.now();
+    if (this.socket.connected && !this.shouldThrottle(now)) {
       this.socket.emit('location:update', location);
+      this.lastEmitTime = now;
     }
   }
 
   /** Start watching the device GPS. Call stop() to clean up. */
   async start(): Promise<'granted' | 'denied'> {
     if (this.subscription) return 'granted'; // already running
+
+    await this.locationDB.init();
 
     const { status } = await ExpoLocation.requestForegroundPermissionsAsync();
     if (status !== 'granted') return 'denied';
