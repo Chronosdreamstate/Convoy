@@ -3,6 +3,7 @@ import {
   Alert,
   FlatList,
   Modal,
+  ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -10,6 +11,7 @@ import {
 } from 'react-native';
 import MapView, { Marker, LongPressEvent, PROVIDER_DEFAULT } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import * as ExpoLocation from 'expo-location';
 import { io, Socket } from 'socket.io-client';
 import { useAuthStore } from '../../stores/authStore';
 import { useLocationStore, MemberLocation } from '../../stores/locationStore';
@@ -43,11 +45,28 @@ export default function MapScreen({ groupId, accessToken, socketUrl }: Props) {
   const [sosPins, setSosPins]         = useState<Map<string, SosPin>>(new Map());
   const [sosAlerts, setSosAlerts]     = useState<SosAlert[]>([]);
   const [mySosId, setMySosId]         = useState<string | null>(null);
-  const [showSosConfirm, setShowSosConfirm] = useState(false);
-  const [pendingSosCoord, setPendingSosCoord] = useState<{ lat: number; lng: number } | null>(null);
+  const [showSosConfirm, setShowSosConfirm]   = useState(false);
+  const [pendingSosCoord, setPendingSosCoord]  = useState<{ lat: number; lng: number } | null>(null);
+  const [pendingSosName, setPendingSosName]    = useState<string>('');
+  const [showSosPicker, setShowSosPicker]     = useState(false);
+  const [myLocation, setMyLocation]           = useState<{ lat: number; lng: number } | null>(null);
 
   const socketRef = useRef<Socket | null>(null);
   const mapRef    = useRef<MapView>(null);
+
+  // Track own location for SOS targeting
+  useEffect(() => {
+    let sub: ExpoLocation.LocationSubscription | null = null;
+    (async () => {
+      const { status } = await ExpoLocation.requestForegroundPermissionsAsync();
+      if (status !== 'granted') return;
+      sub = await ExpoLocation.watchPositionAsync(
+        { accuracy: ExpoLocation.Accuracy.High, distanceInterval: 10 },
+        (loc) => setMyLocation({ lat: loc.coords.latitude, lng: loc.coords.longitude }),
+      );
+    })();
+    return () => { sub?.remove(); };
+  }, []);
 
   // WebSocket
   useEffect(() => {
@@ -81,21 +100,28 @@ export default function MapScreen({ groupId, accessToken, socketUrl }: Props) {
     ]);
   }, [groupId]);
 
+  // Open person picker — only available inside an active convoy
   const handleSosPress = useCallback(() => {
-    setPendingSosCoord({ lat: 0, lng: 0 });
+    setShowSosPicker(true);
+  }, []);
+
+  // Called when user picks a person from the picker
+  const handlePickSosTarget = useCallback((name: string, lat: number, lng: number) => {
+    setShowSosPicker(false);
+    setPendingSosName(name);
+    setPendingSosCoord({ lat, lng });
     setShowSosConfirm(true);
   }, []);
 
   const confirmSos = useCallback(async () => {
     setShowSosConfirm(false);
-    if (!pendingSosCoord) return;
+    if (!pendingSosCoord || !groupId) return;
     try {
-      const pin = groupId
-        ? await rallyService.broadcastGroupSos(groupId, pendingSosCoord.lat, pendingSosCoord.lng)
-        : await rallyService.broadcastStandaloneSos(pendingSosCoord.lat, pendingSosCoord.lng);
+      const pin = await rallyService.broadcastGroupSos(groupId, pendingSosCoord.lat, pendingSosCoord.lng);
       setMySosId(pin.id);
     } catch { Alert.alert('Error', 'Could not send SOS.'); }
     setPendingSosCoord(null);
+    setPendingSosName('');
   }, [groupId, pendingSosCoord]);
 
   const cancelMySos = useCallback(async () => {
@@ -167,8 +193,8 @@ export default function MapScreen({ groupId, accessToken, socketUrl }: Props) {
         <Text style={styles.recenterText}>⊕</Text>
       </TouchableOpacity>
 
-      {/* SOS button — bottom-right, above member panel */}
-      {user && (
+      {/* SOS button — only shown during an active convoy */}
+      {user && groupId && (
         <View style={styles.sosContainer}>
           {mySosId
             ? <TouchableOpacity style={styles.sosCancelBtn} onPress={cancelMySos} accessibilityLabel="Cancel SOS"><Text style={styles.sosText}>CANCEL SOS</Text></TouchableOpacity>
@@ -208,11 +234,22 @@ export default function MapScreen({ groupId, accessToken, socketUrl }: Props) {
           keyExtractor={(m) => m.userId}
           renderItem={({ item: m }) => {
             const isStale = Date.now() - m.receivedAt > staleMs;
+            const memberName = `Member ${m.userId.slice(0, 6)}`;
             return (
               <View style={styles.memberRow}>
                 <View style={[styles.dot, isStale ? styles.dotOffline : styles.dotOnline]} />
                 <Text style={styles.memberText}>{m.userId.slice(0, 8)}…</Text>
                 <Text style={styles.memberDetail}>{isStale ? formatElapsed(m.receivedAt) : `${m.speedKph.toFixed(0)} km/h`}</Text>
+                {groupId && (
+                  <TouchableOpacity
+                    style={styles.rowSosBtn}
+                    onPress={() => handlePickSosTarget(memberName, m.lat, m.lng)}
+                    accessibilityLabel={`SOS for ${memberName}`}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <Text style={styles.rowSosText}>🆘</Text>
+                  </TouchableOpacity>
+                )}
               </View>
             );
           }}
@@ -220,12 +257,64 @@ export default function MapScreen({ groupId, accessToken, socketUrl }: Props) {
         />
       </View>
 
+      {/* SOS person picker modal */}
+      <Modal transparent visible={showSosPicker} animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalBox, styles.pickerBox]}>
+            <Text style={styles.modalTitle}>🆘 SOS — Who needs help?</Text>
+            <Text style={styles.pickerSubtitle}>Their current location will be broadcast to all convoy members.</Text>
+
+            {/* Yourself row */}
+            <TouchableOpacity
+              style={styles.pickerRow}
+              onPress={() => handlePickSosTarget('Yourself', myLocation?.lat ?? 0, myLocation?.lng ?? 0)}
+            >
+              <Text style={styles.pickerRowEmoji}>🙋</Text>
+              <View style={styles.pickerRowBody}>
+                <Text style={styles.pickerRowName}>Yourself</Text>
+                <Text style={styles.pickerRowSub}>{myLocation ? 'Using your GPS location' : 'Location unavailable'}</Text>
+              </View>
+              <Text style={styles.pickerRowArrow}>›</Text>
+            </TouchableOpacity>
+
+            {/* Convoy members */}
+            {members.length > 0 && <View style={styles.pickerDivider} />}
+            {members.map((m) => {
+              const name = `Member ${m.userId.slice(0, 6)}`;
+              return (
+                <TouchableOpacity
+                  key={m.userId}
+                  style={styles.pickerRow}
+                  onPress={() => handlePickSosTarget(name, m.lat, m.lng)}
+                >
+                  <Text style={styles.pickerRowEmoji}>🚗</Text>
+                  <View style={styles.pickerRowBody}>
+                    <Text style={styles.pickerRowName}>{name}</Text>
+                    <Text style={styles.pickerRowSub}>{m.speedKph.toFixed(0)} km/h · {formatElapsed(m.receivedAt)}</Text>
+                  </View>
+                  <Text style={styles.pickerRowArrow}>›</Text>
+                </TouchableOpacity>
+              );
+            })}
+
+            <TouchableOpacity
+              style={[styles.modalCancel, { marginTop: 16 }]}
+              onPress={() => setShowSosPicker(false)}
+            >
+              <Text style={styles.modalCancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
       {/* SOS confirm modal */}
       <Modal transparent visible={showSosConfirm} animationType="fade">
         <View style={styles.modalOverlay}>
           <View style={styles.modalBox}>
             <Text style={styles.modalTitle}>🆘 Send SOS Alert?</Text>
-            <Text style={styles.modalBody}>This will immediately broadcast your location to all group members as an emergency alert.</Text>
+            <Text style={styles.modalBody}>
+              {pendingSosName ? `This will broadcast ${pendingSosName}'s location` : "This will broadcast your location"} to all convoy members as an emergency alert.
+            </Text>
             <View style={styles.modalActions}>
               <TouchableOpacity style={styles.modalCancel} onPress={() => { setShowSosConfirm(false); setPendingSosCoord(null); }}>
                 <Text style={styles.modalCancelText}>Cancel</Text>
@@ -415,4 +504,32 @@ const styles = StyleSheet.create({
   modalCancelText: { color: '#f1f5f9', fontWeight: '600' },
   modalConfirm: { flex: 1, paddingVertical: 12, borderRadius: 8, backgroundColor: '#b91c1c', alignItems: 'center', borderWidth: 2, borderColor: '#fca5a5' },
   modalConfirmText: { color: '#fff', fontWeight: '900', fontSize: 15 },
+
+  // Person picker modal
+  pickerBox: { borderColor: '#b91c1c', paddingHorizontal: 20, paddingVertical: 24, width: '100%' },
+  pickerSubtitle: { color: '#94a3b8', fontSize: 13, lineHeight: 18, marginBottom: 16 },
+  pickerDivider: { height: 1, backgroundColor: '#334155', marginVertical: 8 },
+  pickerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    minHeight: 56,
+    borderRadius: 8,
+    paddingHorizontal: 4,
+  },
+  pickerRowEmoji: { fontSize: 24, marginRight: 12 },
+  pickerRowBody: { flex: 1 },
+  pickerRowName: { color: '#f1f5f9', fontSize: 15, fontWeight: '600' },
+  pickerRowSub: { color: '#64748b', fontSize: 12, marginTop: 2 },
+  pickerRowArrow: { color: '#475569', fontSize: 22, marginLeft: 8 },
+
+  // Quick SOS on member row
+  rowSosBtn: {
+    marginLeft: 8,
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  rowSosText: { fontSize: 18 },
 });
