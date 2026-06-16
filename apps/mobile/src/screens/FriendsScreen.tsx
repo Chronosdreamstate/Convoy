@@ -97,7 +97,7 @@ function FriendsTab() {
   if (loading) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator color="#3b82f6" size="large" />
+        <ActivityIndicator color="#DC143C" size="large" />
       </View>
     );
   }
@@ -197,7 +197,7 @@ function RequestsTab() {
   if (loading) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator color="#3b82f6" size="large" />
+        <ActivityIndicator color="#DC143C" size="large" />
       </View>
     );
   }
@@ -317,7 +317,7 @@ function FindPeopleTab() {
         <TextInput
           style={styles.searchInput}
           placeholder="Search by name..."
-          placeholderTextColor="#64748b"
+          placeholderTextColor="#888888"
           value={query}
           onChangeText={handleChangeText}
           autoCapitalize="none"
@@ -325,7 +325,7 @@ function FindPeopleTab() {
           returnKeyType="search"
           accessibilityLabel="Search people"
         />
-        {searching ? <ActivityIndicator color="#3b82f6" size="small" style={styles.searchSpinner} /> : null}
+        {searching ? <ActivityIndicator color="#DC143C" size="small" style={styles.searchSpinner} /> : null}
       </View>
 
       {error ? <Text style={styles.errorText}>{error}</Text> : null}
@@ -437,7 +437,7 @@ export default function FriendsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0f172a',
+    backgroundColor: '#0A0A0A',
   },
   header: {
     paddingHorizontal: 24,
@@ -447,7 +447,7 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 28,
     fontWeight: '700',
-    color: '#f1f5f9',
+    color: '#F0F0F0',
   },
 
   // Tabs
@@ -455,7 +455,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     marginHorizontal: 16,
     marginBottom: 12,
-    backgroundColor: '#1e293b',
+    backgroundColor: '#1C1C1C',
     borderRadius: 12,
     padding: 4,
   },
@@ -468,12 +468,12 @@ const styles = StyleSheet.create({
     minHeight: 44,
   },
   tabPillActive: {
-    backgroundColor: '#3b82f6',
+    backgroundColor: '#DC143C',
   },
   tabLabel: {
     fontSize: 13,
     fontWeight: '600',
-    color: '#94a3b8',
+    color: '#888888',
   },
   tabLabelActive: {
     color: '#ffffff',
@@ -499,10 +499,10 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#1e293b',
+    backgroundColor: '#1C1C1C',
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: '#2A2A2A',
     paddingHorizontal: 14,
     paddingVertical: 12,
     marginBottom: 10,
@@ -514,7 +514,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#3b82f6',
+    backgroundColor: '#DC143C',
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,
@@ -530,7 +530,7 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 15,
     fontWeight: '500',
-    color: '#e2e8f0',
+    color: '#F0F0F0',
     marginRight: 8,
   },
 
@@ -559,7 +559,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   acceptBtn: {
-    backgroundColor: '#3b82f6',
+    backgroundColor: '#DC143C',
   },
   acceptBtnText: {
     color: '#fff',
@@ -568,16 +568,16 @@ const styles = StyleSheet.create({
   },
   declineBtn: {
     borderWidth: 1,
-    borderColor: '#475569',
+    borderColor: '#555555',
     backgroundColor: 'transparent',
   },
   declineBtnText: {
-    color: '#94a3b8',
+    color: '#888888',
     fontSize: 13,
     fontWeight: '600',
   },
   addBtn: {
-    backgroundColor: '#3b82f6',
+    backgroundColor: '#DC143C',
   },
   addBtnText: {
     color: '#fff',
@@ -585,7 +585,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   sentBtn: {
-    backgroundColor: '#1e293b',
+    backgroundColor: '#1C1C1C',
     borderWidth: 1,
     borderColor: '#22c55e',
   },
@@ -603,10 +603,10 @@ const styles = StyleSheet.create({
   searchBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#1e293b',
+    backgroundColor: '#1C1C1C',
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: '#2A2A2A',
     paddingHorizontal: 14,
     marginBottom: 12,
     minHeight: 52,
@@ -618,7 +618,7 @@ const styles = StyleSheet.create({
   searchInput: {
     flex: 1,
     fontSize: 15,
-    color: '#f1f5f9',
+    color: '#F0F0F0',
     paddingVertical: 12,
   },
   searchSpinner: {
@@ -638,13 +638,13 @@ const styles = StyleSheet.create({
   emptyTitle: {
     fontSize: 18,
     fontWeight: '700',
-    color: '#e2e8f0',
+    color: '#F0F0F0',
     marginBottom: 8,
     textAlign: 'center',
   },
   emptySubtitle: {
     fontSize: 14,
-    color: '#64748b',
+    color: '#888888',
     textAlign: 'center',
     lineHeight: 20,
   },

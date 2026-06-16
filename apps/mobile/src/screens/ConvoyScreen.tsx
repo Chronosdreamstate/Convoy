@@ -165,7 +165,7 @@ export default function ConvoyScreen({ userId }: Props) {
           <TextInput
             style={styles.input}
             placeholder="Group name"
-            placeholderTextColor="#64748b"
+            placeholderTextColor="#555555"
             value={groupName}
             onChangeText={setGroupName}
             autoFocus
@@ -187,7 +187,7 @@ export default function ConvoyScreen({ userId }: Props) {
           <TextInput
             style={[styles.input, styles.codeInput]}
             placeholder="Enter 6-char code"
-            placeholderTextColor="#64748b"
+            placeholderTextColor="#555555"
             value={joinCode}
             onChangeText={setJoinCode}
             autoCapitalize="characters"
@@ -321,7 +321,7 @@ export default function ConvoyScreen({ userId }: Props) {
 // ---------------------------------------------------------------------------
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0f172a', padding: 16 },
+  container: { flex: 1, backgroundColor: '#0A0A0A', padding: 16 },
 
   // Header bar
   headerBar: {
@@ -332,13 +332,13 @@ const styles = StyleSheet.create({
     paddingTop: 4,
   },
   headerTitle: {
-    color: '#f1f5f9',
+    color: '#F0F0F0',
     fontSize: 20,
     fontWeight: '800',
     letterSpacing: 3,
   },
   memberCountBadge: {
-    backgroundColor: '#3b82f6',
+    backgroundColor: '#DC143C',
     borderRadius: 12,
     paddingHorizontal: 10,
     paddingVertical: 4,
@@ -358,53 +358,53 @@ const styles = StyleSheet.create({
   emptyEmoji: { fontSize: 64, marginBottom: 16 },
   homeActions: { paddingBottom: 8 },
 
-  title: { color: '#f1f5f9', fontSize: 24, fontWeight: '700', marginBottom: 8, textAlign: 'center' },
-  subtitle: { color: '#64748b', fontSize: 14, marginBottom: 32, textAlign: 'center' },
+  title: { color: '#F0F0F0', fontSize: 24, fontWeight: '700', marginBottom: 8, textAlign: 'center' },
+  subtitle: { color: '#888888', fontSize: 14, marginBottom: 32, textAlign: 'center' },
 
   input: {
-    backgroundColor: '#1e293b', color: '#f1f5f9', borderRadius: 10,
+    backgroundColor: '#1C1C1C', color: '#F0F0F0', borderRadius: 10,
     padding: 14, fontSize: 16, marginBottom: 12,
-    borderWidth: 1, borderColor: '#334155',
+    borderWidth: 1, borderColor: '#2A2A2A',
   },
   codeInput: { letterSpacing: 8, textAlign: 'center', fontSize: 22, fontWeight: '700', fontFamily: 'monospace' },
 
   primaryBtn: {
-    backgroundColor: '#3b82f6', borderRadius: 12, paddingVertical: 16,
+    backgroundColor: '#DC143C', borderRadius: 12, paddingVertical: 16,
     alignItems: 'center', marginBottom: 10, minHeight: 52,
     justifyContent: 'center',
   },
   primaryBtnText: { color: '#fff', fontWeight: '700', fontSize: 16 },
   secondaryBtn: {
-    backgroundColor: '#1e293b', borderRadius: 12, paddingVertical: 16,
+    backgroundColor: '#1C1C1C', borderRadius: 12, paddingVertical: 16,
     alignItems: 'center', marginBottom: 10, minHeight: 52,
-    justifyContent: 'center', borderWidth: 1, borderColor: '#334155',
+    justifyContent: 'center', borderWidth: 1, borderColor: '#2A2A2A',
   },
-  secondaryBtnText: { color: '#94a3b8', fontWeight: '600', fontSize: 15 },
+  secondaryBtnText: { color: '#888888', fontWeight: '600', fontSize: 15 },
   dangerBtn: {
-    backgroundColor: '#7f1d1d', borderRadius: 12, paddingVertical: 16,
+    backgroundColor: '#1A0505', borderRadius: 12, paddingVertical: 16,
     alignItems: 'center', marginBottom: 10, minHeight: 52,
-    justifyContent: 'center', borderWidth: 1, borderColor: '#b91c1c',
+    justifyContent: 'center', borderWidth: 1, borderColor: '#5C1010',
   },
-  dangerBtnText: { color: '#fca5a5', fontWeight: '700', fontSize: 15 },
+  dangerBtnText: { color: '#FF8080', fontWeight: '700', fontSize: 15 },
 
   // Group card
   groupCard: {
-    backgroundColor: '#1e293b',
+    backgroundColor: '#1C1C1C',
     borderRadius: 14,
     padding: 16,
     marginBottom: 20,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: '#2A2A2A',
   },
-  groupName: { color: '#f1f5f9', fontSize: 20, fontWeight: '700', marginBottom: 12 },
+  groupName: { color: '#F0F0F0', fontSize: 20, fontWeight: '700', marginBottom: 12 },
   joinCodeRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
   },
-  joinCodeLabel: { color: '#64748b', fontSize: 12, fontWeight: '600' },
+  joinCodeLabel: { color: '#555555', fontSize: 12, fontWeight: '600' },
   joinCodeValue: {
-    color: '#3b82f6',
+    color: '#DC143C',
     fontSize: 18,
     fontWeight: '800',
     letterSpacing: 4,
@@ -412,16 +412,16 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   copyBtn: {
-    backgroundColor: '#334155',
+    backgroundColor: '#2A2A2A',
     borderRadius: 8,
     paddingHorizontal: 10,
     paddingVertical: 6,
     minHeight: 36,
     justifyContent: 'center',
   },
-  copyBtnText: { color: '#94a3b8', fontSize: 12, fontWeight: '600' },
+  copyBtnText: { color: '#888888', fontSize: 12, fontWeight: '600' },
   shareCodeBtn: {
-    backgroundColor: '#1d4ed8',
+    backgroundColor: '#DC143C',
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 6,
@@ -430,17 +430,17 @@ const styles = StyleSheet.create({
   },
   shareCodeText: { color: '#fff', fontWeight: '700', fontSize: 12 },
 
-  sectionLabel: { color: '#64748b', fontSize: 11, fontWeight: '700', marginBottom: 8, letterSpacing: 1.5 },
+  sectionLabel: { color: '#555555', fontSize: 11, fontWeight: '700', marginBottom: 8, letterSpacing: 1.5 },
   memberList: { flex: 1 },
   memberRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#1e293b',
+    backgroundColor: '#1C1C1C',
     borderRadius: 12,
     padding: 14,
     marginBottom: 8,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: '#2A2A2A',
     minHeight: 60,
     gap: 10,
   },
@@ -450,27 +450,27 @@ const styles = StyleSheet.create({
     borderRadius: 5,
   },
   dotOnline: { backgroundColor: '#22c55e' },
-  dotOffline: { backgroundColor: '#475569' },
+  dotOffline: { backgroundColor: '#444444' },
   memberInfo: { flex: 1 },
-  memberName: { color: '#e2e8f0', fontSize: 15, fontWeight: '600' },
+  memberName: { color: '#F0F0F0', fontSize: 15, fontWeight: '600' },
   memberMetaRow: { flexDirection: 'row', gap: 10, marginTop: 3 },
-  memberMeta: { color: '#64748b', fontSize: 12 },
+  memberMeta: { color: '#555555', fontSize: 12 },
   muteBtn: {
-    backgroundColor: '#334155', borderRadius: 8,
+    backgroundColor: '#2A2A2A', borderRadius: 8,
     paddingHorizontal: 12, paddingVertical: 8, minWidth: 64,
     alignItems: 'center', minHeight: 36, justifyContent: 'center',
   },
-  muteBtnActive: { backgroundColor: '#7c3aed' },
-  muteBtnText: { color: '#f1f5f9', fontSize: 12, fontWeight: '600' },
+  muteBtnActive: { backgroundColor: '#DC143C' },
+  muteBtnText: { color: '#F0F0F0', fontSize: 12, fontWeight: '600' },
   emptyMembers: {
     paddingVertical: 32,
     alignItems: 'center',
   },
-  emptyMembersText: { color: '#64748b', fontSize: 13 },
+  emptyMembersText: { color: '#555555', fontSize: 13 },
 
   actionsDivider: {
     height: 1,
-    backgroundColor: '#1e293b',
+    backgroundColor: '#1C1C1C',
     marginBottom: 14,
   },
   actions: { paddingTop: 4, paddingBottom: 4 },

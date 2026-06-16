@@ -209,7 +209,7 @@ export default function DriveHistoryScreen() {
   if (loading && drives.length === 0) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator color="#3b82f6" size="large" />
+        <ActivityIndicator color="#DC143C" size="large" />
       </View>
     );
   }
@@ -300,8 +300,8 @@ export default function DriveHistoryScreen() {
 // ---------------------------------------------------------------------------
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0f172a' },
-  centered: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#0f172a' },
+  container: { flex: 1, backgroundColor: '#0A0A0A' },
+  centered: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#0A0A0A' },
 
   screenHeader: {
     flexDirection: 'row',
@@ -311,8 +311,8 @@ const styles = StyleSheet.create({
     paddingTop: 16,
     paddingBottom: 8,
   },
-  screenTitle: { color: '#f1f5f9', fontSize: 24, fontWeight: '700' },
-  screenSubtitle: { color: '#64748b', fontSize: 13 },
+  screenTitle: { color: '#F0F0F0', fontSize: 24, fontWeight: '700' },
+  screenSubtitle: { color: '#888888', fontSize: 13 },
 
   list: { paddingHorizontal: 16, paddingBottom: 20 },
   listEmpty: { flex: 1, paddingHorizontal: 16 },
@@ -320,17 +320,17 @@ const styles = StyleSheet.create({
   // Empty state
   emptyState: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 80 },
   emptyEmoji: { fontSize: 72, marginBottom: 16 },
-  emptyTitle: { color: '#f1f5f9', fontSize: 20, fontWeight: '700', marginBottom: 8 },
-  emptySubtitle: { color: '#64748b', fontSize: 14, textAlign: 'center', lineHeight: 22 },
+  emptyTitle: { color: '#F0F0F0', fontSize: 20, fontWeight: '700', marginBottom: 8 },
+  emptySubtitle: { color: '#888888', fontSize: 14, textAlign: 'center', lineHeight: 22 },
 
   // Drive card
   driveCard: {
-    backgroundColor: '#1e293b',
+    backgroundColor: '#1C1C1C',
     borderRadius: 14,
     padding: 14,
     marginBottom: 10,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: '#2A2A2A',
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
@@ -340,11 +340,11 @@ const styles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 10,
-    backgroundColor: '#0f172a',
+    backgroundColor: '#0A0A0A',
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: '#2A2A2A',
     flexShrink: 0,
   },
   mapThumbIcon: { fontSize: 24 },
@@ -356,20 +356,20 @@ const styles = StyleSheet.create({
     gap: 8,
     marginBottom: 6,
   },
-  driveDate: { color: '#e2e8f0', fontSize: 14, fontWeight: '700' },
-  driveTime: { color: '#64748b', fontSize: 12 },
+  driveDate: { color: '#F0F0F0', fontSize: 14, fontWeight: '700' },
+  driveTime: { color: '#888888', fontSize: 12 },
 
   driveStatsRow: { flexDirection: 'row', gap: 12, flexWrap: 'wrap' },
   driveStat: { flexDirection: 'row', alignItems: 'center', gap: 3 },
   driveStatIcon: { fontSize: 11 },
-  driveStatValue: { color: '#94a3b8', fontSize: 12, fontWeight: '500' },
-  driveMembers: { color: '#64748b', fontSize: 12, marginTop: 4 },
+  driveStatValue: { color: '#888888', fontSize: 12, fontWeight: '500' },
+  driveMembers: { color: '#555555', fontSize: 12, marginTop: 4 },
 
   shareIcon: {
     width: 36,
     height: 36,
     borderRadius: 8,
-    backgroundColor: '#3b82f6',
+    backgroundColor: '#DC143C',
     alignItems: 'center',
     justifyContent: 'center',
     flexShrink: 0,
@@ -377,25 +377,25 @@ const styles = StyleSheet.create({
   shareIconText: { color: '#fff', fontSize: 16, fontWeight: '700' },
 
   // Detail
-  detail: { flex: 1, backgroundColor: '#0f172a', padding: 16 },
+  detail: { flex: 1, backgroundColor: '#0A0A0A', padding: 16 },
   backBtn: { marginBottom: 16, minHeight: 44, justifyContent: 'center' },
-  backText: { color: '#3b82f6', fontSize: 16, fontWeight: '600' },
-  detailTitle: { color: '#f1f5f9', fontSize: 24, fontWeight: '700', marginBottom: 4 },
-  detailDate: { color: '#64748b', fontSize: 13, marginBottom: 16 },
-  detailMembers: { color: '#94a3b8', fontSize: 14, marginBottom: 20 },
+  backText: { color: '#DC143C', fontSize: 16, fontWeight: '600' },
+  detailTitle: { color: '#F0F0F0', fontSize: 24, fontWeight: '700', marginBottom: 4 },
+  detailDate: { color: '#888888', fontSize: 13, marginBottom: 16 },
+  detailMembers: { color: '#888888', fontSize: 14, marginBottom: 20 },
   mapPlaceholder: {
     height: 180,
-    backgroundColor: '#1e293b',
+    backgroundColor: '#1C1C1C',
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 20,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: '#2A2A2A',
     gap: 8,
   },
   mapPlaceholderIcon: { fontSize: 40 },
-  mapPlaceholderText: { color: '#64748b', fontSize: 13 },
+  mapPlaceholderText: { color: '#888888', fontSize: 13 },
   statsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -405,18 +405,20 @@ const styles = StyleSheet.create({
   statBox: {
     flex: 1,
     minWidth: '42%',
-    backgroundColor: '#1e293b',
+    backgroundColor: '#1C1C1C',
     borderRadius: 12,
     padding: 16,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: '#2A2A2A',
+    borderLeftWidth: 2,
+    borderLeftColor: '#DC143C',
   },
   statIcon: { fontSize: 22, marginBottom: 6 },
-  statValue: { color: '#f1f5f9', fontSize: 20, fontWeight: '700', marginBottom: 4 },
-  statLabel: { color: '#64748b', fontSize: 12 },
+  statValue: { color: '#F0F0F0', fontSize: 20, fontWeight: '700', marginBottom: 4 },
+  statLabel: { color: '#555555', fontSize: 12 },
   shareBtn: {
-    backgroundColor: '#3b82f6',
+    backgroundColor: '#DC143C',
     paddingVertical: 16,
     borderRadius: 14,
     alignItems: 'center',

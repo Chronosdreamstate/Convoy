@@ -208,7 +208,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   button: {
-    backgroundColor: '#FF6B00',
+    backgroundColor: '#DC143C',
     borderRadius: 12,
     paddingVertical: 16,
     alignItems: 'center',
@@ -232,7 +232,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   toggleLink: {
-    color: '#FF6B00',
+    color: '#DC143C',
     fontSize: 14,
     fontWeight: '600',
   },

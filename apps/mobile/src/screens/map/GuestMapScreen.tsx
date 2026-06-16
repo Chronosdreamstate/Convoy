@@ -71,13 +71,13 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 20,
     right: 20,
-    backgroundColor: '#0f172af2',
+    backgroundColor: '#0A0A0Af2',
     borderRadius: 20,
     paddingVertical: 28,
     paddingHorizontal: 24,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#1e3a5f',
+    borderColor: '#2A2A2A',
     shadowColor: '#000',
     shadowOpacity: 0.5,
     shadowRadius: 16,
@@ -86,7 +86,7 @@ const styles = StyleSheet.create({
   },
 
   logo: {
-    color: '#f1f5f9',
+    color: '#F0F0F0',
     fontSize: 32,
     fontWeight: '900',
     letterSpacing: 6,
@@ -96,13 +96,13 @@ const styles = StyleSheet.create({
   divider: {
     width: 40,
     height: 2,
-    backgroundColor: '#3b82f6',
+    backgroundColor: '#DC143C',
     borderRadius: 1,
     marginBottom: 16,
   },
 
   tagline: {
-    color: '#f1f5f9',
+    color: '#F0F0F0',
     fontSize: 18,
     fontWeight: '700',
     marginBottom: 8,
@@ -110,7 +110,7 @@ const styles = StyleSheet.create({
   },
 
   sub: {
-    color: '#94a3b8',
+    color: '#888888',
     fontSize: 13,
     textAlign: 'center',
     lineHeight: 19,
@@ -118,14 +118,14 @@ const styles = StyleSheet.create({
   },
 
   signInBtn: {
-    backgroundColor: '#3b82f6',
+    backgroundColor: '#DC143C',
     borderRadius: 12,
     paddingVertical: 14,
     paddingHorizontal: 56,
     minHeight: 48,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#3b82f6',
+    shadowColor: '#DC143C',
     shadowOpacity: 0.4,
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 2 },

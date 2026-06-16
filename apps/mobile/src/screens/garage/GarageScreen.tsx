@@ -160,7 +160,7 @@ export default function GarageScreen() {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.centered}>
-          <ActivityIndicator color="#3b82f6" size="large" />
+          <ActivityIndicator color="#DC143C" size="large" />
         </View>
       </SafeAreaView>
     );
@@ -291,7 +291,7 @@ export default function GarageScreen() {
                     value={form[field.key]}
                     onChangeText={(val) => setForm((prev) => ({ ...prev, [field.key]: val }))}
                     placeholder={field.placeholder}
-                    placeholderTextColor="#475569"
+                    placeholderTextColor="#555555"
                     keyboardType={field.keyboardType}
                     accessibilityLabel={`${field.label} input`}
                   />
@@ -324,7 +324,7 @@ export default function GarageScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0f172a' },
+  container: { flex: 1, backgroundColor: '#0A0A0A' },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   scroll: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 48 },
 
@@ -334,8 +334,8 @@ const styles = StyleSheet.create({
     alignItems: 'baseline',
     marginBottom: 24,
   },
-  title: { fontSize: 28, fontWeight: '700', color: '#f1f5f9' },
-  subtitle: { color: '#64748b', fontSize: 13 },
+  title: { fontSize: 28, fontWeight: '700', color: '#F0F0F0' },
+  subtitle: { color: '#888888', fontSize: 13 },
 
   errorText: { color: '#ef4444', fontSize: 13, marginBottom: 12 },
 
@@ -346,15 +346,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 32,
   },
   emptyIcon: { fontSize: 64, marginBottom: 16 },
-  emptyTitle: { fontSize: 20, fontWeight: '700', color: '#f1f5f9', marginBottom: 8 },
-  emptySubtitle: { fontSize: 14, color: '#64748b', textAlign: 'center', lineHeight: 22 },
+  emptyTitle: { fontSize: 20, fontWeight: '700', color: '#F0F0F0', marginBottom: 8 },
+  emptySubtitle: { fontSize: 14, color: '#888888', textAlign: 'center', lineHeight: 22 },
 
   // Vehicle card
   vehicleCard: {
-    backgroundColor: '#1e293b',
+    backgroundColor: '#1C1C1C',
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: '#2A2A2A',
     padding: 16,
     marginBottom: 12,
     flexDirection: 'row',
@@ -362,13 +362,13 @@ const styles = StyleSheet.create({
     gap: 12,
     minHeight: 72,
   },
-  vehicleCardActive: { borderColor: '#3b82f6', borderWidth: 2 },
+  vehicleCardActive: { borderColor: '#DC143C', borderWidth: 2 },
 
   vehicleIconBox: {
     width: 48,
     height: 48,
     borderRadius: 12,
-    backgroundColor: '#0f172a',
+    backgroundColor: '#141414',
     alignItems: 'center',
     justifyContent: 'center',
     flexShrink: 0,
@@ -378,29 +378,29 @@ const styles = StyleSheet.create({
   vehicleInfo: { flex: 1 },
   vehicleNameRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
   activeBadge: {
-    backgroundColor: '#3b82f6',
+    backgroundColor: '#DC143C',
     borderRadius: 4,
     paddingHorizontal: 6,
     paddingVertical: 2,
   },
   activeBadgeText: { color: '#FFFFFF', fontSize: 10, fontWeight: '800', letterSpacing: 0.5 },
-  vehicleName: { fontSize: 16, fontWeight: '600', color: '#f1f5f9' },
-  vehicleDetail: { fontSize: 13, color: '#64748b', marginTop: 2 },
-  tapToActivate: { fontSize: 11, color: '#475569', marginTop: 3 },
+  vehicleName: { fontSize: 16, fontWeight: '600', color: '#F0F0F0' },
+  vehicleDetail: { fontSize: 13, color: '#888888', marginTop: 2 },
+  tapToActivate: { fontSize: 11, color: '#555555', marginTop: 3 },
 
   vehicleActions: { flexDirection: 'row', gap: 8, flexShrink: 0 },
   actionButton: {
     paddingHorizontal: 12,
     paddingVertical: 10,
     borderRadius: 8,
-    backgroundColor: '#334155',
+    backgroundColor: '#2A2A2A',
     minWidth: 48,
     alignItems: 'center',
     minHeight: 36,
     justifyContent: 'center',
   },
-  actionButtonText: { color: '#e2e8f0', fontSize: 13, fontWeight: '600' },
-  deleteButton: { backgroundColor: '#1e1010' },
+  actionButtonText: { color: '#F0F0F0', fontSize: 13, fontWeight: '600' },
+  deleteButton: { backgroundColor: '#1A0505' },
   deleteButtonText: { color: '#ef4444', fontSize: 13, fontWeight: '600' },
 
   // FAB
@@ -411,10 +411,10 @@ const styles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: '#3b82f6',
+    backgroundColor: '#DC143C',
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#3b82f6',
+    shadowColor: '#DC143C',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.4,
     shadowRadius: 8,
@@ -429,7 +429,7 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   modalSheet: {
-    backgroundColor: '#1e293b',
+    backgroundColor: '#1C1C1C',
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     paddingHorizontal: 24,
@@ -441,7 +441,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 4,
     borderRadius: 2,
-    backgroundColor: '#475569',
+    backgroundColor: '#2A2A2A',
     alignSelf: 'center',
     marginBottom: 20,
   },
@@ -451,23 +451,23 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 24,
   },
-  modalTitle: { fontSize: 20, fontWeight: '700', color: '#f1f5f9' },
-  modalClose: { fontSize: 18, color: '#64748b', paddingHorizontal: 4 },
+  modalTitle: { fontSize: 20, fontWeight: '700', color: '#F0F0F0' },
+  modalClose: { fontSize: 18, color: '#555555', paddingHorizontal: 4 },
   formField: { marginBottom: 16 },
-  formLabel: { fontSize: 13, color: '#94a3b8', marginBottom: 6 },
+  formLabel: { fontSize: 13, color: '#888888', marginBottom: 6 },
   formInput: {
-    backgroundColor: '#0f172a',
+    backgroundColor: '#0A0A0A',
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: '#2A2A2A',
     paddingHorizontal: 16,
     paddingVertical: 14,
     fontSize: 16,
-    color: '#f1f5f9',
+    color: '#F0F0F0',
     minHeight: 50,
   },
   saveButton: {
-    backgroundColor: '#3b82f6',
+    backgroundColor: '#DC143C',
     borderRadius: 14,
     paddingVertical: 16,
     alignItems: 'center',

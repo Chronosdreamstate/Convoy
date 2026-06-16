@@ -233,7 +233,7 @@ export default function SettingsScreen() {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.centered}>
-          <ActivityIndicator color="#3b82f6" size="large" />
+          <ActivityIndicator color="#DC143C" size="large" />
         </View>
       </SafeAreaView>
     );
@@ -277,7 +277,7 @@ export default function SettingsScreen() {
               <Switch
                 value={notifHazard}
                 onValueChange={(v) => { setNotifHazard(v); mark(); }}
-                trackColor={{ false: '#334155', true: '#3b82f6' }}
+                trackColor={{ false: '#2A2A2A', true: '#DC143C' }}
                 thumbColor="#FFFFFF"
                 accessibilityLabel="Hazard notifications toggle"
               />
@@ -291,7 +291,7 @@ export default function SettingsScreen() {
               <Switch
                 value={notifGroupEvents}
                 onValueChange={(v) => { setNotifGroupEvents(v); mark(); }}
-                trackColor={{ false: '#334155', true: '#3b82f6' }}
+                trackColor={{ false: '#2A2A2A', true: '#DC143C' }}
                 thumbColor="#FFFFFF"
                 accessibilityLabel="Group events notifications toggle"
               />
@@ -305,7 +305,7 @@ export default function SettingsScreen() {
               <Switch
                 value={notifFriendRequests}
                 onValueChange={(v) => { setNotifFriendRequests(v); mark(); }}
-                trackColor={{ false: '#334155', true: '#3b82f6' }}
+                trackColor={{ false: '#2A2A2A', true: '#DC143C' }}
                 thumbColor="#FFFFFF"
                 accessibilityLabel="Friend requests notifications toggle"
               />
@@ -319,7 +319,7 @@ export default function SettingsScreen() {
               <Switch
                 value={notifNavigation}
                 onValueChange={(v) => { setNotifNavigation(v); mark(); }}
-                trackColor={{ false: '#334155', true: '#3b82f6' }}
+                trackColor={{ false: '#2A2A2A', true: '#DC143C' }}
                 thumbColor="#FFFFFF"
                 accessibilityLabel="Navigation notifications toggle"
               />
@@ -352,7 +352,7 @@ export default function SettingsScreen() {
               <Switch
                 value={scenicRouting}
                 onValueChange={(v) => { setScenicRouting(v); mark(); }}
-                trackColor={{ false: '#334155', true: '#3b82f6' }}
+                trackColor={{ false: '#2A2A2A', true: '#DC143C' }}
                 thumbColor="#FFFFFF"
                 accessibilityLabel="Scenic routing toggle"
               />
@@ -434,7 +434,7 @@ export default function SettingsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0f172a',
+    backgroundColor: '#0A0A0A',
   },
   centered: {
     flex: 1,
@@ -449,7 +449,7 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 28,
     fontWeight: '700',
-    color: '#f1f5f9',
+    color: '#F0F0F0',
     marginBottom: 24,
   },
   errorText: {
@@ -462,7 +462,7 @@ const styles = StyleSheet.create({
   sectionHeader: {
     fontSize: 11,
     fontWeight: '700',
-    color: '#475569',
+    color: '#555555',
     letterSpacing: 1.5,
     textTransform: 'uppercase',
     marginBottom: 8,
@@ -472,10 +472,10 @@ const styles = StyleSheet.create({
 
   // Section card wrapping rows
   sectionCard: {
-    backgroundColor: '#1e293b',
+    backgroundColor: '#1C1C1C',
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: '#2A2A2A',
     marginBottom: 24,
     overflow: 'hidden',
   },
@@ -487,7 +487,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 14,
     borderBottomWidth: 1,
-    borderBottomColor: '#334155',
+    borderBottomColor: '#2A2A2A',
     minHeight: 56,
   },
   settingRowLast: {
@@ -497,7 +497,7 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 8,
-    backgroundColor: '#0f172a',
+    backgroundColor: '#0A0A0A',
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,
@@ -507,7 +507,7 @@ const styles = StyleSheet.create({
   settingLabelGroup: { flex: 1, paddingRight: 8 },
   settingLabel: {
     fontSize: 15,
-    color: '#f1f5f9',
+    color: '#F0F0F0',
     fontWeight: '500',
   },
   settingLabelDanger: {
@@ -515,7 +515,7 @@ const styles = StyleSheet.create({
   },
   settingSubtitle: {
     fontSize: 12,
-    color: '#64748b',
+    color: '#888888',
     marginTop: 2,
   },
   settingRight: {
@@ -526,7 +526,7 @@ const styles = StyleSheet.create({
     minHeight: 44,
   },
   chevron: {
-    color: '#475569',
+    color: '#555555',
     fontSize: 20,
     fontWeight: '300',
   },
@@ -545,18 +545,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 8,
     borderRadius: 20,
-    backgroundColor: '#0f172a',
+    backgroundColor: '#0A0A0A',
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: '#2A2A2A',
     minWidth: 44,
     alignItems: 'center',
   },
   chipActive: {
-    backgroundColor: '#3b82f6',
-    borderColor: '#3b82f6',
+    backgroundColor: '#DC143C',
+    borderColor: '#DC143C',
   },
   chipText: {
-    color: '#94a3b8',
+    color: '#888888',
     fontSize: 13,
     fontWeight: '500',
   },
@@ -567,7 +567,7 @@ const styles = StyleSheet.create({
 
   // Save button
   saveButton: {
-    backgroundColor: '#3b82f6',
+    backgroundColor: '#DC143C',
     borderRadius: 14,
     paddingVertical: 16,
     alignItems: 'center',

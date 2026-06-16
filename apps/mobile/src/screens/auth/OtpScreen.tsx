@@ -129,7 +129,7 @@ export default function OtpScreen() {
               accessibilityLabel="Resend OTP"
             >
               {isResending ? (
-                <ActivityIndicator size="small" color="#FF6B00" />
+                <ActivityIndicator size="small" color="#DC143C" />
               ) : (
                 <Text style={styles.resendLink}>Resend OTP</Text>
               )}
@@ -193,7 +193,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
   },
   button: {
-    backgroundColor: '#FF6B00',
+    backgroundColor: '#DC143C',
     borderRadius: 12,
     paddingVertical: 16,
     alignItems: 'center',
@@ -218,7 +218,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   resendLink: {
-    color: '#FF6B00',
+    color: '#DC143C',
     fontSize: 14,
     fontWeight: '600',
   },

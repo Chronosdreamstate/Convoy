@@ -125,7 +125,7 @@ export default function ProfileScreen() {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.centered}>
-          <ActivityIndicator color="#3b82f6" size="large" />
+          <ActivityIndicator color="#DC143C" size="large" />
         </View>
       </SafeAreaView>
     );
@@ -164,7 +164,7 @@ export default function ProfileScreen() {
               setIsDirty(true);
             }}
             placeholder="Your display name"
-            placeholderTextColor="#475569"
+            placeholderTextColor="#555555"
             maxLength={100}
             returnKeyType="done"
             onSubmitEditing={handleSaveName}
@@ -220,7 +220,7 @@ export default function ProfileScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0f172a',
+    backgroundColor: '#0A0A0A',
   },
   centered: {
     flex: 1,
@@ -235,7 +235,7 @@ const styles = StyleSheet.create({
   pageTitle: {
     fontSize: 28,
     fontWeight: '700',
-    color: '#f1f5f9',
+    color: '#F0F0F0',
     marginBottom: 28,
   },
   errorText: {
@@ -254,7 +254,7 @@ const styles = StyleSheet.create({
     width: 88,
     height: 88,
     borderRadius: 44,
-    backgroundColor: '#3b82f6',
+    backgroundColor: '#DC143C',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 12,
@@ -266,37 +266,37 @@ const styles = StyleSheet.create({
   },
   accountMeta: {
     fontSize: 14,
-    color: '#64748b',
+    color: '#888888',
   },
 
   // Card
   card: {
-    backgroundColor: '#1e293b',
+    backgroundColor: '#1C1C1C',
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: '#2A2A2A',
     padding: 16,
     marginBottom: 14,
   },
   cardLabel: {
     fontSize: 11,
     fontWeight: '700',
-    color: '#64748b',
+    color: '#888888',
     textTransform: 'uppercase',
     letterSpacing: 1,
     marginBottom: 8,
   },
   nameInput: {
     fontSize: 17,
-    color: '#f1f5f9',
+    color: '#F0F0F0',
     paddingVertical: 10,
     paddingHorizontal: 4,
     borderBottomWidth: 1,
-    borderBottomColor: '#334155',
+    borderBottomColor: '#2A2A2A',
     marginBottom: 14,
   },
   saveNameBtn: {
-    backgroundColor: '#3b82f6',
+    backgroundColor: '#DC143C',
     borderRadius: 10,
     paddingVertical: 13,
     alignItems: 'center',
@@ -316,10 +316,10 @@ const styles = StyleSheet.create({
   friendsBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#1e293b',
+    backgroundColor: '#1C1C1C',
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: '#2A2A2A',
     paddingHorizontal: 16,
     paddingVertical: 16,
     marginBottom: 14,
@@ -337,11 +337,11 @@ const styles = StyleSheet.create({
   friendsBtnText: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#e2e8f0',
+    color: '#F0F0F0',
   },
   friendsChevron: {
     fontSize: 22,
-    color: '#475569',
+    color: '#555555',
     fontWeight: '300',
   },
 

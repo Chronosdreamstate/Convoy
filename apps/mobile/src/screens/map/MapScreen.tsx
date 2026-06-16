@@ -161,7 +161,7 @@ export default function MapScreen({ groupId, accessToken, socketUrl }: Props) {
         onLongPress={handleLongPress}
       >
         {members.map((m: MemberLocation) => (
-          <Marker key={m.userId} coordinate={{ latitude: m.lat, longitude: m.lng }} title={`Member ${m.userId.slice(0, 6)}`} description={`${m.speedKph.toFixed(0)} km/h`} pinColor="#3b82f6" />
+          <Marker key={m.userId} coordinate={{ latitude: m.lat, longitude: m.lng }} title={`Member ${m.userId.slice(0, 6)}`} description={`${m.speedKph.toFixed(0)} km/h`} pinColor="#DC143C" />
         ))}
         {rallies.map((r) => (
           <Marker key={r.id} coordinate={{ latitude: r.lat, longitude: r.lng }} title="Rally Point" description={r.address ?? undefined} pinColor="#22c55e" />
@@ -354,7 +354,7 @@ const styles = StyleSheet.create({
     zIndex: 10,
   },
   badgeOnline: { backgroundColor: '#10b981' },
-  badgeOffline: { backgroundColor: '#6b7280' },
+  badgeOffline: { backgroundColor: '#444444' },
   badgeText: { color: '#fff', fontSize: 11, fontWeight: '700' },
 
   // Re-center — top-left
@@ -388,7 +388,7 @@ const styles = StyleSheet.create({
     width: 64,
     height: 64,
     borderRadius: 32,
-    backgroundColor: '#b91c1c',
+    backgroundColor: '#DC143C',
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 3,
@@ -404,7 +404,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     minHeight: 44,
     borderRadius: 8,
-    backgroundColor: '#6b7280',
+    backgroundColor: '#555555',
     borderWidth: 2,
     borderColor: '#fff',
     alignItems: 'center',
@@ -418,7 +418,7 @@ const styles = StyleSheet.create({
     bottom: 280,
     left: 12,
     right: 12,
-    backgroundColor: '#dc2626cc',
+    backgroundColor: '#DC143Ccc',
     borderRadius: 8,
     padding: 10,
     zIndex: 8,
@@ -429,7 +429,7 @@ const styles = StyleSheet.create({
     bottom: 330,
     left: 12,
     right: 12,
-    backgroundColor: '#15803ddd',
+    backgroundColor: '#0D4429dd',
     borderRadius: 8,
     padding: 12,
     zIndex: 8,
@@ -439,15 +439,15 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 12,
     right: 80,
-    backgroundColor: '#7f1d1d',
+    backgroundColor: '#1A0505',
     borderRadius: 8,
     padding: 12,
     borderWidth: 2,
-    borderColor: '#fca5a5',
+    borderColor: '#FF8080',
     zIndex: 8,
   },
-  sosBannerText: { color: '#fca5a5', fontSize: 14, fontWeight: '700', marginBottom: 4 },
-  sosBannerDismiss: { color: '#fca5a5', fontSize: 12, textDecorationLine: 'underline' },
+  sosBannerText: { color: '#FF8080', fontSize: 14, fontWeight: '700', marginBottom: 4 },
+  sosBannerDismiss: { color: '#FF8080', fontSize: 12, textDecorationLine: 'underline' },
 
   // Member panel — dark card at bottom
   memberPanel: {
@@ -455,14 +455,14 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: '#0f172aee',
+    backgroundColor: '#0A0A0Aee',
     maxHeight: 220,
     paddingTop: 8,
     paddingHorizontal: 16,
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
     borderTopWidth: 1,
-    borderTopColor: '#334155',
+    borderTopColor: '#2A2A2A',
     shadowColor: '#000',
     shadowOpacity: 0.5,
     shadowRadius: 12,
@@ -474,41 +474,41 @@ const styles = StyleSheet.create({
     width: 36,
     height: 4,
     borderRadius: 2,
-    backgroundColor: '#475569',
+    backgroundColor: '#444444',
     alignSelf: 'center',
     marginBottom: 8,
   },
-  panelTitle: { color: '#f1f5f9', fontWeight: '700', marginBottom: 8, fontSize: 13 },
+  panelTitle: { color: '#F0F0F0', fontWeight: '700', marginBottom: 8, fontSize: 13 },
   memberRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6, minHeight: 36 },
   dot: { width: 8, height: 8, borderRadius: 4, marginRight: 8 },
   dotOnline: { backgroundColor: '#10b981' },
-  dotOffline: { backgroundColor: '#6b7280' },
-  memberText: { color: '#e2e8f0', flex: 1, fontSize: 13 },
-  memberDetail: { color: '#94a3b8', fontSize: 12 },
-  emptyText: { color: '#64748b', fontSize: 13, textAlign: 'center', marginTop: 8 },
+  dotOffline: { backgroundColor: '#444444' },
+  memberText: { color: '#F0F0F0', flex: 1, fontSize: 13 },
+  memberDetail: { color: '#888888', fontSize: 12 },
+  emptyText: { color: '#555555', fontSize: 13, textAlign: 'center', marginTop: 8 },
 
   // SOS confirm modal
   modalOverlay: { flex: 1, backgroundColor: '#00000099', alignItems: 'center', justifyContent: 'center' },
   modalBox: {
-    backgroundColor: '#1e293b',
+    backgroundColor: '#1C1C1C',
     borderRadius: 12,
     padding: 24,
     marginHorizontal: 32,
     borderWidth: 2,
-    borderColor: '#ef4444',
+    borderColor: '#DC143C',
   },
-  modalTitle: { color: '#f8fafc', fontSize: 20, fontWeight: '800', marginBottom: 12 },
-  modalBody: { color: '#cbd5e1', fontSize: 14, lineHeight: 20, marginBottom: 20 },
+  modalTitle: { color: '#F0F0F0', fontSize: 20, fontWeight: '800', marginBottom: 12 },
+  modalBody: { color: '#888888', fontSize: 14, lineHeight: 20, marginBottom: 20 },
   modalActions: { flexDirection: 'row', gap: 12 },
-  modalCancel: { flex: 1, paddingVertical: 12, borderRadius: 8, backgroundColor: '#334155', alignItems: 'center' },
-  modalCancelText: { color: '#f1f5f9', fontWeight: '600' },
-  modalConfirm: { flex: 1, paddingVertical: 12, borderRadius: 8, backgroundColor: '#b91c1c', alignItems: 'center', borderWidth: 2, borderColor: '#fca5a5' },
+  modalCancel: { flex: 1, paddingVertical: 12, borderRadius: 8, backgroundColor: '#2A2A2A', alignItems: 'center' },
+  modalCancelText: { color: '#F0F0F0', fontWeight: '600' },
+  modalConfirm: { flex: 1, paddingVertical: 12, borderRadius: 8, backgroundColor: '#DC143C', alignItems: 'center', borderWidth: 2, borderColor: '#FF8080' },
   modalConfirmText: { color: '#fff', fontWeight: '900', fontSize: 15 },
 
   // Person picker modal
-  pickerBox: { borderColor: '#b91c1c', paddingHorizontal: 20, paddingVertical: 24, width: '100%' },
-  pickerSubtitle: { color: '#94a3b8', fontSize: 13, lineHeight: 18, marginBottom: 16 },
-  pickerDivider: { height: 1, backgroundColor: '#334155', marginVertical: 8 },
+  pickerBox: { borderColor: '#DC143C', paddingHorizontal: 20, paddingVertical: 24, width: '100%' },
+  pickerSubtitle: { color: '#888888', fontSize: 13, lineHeight: 18, marginBottom: 16 },
+  pickerDivider: { height: 1, backgroundColor: '#2A2A2A', marginVertical: 8 },
   pickerRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -519,9 +519,9 @@ const styles = StyleSheet.create({
   },
   pickerRowEmoji: { fontSize: 24, marginRight: 12 },
   pickerRowBody: { flex: 1 },
-  pickerRowName: { color: '#f1f5f9', fontSize: 15, fontWeight: '600' },
-  pickerRowSub: { color: '#64748b', fontSize: 12, marginTop: 2 },
-  pickerRowArrow: { color: '#475569', fontSize: 22, marginLeft: 8 },
+  pickerRowName: { color: '#F0F0F0', fontSize: 15, fontWeight: '600' },
+  pickerRowSub: { color: '#555555', fontSize: 12, marginTop: 2 },
+  pickerRowArrow: { color: '#444444', fontSize: 22, marginLeft: 8 },
 
   // Quick SOS on member row
   rowSosBtn: {

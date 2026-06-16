@@ -88,7 +88,7 @@ export default function WelcomeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0f172a',
+    backgroundColor: '#0A0A0A',
     justifyContent: 'space-between',
     paddingHorizontal: 24,
     paddingVertical: 32,
@@ -107,14 +107,14 @@ const styles = StyleSheet.create({
   logoAccent: {
     width: 80,
     height: 3,
-    backgroundColor: '#f97316',
+    backgroundColor: '#DC143C',
     borderRadius: 2,
     marginTop: 8,
     marginBottom: 16,
   },
   tagline: {
     fontSize: 16,
-    color: '#94a3b8',
+    color: '#888888',
     letterSpacing: 0.5,
     textAlign: 'center',
   },
@@ -123,7 +123,7 @@ const styles = StyleSheet.create({
     paddingBottom: 8,
   },
   primaryButton: {
-    backgroundColor: '#f97316',
+    backgroundColor: '#DC143C',
     borderRadius: 14,
     paddingVertical: 18,
     paddingHorizontal: 24,
@@ -145,15 +145,15 @@ const styles = StyleSheet.create({
   dividerLine: {
     flex: 1,
     height: 1,
-    backgroundColor: '#1e293b',
+    backgroundColor: '#2A2A2A',
   },
   dividerText: {
-    color: '#475569',
+    color: '#555555',
     fontSize: 13,
     marginHorizontal: 12,
   },
   secondaryButton: {
-    backgroundColor: '#1e293b',
+    backgroundColor: '#1C1C1C',
     borderRadius: 14,
     paddingVertical: 18,
     paddingHorizontal: 24,
@@ -161,7 +161,7 @@ const styles = StyleSheet.create({
     minHeight: 56,
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: '#2A2A2A',
   },
   secondaryButtonText: {
     color: '#FFFFFF',
@@ -179,11 +179,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   legalText: {
-    color: '#64748b',
+    color: '#888888',
     fontSize: 11,
   },
   legalLink: {
-    color: '#f97316',
+    color: '#DC143C',
     fontSize: 11,
     textDecorationLine: 'underline',
   },
