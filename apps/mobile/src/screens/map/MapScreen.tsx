@@ -174,7 +174,7 @@ export default function MapScreen({ groupId, accessToken, socketUrl }: Props) {
       {/* Floating search bar — centered top, clears connection badge */}
       <View style={[styles.searchWrapper, { top: topBase }]}>
         <DestinationSearch
-          isOnline={isConnected}
+          isOnline={true}
           onSelect={handleSearchSelect}
         />
       </View>

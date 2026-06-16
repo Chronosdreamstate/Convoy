@@ -20,6 +20,7 @@ import rallyRoutes from './rally/rally.routes';
 import drivesRoutes from './drives/drives.routes';
 import fuelRoutes from './fuel/fuel.routes';
 import accountRoutes from './account/account.routes';
+import placesRoutes from './places/places.routes';
 import socketioPlugin from './plugins/socketio';
 
 export async function buildApp(): Promise<FastifyInstance> {
@@ -100,6 +101,9 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   // Account management and data export
   await app.register(accountRoutes, { prefix: '/api/v1' });
+
+  // Places / geocoding (proxies OpenStreetMap Nominatim — no API key needed)
+  await app.register(placesRoutes, { prefix: '/api/v1' });
 
   // WebSocket server (socket.io, must be last so db/redis decorators are available)
   await app.register(socketioPlugin);
