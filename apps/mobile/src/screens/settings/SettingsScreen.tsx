@@ -47,6 +47,88 @@ const PTT_DURATIONS = [
   { label: '60 s', seconds: 60 },
 ];
 
+// ---------------------------------------------------------------------------
+// Section header
+// ---------------------------------------------------------------------------
+
+function SectionHeader({ title }: { title: string }) {
+  return <Text style={styles.sectionHeader}>{title}</Text>;
+}
+
+// ---------------------------------------------------------------------------
+// Row with icon + label + right control
+// ---------------------------------------------------------------------------
+
+interface SettingRowProps {
+  icon: string;
+  label: string;
+  subtitle?: string;
+  rightSlot?: React.ReactNode;
+  onPress?: () => void;
+  danger?: boolean;
+  last?: boolean;
+}
+
+function SettingRow({ icon, label, subtitle, rightSlot, onPress, danger, last }: SettingRowProps) {
+  const Inner = (
+    <View style={[styles.settingRow, last && styles.settingRowLast]}>
+      <View style={styles.settingIcon}>
+        <Text style={styles.settingIconText}>{icon}</Text>
+      </View>
+      <View style={styles.settingLabelGroup}>
+        <Text style={[styles.settingLabel, danger && styles.settingLabelDanger]}>{label}</Text>
+        {subtitle ? <Text style={styles.settingSubtitle}>{subtitle}</Text> : null}
+      </View>
+      <View style={styles.settingRight}>
+        {rightSlot ?? <Text style={styles.chevron}>›</Text>}
+      </View>
+    </View>
+  );
+
+  if (onPress) {
+    return (
+      <TouchableOpacity onPress={onPress} accessibilityRole="button" accessibilityLabel={label}>
+        {Inner}
+      </TouchableOpacity>
+    );
+  }
+  return Inner;
+}
+
+// ---------------------------------------------------------------------------
+// Chip selector
+// ---------------------------------------------------------------------------
+
+interface ChipRowProps<T extends string | number> {
+  options: Array<{ label: string; value: T }>;
+  selected: T;
+  onSelect: (val: T) => void;
+}
+
+function ChipSelector<T extends string | number>({ options, selected, onSelect }: ChipRowProps<T>) {
+  return (
+    <View style={styles.chipRow}>
+      {options.map((opt) => (
+        <TouchableOpacity
+          key={String(opt.value)}
+          style={[styles.chip, selected === opt.value && styles.chipActive]}
+          onPress={() => onSelect(opt.value)}
+          accessibilityRole="button"
+          accessibilityLabel={opt.label}
+        >
+          <Text style={[styles.chipText, selected === opt.value && styles.chipTextActive]}>
+            {opt.label}
+          </Text>
+        </TouchableOpacity>
+      ))}
+    </View>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main screen
+// ---------------------------------------------------------------------------
+
 export default function SettingsScreen() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -99,7 +181,6 @@ export default function SettingsScreen() {
 
   const handleSave = async () => {
     if (!isDirty) return;
-
     setIsSaving(true);
     setError(null);
     try {
@@ -124,13 +205,35 @@ export default function SettingsScreen() {
     }
   };
 
+  const handleExportData = () => {
+    Alert.alert('Export My Data', 'Your data export will be emailed to you within 24 hours.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Request Export', onPress: () => { /* TODO: call export API */ } },
+    ]);
+  };
+
+  const handleDeleteAccount = () => {
+    Alert.alert(
+      'Delete Account',
+      'This will permanently delete your account and all associated data. This cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete Account',
+          style: 'destructive',
+          onPress: () => { /* TODO: call delete account API */ },
+        },
+      ],
+    );
+  };
+
   const mark = () => setIsDirty(true);
 
   if (isLoading) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.centered}>
-          <ActivityIndicator color="#FF6B00" size="large" />
+          <ActivityIndicator color="#3b82f6" size="large" />
         </View>
       </SafeAreaView>
     );
@@ -146,143 +249,170 @@ export default function SettingsScreen() {
 
         {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
-        {/* Map */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Map</Text>
-
-          <Text style={styles.label}>Map Style</Text>
-          <View style={styles.chipRow}>
-            {MAP_STYLES.map((opt) => (
-              <TouchableOpacity
-                key={opt.value}
-                style={[styles.chip, mapStyle === opt.value && styles.chipActive]}
-                onPress={() => { setMapStyle(opt.value); mark(); }}
-                accessibilityRole="button"
-                accessibilityLabel={`Map style ${opt.label}`}
-              >
-                <Text style={[styles.chipText, mapStyle === opt.value && styles.chipTextActive]}>
-                  {opt.label}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
+        {/* ── ACCOUNT ─────────────────────────────────────────────────────── */}
+        <SectionHeader title="ACCOUNT" />
+        <View style={styles.sectionCard}>
+          <SettingRow
+            icon="👤"
+            label="Edit Profile"
+            onPress={() => { /* TODO: navigate to profile edit */ }}
+          />
+          <SettingRow
+            icon="📤"
+            label="Export My Data"
+            subtitle="Receive a copy of your data"
+            onPress={handleExportData}
+            last
+          />
         </View>
 
-        {/* Navigation */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Navigation</Text>
+        {/* ── NOTIFICATIONS ───────────────────────────────────────────────── */}
+        <SectionHeader title="NOTIFICATIONS" />
+        <View style={styles.sectionCard}>
+          <SettingRow
+            icon="⚠️"
+            label="Hazard Alerts"
+            subtitle="Nearby road hazard notifications"
+            rightSlot={
+              <Switch
+                value={notifHazard}
+                onValueChange={(v) => { setNotifHazard(v); mark(); }}
+                trackColor={{ false: '#334155', true: '#3b82f6' }}
+                thumbColor="#FFFFFF"
+                accessibilityLabel="Hazard notifications toggle"
+              />
+            }
+          />
+          <SettingRow
+            icon="👥"
+            label="Group Events"
+            subtitle="Route pushes, mutes, session changes"
+            rightSlot={
+              <Switch
+                value={notifGroupEvents}
+                onValueChange={(v) => { setNotifGroupEvents(v); mark(); }}
+                trackColor={{ false: '#334155', true: '#3b82f6' }}
+                thumbColor="#FFFFFF"
+                accessibilityLabel="Group events notifications toggle"
+              />
+            }
+          />
+          <SettingRow
+            icon="🤝"
+            label="Friend Requests"
+            subtitle="Incoming friend requests"
+            rightSlot={
+              <Switch
+                value={notifFriendRequests}
+                onValueChange={(v) => { setNotifFriendRequests(v); mark(); }}
+                trackColor={{ false: '#334155', true: '#3b82f6' }}
+                thumbColor="#FFFFFF"
+                accessibilityLabel="Friend requests notifications toggle"
+              />
+            }
+          />
+          <SettingRow
+            icon="🧭"
+            label="Navigation"
+            subtitle="Arriving at destination alerts"
+            rightSlot={
+              <Switch
+                value={notifNavigation}
+                onValueChange={(v) => { setNotifNavigation(v); mark(); }}
+                trackColor={{ false: '#334155', true: '#3b82f6' }}
+                thumbColor="#FFFFFF"
+                accessibilityLabel="Navigation notifications toggle"
+              />
+            }
+            last
+          />
+        </View>
 
-          <View style={styles.switchRow}>
-            <View style={styles.switchLabel}>
-              <Text style={styles.switchTitle}>Scenic Routing</Text>
-              <Text style={styles.switchSubtitle}>Prefer roads that avoid highways</Text>
-            </View>
-            <Switch
-              value={scenicRouting}
-              onValueChange={(v) => { setScenicRouting(v); mark(); }}
-              trackColor={{ false: '#333', true: '#FF6B00' }}
-              thumbColor="#FFFFFF"
-              accessibilityLabel="Scenic routing toggle"
+        {/* ── PRIVACY ─────────────────────────────────────────────────────── */}
+        <SectionHeader title="PRIVACY" />
+        <View style={styles.sectionCard}>
+          <SettingRow
+            icon="🗺"
+            label="Map Style"
+            subtitle={`Current: ${mapStyle.charAt(0).toUpperCase() + mapStyle.slice(1)}`}
+          />
+          <View style={styles.chipContainer}>
+            <ChipSelector
+              options={MAP_STYLES}
+              selected={mapStyle}
+              onSelect={(v) => { setMapStyle(v); mark(); }}
+            />
+          </View>
+
+          <SettingRow
+            icon="🌄"
+            label="Scenic Routing"
+            subtitle="Prefer roads that avoid highways"
+            rightSlot={
+              <Switch
+                value={scenicRouting}
+                onValueChange={(v) => { setScenicRouting(v); mark(); }}
+                trackColor={{ false: '#334155', true: '#3b82f6' }}
+                thumbColor="#FFFFFF"
+                accessibilityLabel="Scenic routing toggle"
+              />
+            }
+          />
+
+          <SettingRow
+            icon="⚠️"
+            label="Hazard Alert Distance"
+            subtitle={`Alert within ${(hazardDistM * MILES_PER_METRE).toFixed(2)} miles`}
+          />
+          <View style={styles.chipContainer}>
+            <ChipSelector
+              options={HAZARD_DISTANCES.map((d) => ({ label: d.label, value: d.metres }))}
+              selected={hazardDistM}
+              onSelect={(v) => { setHazardDistM(v); mark(); }}
+            />
+          </View>
+
+          <SettingRow
+            icon="🎙"
+            label="PTT Max Duration"
+            subtitle={`${pttMaxSecs} seconds`}
+          />
+          <View style={styles.chipContainer}>
+            <ChipSelector
+              options={PTT_DURATIONS.map((d) => ({ label: d.label, value: d.seconds }))}
+              selected={pttMaxSecs}
+              onSelect={(v) => { setPttMaxSecs(v); mark(); }}
+            />
+          </View>
+
+          <SettingRow
+            icon="💾"
+            label="Map Cache Size"
+            subtitle={`${cacheMb} MB`}
+          />
+          <View style={styles.chipContainer}>
+            <ChipSelector
+              options={CACHE_SIZES.map((c) => ({ label: c.label, value: c.mb }))}
+              selected={cacheMb}
+              onSelect={(v) => { setCacheMb(v); mark(); }}
             />
           </View>
         </View>
 
-        {/* Audio */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Audio</Text>
-
-          <Text style={styles.label}>PTT Max Duration</Text>
-          <View style={styles.chipRow}>
-            {PTT_DURATIONS.map((opt) => (
-              <TouchableOpacity
-                key={opt.seconds}
-                style={[styles.chip, pttMaxSecs === opt.seconds && styles.chipActive]}
-                onPress={() => { setPttMaxSecs(opt.seconds); mark(); }}
-                accessibilityRole="button"
-                accessibilityLabel={`PTT max ${opt.label}`}
-              >
-                <Text style={[styles.chipText, pttMaxSecs === opt.seconds && styles.chipTextActive]}>
-                  {opt.label}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
+        {/* ── DANGER ZONE ─────────────────────────────────────────────────── */}
+        <SectionHeader title="DANGER ZONE" />
+        <View style={styles.sectionCard}>
+          <SettingRow
+            icon="🗑"
+            label="Delete Account"
+            subtitle="Permanently remove your account and data"
+            onPress={handleDeleteAccount}
+            danger
+            last
+          />
         </View>
 
-        {/* Offline */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Offline</Text>
-
-          <Text style={styles.label}>Map Cache Size</Text>
-          <View style={styles.chipRow}>
-            {CACHE_SIZES.map((opt) => (
-              <TouchableOpacity
-                key={opt.mb}
-                style={[styles.chip, cacheMb === opt.mb && styles.chipActive]}
-                onPress={() => { setCacheMb(opt.mb); mark(); }}
-                accessibilityRole="button"
-                accessibilityLabel={`Cache size ${opt.label}`}
-              >
-                <Text style={[styles.chipText, cacheMb === opt.mb && styles.chipTextActive]}>
-                  {opt.label}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-
-        {/* Notifications */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Notifications</Text>
-
-          {[
-            { label: 'Hazard Alerts', sub: 'Nearby road hazard notifications', value: notifHazard, onChange: (v: boolean) => { setNotifHazard(v); mark(); } },
-            { label: 'Group Events', sub: 'Route pushes, mutes, session changes', value: notifGroupEvents, onChange: (v: boolean) => { setNotifGroupEvents(v); mark(); } },
-            { label: 'Friend Requests', sub: 'Incoming friend requests', value: notifFriendRequests, onChange: (v: boolean) => { setNotifFriendRequests(v); mark(); } },
-            { label: 'Navigation', sub: 'Arriving at destination alerts', value: notifNavigation, onChange: (v: boolean) => { setNotifNavigation(v); mark(); } },
-          ].map((item) => (
-            <View key={item.label} style={styles.switchRow}>
-              <View style={styles.switchLabel}>
-                <Text style={styles.switchTitle}>{item.label}</Text>
-                <Text style={styles.switchSubtitle}>{item.sub}</Text>
-              </View>
-              <Switch
-                value={item.value}
-                onValueChange={item.onChange}
-                trackColor={{ false: '#333', true: '#FF6B00' }}
-                thumbColor="#FFFFFF"
-                accessibilityLabel={`${item.label} notifications toggle`}
-              />
-            </View>
-          ))}
-        </View>
-
-        {/* Hazard Alert Distance */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Safety</Text>
-
-          <Text style={styles.label}>Hazard Alert Distance</Text>
-          <Text style={styles.sublabel}>
-            Alert me when a hazard is within{' '}
-            {(hazardDistM * MILES_PER_METRE).toFixed(2)} miles
-          </Text>
-          <View style={styles.chipRow}>
-            {HAZARD_DISTANCES.map((opt) => (
-              <TouchableOpacity
-                key={opt.metres}
-                style={[styles.chip, hazardDistM === opt.metres && styles.chipActive]}
-                onPress={() => { setHazardDistM(opt.metres); mark(); }}
-                accessibilityRole="button"
-                accessibilityLabel={`Hazard alert distance ${opt.label}`}
-              >
-                <Text style={[styles.chipText, hazardDistM === opt.metres && styles.chipTextActive]}>
-                  {opt.label}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-
+        {/* Save button */}
         <TouchableOpacity
           style={[styles.saveButton, (!isDirty || isSaving) && styles.saveButtonDisabled]}
           onPress={handleSave}
@@ -304,7 +434,7 @@ export default function SettingsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0A0A0A',
+    backgroundColor: '#0f172a',
   },
   centered: {
     flex: 1,
@@ -312,36 +442,99 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   scroll: {
-    paddingHorizontal: 24,
+    paddingHorizontal: 20,
     paddingTop: 24,
     paddingBottom: 48,
   },
   title: {
     fontSize: 28,
     fontWeight: '700',
-    color: '#FFFFFF',
+    color: '#f1f5f9',
     marginBottom: 24,
   },
-  section: {
-    marginBottom: 32,
+  errorText: {
+    color: '#ef4444',
+    fontSize: 13,
+    marginBottom: 16,
   },
-  sectionTitle: {
+
+  // Section header
+  sectionHeader: {
     fontSize: 11,
     fontWeight: '700',
-    color: '#888',
-    textTransform: 'uppercase',
+    color: '#475569',
     letterSpacing: 1.5,
-    marginBottom: 12,
-  },
-  label: {
-    fontSize: 13,
-    color: '#AAAAAA',
+    textTransform: 'uppercase',
     marginBottom: 8,
+    marginTop: 8,
+    paddingHorizontal: 4,
   },
-  sublabel: {
+
+  // Section card wrapping rows
+  sectionCard: {
+    backgroundColor: '#1e293b',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#334155',
+    marginBottom: 24,
+    overflow: 'hidden',
+  },
+
+  // Setting row
+  settingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#334155',
+    minHeight: 56,
+  },
+  settingRowLast: {
+    borderBottomWidth: 0,
+  },
+  settingIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    backgroundColor: '#0f172a',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+    flexShrink: 0,
+  },
+  settingIconText: { fontSize: 16 },
+  settingLabelGroup: { flex: 1, paddingRight: 8 },
+  settingLabel: {
+    fontSize: 15,
+    color: '#f1f5f9',
+    fontWeight: '500',
+  },
+  settingLabelDanger: {
+    color: '#ef4444',
+  },
+  settingSubtitle: {
     fontSize: 12,
-    color: '#666',
-    marginBottom: 8,
+    color: '#64748b',
+    marginTop: 2,
+  },
+  settingRight: {
+    flexShrink: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 44,
+    minHeight: 44,
+  },
+  chevron: {
+    color: '#475569',
+    fontSize: 20,
+    fontWeight: '300',
+  },
+
+  // Chip selector (inside a section card, below its row)
+  chipContainer: {
+    paddingHorizontal: 16,
+    paddingBottom: 14,
   },
   chipRow: {
     flexDirection: 'row',
@@ -349,60 +542,38 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   chip: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
     borderRadius: 20,
-    backgroundColor: '#1A1A1A',
+    backgroundColor: '#0f172a',
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: '#334155',
     minWidth: 44,
     alignItems: 'center',
   },
   chipActive: {
-    backgroundColor: '#FF6B00',
-    borderColor: '#FF6B00',
+    backgroundColor: '#3b82f6',
+    borderColor: '#3b82f6',
   },
   chipText: {
-    color: '#AAAAAA',
-    fontSize: 14,
+    color: '#94a3b8',
+    fontSize: 13,
     fontWeight: '500',
   },
   chipTextActive: {
     color: '#FFFFFF',
     fontWeight: '700',
   },
-  switchRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#1A1A1A',
-  },
-  switchLabel: {
-    flex: 1,
-    paddingRight: 16,
-  },
-  switchTitle: {
-    fontSize: 15,
-    color: '#FFFFFF',
-    fontWeight: '500',
-  },
-  switchSubtitle: {
-    fontSize: 12,
-    color: '#888',
-    marginTop: 2,
-  },
-  errorText: {
-    color: '#FF4444',
-    fontSize: 13,
-    marginBottom: 16,
-  },
+
+  // Save button
   saveButton: {
-    backgroundColor: '#FF6B00',
-    borderRadius: 12,
+    backgroundColor: '#3b82f6',
+    borderRadius: 14,
     paddingVertical: 16,
     alignItems: 'center',
     marginTop: 8,
+    minHeight: 52,
+    justifyContent: 'center',
   },
   saveButtonDisabled: {
     opacity: 0.4,

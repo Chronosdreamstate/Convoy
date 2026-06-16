@@ -51,7 +51,13 @@ function formatDuration(s: number): string {
 
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString(undefined, {
-    month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit',
+    month: 'short', day: 'numeric', year: 'numeric',
+  });
+}
+
+function formatTime(iso: string): string {
+  return new Date(iso).toLocaleTimeString(undefined, {
+    hour: '2-digit', minute: '2-digit',
   });
 }
 
@@ -59,11 +65,24 @@ function formatDate(iso: string): string {
 // Stat tile
 // ---------------------------------------------------------------------------
 
-function Stat({ label, value }: { label: string; value: string }) {
+function Stat({ icon, label, value }: { icon: string; label: string; value: string }) {
   return (
     <View style={styles.statBox}>
+      <Text style={styles.statIcon}>{icon}</Text>
       <Text style={styles.statValue}>{value}</Text>
       <Text style={styles.statLabel}>{label}</Text>
+    </View>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Map thumbnail placeholder
+// ---------------------------------------------------------------------------
+
+function MapThumb() {
+  return (
+    <View style={styles.mapThumb}>
+      <Text style={styles.mapThumbIcon}>🗺</Text>
     </View>
   );
 }
@@ -82,24 +101,32 @@ interface DetailProps {
 function DriveDetail({ drive, onBack, onShare, sharing }: DetailProps) {
   return (
     <View style={styles.detail}>
-      <TouchableOpacity style={styles.backBtn} onPress={onBack}>
-        <Text style={styles.backText}>Back</Text>
+      <TouchableOpacity style={styles.backBtn} onPress={onBack} accessibilityLabel="Go back">
+        <Text style={styles.backText}>← Back</Text>
       </TouchableOpacity>
 
       <Text style={styles.detailTitle}>Drive Summary</Text>
-      <Text style={styles.detailDate}>{formatDate(drive.endedAt)}</Text>
+      <Text style={styles.detailDate}>
+        {formatDate(drive.endedAt)} · {formatTime(drive.endedAt)}
+      </Text>
 
+      {/* Large map placeholder */}
       <View style={styles.mapPlaceholder}>
+        <Text style={styles.mapPlaceholderIcon}>🗺</Text>
         <Text style={styles.mapPlaceholderText}>Route map</Text>
       </View>
 
+      {/* 2×2 stats grid */}
       <View style={styles.statsGrid}>
-        <Stat label="Distance" value={formatDistance(drive.distanceM)} />
-        <Stat label="Duration" value={formatDuration(drive.durationS)} />
-        <Stat label="Avg Speed" value={drive.avgSpeedKph ? `${drive.avgSpeedKph.toFixed(0)} km/h` : '—'} />
-        <Stat label="Top Speed" value={drive.topSpeedKph ? `${drive.topSpeedKph.toFixed(0)} km/h` : '—'} />
-        <Stat label="Members" value={String(drive.memberCount)} />
+        <Stat icon="📍" label="Distance" value={formatDistance(drive.distanceM)} />
+        <Stat icon="⏱" label="Duration" value={formatDuration(drive.durationS)} />
+        <Stat icon="💨" label="Avg Speed" value={drive.avgSpeedKph ? `${drive.avgSpeedKph.toFixed(0)} km/h` : '—'} />
+        <Stat icon="🏎" label="Top Speed" value={drive.topSpeedKph ? `${drive.topSpeedKph.toFixed(0)} km/h` : '—'} />
       </View>
+
+      {drive.memberCount > 0 && (
+        <Text style={styles.detailMembers}>👥 {drive.memberCount} member{drive.memberCount !== 1 ? 's' : ''}</Text>
+      )}
 
       <TouchableOpacity
         style={[styles.shareBtn, sharing && styles.shareBtnDisabled]}
@@ -189,45 +216,78 @@ export default function DriveHistoryScreen() {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.screenTitle}>Drive History</Text>
+      <View style={styles.screenHeader}>
+        <Text style={styles.screenTitle}>Drive History</Text>
+        <Text style={styles.screenSubtitle}>{drives.length} drive{drives.length !== 1 ? 's' : ''}</Text>
+      </View>
+
       <FlatList
         data={drives}
         keyExtractor={(d) => d.id}
-        contentContainerStyle={styles.list}
+        contentContainerStyle={drives.length === 0 ? styles.listEmpty : styles.list}
         onEndReached={loadMore}
         onEndReachedThreshold={0.3}
         ListEmptyComponent={
-          <Text style={styles.emptyText}>
-            No drives yet — start a convoy to record your first drive!
-          </Text>
+          <View style={styles.emptyState}>
+            <Text style={styles.emptyEmoji}>🚗</Text>
+            <Text style={styles.emptyTitle}>No drives yet</Text>
+            <Text style={styles.emptySubtitle}>
+              Start your first convoy to record a drive!
+            </Text>
+          </View>
         }
         renderItem={({ item: drive }) => (
           <TouchableOpacity
             style={styles.driveCard}
             onPress={() => setSelected(drive)}
+            accessibilityLabel={`Drive on ${formatDate(drive.endedAt)}, ${formatDistance(drive.distanceM)}`}
           >
-            <View style={styles.driveHeader}>
-              <Text style={styles.driveDate}>{formatDate(drive.endedAt)}</Text>
-              <TouchableOpacity
-                style={styles.shareIcon}
-                onPress={() => void handleShare(drive.id)}
-                disabled={sharingId === drive.id}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              >
-                {sharingId === drive.id
-                  ? <ActivityIndicator color="#fff" size="small" />
-                  : <Text style={styles.shareIconText}>share</Text>
-                }
-              </TouchableOpacity>
-            </View>
-            <View style={styles.chipRow}>
-              <Text style={styles.chip}>{formatDistance(drive.distanceM)}</Text>
-              <Text style={styles.chip}>{formatDuration(drive.durationS)}</Text>
-              {drive.avgSpeedKph != null && (
-                <Text style={styles.chip}>{drive.avgSpeedKph.toFixed(0)} km/h avg</Text>
+            {/* Left: map thumbnail */}
+            <MapThumb />
+
+            {/* Right: info */}
+            <View style={styles.driveCardContent}>
+              <View style={styles.driveHeader}>
+                <Text style={styles.driveDate}>{formatDate(drive.endedAt)}</Text>
+                <Text style={styles.driveTime}>{formatTime(drive.endedAt)}</Text>
+              </View>
+
+              {/* Stats row */}
+              <View style={styles.driveStatsRow}>
+                <View style={styles.driveStat}>
+                  <Text style={styles.driveStatIcon}>📍</Text>
+                  <Text style={styles.driveStatValue}>{formatDistance(drive.distanceM)}</Text>
+                </View>
+                <View style={styles.driveStat}>
+                  <Text style={styles.driveStatIcon}>⏱</Text>
+                  <Text style={styles.driveStatValue}>{formatDuration(drive.durationS)}</Text>
+                </View>
+                {drive.avgSpeedKph != null && (
+                  <View style={styles.driveStat}>
+                    <Text style={styles.driveStatIcon}>💨</Text>
+                    <Text style={styles.driveStatValue}>{drive.avgSpeedKph.toFixed(0)} km/h</Text>
+                  </View>
+                )}
+              </View>
+
+              {drive.memberCount > 1 && (
+                <Text style={styles.driveMembers}>👥 {drive.memberCount} members</Text>
               )}
-              <Text style={styles.chip}>{drive.memberCount} members</Text>
             </View>
+
+            {/* Share button */}
+            <TouchableOpacity
+              style={styles.shareIcon}
+              onPress={() => void handleShare(drive.id)}
+              disabled={sharingId === drive.id}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              accessibilityLabel="Share drive"
+            >
+              {sharingId === drive.id
+                ? <ActivityIndicator color="#fff" size="small" />
+                : <Text style={styles.shareIconText}>↑</Text>
+              }
+            </TouchableOpacity>
           </TouchableOpacity>
         )}
       />
@@ -242,54 +302,125 @@ export default function DriveHistoryScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0f172a' },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#0f172a' },
-  screenTitle: { color: '#f1f5f9', fontSize: 22, fontWeight: '700', padding: 16, paddingBottom: 8 },
-  list: { paddingHorizontal: 16, paddingBottom: 20 },
-  emptyText: { color: '#64748b', textAlign: 'center', marginTop: 48, fontSize: 14, lineHeight: 22 },
 
+  screenHeader: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 8,
+  },
+  screenTitle: { color: '#f1f5f9', fontSize: 24, fontWeight: '700' },
+  screenSubtitle: { color: '#64748b', fontSize: 13 },
+
+  list: { paddingHorizontal: 16, paddingBottom: 20 },
+  listEmpty: { flex: 1, paddingHorizontal: 16 },
+
+  // Empty state
+  emptyState: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 80 },
+  emptyEmoji: { fontSize: 72, marginBottom: 16 },
+  emptyTitle: { color: '#f1f5f9', fontSize: 20, fontWeight: '700', marginBottom: 8 },
+  emptySubtitle: { color: '#64748b', fontSize: 14, textAlign: 'center', lineHeight: 22 },
+
+  // Drive card
   driveCard: {
-    backgroundColor: '#1e293b', borderRadius: 12, padding: 14,
-    marginBottom: 10, borderWidth: 1, borderColor: '#334155',
+    backgroundColor: '#1e293b',
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#334155',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    minHeight: 80,
   },
+  mapThumb: {
+    width: 56,
+    height: 56,
+    borderRadius: 10,
+    backgroundColor: '#0f172a',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#334155',
+    flexShrink: 0,
+  },
+  mapThumbIcon: { fontSize: 24 },
+
+  driveCardContent: { flex: 1 },
   driveHeader: {
-    flexDirection: 'row', justifyContent: 'space-between',
-    alignItems: 'center', marginBottom: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 6,
   },
-  driveDate: { color: '#cbd5e1', fontSize: 14, fontWeight: '600' },
+  driveDate: { color: '#e2e8f0', fontSize: 14, fontWeight: '700' },
+  driveTime: { color: '#64748b', fontSize: 12 },
+
+  driveStatsRow: { flexDirection: 'row', gap: 12, flexWrap: 'wrap' },
+  driveStat: { flexDirection: 'row', alignItems: 'center', gap: 3 },
+  driveStatIcon: { fontSize: 11 },
+  driveStatValue: { color: '#94a3b8', fontSize: 12, fontWeight: '500' },
+  driveMembers: { color: '#64748b', fontSize: 12, marginTop: 4 },
+
   shareIcon: {
-    minWidth: 44, minHeight: 44, borderRadius: 8,
-    backgroundColor: '#3b82f6', paddingHorizontal: 10,
-    alignItems: 'center', justifyContent: 'center',
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+    backgroundColor: '#3b82f6',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
   },
-  shareIconText: { color: '#fff', fontSize: 12, fontWeight: '700' },
-  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  chip: {
-    backgroundColor: '#334155', color: '#94a3b8',
-    paddingHorizontal: 8, paddingVertical: 3,
-    borderRadius: 6, fontSize: 12,
-  },
+  shareIconText: { color: '#fff', fontSize: 16, fontWeight: '700' },
 
   // Detail
   detail: { flex: 1, backgroundColor: '#0f172a', padding: 16 },
   backBtn: { marginBottom: 16, minHeight: 44, justifyContent: 'center' },
-  backText: { color: '#3b82f6', fontSize: 16 },
-  detailTitle: { color: '#f1f5f9', fontSize: 22, fontWeight: '700', marginBottom: 4 },
+  backText: { color: '#3b82f6', fontSize: 16, fontWeight: '600' },
+  detailTitle: { color: '#f1f5f9', fontSize: 24, fontWeight: '700', marginBottom: 4 },
   detailDate: { color: '#64748b', fontSize: 13, marginBottom: 16 },
+  detailMembers: { color: '#94a3b8', fontSize: 14, marginBottom: 20 },
   mapPlaceholder: {
-    height: 180, backgroundColor: '#1e293b', borderRadius: 12,
-    alignItems: 'center', justifyContent: 'center', marginBottom: 16,
-    borderWidth: 1, borderColor: '#334155',
+    height: 180,
+    backgroundColor: '#1e293b',
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#334155',
+    gap: 8,
   },
-  mapPlaceholderText: { color: '#64748b', fontSize: 14 },
-  statsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginBottom: 24 },
+  mapPlaceholderIcon: { fontSize: 40 },
+  mapPlaceholderText: { color: '#64748b', fontSize: 13 },
+  statsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+    marginBottom: 20,
+  },
   statBox: {
-    flex: 1, minWidth: '40%', backgroundColor: '#1e293b', borderRadius: 10,
-    padding: 14, alignItems: 'center', borderWidth: 1, borderColor: '#334155',
+    flex: 1,
+    minWidth: '42%',
+    backgroundColor: '#1e293b',
+    borderRadius: 12,
+    padding: 16,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#334155',
   },
+  statIcon: { fontSize: 22, marginBottom: 6 },
   statValue: { color: '#f1f5f9', fontSize: 20, fontWeight: '700', marginBottom: 4 },
   statLabel: { color: '#64748b', fontSize: 12 },
   shareBtn: {
-    backgroundColor: '#3b82f6', paddingVertical: 14,
-    borderRadius: 12, alignItems: 'center', minHeight: 44,
+    backgroundColor: '#3b82f6',
+    paddingVertical: 16,
+    borderRadius: 14,
+    alignItems: 'center',
+    minHeight: 52,
   },
   shareBtnDisabled: { opacity: 0.6 },
   shareBtnText: { color: '#fff', fontWeight: '700', fontSize: 16 },

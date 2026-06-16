@@ -25,54 +25,40 @@ export default function WelcomeScreen() {
     <SafeAreaView style={styles.container}>
       <View style={styles.heroSection}>
         <Text style={styles.appName}>CONVOY</Text>
-        <Text style={styles.tagline}>Drive together</Text>
+        {/* Orange underline accent */}
+        <View style={styles.logoAccent} />
+        <Text style={styles.tagline}>Drive together. Stay connected.</Text>
       </View>
 
       <View style={styles.buttonSection}>
         {/* Phone auth */}
         <TouchableOpacity
           style={styles.primaryButton}
-          onPress={() => router.push('/auth/phone')}
+          onPress={() => router.push('/phone')}
           accessibilityRole="button"
           accessibilityLabel="Sign in with Phone"
         >
-          <Text style={styles.primaryButtonText}>Sign in with Phone</Text>
+          <Text style={styles.primaryButtonText}>📱  Sign in with Phone</Text>
         </TouchableOpacity>
 
-        {/* Email auth */}
+        {/* Divider */}
+        <View style={styles.dividerRow}>
+          <View style={styles.dividerLine} />
+          <Text style={styles.dividerText}>or</Text>
+          <View style={styles.dividerLine} />
+        </View>
+
         <TouchableOpacity
           style={styles.secondaryButton}
-          onPress={() => router.push('/auth/email')}
+          onPress={() => router.push('/email')}
           accessibilityRole="button"
           accessibilityLabel="Sign in with Email"
         >
-          <Text style={styles.secondaryButtonText}>Sign in with Email</Text>
-        </TouchableOpacity>
-
-        {/* Sign in with Apple — always shown when other auth options are present (Req 36.1) */}
-        <TouchableOpacity
-          style={[styles.secondaryButton, styles.appleButton]}
-          onPress={() => router.push('/auth/apple')}
-          accessibilityRole="button"
-          accessibilityLabel="Sign in with Apple"
-        >
-          <Text style={[styles.secondaryButtonText, styles.appleButtonText]}>
-            {'\u{F8FF}'} Sign in with Apple
-          </Text>
-        </TouchableOpacity>
-
-        {/* Sign in with Google */}
-        <TouchableOpacity
-          style={styles.secondaryButton}
-          onPress={() => router.push('/auth/google')}
-          accessibilityRole="button"
-          accessibilityLabel="Sign in with Google"
-        >
-          <Text style={styles.secondaryButtonText}>Sign in with Google</Text>
+          <Text style={styles.secondaryButtonText}>✉️  Sign in with Email</Text>
         </TouchableOpacity>
       </View>
 
-      {/* Privacy Policy and Terms of Service links (Req 36.2) */}
+      {/* Privacy Policy and Terms of Service links */}
       <View style={styles.legalSection}>
         <Text style={styles.legalText}>By continuing, you agree to our </Text>
         <View style={styles.legalLinks}>
@@ -80,6 +66,7 @@ export default function WelcomeScreen() {
             onPress={() => handleOpenUrl(TERMS_URL)}
             accessibilityRole="link"
             accessibilityLabel="Terms of Service"
+            hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
           >
             <Text style={styles.legalLink}>Terms of Service</Text>
           </TouchableOpacity>
@@ -88,6 +75,7 @@ export default function WelcomeScreen() {
             onPress={() => handleOpenUrl(PRIVACY_POLICY_URL)}
             accessibilityRole="link"
             accessibilityLabel="Privacy Policy"
+            hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
           >
             <Text style={styles.legalLink}>Privacy Policy</Text>
           </TouchableOpacity>
@@ -100,7 +88,7 @@ export default function WelcomeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0A0A0A',
+    backgroundColor: '#0f172a',
     justifyContent: 'space-between',
     paddingHorizontal: 24,
     paddingVertical: 32,
@@ -111,50 +99,75 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   appName: {
-    fontSize: 56,
+    fontSize: 72,
     fontWeight: '900',
     color: '#FFFFFF',
-    letterSpacing: 8,
+    letterSpacing: 10,
+  },
+  logoAccent: {
+    width: 80,
+    height: 3,
+    backgroundColor: '#f97316',
+    borderRadius: 2,
+    marginTop: 8,
+    marginBottom: 16,
   },
   tagline: {
     fontSize: 16,
-    color: '#888888',
-    marginTop: 8,
-    letterSpacing: 2,
-    textTransform: 'uppercase',
+    color: '#94a3b8',
+    letterSpacing: 0.5,
+    textAlign: 'center',
   },
   buttonSection: {
-    gap: 12,
+    gap: 0,
+    paddingBottom: 8,
   },
   primaryButton: {
-    backgroundColor: '#FF6B00',
-    borderRadius: 12,
-    paddingVertical: 16,
+    backgroundColor: '#f97316',
+    borderRadius: 14,
+    paddingVertical: 18,
+    paddingHorizontal: 24,
     alignItems: 'center',
+    minHeight: 56,
+    justifyContent: 'center',
   },
   primaryButtonText: {
     color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '700',
+    letterSpacing: 0.3,
+  },
+  dividerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 14,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: '#1e293b',
+  },
+  dividerText: {
+    color: '#475569',
+    fontSize: 13,
+    marginHorizontal: 12,
   },
   secondaryButton: {
-    backgroundColor: '#1A1A1A',
-    borderRadius: 12,
-    paddingVertical: 16,
+    backgroundColor: '#1e293b',
+    borderRadius: 14,
+    paddingVertical: 18,
+    paddingHorizontal: 24,
     alignItems: 'center',
+    minHeight: 56,
+    justifyContent: 'center',
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: '#334155',
   },
   secondaryButtonText: {
     color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '600',
-  },
-  appleButton: {
-    backgroundColor: '#FFFFFF',
-  },
-  appleButtonText: {
-    color: '#000000',
+    letterSpacing: 0.3,
   },
   legalSection: {
     alignItems: 'center',
@@ -166,12 +179,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   legalText: {
-    color: '#666666',
-    fontSize: 13,
+    color: '#64748b',
+    fontSize: 11,
   },
   legalLink: {
-    color: '#FF6B00',
-    fontSize: 13,
+    color: '#f97316',
+    fontSize: 11,
     textDecorationLine: 'underline',
   },
 });

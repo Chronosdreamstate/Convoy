@@ -43,7 +43,7 @@ export default function OtpScreen() {
       setUser(result.user);
       setAccessToken(result.accessToken);
       // Navigate to the main app
-      router.replace('/');
+      router.replace('/(tabs)/map');
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Verification failed. Please try again.';
       setError(message);

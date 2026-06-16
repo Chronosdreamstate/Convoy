@@ -46,7 +46,7 @@ export default function EmailScreen() {
 
       setUser(result.user);
       setAccessToken(result.accessToken);
-      router.replace('/');
+      router.replace('/(tabs)/map');
     } catch (err) {
       const message =
         err instanceof Error

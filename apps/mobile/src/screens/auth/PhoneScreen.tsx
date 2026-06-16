@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
+  Alert,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { authService } from '../../services/AuthService';
@@ -30,8 +31,14 @@ export default function PhoneScreen() {
     setIsLoading(true);
 
     try {
-      await authService.requestOtp(trimmed);
-      router.push({ pathname: '/auth/otp', params: { phone: trimmed } });
+      const { devOtp } = await authService.requestOtp(trimmed);
+      if (devOtp) {
+        Alert.alert('Dev Mode — Your OTP', `Code: ${devOtp}`, [
+          { text: 'OK', onPress: () => router.push({ pathname: '/otp', params: { phone: trimmed } }) },
+        ]);
+      } else {
+        router.push({ pathname: '/otp', params: { phone: trimmed } });
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to send OTP. Please try again.';
       setError(message);

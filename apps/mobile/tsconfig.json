@@ -8,14 +8,29 @@
     "jsx": "react-native",
     "baseUrl": ".",
     "paths": {
-      "@convoy/mobile/*": ["src/*"]
+      "@convoy/mobile/*": [
+        "src/*"
+      ]
     },
-    "lib": ["ESNext"],
+    "lib": [
+      "ESNext"
+    ],
     "skipLibCheck": true,
     "resolveJsonModule": true,
     "allowSyntheticDefaultImports": true,
     "esModuleInterop": true
   },
-  "include": ["src/**/*", "*.ts", "*.tsx", "index.js"],
-  "exclude": ["node_modules", "dist", "build"]
+  "include": [
+    "src/**/*",
+    "*.ts",
+    "*.tsx",
+    "index.js",
+    ".expo/types/**/*.ts",
+    "expo-env.d.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "build"
+  ]
 }

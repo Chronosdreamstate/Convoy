@@ -44,8 +44,9 @@ async function rawPost<T>(url: string, body: Record<string, unknown>): Promise<T
 }
 
 export class AuthService {
-  async requestOtp(phone: string): Promise<void> {
-    await rawPost<void>('/api/v1/auth/otp/request', { phone });
+  async requestOtp(phone: string): Promise<{ devOtp?: string }> {
+    const res = await rawPost<{ message: string; _dev_otp?: string }>('/api/v1/auth/otp/request', { phone });
+    return { devOtp: res._dev_otp };
   }
 
   async verifyOtp(phone: string, otp: string): Promise<AuthResult> {

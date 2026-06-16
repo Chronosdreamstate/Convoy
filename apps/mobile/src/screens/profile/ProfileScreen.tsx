@@ -1,17 +1,22 @@
 import React, { useEffect, useState } from 'react';
 import {
-  View,
+  ActivityIndicator,
+  Alert,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
-  StyleSheet,
-  SafeAreaView,
-  ScrollView,
-  ActivityIndicator,
-  Switch,
-  Alert,
+  View,
 } from 'react-native';
+import { useRouter } from 'expo-router';
 import { apiClient } from '../../services/apiClient';
+import { useAuthStore } from '../../stores/authStore';
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
 
 interface Profile {
   id: string;
@@ -23,32 +28,56 @@ interface Profile {
   privacy: 'open' | 'invite_only';
 }
 
+// ---------------------------------------------------------------------------
+// Avatar with initials fallback
+// ---------------------------------------------------------------------------
+
+function initials(name: string): string {
+  return name
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((w) => w[0]?.toUpperCase() ?? '')
+    .join('');
+}
+
+function AvatarCircle({ name }: { name: string }) {
+  return (
+    <View style={styles.avatarCircle}>
+      <Text style={styles.avatarInitials}>{initials(name)}</Text>
+    </View>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Screen
+// ---------------------------------------------------------------------------
+
 export default function ProfileScreen() {
+  const router = useRouter();
+  const signOut = useAuthStore((s) => s.signOut);
+
   const [profile, setProfile] = useState<Profile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Editable fields
+  // Inline-edit state
   const [displayName, setDisplayName] = useState('');
-  const [pttCallsign, setPttCallsign] = useState('');
-  const [privacy, setPrivacy] = useState<'open' | 'invite_only'>('open');
   const [isDirty, setIsDirty] = useState(false);
 
   useEffect(() => {
-    loadProfile();
+    void loadProfile();
   }, []);
 
   const loadProfile = async () => {
     setIsLoading(true);
     setError(null);
     try {
-      const response = await apiClient.get<Profile>('/api/v1/users/me');
-      const p = response.data;
+      const res = await apiClient.get<Profile>('/api/v1/users/me');
+      const p = res.data;
       setProfile(p);
       setDisplayName(p.displayName);
-      setPttCallsign(p.pttCallsign ?? '');
-      setPrivacy(p.privacy);
       setIsDirty(false);
     } catch {
       setError('Failed to load profile. Please try again.');
@@ -57,34 +86,46 @@ export default function ProfileScreen() {
     }
   };
 
-  const handleSave = async () => {
-    if (!isDirty) return;
+  const handleSaveName = async () => {
+    const trimmed = displayName.trim();
+    if (!trimmed || !isDirty) return;
 
     setIsSaving(true);
     setError(null);
     try {
-      const response = await apiClient.patch<Profile>('/api/v1/users/me', {
-        displayName: displayName.trim() || undefined,
-        pttCallsign: pttCallsign.trim() || null,
-        privacy,
+      const res = await apiClient.patch<Profile>('/api/v1/users/me', {
+        displayName: trimmed,
       });
-      setProfile(response.data);
+      setProfile(res.data);
+      setDisplayName(res.data.displayName);
       setIsDirty(false);
-      Alert.alert('Saved', 'Your profile has been updated.');
     } catch {
-      setError('Failed to save profile. Please try again.');
+      setError('Failed to update display name.');
     } finally {
       setIsSaving(false);
     }
   };
 
-  const markDirty = () => setIsDirty(true);
+  const handleSignOut = () => {
+    Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Sign Out',
+        style: 'destructive',
+        onPress: () => {
+          signOut();
+          router.replace('/(auth)/welcome');
+        },
+      },
+    ]);
+  };
 
+  // Loading state
   if (isLoading) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.centered}>
-          <ActivityIndicator color="#FF6B00" size="large" />
+          <ActivityIndicator color="#3b82f6" size="large" />
         </View>
       </SafeAreaView>
     );
@@ -97,190 +138,228 @@ export default function ProfileScreen() {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        <Text style={styles.title}>Profile</Text>
+        {/* Page title */}
+        <Text style={styles.pageTitle}>Profile</Text>
 
         {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Identity</Text>
+        {/* Avatar + name */}
+        <View style={styles.avatarSection}>
+          <AvatarCircle name={displayName || profile?.displayName || '?'} />
+          {profile?.email ? (
+            <Text style={styles.accountMeta}>{profile.email}</Text>
+          ) : profile?.phoneNumber ? (
+            <Text style={styles.accountMeta}>{profile.phoneNumber}</Text>
+          ) : null}
+        </View>
 
-          <Text style={styles.label}>Display Name</Text>
+        {/* Display name inline edit */}
+        <View style={styles.card}>
+          <Text style={styles.cardLabel}>Display Name</Text>
           <TextInput
-            style={styles.input}
+            style={styles.nameInput}
             value={displayName}
-            onChangeText={(v) => { setDisplayName(v); markDirty(); }}
+            onChangeText={(v) => {
+              setDisplayName(v);
+              setIsDirty(true);
+            }}
             placeholder="Your display name"
-            placeholderTextColor="#555"
+            placeholderTextColor="#475569"
             maxLength={100}
+            returnKeyType="done"
+            onSubmitEditing={handleSaveName}
             accessibilityLabel="Display name input"
           />
-
-          <Text style={[styles.label, styles.labelSpacing]}>PTT Callsign</Text>
-          <TextInput
-            style={styles.input}
-            value={pttCallsign}
-            onChangeText={(v) => { setPttCallsign(v); markDirty(); }}
-            placeholder="e.g. Alpha-1 (optional)"
-            placeholderTextColor="#555"
-            maxLength={50}
-            accessibilityLabel="PTT callsign input"
-          />
-
-          {profile?.email ? (
-            <View style={styles.readonlyRow}>
-              <Text style={styles.label}>Email</Text>
-              <Text style={styles.readonlyValue}>{profile.email}</Text>
-            </View>
-          ) : null}
-
-          {profile?.phoneNumber ? (
-            <View style={styles.readonlyRow}>
-              <Text style={styles.label}>Phone</Text>
-              <Text style={styles.readonlyValue}>{profile.phoneNumber}</Text>
-            </View>
-          ) : null}
+          <TouchableOpacity
+            style={[styles.saveNameBtn, (!isDirty || isSaving) && styles.btnDisabled]}
+            onPress={handleSaveName}
+            disabled={!isDirty || isSaving}
+            accessibilityRole="button"
+            accessibilityLabel="Save display name"
+          >
+            {isSaving ? (
+              <ActivityIndicator color="#fff" size="small" />
+            ) : (
+              <Text style={styles.saveNameBtnText}>Save Name</Text>
+            )}
+          </TouchableOpacity>
         </View>
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Privacy</Text>
-
-          <View style={styles.switchRow}>
-            <View style={styles.switchLabel}>
-              <Text style={styles.switchTitle}>Open to Friend Requests</Text>
-              <Text style={styles.switchSubtitle}>
-                {privacy === 'open'
-                  ? 'Anyone can send you a friend request'
-                  : 'Only people you invite can send requests'}
-              </Text>
-            </View>
-            <Switch
-              value={privacy === 'open'}
-              onValueChange={(val) => {
-                setPrivacy(val ? 'open' : 'invite_only');
-                markDirty();
-              }}
-              trackColor={{ false: '#333', true: '#FF6B00' }}
-              thumbColor="#FFFFFF"
-              accessibilityLabel="Open to friend requests toggle"
-            />
-          </View>
-        </View>
-
+        {/* Friends button */}
         <TouchableOpacity
-          style={[styles.saveButton, (!isDirty || isSaving) && styles.saveButtonDisabled]}
-          onPress={handleSave}
-          disabled={!isDirty || isSaving}
+          style={styles.friendsBtn}
+          onPress={() => router.push('/friends')}
           accessibilityRole="button"
-          accessibilityLabel="Save profile"
+          accessibilityLabel="View friends"
         >
-          {isSaving ? (
-            <ActivityIndicator color="#FFFFFF" />
-          ) : (
-            <Text style={styles.saveButtonText}>Save Changes</Text>
-          )}
+          <View style={styles.friendsBtnInner}>
+            <Text style={styles.friendsBtnIcon}>👥</Text>
+            <Text style={styles.friendsBtnText}>Friends</Text>
+          </View>
+          <Text style={styles.friendsChevron}>›</Text>
+        </TouchableOpacity>
+
+        {/* Sign out */}
+        <TouchableOpacity
+          style={styles.signOutBtn}
+          onPress={handleSignOut}
+          accessibilityRole="button"
+          accessibilityLabel="Sign out"
+        >
+          <Text style={styles.signOutBtnText}>Sign Out</Text>
         </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>
   );
 }
 
+// ---------------------------------------------------------------------------
+// Styles
+// ---------------------------------------------------------------------------
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0A0A0A',
+    backgroundColor: '#0f172a',
   },
   centered: {
     flex: 1,
-    justifyContent: 'center',
     alignItems: 'center',
+    justifyContent: 'center',
   },
   scroll: {
-    paddingHorizontal: 24,
+    paddingHorizontal: 20,
     paddingTop: 24,
     paddingBottom: 48,
   },
-  title: {
+  pageTitle: {
     fontSize: 28,
     fontWeight: '700',
-    color: '#FFFFFF',
-    marginBottom: 24,
-  },
-  section: {
-    marginBottom: 32,
-  },
-  sectionTitle: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#888',
-    textTransform: 'uppercase',
-    letterSpacing: 1.5,
-    marginBottom: 12,
-  },
-  label: {
-    fontSize: 13,
-    color: '#AAAAAA',
-    marginBottom: 4,
-  },
-  labelSpacing: {
-    marginTop: 12,
-  },
-  input: {
-    backgroundColor: '#1A1A1A',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#2A2A2A',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    fontSize: 16,
-    color: '#FFFFFF',
-  },
-  readonlyRow: {
-    marginTop: 12,
-  },
-  readonlyValue: {
-    fontSize: 15,
-    color: '#DDDDDD',
-    paddingVertical: 6,
-  },
-  switchRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#1A1A1A',
-  },
-  switchLabel: {
-    flex: 1,
-    paddingRight: 16,
-  },
-  switchTitle: {
-    fontSize: 15,
-    color: '#FFFFFF',
-    fontWeight: '500',
-  },
-  switchSubtitle: {
-    fontSize: 12,
-    color: '#888',
-    marginTop: 2,
+    color: '#f1f5f9',
+    marginBottom: 28,
   },
   errorText: {
-    color: '#FF4444',
+    color: '#f87171',
     fontSize: 13,
     marginBottom: 16,
+    textAlign: 'center',
   },
-  saveButton: {
-    backgroundColor: '#FF6B00',
-    borderRadius: 12,
-    paddingVertical: 16,
+
+  // Avatar section
+  avatarSection: {
     alignItems: 'center',
-    marginTop: 8,
+    marginBottom: 28,
   },
-  saveButtonDisabled: {
+  avatarCircle: {
+    width: 88,
+    height: 88,
+    borderRadius: 44,
+    backgroundColor: '#3b82f6',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
+  },
+  avatarInitials: {
+    fontSize: 30,
+    fontWeight: '700',
+    color: '#ffffff',
+  },
+  accountMeta: {
+    fontSize: 14,
+    color: '#64748b',
+  },
+
+  // Card
+  card: {
+    backgroundColor: '#1e293b',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#334155',
+    padding: 16,
+    marginBottom: 14,
+  },
+  cardLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#64748b',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    marginBottom: 8,
+  },
+  nameInput: {
+    fontSize: 17,
+    color: '#f1f5f9',
+    paddingVertical: 10,
+    paddingHorizontal: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: '#334155',
+    marginBottom: 14,
+  },
+  saveNameBtn: {
+    backgroundColor: '#3b82f6',
+    borderRadius: 10,
+    paddingVertical: 13,
+    alignItems: 'center',
+    minHeight: 44,
+    justifyContent: 'center',
+  },
+  btnDisabled: {
     opacity: 0.4,
   },
-  saveButtonText: {
-    color: '#FFFFFF',
+  saveNameBtnText: {
+    color: '#ffffff',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+
+  // Friends button
+  friendsBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#1e293b',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#334155',
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    marginBottom: 14,
+    minHeight: 60,
+  },
+  friendsBtnInner: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  friendsBtnIcon: {
+    fontSize: 20,
+    marginRight: 12,
+  },
+  friendsBtnText: {
     fontSize: 16,
-    fontWeight: '700',
+    fontWeight: '600',
+    color: '#e2e8f0',
+  },
+  friendsChevron: {
+    fontSize: 22,
+    color: '#475569',
+    fontWeight: '300',
+  },
+
+  // Sign out
+  signOutBtn: {
+    marginTop: 24,
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: '#f87171',
+    borderRadius: 12,
+    paddingVertical: 15,
+    alignItems: 'center',
+    minHeight: 52,
+    justifyContent: 'center',
+  },
+  signOutBtnText: {
+    color: '#f87171',
+    fontSize: 15,
+    fontWeight: '600',
   },
 });
