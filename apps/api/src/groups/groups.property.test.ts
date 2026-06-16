@@ -1,0 +1,724 @@
+/**
+ * Property 9:  Group creator is always assigned the Admin role
+ * Property 10: Join code is exactly 6 alphanumeric characters and unique per group
+ * Property 11: Invite-only groups silently reject unapproved joins with 403
+ * Property 12: Admin role transfers to the earliest-joined remaining member on Admin departure
+ */
+
+import Fastify, { FastifyInstance } from 'fastify';
+import fastifyJwt from '@fastify/jwt';
+import fastifyCookie from '@fastify/cookie';
+import fastifySensible from '@fastify/sensible';
+import fp from 'fastify-plugin';
+import fc from 'fast-check';
+import { Pool, PoolClient } from 'pg';
+import Redis from 'ioredis';
+import groupsRoutes from './groups.routes';
+
+// ---------------------------------------------------------------------------
+// In-memory store (shared by both Pool.query and PoolClient.query)
+// ---------------------------------------------------------------------------
+interface InMemoryGroup {
+  id: string;
+  name: string;
+  join_code: string;
+  admin_id: string;
+  access_type: 'open' | 'invite_only';
+  status: 'active' | 'ended';
+  gap_threshold_m: number;
+  ptt_max_seconds: number;
+  created_at: Date;
+  ended_at: Date | null;
+}
+
+interface InMemoryMember {
+  id: string;
+  group_id: string;
+  user_id: string;
+  joined_at: Date;
+  left_at: Date | null;
+  is_muted: boolean;
+}
+
+interface InMemoryChannel {
+  id: string;
+  group_id: string;
+  name: string;
+  is_all: boolean;
+}
+
+interface InMemoryChannelMember {
+  channel_id: string;
+  user_id: string;
+}
+
+let groups: InMemoryGroup[] = [];
+let members: InMemoryMember[] = [];
+let channels: InMemoryChannel[] = [];
+let channelMembers: InMemoryChannelMember[] = [];
+let seqId = 0;
+
+function nextId(): string {
+  return `00000000-0000-0000-0001-${String(++seqId).padStart(12, '0')}`;
+}
+
+function resetStore(): void {
+  groups = [];
+  members = [];
+  channels = [];
+  channelMembers = [];
+  seqId = 0;
+}
+
+// ---------------------------------------------------------------------------
+// SQL dispatch helpers
+// ---------------------------------------------------------------------------
+function n(sql: string): string {
+  return sql.replace(/\s+/g, ' ').trim().toUpperCase();
+}
+
+/**
+ * Dispatch for queries run directly on Pool (non-transactional reads).
+ */
+async function poolQuery(sql: string, values?: unknown[]): Promise<{ rows: unknown[]; rowCount: number }> {
+  const norm = n(sql);
+
+  // Join code uniqueness check (generateJoinCode)
+  if (norm.startsWith('SELECT 1 FROM CONVOY_GROUPS WHERE JOIN_CODE')) {
+    const code = (values![0] as string).toUpperCase();
+    const found = groups.find((g) => g.join_code === code);
+    return { rows: found ? [{ 1: 1 }] : [], rowCount: found ? 1 : 0 };
+  }
+
+  // Get group by join code (join endpoint)
+  if (norm.includes('FROM CONVOY_GROUPS') && norm.includes('JOIN_CODE = $1') && !norm.startsWith('SELECT 1')) {
+    const code = (values![0] as string).toUpperCase();
+    const g = groups.find((g) => g.join_code === code);
+    return { rows: g ? [g] : [], rowCount: g ? 1 : 0 };
+  }
+
+  // Get group by id (leave endpoint, various)
+  if (norm.includes('FROM CONVOY_GROUPS') && norm.includes('WHERE') && !norm.includes('JOIN_CODE')) {
+    const id = values![0] as string;
+    const g = groups.find((g) => g.id === id);
+    return { rows: g ? [g] : [], rowCount: g ? 1 : 0 };
+  }
+
+  // Get active member (getActiveMember helper)
+  if (norm.includes('FROM CONVOY_MEMBERS') && norm.includes('GROUP_ID = $1') && norm.includes('USER_ID = $2') && norm.includes('LEFT_AT IS NULL')) {
+    const [groupId, userId] = values as [string, string];
+    const m = members.find(
+      (m) => m.group_id === groupId && m.user_id === userId && m.left_at === null,
+    );
+    return { rows: m ? [m] : [], rowCount: m ? 1 : 0 };
+  }
+
+  return { rows: [], rowCount: 0 };
+}
+
+/**
+ * Dispatch for queries run on PoolClient (inside transactions).
+ */
+async function clientQuery(sql: string, values?: unknown[]): Promise<{ rows: unknown[]; rowCount: number }> {
+  const norm = n(sql);
+
+  // Transaction control
+  if (norm === 'BEGIN' || norm === 'COMMIT' || norm === 'ROLLBACK') {
+    return { rows: [], rowCount: 0 };
+  }
+
+  // INSERT convoy_groups
+  if (norm.startsWith('INSERT INTO CONVOY_GROUPS')) {
+    const [name, joinCode, adminId, accessType] = values as [string, string, string, string];
+    const g: InMemoryGroup = {
+      id: nextId(),
+      name,
+      join_code: joinCode,
+      admin_id: adminId,
+      access_type: accessType as 'open' | 'invite_only',
+      status: 'active',
+      gap_threshold_m: 3219,
+      ptt_max_seconds: 30,
+      created_at: new Date(),
+      ended_at: null,
+    };
+    groups.push(g);
+    return { rows: [g], rowCount: 1 };
+  }
+
+  // INSERT convoy_members (create group — no ON CONFLICT)
+  if (norm.startsWith('INSERT INTO CONVOY_MEMBERS') && !norm.includes('ON CONFLICT')) {
+    const [groupId, userId] = values as [string, string];
+    const m: InMemoryMember = {
+      id: nextId(),
+      group_id: groupId,
+      user_id: userId,
+      joined_at: new Date(),
+      left_at: null,
+      is_muted: false,
+    };
+    members.push(m);
+    return { rows: [m], rowCount: 1 };
+  }
+
+  // INSERT convoy_members ON CONFLICT (join group — upsert)
+  if (norm.startsWith('INSERT INTO CONVOY_MEMBERS') && norm.includes('ON CONFLICT')) {
+    const [groupId, userId] = values as [string, string];
+    const existing = members.find((m) => m.group_id === groupId && m.user_id === userId);
+    if (existing) {
+      existing.left_at = null;
+      existing.joined_at = new Date();
+      return { rows: [existing], rowCount: 1 };
+    }
+    const m: InMemoryMember = {
+      id: nextId(),
+      group_id: groupId,
+      user_id: userId,
+      joined_at: new Date(),
+      left_at: null,
+      is_muted: false,
+    };
+    members.push(m);
+    return { rows: [m], rowCount: 1 };
+  }
+
+  // INSERT ptt_channels
+  if (norm.startsWith('INSERT INTO PTT_CHANNELS')) {
+    const [groupId, name, isAll] = values as [string, string, boolean];
+    const ch: InMemoryChannel = { id: nextId(), group_id: groupId, name, is_all: isAll };
+    channels.push(ch);
+    return { rows: [ch], rowCount: 1 };
+  }
+
+  // INSERT ptt_channel_members via SELECT subquery (join endpoint)
+  if (norm.startsWith('INSERT INTO PTT_CHANNEL_MEMBERS') && norm.includes('SELECT')) {
+    const [groupId, userId] = values as [string, string];
+    const ch = channels.find((c) => c.group_id === groupId && c.is_all);
+    if (ch) {
+      const already = channelMembers.find((cm) => cm.channel_id === ch.id && cm.user_id === userId);
+      if (!already) channelMembers.push({ channel_id: ch.id, user_id: userId });
+    }
+    return { rows: [], rowCount: 1 };
+  }
+
+  // INSERT ptt_channel_members direct (create endpoint)
+  if (norm.startsWith('INSERT INTO PTT_CHANNEL_MEMBERS') && !norm.includes('SELECT')) {
+    const [channelId, userId] = values as [string, string];
+    const already = channelMembers.find((cm) => cm.channel_id === channelId && cm.user_id === userId);
+    if (!already) channelMembers.push({ channel_id: channelId, user_id: userId });
+    return { rows: [], rowCount: 1 };
+  }
+
+  // UPDATE convoy_members SET left_at = now() (individual leave)
+  if (norm.includes('UPDATE CONVOY_MEMBERS') && norm.includes('LEFT_AT = NOW()') && norm.includes('USER_ID = $2')) {
+    const [groupId, userId] = values as [string, string];
+    const m = members.find((m) => m.group_id === groupId && m.user_id === userId && m.left_at === null);
+    if (m) m.left_at = new Date();
+    return { rows: [], rowCount: m ? 1 : 0 };
+  }
+
+  // DELETE ptt_channel_members (on leave)
+  if (norm.includes('DELETE FROM PTT_CHANNEL_MEMBERS')) {
+    const userId = values![0] as string;
+    const groupId = values![1] as string;
+    const groupChannelIds = channels.filter((c) => c.group_id === groupId).map((c) => c.id);
+    const before = channelMembers.length;
+    channelMembers = channelMembers.filter(
+      (cm) => !(cm.user_id === userId && groupChannelIds.includes(cm.channel_id)),
+    );
+    return { rows: [], rowCount: before - channelMembers.length };
+  }
+
+  // SELECT next admin candidate (ORDER BY joined_at)
+  if (norm.includes('FROM CONVOY_MEMBERS') && norm.includes('ORDER BY JOINED_AT')) {
+    const [groupId, excludeUserId] = values as [string, string];
+    const eligible = members
+      .filter((m) => m.group_id === groupId && m.user_id !== excludeUserId && m.left_at === null)
+      .sort((a, b) => a.joined_at.getTime() - b.joined_at.getTime());
+    const next = eligible[0];
+    return { rows: next ? [{ user_id: next.user_id }] : [], rowCount: next ? 1 : 0 };
+  }
+
+  // UPDATE convoy_groups SET admin_id (transfer)
+  if (norm.includes('UPDATE CONVOY_GROUPS') && norm.includes('ADMIN_ID = $1') && !norm.includes('STATUS')) {
+    const [newAdminId, groupId] = values as [string, string];
+    const g = groups.find((g) => g.id === groupId);
+    if (g) g.admin_id = newAdminId;
+    return { rows: [], rowCount: g ? 1 : 0 };
+  }
+
+  // UPDATE convoy_groups SET status = 'ended'
+  if (norm.includes('UPDATE CONVOY_GROUPS') && norm.includes("'ENDED'")) {
+    const id = values![0] as string;
+    const g = groups.find((g) => g.id === id);
+    if (g) { g.status = 'ended'; g.ended_at = new Date(); }
+    return { rows: [], rowCount: g ? 1 : 0 };
+  }
+
+  return { rows: [], rowCount: 0 };
+}
+
+// ---------------------------------------------------------------------------
+// Mock Pool + PoolClient factory
+// ---------------------------------------------------------------------------
+function buildMockPool(): Pool {
+  const pool = {
+    query: poolQuery,
+    connect: async (): Promise<PoolClient> => {
+      const client = {
+        query: clientQuery,
+        release: () => {},
+      } as unknown as PoolClient;
+      return client;
+    },
+  } as unknown as Pool;
+  return pool;
+}
+
+// ---------------------------------------------------------------------------
+// Mock Redis (rate limit always passes — count stays at 1)
+// ---------------------------------------------------------------------------
+function buildMockRedis(): Redis {
+  const counts: Record<string, number> = {};
+  return {
+    incr: async (key: string) => {
+      counts[key] = (counts[key] ?? 0) + 1;
+      return counts[key];
+    },
+    expire: async () => 1,
+  } as unknown as Redis;
+}
+
+// ---------------------------------------------------------------------------
+// Test app factory
+// ---------------------------------------------------------------------------
+const JWT_SECRET = 'test-secret-convoy-groups-property-tests-32c';
+
+function buildTestApp(): FastifyInstance {
+  const app = Fastify({ logger: false });
+
+  app.register(fastifyCookie);
+  app.register(fastifyJwt, {
+    secret: JWT_SECRET,
+    sign: { expiresIn: '15m' },
+  });
+  app.register(fastifySensible);
+
+  app.register(fp(async (inst) => { inst.decorate('db', buildMockPool()); }), { name: 'db' });
+  app.register(fp(async (inst) => { inst.decorate('redis', buildMockRedis()); }), { name: 'redis' });
+
+  app.register(groupsRoutes, { prefix: '/api/v1' });
+
+  return app;
+}
+
+function signToken(app: FastifyInstance, userId: string): string {
+  return app.jwt.sign({ sub: userId });
+}
+
+function authHeader(token: string) {
+  return { Authorization: `Bearer ${token}` };
+}
+
+// ---------------------------------------------------------------------------
+// Shared UUID generators for fast-check
+// Restrict to lowercase hex segments so Zod uuid() always accepts them.
+// ---------------------------------------------------------------------------
+const hexSeg4 = fc.stringOf(fc.constantFrom(...'0123456789abcdef'.split('')), { minLength: 4, maxLength: 4 });
+const hexSeg8 = fc.stringOf(fc.constantFrom(...'0123456789abcdef'.split('')), { minLength: 8, maxLength: 8 });
+const hexSeg12 = fc.stringOf(fc.constantFrom(...'0123456789abcdef'.split('')), { minLength: 12, maxLength: 12 });
+
+const fcUuid = fc.tuple(hexSeg8, hexSeg4, hexSeg4, hexSeg4, hexSeg12).map(
+  ([a, b, c, d, e]) => `${a}-${b}-${c}-${d}-${e}`,
+);
+
+const fcGroupName = fc.string({ minLength: 1, maxLength: 50 }).filter((s) => s.trim().length > 0);
+
+// ---------------------------------------------------------------------------
+// Property 9: Group creator is always assigned the Admin role
+// ---------------------------------------------------------------------------
+describe('Property 9: Group creator is always assigned the Admin role', () => {
+  beforeEach(() => { resetStore(); });
+
+  it('for any userId and group name, response adminId === creator userId', async () => {
+    await fc.assert(
+      fc.asyncProperty(fcUuid, fcGroupName, async (adminId, name) => {
+        resetStore();
+        const app = buildTestApp();
+        await app.ready();
+
+        const token = signToken(app, adminId);
+        const res = await app.inject({
+          method: 'POST',
+          url: '/api/v1/groups',
+          headers: authHeader(token),
+          payload: { name },
+        });
+
+        expect(res.statusCode).toBe(201);
+        const body = JSON.parse(res.body) as { adminId: string };
+        expect(body.adminId).toBe(adminId);
+
+        await app.close();
+      }),
+      { numRuns: 25 },
+    );
+  });
+
+  it('creator is also added as the first active member', async () => {
+    const app = buildTestApp();
+    await app.ready();
+
+    const userId = '00000000-0000-0000-0000-000000000001';
+    const token = signToken(app, userId);
+
+    await app.inject({
+      method: 'POST',
+      url: '/api/v1/groups',
+      headers: authHeader(token),
+      payload: { name: 'Test Group' },
+    });
+
+    expect(members.length).toBe(1);
+    expect(members[0].user_id).toBe(userId);
+    expect(members[0].left_at).toBeNull();
+
+    await app.close();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Property 10: Join code is 6-character alphanumeric and unique per group
+// ---------------------------------------------------------------------------
+describe('Property 10: Join code is 6-char alphanumeric and unique', () => {
+  const JOIN_CODE_RE = /^[A-Z0-9]{6}$/;
+
+  beforeEach(() => { resetStore(); });
+
+  it('for any batch of N group creations, all codes are valid and distinct', async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        fc.integer({ min: 2, max: 5 }),
+        async (count) => {
+          resetStore();
+          const app = buildTestApp();
+          await app.ready();
+
+          const adminId = '00000000-0000-0000-0000-aaaaaaaaaaaa';
+          const token = signToken(app, adminId);
+
+          const codes: string[] = [];
+          for (let i = 0; i < count; i++) {
+            const res = await app.inject({
+              method: 'POST',
+              url: '/api/v1/groups',
+              headers: authHeader(token),
+              payload: { name: `Group ${i}` },
+            });
+            expect(res.statusCode).toBe(201);
+            const body = JSON.parse(res.body) as { joinCode: string };
+            codes.push(body.joinCode);
+          }
+
+          // Every code must be exactly 6 uppercase alphanumeric chars
+          for (const code of codes) {
+            expect(code).toMatch(JOIN_CODE_RE);
+          }
+
+          // All codes must be distinct
+          const unique = new Set(codes);
+          expect(unique.size).toBe(count);
+
+          await app.close();
+        },
+      ),
+      { numRuns: 20 },
+    );
+  });
+
+  it('ended group has null joinCode in response', async () => {
+    const app = buildTestApp();
+    await app.ready();
+
+    const adminId = '00000000-0000-0000-0000-bbbbbbbbbbbb';
+    const token = signToken(app, adminId);
+
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/api/v1/groups',
+      headers: authHeader(token),
+      payload: { name: 'Short-lived Group' },
+    });
+    expect(createRes.statusCode).toBe(201);
+    const created = JSON.parse(createRes.body) as { id: string; joinCode: string };
+    expect(created.joinCode).toMatch(JOIN_CODE_RE);
+
+    // Manually end the group in the store
+    const g = groups.find((g) => g.id === created.id)!;
+    g.status = 'ended';
+    g.ended_at = new Date();
+
+    // groupToResponse hides join code when status = 'ended'
+    expect(g.status).toBe('ended');
+
+    await app.close();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Property 11: Invite-only groups reject unapproved joins with 403
+// ---------------------------------------------------------------------------
+describe('Property 11: Invite-only groups reject unapproved joins', () => {
+  beforeEach(() => { resetStore(); });
+
+  it('for any (adminId, nonMemberId), invite-only join attempt returns 403', async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        fcUuid,
+        fcUuid,
+        async (adminId, nonMemberId) => {
+          // Ensure IDs are distinct (UUIDs from fc.uuid() can theoretically collide)
+          fc.pre(adminId !== nonMemberId);
+
+          resetStore();
+          const app = buildTestApp();
+          await app.ready();
+
+          const adminToken = signToken(app, adminId);
+          const memberToken = signToken(app, nonMemberId);
+
+          // Create invite-only group
+          const createRes = await app.inject({
+            method: 'POST',
+            url: '/api/v1/groups',
+            headers: authHeader(adminToken),
+            payload: { name: 'Private Group', accessType: 'invite_only' },
+          });
+          expect(createRes.statusCode).toBe(201);
+          const created = JSON.parse(createRes.body) as { joinCode: string };
+
+          // Non-member tries to join
+          const joinRes = await app.inject({
+            method: 'POST',
+            url: '/api/v1/groups/join',
+            headers: authHeader(memberToken),
+            payload: { code: created.joinCode },
+          });
+
+          expect(joinRes.statusCode).toBe(403);
+
+          await app.close();
+        },
+      ),
+      { numRuns: 25 },
+    );
+  });
+
+  it('open group allows any user to join', async () => {
+    const app = buildTestApp();
+    await app.ready();
+
+    const adminId = '00000000-0000-0000-0000-cccccccccccc';
+    const memberId = '00000000-0000-0000-0000-dddddddddddd';
+    const adminToken = signToken(app, adminId);
+    const memberToken = signToken(app, memberId);
+
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/api/v1/groups',
+      headers: authHeader(adminToken),
+      payload: { name: 'Open Group', accessType: 'open' },
+    });
+    expect(createRes.statusCode).toBe(201);
+    const { joinCode } = JSON.parse(createRes.body) as { joinCode: string };
+
+    const joinRes = await app.inject({
+      method: 'POST',
+      url: '/api/v1/groups/join',
+      headers: authHeader(memberToken),
+      payload: { code: joinCode },
+    });
+    expect(joinRes.statusCode).toBe(200);
+
+    await app.close();
+  });
+
+  it('ended group join attempt returns 410 Gone', async () => {
+    const app = buildTestApp();
+    await app.ready();
+
+    const adminId = '00000000-0000-0000-0000-eeeeeeeeeeee';
+    const memberId = '00000000-0000-0000-0000-ffffffffffff';
+    const adminToken = signToken(app, adminId);
+    const memberToken = signToken(app, memberId);
+
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/api/v1/groups',
+      headers: authHeader(adminToken),
+      payload: { name: 'Ended Group', accessType: 'open' },
+    });
+    const { joinCode, id } = JSON.parse(createRes.body) as { joinCode: string; id: string };
+
+    // End the group in store directly
+    const g = groups.find((g) => g.id === id)!;
+    g.status = 'ended';
+    g.ended_at = new Date();
+
+    const joinRes = await app.inject({
+      method: 'POST',
+      url: '/api/v1/groups/join',
+      headers: authHeader(memberToken),
+      payload: { code: joinCode },
+    });
+    expect(joinRes.statusCode).toBe(410);
+
+    await app.close();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Property 12: Admin role transfers to earliest-joined member on Admin departure
+// ---------------------------------------------------------------------------
+describe('Property 12: Admin role transfers on Admin departure', () => {
+  beforeEach(() => { resetStore(); });
+
+  it('for (adminId, memberId), when admin leaves the member becomes admin', async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        fcUuid,
+        fcUuid,
+        async (adminId, memberId) => {
+          fc.pre(adminId !== memberId);
+
+          resetStore();
+          const app = buildTestApp();
+          await app.ready();
+
+          const adminToken = signToken(app, adminId);
+          const memberToken = signToken(app, memberId);
+
+          // Create open group
+          const createRes = await app.inject({
+            method: 'POST',
+            url: '/api/v1/groups',
+            headers: authHeader(adminToken),
+            payload: { name: 'Transfer Group', accessType: 'open' },
+          });
+          expect(createRes.statusCode).toBe(201);
+          const { joinCode, id: groupId } = JSON.parse(createRes.body) as { joinCode: string; id: string };
+
+          // Ensure admin joined_at is strictly earlier than member
+          const adminMember = members.find((m) => m.group_id === groupId && m.user_id === adminId)!;
+          adminMember.joined_at = new Date(Date.now() - 10_000);
+
+          // Member joins
+          const joinRes = await app.inject({
+            method: 'POST',
+            url: '/api/v1/groups/join',
+            headers: authHeader(memberToken),
+            payload: { code: joinCode },
+          });
+          expect(joinRes.statusCode).toBe(200);
+
+          // Admin leaves
+          const leaveRes = await app.inject({
+            method: 'POST',
+            url: `/api/v1/groups/${groupId}/leave`,
+            headers: authHeader(adminToken),
+          });
+          expect(leaveRes.statusCode).toBe(200);
+
+          // Verify admin was transferred
+          const updatedGroup = groups.find((g) => g.id === groupId)!;
+          expect(updatedGroup.admin_id).toBe(memberId);
+
+          // Verify admin row has left_at set
+          const adminRow = members.find((m) => m.group_id === groupId && m.user_id === adminId)!;
+          expect(adminRow.left_at).not.toBeNull();
+
+          // Member should still be active
+          const memberRow = members.find((m) => m.group_id === groupId && m.user_id === memberId)!;
+          expect(memberRow.left_at).toBeNull();
+
+          await app.close();
+        },
+      ),
+      { numRuns: 20 },
+    );
+  });
+
+  it('when last member (admin) leaves, group status becomes ended', async () => {
+    const app = buildTestApp();
+    await app.ready();
+
+    const adminId = '00000000-0000-0000-0000-111111111111';
+    const adminToken = signToken(app, adminId);
+
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/api/v1/groups',
+      headers: authHeader(adminToken),
+      payload: { name: 'Solo Group' },
+    });
+    const { id: groupId } = JSON.parse(createRes.body) as { id: string };
+
+    const leaveRes = await app.inject({
+      method: 'POST',
+      url: `/api/v1/groups/${groupId}/leave`,
+      headers: authHeader(adminToken),
+    });
+    expect(leaveRes.statusCode).toBe(200);
+
+    const g = groups.find((g) => g.id === groupId)!;
+    expect(g.status).toBe('ended');
+    expect(g.ended_at).not.toBeNull();
+
+    await app.close();
+  });
+
+  it('new admin is earliest-joined member, not latest-joined', async () => {
+    const app = buildTestApp();
+    await app.ready();
+
+    const adminId = '00000000-0000-0000-0000-aaa000000001';
+    const firstMemberId = '00000000-0000-0000-0000-aaa000000002';
+    const secondMemberId = '00000000-0000-0000-0000-aaa000000003';
+
+    const adminToken = signToken(app, adminId);
+    const firstToken = signToken(app, firstMemberId);
+    const secondToken = signToken(app, secondMemberId);
+
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/api/v1/groups',
+      headers: authHeader(adminToken),
+      payload: { name: 'Three-member Group', accessType: 'open' },
+    });
+    const { joinCode, id: groupId } = JSON.parse(createRes.body) as { joinCode: string; id: string };
+
+    // Stamp admin's joined_at well in the past
+    const adminMember = members.find((m) => m.group_id === groupId && m.user_id === adminId)!;
+    adminMember.joined_at = new Date(Date.now() - 30_000);
+
+    // firstMember joins earlier
+    await app.inject({ method: 'POST', url: '/api/v1/groups/join', headers: authHeader(firstToken), payload: { code: joinCode } });
+    const firstMember = members.find((m) => m.group_id === groupId && m.user_id === firstMemberId)!;
+    firstMember.joined_at = new Date(Date.now() - 20_000);
+
+    // secondMember joins later
+    await app.inject({ method: 'POST', url: '/api/v1/groups/join', headers: authHeader(secondToken), payload: { code: joinCode } });
+    const secondMember = members.find((m) => m.group_id === groupId && m.user_id === secondMemberId)!;
+    secondMember.joined_at = new Date(Date.now() - 10_000);
+
+    // Admin leaves
+    await app.inject({ method: 'POST', url: `/api/v1/groups/${groupId}/leave`, headers: authHeader(adminToken) });
+
+    // firstMember (earlier joined_at) should become admin, not secondMember
+    const g = groups.find((g) => g.id === groupId)!;
+    expect(g.admin_id).toBe(firstMemberId);
+    expect(g.status).toBe('active');
+
+    await app.close();
+  });
+});

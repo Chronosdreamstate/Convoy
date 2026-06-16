@@ -1,0 +1,14 @@
+node_modules
+dist
+build
+.expo
+*.local
+.env
+.env.*
+!.env.example
+*.log
+coverage
+.DS_Store
+*.generated.*
+pgdata
+redisdata

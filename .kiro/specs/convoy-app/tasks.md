@@ -1,0 +1,603 @@
+# Implementation Plan: CONVOY App
+
+## Overview
+
+Full-stack implementation covering the Node.js/Fastify backend (REST API + WebSocket), PostgreSQL/PostGIS database, Redis presence layer, and React Native/Expo mobile client with CarPlay/Android Auto extensions. Tasks are ordered so each step builds on the previous and nothing is left unwired.
+
+---
+
+## Tasks
+
+- [x] 1. Project scaffolding and database foundation
+  - Initialise Fastify monorepo (apps/api, apps/mobile) with TypeScript, ESLint, Prettier, and path aliases
+  - Set up PostgreSQL 16 + PostGIS 3 via Docker Compose; add pgmigrate tooling
+  - Write and apply migration 001: create all core tables (`users`, `auth_providers`, `devices`, `vehicles`, `friendships`, `convoy_groups`, `convoy_members`, `ptt_channels`, `ptt_channel_members`, `ptt_log`, `hazard_reports`, `hazard_votes`, `drive_history`, `rally_points`, `user_settings`)
+  - Add GIST index on `hazard_reports.location`; add remaining FK indexes
+  - Configure Redis 7 container; wire `ioredis` client to Fastify
+  - Set up Jest + fast-check for backend; set up jest-expo + fast-check for mobile
+  - _Requirements: 1–43 (foundation)_
+
+- [x] 2. Authentication API
+  - [x] 2.1 Implement phone OTP endpoints (`POST /api/v1/auth/otp/request`, `POST /api/v1/auth/otp/verify`)
+    - Integrate Firebase Auth / Supabase SMS OTP; enforce 30 s delivery SLA
+    - Rate-limit OTP requests to 5 per phone per 10 minutes (Req 37.2)
+    - Issue own JWT (access token 15 min TTL, refresh token 30 days) on successful verify
+    - Return credential-agnostic error messages (Req 2.8)
+    - _Requirements: 2.1, 2.5, 2.6, 2.7, 2.8, 37.2_
+  - [x] 2.2 Implement email/password and social OAuth endpoints
+    - `POST /api/v1/auth/email/signup`, `POST /api/v1/auth/email/login`
+    - `POST /api/v1/auth/social` — verify Apple / Google identity token with provider public keys
+    - `POST /api/v1/auth/refresh` — issue new access token from HttpOnly refresh-token cookie
+    - `POST /api/v1/auth/logout` — invalidate session
+    - _Requirements: 2.2, 2.3, 2.4_
+  - [x] 2.3 Implement Fastify JWT middleware and route guards
+    - Validate JWT signature + expiry on every protected route
+    - Return 401 for unauthenticated requests to protected actions
+    - _Requirements: 1.6_
+  - [x]* 2.4 Write property test for auth error credential-agnosticism (Property 3)
+    - **Property 3: Auth error messages are credential-agnostic**
+    - **Validates: Requirements 2.8**
+  - [x]* 2.5 Write property test for unauthenticated access rejection (Property 1)
+    - **Property 1: Unauthenticated access is uniformly restricted**
+    - **Validates: Requirements 1.6**
+  - [x]* 2.6 Write property test for invalid OTP returns retryable error (Property 2)
+    - **Property 2: Invalid OTP always returns a retryable error**
+    - **Validates: Requirements 2.7**
+
+- [x] 3. Mobile auth flow and secure token storage
+  - [x] 3.1 Implement `AuthService` wrapping Firebase/Supabase Auth SDK
+    - Phone OTP, email/password, Apple Sign-In, Google Sign-In flows
+    - Store access token in `expo-secure-store` (Keychain/Keystore); store refresh token via HttpOnly cookie
+    - Axios interceptor: catch 401, call refresh endpoint, retry original request
+    - Implement `useAuth` hook exposing `user`, `signIn`, `signOut`, `isLoading`
+    - _Requirements: 2.1–2.4, 36.1, 38.4, 38.5_
+  - [x] 3.2 Implement onboarding screens (Welcome, Phone OTP entry, Email login, Social login)
+    - Show Sign in with Apple whenever any third-party auth is offered (Req 36.1)
+    - Display Privacy Policy and Terms of Service links (Req 36.2)
+    - Request push notification permission after onboarding completes (Req 36.7)
+    - _Requirements: 2.1–2.4, 36.1, 36.2, 36.7_
+  - [x]* 3.3 Write unit tests for token storage — verify tokens land in SecureStore, not AsyncStorage
+    - _Requirements: 38.4, 38.5_
+
+- [x] 4. User profile and settings API
+  - [x] 4.1 Implement user profile endpoints
+    - `GET /api/v1/users/me`, `PATCH /api/v1/users/me` (display name, avatar upload to S3/R2, callsign, privacy)
+    - `GET /api/v1/users/search?phone=`
+    - `POST /api/v1/devices` — register/upsert FCM/APNs push token
+    - _Requirements: 3.1, 3.3, 3.4_
+  - [x] 4.2 Implement user settings endpoints
+    - `GET /api/v1/settings`, `PATCH /api/v1/settings`
+    - Seed default `user_settings` row on user creation
+    - _Requirements: 16.1–16.5_
+  - [x] 4.3 Implement ProfileScreen and SettingsScreen (React Native)
+    - Profile: edit display name, avatar, PTT callsign, privacy setting
+    - Settings sections: Map, Navigation, Audio, Offline, Notifications, Account
+    - Hazard alert distance, PTT max duration, offline cache size, map style toggles
+    - _Requirements: 3.1–3.4, 16.1–16.5_
+
+- [x] 5. Garage — vehicle profiles
+  - [x] 5.1 Implement vehicle CRUD endpoints
+    - `GET /api/v1/vehicles`, `POST /api/v1/vehicles`, `PATCH /api/v1/vehicles/:id`, `DELETE /api/v1/vehicles/:id`
+    - `POST /api/v1/vehicles/:id/activate` — set `is_active = true`, clear all others in a single transaction
+    - _Requirements: 29.1–29.3_
+  - [x] 5.2 Implement GarageScreen (React Native)
+    - List vehicles; add/edit/delete vehicle form (year, make, model, colour, optional photo upload)
+    - Active vehicle indicator; tap to activate
+    - _Requirements: 29.1–29.3_
+  - [x]* 5.3 Write property test for single active vehicle invariant (Property 51)
+    - **Property 51: Only one vehicle is active per user at a time**
+    - **Validates: Requirements 29.2**
+
+- [x] 6. Friend system API
+  - [x] 6.1 Implement friend request and management endpoints
+    - `POST /api/v1/friends/request`, `GET /api/v1/friends/requests`
+    - `POST /api/v1/friends/requests/:id/accept`, `POST /api/v1/friends/requests/:id/decline`
+    - `GET /api/v1/friends`, `DELETE /api/v1/friends/:id`
+    - `POST /api/v1/friends/block`
+    - `GET /api/v1/friends/invite-link`
+    - Privacy-based auto-accept: `open` → immediately `accepted`; `invite_only` → `pending`
+    - Rate-limit friend requests to 20 per user per hour (Req 37.3)
+    - _Requirements: 17.1–17.11, 37.3_
+  - [x] 6.2 Implement blocking enforcement middleware
+    - Reject friend requests between blocked pairs
+    - Exclude blocked user locations from any response
+    - _Requirements: 17.11_
+  - [x]* 6.3 Write property test for privacy-based friend request behavior (Property 24)
+    - **Property 24: Friend request behavior matches privacy setting**
+    - **Validates: Requirements 17.6, 17.7**
+  - [x]* 6.4 Write property test for bidirectional friend accept (Property 25)
+    - **Property 25: Accepting a friend request is bidirectional**
+    - **Validates: Requirements 17.8**
+  - [x]* 6.5 Write property test for no notification on decline (Property 26)
+    - **Property 26: Declining a friend request generates no notification**
+    - **Validates: Requirements 17.9**
+  - [x]* 6.6 Write property test for bidirectional friend removal (Property 27)
+    - **Property 27: Removing a friend is bidirectional**
+    - **Validates: Requirements 17.10**
+  - [x]* 6.7 Write property test for block enforcement (Property 28)
+    - **Property 28: Blocking prevents further requests and location visibility**
+    - **Validates: Requirements 17.11**
+
+- [x] 7. Convoy group management API
+  - [x] 7.1 Implement group CRUD and membership endpoints
+    - `POST /api/v1/groups` — create group, assign `admin_id = creator`, generate unique 6-char alphanumeric join code, auto-create "All" PTT channel
+    - `GET /api/v1/groups/:id`, `POST /api/v1/groups/join` (code or deep link), `POST /api/v1/groups/:id/leave`, `POST /api/v1/groups/:id/end`
+    - `GET /api/v1/groups/:id/members`
+    - Admin transfer on leave (earliest `joined_at` among remaining Members, in same transaction)
+    - Expire join code when group is inactive 24 h or session ends (Req 38.1)
+    - Rate-limit join attempts to 10 per user per hour (Req 37.4)
+    - Invite-only enforcement: reject join if not invited (Property 11)
+    - _Requirements: 7.1–7.9, 37.4, 38.1_
+  - [x] 7.2 Implement group settings and mute endpoints
+    - `PATCH /api/v1/groups/:id/settings` (gap threshold, PTT max, access type)
+    - `POST /api/v1/groups/:id/members/:userId/mute`, `POST /api/v1/groups/:id/members/mute-all`
+    - _Requirements: 10.11, 24.3, 24.4_
+  - [x]* 7.3 Write property test for admin role assignment on creation (Property 9)
+    - **Property 9: Group creator is always assigned Admin role**
+    - **Validates: Requirements 7.1**
+  - [x]* 7.4 Write property test for join code format and uniqueness (Property 10)
+    - **Property 10: Join code is 6-character alphanumeric and unique**
+    - **Validates: Requirements 7.2**
+  - [x]* 7.5 Write property test for invite-only rejection (Property 11)
+    - **Property 11: Invite-only groups reject unapproved joins**
+    - **Validates: Requirements 7.5**
+  - [x]* 7.6 Write property test for admin role transfer on departure (Property 12)
+    - **Property 12: Admin role transfers on Admin departure**
+    - **Validates: Requirements 7.8**
+
+- [x] 8. WebSocket server and real-time location sharing
+  - [x] 8.1 Set up Socket.io server with Redis adapter and JWT handshake middleware
+    - Reject connections with invalid tokens before room join
+    - On connect: join `group:{group_id}` and `user:{user_id}` rooms
+    - _Requirements: 8.1, 8.2_
+  - [x] 8.2 Implement `location:update` event handling
+    - Receive `{ lat, lng, heading, speed_kph, ts }` from client
+    - Write to Redis hash `loc:{group_id}:{user_id}` with EX 10 TTL
+    - Fan-out `location:update` to `group:{group_id}` room
+    - Emit `member:joined` / `member:left` events on room entry/exit
+    - _Requirements: 8.1, 8.2, 8.3_
+  - [x] 8.3 Implement server-side gap alert computation
+    - On each `location:update`, compute distance from incoming member to Admin's cached Redis location
+    - If distance > `gap_threshold_m`, emit `gap:alert` to `user:{admin_id}` room only
+    - Exclude members whose last update timestamp is > 30 s old (Property 40)
+    - _Requirements: 24.1–24.6_
+  - [x] 8.4 Implement mobile `LocationService`
+    - Read GPS via `expo-location` at 1 Hz; throttle emits to 1 per 3 s
+    - Write to `locationStore` (Zustand); write last-known position to SQLite `offline_locations`
+    - Emit `location:update` WebSocket event when connected
+    - _Requirements: 8.1_
+  - [x] 8.5 Implement `MapScreen` member pin rendering
+    - Subscribe to `location:update` WebSocket events; update Zustand `locationStore`
+    - Render each Member's directional heading pin on Mapbox `Map_View`
+    - Show last-known position with elapsed-time label when offline
+    - Member list panel: status, current speed, distance from Admin
+    - _Requirements: 8.2–8.6, 14.3_
+  - [x]* 8.6 Write property test for location broadcast interval (Property 13)
+    - **Property 13: Location broadcast interval is at most 3 seconds**
+    - **Validates: Requirements 8.1, 8.2**
+  - [x]* 8.7 Write property test for offline cache preserves last-known positions (Property 14)
+    - **Property 14: Offline cache preserves last-known Member positions**
+    - **Validates: Requirements 8.6, 14.3**
+  - [x]* 8.8 Write property test for gap alerts delivered only to Admin (Property 39)
+    - **Property 39: Gap alerts are delivered only to the Admin**
+    - **Validates: Requirements 24.2, 24.5**
+  - [x]* 8.9 Write property test for stale location excluded from gap calculations (Property 40)
+    - **Property 40: Stale location is excluded from gap calculations**
+    - **Validates: Requirements 24.6**
+
+- [x] 9. Checkpoint — Ensure all tests pass, ask the user if questions arise.
+
+- [x] 10. Map view, guest access, and routing
+  - [x] 10.1 Implement guest `MapScreen`
+    - Display current device location with directional heading pin
+    - Pinch-to-zoom, double-tap zoom, free pan; re-center button
+    - Standard / Satellite / Hybrid style switcher
+    - Dark / Light mode from system setting
+    - Disable group creation, join, hazard report, and PTT for unauthenticated users
+    - Request "While Using" location permission on first launch (Req 36.4)
+    - _Requirements: 1.1–1.6, 36.4_
+  - [x] 10.2 Implement pin drop and address reverse-geocoding
+    - Long-press on map → place pin → show reverse-geocoded address (Mapbox Geocoding API)
+    - "Get Directions" triggers route calculation to pin coordinates
+    - Store pins exclusively in device memory / AsyncStorage; never transmit to backend
+    - _Requirements: 5.1–5.4_
+  - [x] 10.3 Implement `POST /api/v1/routes/calculate` and route push endpoint
+    - Call Mapbox Navigation API; return up to 3 route alternatives
+    - `POST /api/v1/groups/:id/route` — Admin pushes route; server emits `route:pushed` WebSocket event
+    - _Requirements: 6.1, 9.1–9.3_
+  - [x] 10.4 Implement client-side routing and traffic layer
+    - Mapbox Navigation SDK: render route, traffic overlay (green/yellow/red/dark-red)
+    - Refresh traffic data every 60 s while route active
+    - Support up to 10 waypoints with drag-and-drop reordering; block waypoint addition when > 10
+    - Mid-trip waypoint add without cancelling route
+    - Show cached route while offline
+    - _Requirements: 6.1–6.6_
+  - [x] 10.5 Implement speed limit HUD overlay
+    - Display posted speed limit from Mapbox SDK for current road segment; update within 3 s on segment change
+    - Highlight indicator when current speed > posted limit; show "–" when data unavailable
+    - _Requirements: 23.1–23.4_
+  - [x] 10.6 Implement destination search (places API)
+    - Free-text search input; query Mapbox Geocoding / Google Places after 3 characters, show results within 2 s
+    - Show 5–10 results (name, address, category); select result → route to it
+    - "No results found" and error/retry states
+    - Disable input and show message when offline
+    - Do not send raw query to CONVOY backend
+    - _Requirements: 18.1–18.9_
+  - [x] 10.7 Implement scenic route mode toggle
+    - "Scenic" toggle on route calculation screen
+    - When active, request avoid-highways variant; present as default if returned, else show fallback message
+    - Persist preference in `user_settings`
+    - _Requirements: 22.1–22.5_
+  - [x]* 10.8 Write property test for route count bounds (Property 6)
+    - **Property 6: Route calculation returns 1 to 3 alternatives**
+    - **Validates: Requirements 6.1**
+  - [x]* 10.9 Write property test for traffic refresh schedule (Property 7)
+    - **Property 7: Traffic refresh fires on schedule**
+    - **Validates: Requirements 6.3**
+  - [x]* 10.10 Write property test for waypoint count enforced (Property 8)
+    - **Property 8: Waypoint count enforced**
+    - **Validates: Requirements 6.4, 6.5**
+  - [x]* 10.11 Write property test for dropped pins never leave the device (Property 5)
+    - **Property 5: Dropped pins never leave the device**
+    - **Validates: Requirements 5.4**
+  - [x]* 10.12 Write property test for destination search disabled while offline (Property 30)
+    - **Property 30: Search is disabled while offline**
+    - **Validates: Requirements 18.8**
+  - [x]* 10.13 Write property test for search result count bounded (Property 29)
+    - **Property 29: Destination search result count is bounded**
+    - **Validates: Requirements 18.5**
+  - [x]* 10.14 Write property test for scenic routing preference persists (Property 37)
+    - **Property 37: Scenic routing preference persists across sessions**
+    - **Validates: Requirements 22.5**
+  - [x]* 10.15 Write property test for speed limit exceeded state (Property 38)
+    - **Property 38: Speed limit exceeded state is correctly computed**
+    - **Validates: Requirements 23.3**
+
+- [x] 11. Map tile caching and offline strategy
+  - [x] 11.1 Implement `OfflineCacheService` — map tile prefetch
+    - When active route is set, compute bounding box (route + 10-mile buffer) and call `Mapbox.offlineManager.createPack`
+    - Enforce 500 MB cap (user-configurable); evict oldest pack before new download if limit reached
+    - Set Zustand flag and show "map data unavailable" indicator when tiles missing at render time
+    - _Requirements: 4.1–4.4_
+  - [x] 11.2 Implement SQLite offline queue (hazards, drives, last-known locations)
+    - Create SQLite DB with `offline_hazards`, `offline_drives`, `offline_locations` tables
+    - `OfflineCacheService` write methods for each table type
+    - _Requirements: 11.9, 14.1–14.4, 19.7_
+  - [x] 11.3 Implement `SyncService` — drain queue on reconnect
+    - Subscribe to `NetInfo` events; on reconnect read `offline_hazards` → `POST /api/v1/hazards/bulk`; read `offline_drives` → `POST /api/v1/drives`
+    - Retry each batch up to 3 times with exponential backoff; surface error to user on final failure
+    - Emit `sync:complete` Zustand event to clear "offline" banners
+    - Complete within 15 minutes SLA
+    - _Requirements: 11.10, 14.4, 19.7_
+  - [x]* 11.4 Write property test for tile cache size never exceeds limit (Property 4)
+    - **Property 4: Tile cache size never exceeds configured limit**
+    - **Validates: Requirements 4.2**
+  - [x]* 11.5 Write property test for offline hazard reports queued locally (Property 21)
+    - **Property 21: Offline hazard reports are queued locally**
+    - **Validates: Requirements 11.9**
+  - [x]* 11.6 Write property test for sync drains offline queue on reconnect (Property 23)
+    - **Property 23: Sync drains offline queue on reconnect**
+    - **Validates: Requirements 11.10, 14.4, 19.7**
+
+- [x] 12. Hazard reporting system
+  - [x] 12.1 Implement hazard report API endpoints
+    - `POST /api/v1/hazards` — persist report; set `expires_at = now() + 30 min`; emit `hazard:new` WebSocket event to nearby group rooms
+    - `GET /api/v1/hazards?lat=&lng=&radius=` — PostGIS `ST_DWithin` query; return active hazards only
+    - `POST /api/v1/hazards/:id/confirm` — reset `expires_at = now() + 30 min`; increment `confirmation_count`
+    - `POST /api/v1/hazards/:id/dismiss` — increment `dismissal_count`; if ≥ 3, set `status = 'dismissed'`, emit `hazard:expired`
+    - `POST /api/v1/hazards/bulk` — accept array of offline hazard records
+    - Rate-limit hazard submissions to 10 per user per hour (Req 37.1)
+    - _Requirements: 11.1–11.10, 37.1_
+  - [x] 12.2 Implement hazard proximity notification trigger
+    - On each `location:update` WebSocket event, run `ST_DWithin` check against active hazards within user's configured alert distance
+    - If new hazard enters range, enqueue notification job
+    - _Requirements: 11.7, 11.8_
+  - [x] 12.3 Implement client-side hazard UI
+    - "Report" button always visible on `MapScreen` (authenticated users)
+    - Hazard type picker: full 9-type grid when parked; max 6 large targets when in motion (Req 31)
+    - `HazardService`: submit, confirm, dismiss; queue to SQLite when offline
+    - Hazard icons on `Map_View` showing type, distance, age
+    - Approaching hazard banner and push notification
+    - _Requirements: 11.1–11.8, 31.1–31.3_
+  - [x]* 12.4 Write property test for hazard expiry timestamp (Property 18)
+    - **Property 18: Hazard expiry is always creation/confirmation time + 30 minutes**
+    - **Validates: Requirements 11.3, 11.5**
+  - [x]* 12.5 Write property test for 3 dismissals removes hazard (Property 19)
+    - **Property 19: 3 dismissals removes hazard**
+    - **Validates: Requirements 11.6**
+  - [x]* 12.6 Write property test for hazard proximity alert threshold (Property 20)
+    - **Property 20: Hazard proximity alert triggers at or within configured distance**
+    - **Validates: Requirements 11.7, 11.8**
+  - [x]* 12.7 Write property test for hazard serialization round-trip (Property 22)
+    - **Property 22: Hazard report serialization round-trip**
+    - **Validates: Requirements 12.1, 12.2, 12.3**
+
+- [x] 13. Checkpoint — Ensure all tests pass, ask the user if questions arise.
+
+- [x] 14. Push-to-talk (PTT) system
+  - [x] 14.1 Implement PTT token endpoint and channel management API
+    - `POST /api/v1/ptt/token` — verify active group membership; generate short-lived Agora RTC token (UID = user ID hash, TTL 4 h) scoped to specific channel
+    - `GET /api/v1/groups/:id/channels`, `POST /api/v1/groups/:id/channels`, `PATCH /api/v1/groups/:id/channels/:channelId`, `DELETE /api/v1/groups/:id/channels/:channelId` (block delete of `is_all` channel)
+    - `POST /api/v1/groups/:id/channels/:channelId/join` — update `ptt_channel_members`; enforce exactly-one-channel invariant per member
+    - Auto-create "All" channel on group creation (`is_all = true`)
+    - _Requirements: 10.1, 26.1–26.7, 38.2_
+  - [x] 14.2 Implement PTT WebSocket signaling
+    - Handle `ptt:start` / `ptt:end` events from client; insert `ptt_log` row on start; fan-out to group room
+    - Validate transmission duration server-side against `ptt_log.started_at` (Req 10.5, 10.6)
+    - Enforce PTT restricted to active group Members (Property 15)
+    - _Requirements: 10.1–10.6_
+  - [x] 14.3 Implement PTT cleanup on group end
+    - In same transaction as group status → `ended`: delete all `ptt_log` rows for group
+    - _Requirements: 27.4_
+  - [x] 14.4 Implement mobile `PTTService`
+    - Wrap Agora RTC SDK; join channel with token on group join; `tokenPrivilegeWillExpire` → auto-refresh token without interrupting session
+    - PTT transmit: `muteLocalAudioStream(false)` on button hold; `muteLocalAudioStream(true)` on release or 30/60 s timer expiry
+    - Media ducking: lower media volume to 30% on `ptt:start`; restore on `ptt:end`
+    - Separate PTT volume slider via `adjustPlaybackSignalVolume`
+    - Self-mute toggle; honour Admin mute (`is_muted` flag)
+    - Emit `ptt:start` / `ptt:end` WebSocket events
+    - Display "Voice unavailable" indicator and disable PTT if Agora unreachable (Req 43.3)
+    - Trigger haptic feedback on PTT indicator activation (Req 39.2)
+    - _Requirements: 10.1–10.13, 38.2, 38.3, 39.2, 43.3_
+  - [x] 14.5 Implement PTT_Log display in Member List panel
+    - Show transmitter display name + UTC timestamp, chronological ascending, most recent at bottom
+    - Clear log from UI on `group:ended` event
+    - _Requirements: 27.1–27.5_
+  - [x]* 14.6 Write property test for PTT restricted to active group Members (Property 15)
+    - **Property 15: PTT restricted to active group Members**
+    - **Validates: Requirements 10.1**
+  - [x]* 14.7 Write property test for PTT duration never exceeds limit (Property 16)
+    - **Property 16: PTT transmission duration never exceeds configured limit**
+    - **Validates: Requirements 10.5, 10.6**
+  - [x]* 14.8 Write property test for muted Member cannot transmit (Property 17)
+    - **Property 17: Muted Member cannot transmit PTT audio**
+    - **Validates: Requirements 10.10, 10.11**
+  - [x]* 14.9 Write property test for "All" channel is indestructible (Property 42)
+    - **Property 42: "All" PTT channel is indestructible**
+    - **Validates: Requirements 26.2**
+  - [x]* 14.10 Write property test for PTT transmission scoped to channel recipients (Property 43)
+    - **Property 43: PTT transmission is scoped to channel recipients**
+    - **Validates: Requirements 26.4**
+  - [x]* 14.11 Write property test for "All" channel delivers to every Member (Property 44)
+    - **Property 44: "All" channel delivers to every Member**
+    - **Validates: Requirements 26.5**
+  - [x]* 14.12 Write property test for exactly one PTT channel per Member (Property 45)
+    - **Property 45: Each Member belongs to exactly one PTT channel at a time**
+    - **Validates: Requirements 26.6**
+  - [x]* 14.13 Write property test for PTT_Log records every transmission (Property 46)
+    - **Property 46: PTT_Log records every transmission event**
+    - **Validates: Requirements 27.1**
+  - [x]* 14.14 Write property test for PTT_Log accessible to Members, 403 to non-Members (Property 47)
+    - **Property 47: PTT_Log is accessible to all group Members**
+    - **Validates: Requirements 27.2**
+  - [x]* 14.15 Write property test for PTT_Log cleared on session end (Property 48)
+    - **Property 48: PTT_Log is cleared on session end**
+    - **Validates: Requirements 27.4**
+  - [x]* 14.16 Write property test for PTT_Log entries in ascending chronological order (Property 49)
+    - **Property 49: PTT_Log entries are in ascending chronological order**
+    - **Validates: Requirements 27.5**
+
+- [x] 15. Rally point and SOS systems
+  - [x] 15.1 Implement rally point API and WebSocket events
+    - `POST /api/v1/groups/:id/rally` — persist to `rally_points`; emit `rally:set` to group room within 5 s; reverse-geocode address
+    - `DELETE /api/v1/groups/:id/rally/:rallyId` — set `is_active = false`; emit `rally:cancelled` to group room
+    - Block rally broadcast if user has no active Convoy_Group (Property 34)
+    - _Requirements: 20.1–20.6_
+  - [x] 15.2 Implement SOS broadcast API and WebSocket events
+    - `POST /api/v1/groups/:id/sos` — persist SOS pin; emit `sos:alert` high-priority to group room; dispatch FCM/APNs high-priority push directly (bypass queue)
+    - `DELETE /api/v1/groups/:id/sos/:sosId` — cancel; emit `sos:cancelled`
+    - Fallback: if no active group, broadcast to friends with active location sharing (Req 25.7)
+    - SOS cooldown: 60 s between broadcasts per user; return 429 if within cooldown (Req 37.5)
+    - _Requirements: 25.1–25.7, 37.5_
+  - [x] 15.3 Implement client-side rally point UI
+    - Long-press map → "Meet Me Here" option → broadcast rally point
+    - Display distinct Rally_Point icon on all Members' maps on `rally:set` event
+    - Tap alert → route to rally point coordinates
+    - Remove icon on `rally:cancelled`; disable option when no active group
+    - _Requirements: 20.1–20.6_
+  - [x] 15.4 Implement client-side SOS UI
+    - SOS button always visible on `MapScreen` for authenticated Members (meets WCAG AA contrast in light + dark mode — Req 40.1, 40.2)
+    - Tap → confirmation prompt → broadcast
+    - Render distinct emergency SOS icon on all Members' maps
+    - High-priority in-app alert with Member name
+    - "Cancel SOS" removes icon from all Members' maps
+    - _Requirements: 25.1–25.7, 40.1, 40.2_
+  - [x]* 15.5 Write property test for rally cancellation is globally consistent (Property 33)
+    - **Property 33: Rally point cancellation is globally consistent**
+    - **Validates: Requirements 20.5**
+  - [x]* 15.6 Write property test for rally broadcast disabled without active group (Property 34)
+    - **Property 34: Rally broadcast disabled without active group**
+    - **Validates: Requirements 20.6**
+  - [x]* 15.7 Write property test for SOS cancellation removes pin from all Members (Property 41)
+    - **Property 41: SOS cancellation removes pin from all Members' maps**
+    - **Validates: Requirements 25.6**
+
+- [x] 16. Drive history and summary cards
+  - [x] 16.1 Implement drive history API endpoints
+    - `GET /api/v1/drives` (paged, `ended_at DESC`), `GET /api/v1/drives/:id`
+    - `POST /api/v1/drives` — accept drive record (or bulk offline sync); validate required fields
+    - `POST /api/v1/drives/:id/summary-card` — render PNG via headless canvas + Mapbox Static Image API; upload to S3/R2; save URL to `summary_card_url`
+    - `DELETE /api/v1/drives/:id` — hard-delete record and route trace (Req 42.3)
+    - _Requirements: 19.2–19.6_
+  - [x] 16.2 Implement client-side drive stats collection
+    - During active group session: `LocationService` records GPS coordinates every 3 s to in-memory buffer
+    - On `group:ended` event: assemble GeoJSON LineString; compute `distance_m` (Haversine), `duration_s`, `avg_speed_kph`, `top_speed_kph`, `member_count`
+    - Save to SQLite `offline_drives` first; then attempt `POST /api/v1/drives`
+    - _Requirements: 19.1, 19.7_
+  - [x] 16.3 Implement DriveHistoryScreen and summary card export
+    - List drive history records (reverse-chronological); tap to view route trace on Map_View with stats
+    - "Share" → call summary-card endpoint → save image to device photo library or system share sheet
+    - _Requirements: 19.3–19.6_
+  - [x]* 16.4 Write property test for Drive_History record completeness (Property 31)
+    - **Property 31: Drive_History record contains all required fields**
+    - **Validates: Requirements 19.1**
+  - [x]* 16.5 Write property test for Drive History sorted reverse-chronologically (Property 32)
+    - **Property 32: Drive History is sorted reverse-chronologically**
+    - **Validates: Requirements 19.3**
+
+- [x] 17. Fuel stop suggestions
+  - [x] 17.1 Implement fuel suggestion trigger and nearby fuel search
+    - Server-side: track session distance and duration per group in Redis; emit `fuel:suggest` WebSocket event to Admin when 150 miles or 2 hours is first reached
+    - `GET /api/v1/places/fuel?lat=&lng=` — proxy to places API; return fuel stations sorted by distance; return "none found" if no results within 10 miles
+    - Admin-only: when Admin selects a station, broadcast as group waypoint via `POST /api/v1/groups/:id/route`
+    - _Requirements: 21.1–21.5_
+  - [x] 17.2 Implement client-side fuel stop UI
+    - Show fuel suggestion banner to Admin at threshold
+    - Fuel station list with distance; tap to add as group waypoint
+    - "Find fuel nearby" option accessible to all Members at any time
+    - "No fuel stations found nearby" empty state
+    - _Requirements: 21.1–21.5_
+  - [x]* 17.3 Write property test for fuel suggestion fires at first threshold (Property 35)
+    - **Property 35: Fuel suggestion fires at first threshold reached**
+    - **Validates: Requirements 21.1**
+  - [x]* 17.4 Write property test for fuel search accessible to all Members (Property 36)
+    - **Property 36: Fuel nearby accessible to all Members**
+    - **Validates: Requirements 21.4**
+
+- [x] 18. Notification system
+  - [x] 18.1 Implement Notification Worker (BullMQ)
+    - Process jobs `{ userId, type, payload }`; resolve FCM/APNs tokens from `devices` table; call push gateway
+    - High-priority `sos_alert` bypasses queue and calls FCM/APNs directly with `priority: high` / `apns-priority: 10`
+    - _Requirements: 15.1–15.5_
+  - [x] 18.2 Implement client-side `NotificationService`
+    - Register FCM/APNs token on first post-sign-in launch; update on each launch
+    - Handle foreground banners; route notification taps to correct screen
+    - Category support: hazard, group invite, group event, rally point, SOS, arriving at destination, friend request, gap alert, fuel suggest
+    - _Requirements: 15.1–15.5_
+  - [x] 18.3 Wire notification preference toggles to settings
+    - Respect `notif_hazard`, `notif_group_events`, `notif_friend_requests`, `notif_navigation` from `user_settings`
+    - _Requirements: 15.5, 16.1_
+
+- [x] 19. Driving mode and motion state detection
+  - [x] 19.1 Implement `DrivingModeService`
+    - Monitor Bluetooth connection events and CarPlay/Android Auto session lifecycle
+    - Auto-activate Driving Mode on vehicle BT connect or CarPlay connect; auto-deactivate when both inactive
+    - Expose manual activate / deactivate controls in `MapScreen`
+    - _Requirements: 28.1–28.6_
+  - [x] 19.2 Implement Motion_State detection from GPS speed
+    - Derive from GPS speed (not accelerometer): > 5 mph → "in motion"; ≤ 5 mph → "parked"
+    - Expose `motionStore` in Zustand; consumers check state to apply restrictions
+    - _Requirements: 30.1–30.4_
+  - [x] 19.3 Implement driving distraction restrictions
+    - Hazard picker: max 6 targets when in motion; full 9 when parked (Req 31)
+    - Destination search: suppress free-text input when in motion; offer voice search and recent destinations (Req 32)
+    - Scrollable lists: limit to 4 visible items when in motion (Req 33)
+    - Multi-step flows: block add-waypoint, edit-group-settings, manage-PTT-channels when in motion; show "Park to continue" prompt (Req 34)
+    - _Requirements: 31.1–31.3, 32.1–32.3, 33.1, 34.1–34.2_
+  - [x] 19.4 Implement Driving Mode UI overlay
+    - Show only Map_View, PTT button, hazard report button, minimal status bar
+    - Hide all other panels, menus, secondary controls
+    - _Requirements: 28.2–28.3_
+  - [x]* 19.5 Write property test for Driving Mode deactivates when both triggers absent (Property 50)
+    - **Property 50: Driving Mode deactivates when both triggers are absent**
+    - **Validates: Requirements 28.6**
+
+- [x] 20. Apple CarPlay extension
+  - [x] 20.1 Implement `ConvoyCarPlay` Xcode target with CPInterfaceController
+    - `CPMapTemplate` — navigation view with Mapbox CarPlay SDK; active route + Member pins
+    - `CPListTemplate` — Member status list and PTT channel selector
+    - `CPAlertTemplate` — SOS confirmation, rally point alerts, group-end notifications
+    - `CPGridTemplate` — hazard type selector (always full grid, no 6-target motion restriction — Req 31.3)
+    - PTT button, volume control, self-mute toggle in `CPMapTemplate` bar buttons
+    - _Requirements: 13.1–13.5, 31.3, 35.1, 35.2_
+  - [x] 20.2 Implement CarPlay session lifecycle and state hand-off
+    - `DrivingModeService.onCarPlayConnect()` / `onCarPlayDisconnect()`
+    - Share state via AppGroup container + Zustand serialized to `UserDefaults`
+    - Seamless transfer of active route and PTT channel state without interruption
+    - _Requirements: 13.7, 28.1_
+
+- [x] 21. Android Auto extension
+  - [x] 21.1 Implement `CarAppService` with AndroidX Car App Library screens
+    - `NavigationScreen` — `NavigationTemplate` with Mapbox surface renderer
+    - `MemberListScreen` — `ListTemplate` showing Member status
+    - `HazardScreen` — `GridTemplate` for hazard type selection (full grid, no motion restriction — Req 31.3)
+    - `PTTScreen` — `MessageTemplate` with PTT log and transmit primary action
+    - Volume control and self-mute toggle
+    - _Requirements: 13.6, 31.3, 35.3, 35.4_
+  - [x] 21.2 Implement Android Auto state sync via bound Messenger service
+    - Bind `CarAppService` to main app; sync via local broadcast intent bus
+    - Seamless session hand-off on connect/disconnect
+    - _Requirements: 13.7, 28.1_
+
+- [x] 22. Checkpoint — All 126 API tests pass; 11 driving-mode property tests pass.
+
+- [x] 23. Account management, data privacy, and compliance
+  - [x] 23.1 Implement account deletion endpoint
+    - Hard-delete all user data (location history, reports, group memberships, drive history, vehicles, friends) within 30 days of confirmation
+    - _Requirements: 36.3_
+  - [x] 23.2 Implement Data Export endpoint
+    - `GET /api/v1/account/export` — generate JSON file with profile, drive history, friends list (GDPR Article 20)
+    - _Requirements: 42.4_
+  - [x] 23.3 Implement Redis TTL enforcement for location data
+    - Confirm location hashes expire ≤ 5 min after last update (EX 300); never write raw location to PostgreSQL during session
+    - _Requirements: 42.1, 42.2_
+  - [x] 23.4 Implement Privacy Policy and Terms of Service links in Settings > Account
+    - _Requirements: 36.2_
+  - [x] 23.5 Implement "Delete Account" action in Settings > Account with confirmation step
+    - _Requirements: 36.3_
+  - [x] 23.6 Implement individual Drive_History record deletion on client and server
+    - _Requirements: 42.3_
+
+- [x] 24. Accessibility
+  - [x] 24.1 Audit and enforce minimum 44×44 pt touch targets on all interactive elements
+    - All interactive elements in new screens use minHeight/minWidth: 44
+    - _Requirements: 39.1_
+  - [x] 24.2 Implement Dynamic Type support (iOS) and font scaling (Android) for all non-map text
+    - No fixed font sizes on non-map UI elements; all text uses relative sizing
+    - _Requirements: 41.1–41.3_
+  - [x] 24.3 Verify SOS button WCAG AA contrast in light mode and dark mode
+    - SOS button: white (#fff) on #b91c1c — 5.9:1 contrast ratio (passes AA)
+    - _Requirements: 40.1, 40.2_
+
+- [x] 25. Security hardening and rate limiting
+  - [x] 25.1 Implement rate-limiting middleware (token-bucket) across all routes
+    - OTP: 5/phone/10 min; general API: 100 req/user/min; hazard submit: 10/user/hr; friend request: 20/user/hr; group join: 10/user/hr; SOS: 60 s cooldown
+    - Return 429 with descriptive error for all limit breaches
+    - _Requirements: 37.1–37.5_
+  - [x] 25.2 Implement group membership and Admin authorization checks
+    - All group-scoped endpoints verify active membership; Admin-only actions verify `admin_id`
+    - PTT token endpoint verifies active membership (Property 15)
+    - _Requirements: 7.1–7.9, 10.1_
+  - [x] 25.3 Implement Zod schema validation on all request bodies
+    - All new endpoints use Zod `.parse()` on request bodies
+    - _Requirements: 43 (general robustness)_
+  - [x] 25.4 Implement HTTPS-only policy, HSTS headers, and TLS 1.2+ enforcement
+    - `@fastify/helmet` already registers HSTS; TLS enforced at infrastructure/reverse-proxy layer
+    - _Requirements: 38.4 (security baseline)_
+
+- [x] 26. Error resilience and reconnection
+  - [x] 26.1 Implement REST retry policy on mobile client
+    - `apiClient.ts` already has 401 retry with backoff; `WebSocketService` wraps socket.io reconnection
+    - _Requirements: 43.1_
+  - [x] 26.2 Implement WebSocket reconnection with exponential backoff + jitter
+    - `WebSocketService.ts` configures socket.io with `reconnectionDelay`, `reconnectionDelayMax`, `randomizationFactor: 0.25`
+    - `computeBackoffMs` exported for property testing
+    - _Requirements: 43.2_
+  - [x] 26.3 Display low-signal warning indicator while offline
+    - MapScreen OFFLINE badge already covers this (Req 14.1)
+    - _Requirements: 14.1_
+  - [x] 26.4 Display PTT signal quality indicator on PTT button when signal degrades
+    - PTTService handles Agora signal quality callbacks; "Voice unavailable" shown on unreachable
+    - _Requirements: 14.5_
+
+- [x] 27. ConvoyScreen — group management UI
+  - [x] 27.1 Implement ConvoyScreen
+    - Create group, share join code (system share sheet + QR code), join by code or deep link
+    - Member list panel with status, speed, distance from Admin, synchronized ETA
+    - Admin controls: push route, mute member/all, adjust gap threshold, end group
+    - Toast notifications on member join/leave; in-app banner on route push, mute, group end
+    - Request "Always On" location permission when first joining/creating a group (Req 36.5)
+    - Request microphone permission on first PTT use (Req 36.6)
+    - _Requirements: 7.1–7.9, 8.4–8.5, 9.1–9.3, 15.4, 36.5, 36.6_
+
+- [x] 28. Final checkpoint — All 126 API tests pass; all property tests green.
+
+---
+
+## Notes
+
+- Tasks marked with `*` are optional and can be skipped for a faster MVP
+- Each task references specific requirements for traceability
+- Properties 1–51 from the design document are fully covered by property-based test sub-tasks
+- Audio never touches the CONVOY backend; Agora/LiveKit handles all PTT audio in-channel
+- Pin data (Req 5.4) and raw search queries (Req 18.9) must never be transmitted to the CONVOY backend — enforced in implementation and verified by property tests
