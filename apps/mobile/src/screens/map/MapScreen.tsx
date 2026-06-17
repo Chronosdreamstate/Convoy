@@ -14,6 +14,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ExpoLocation from 'expo-location';
 import { io, Socket } from 'socket.io-client';
 import { useAuthStore } from '../../stores/authStore';
+import { useSocketStore } from '../../stores/socketStore';
 import { authService } from '../../services/AuthService';
 import { useLocationStore, MemberLocation } from '../../stores/locationStore';
 import { rallyService, RallyPoint, SosPin } from '../../services/RallyService';
@@ -77,6 +78,11 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
   const [showHazardPicker, setShowHazardPicker]   = useState(false);
   const [showFuelBanner, setShowFuelBanner]         = useState(false);
 
+  // FAB menu state
+  const [fabOpen, setFabOpen]       = useState(false);
+  const [fabPttActive, setFabPttActive] = useState(false);
+  const fabPttLogIdRef              = useRef<string | null>(null);
+
   const socketRef   = useRef<Socket | null>(null);
   const mapRef      = useRef<MapView>(null);
   const mySosIdRef  = useRef<string | null>(null);
@@ -114,6 +120,7 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
     if (!token || !groupId) return;
     const socket = io(socketUrl, { transports: ['websocket'], auth: { token, groupId } });
     socketRef.current = socket;
+    useSocketStore.getState().setSocket(socket);
 
     socket.on('connect', () => {
       setIsConnected(true);
@@ -205,7 +212,7 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
       });
     });
     socket.on('sos:cancelled', ({ sosId }: { sosId: string }) => { setSosPins((p) => { const n = new Map(p); n.delete(sosId); return n; }); setSosAlerts((p) => p.filter((a) => a.pin.id !== sosId)); if (mySosIdRef.current === sosId) setMySosId(null); });
-    return () => { socket.disconnect(); clearGroup(); };
+    return () => { socket.disconnect(); useSocketStore.getState().setSocket(null); clearGroup(); };
   }, [token, groupId, socketUrl, updateMemberLocation, user?.id, clearGroup, setStalePositions, clearStalePositions]);
 
   const recenter = useCallback(() => {
@@ -376,56 +383,73 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
         <Text style={styles.recenterText}>⊕</Text>
       </TouchableOpacity>
 
-      {/* Speed limit HUD — bottom-left, above PTT */}
-      <View style={[styles.speedHudContainer, { bottom: insets.bottom + 230 }]}>
+      {/* Speed limit HUD — bottom-left, above member panel */}
+      <View style={[styles.speedHudContainer, { bottom: insets.bottom + 236 }]}>
         <SpeedLimitHUD postedLimitKph={null} currentSpeedKph={mySpeedKph} />
       </View>
 
-      {/* PTT button — bottom-left, hold to talk */}
-      {pttChannelId && (
-        <Pressable
-          style={[styles.pttBtn, isPttTransmitting && styles.pttBtnActive, { bottom: insets.bottom + 150 }]}
-          onPressIn={handlePttStart}
-          onPressOut={handlePttEnd}
-          accessibilityLabel={isPttTransmitting ? 'Transmitting — release to stop' : 'Push to talk'}
-          accessibilityRole="button"
-        >
-          <Text style={styles.pttIcon}>🎙</Text>
-          <Text style={styles.pttLabel}>{isPttTransmitting ? 'LIVE' : 'PTT'}</Text>
-        </Pressable>
-      )}
-
-      {/* Hazard button — bottom-right, above SOS */}
+      {/* Floating action button — bottom-right, above member panel */}
       {user && groupId && (
-        <TouchableOpacity
-          style={[styles.hazardBtn, { bottom: insets.bottom + 320 }]}
-          onPress={() => setShowHazardPicker(true)}
-          accessibilityLabel="Report a road hazard"
-          accessibilityRole="button"
-        >
-          <Text style={styles.hazardIcon}>⚠️</Text>
-        </TouchableOpacity>
-      )}
-
-      {/* Fuel button — bottom-right, above hazard */}
-      {user && groupId && (
-        <TouchableOpacity
-          style={[styles.fuelBtn, { bottom: insets.bottom + 392 }]}
-          onPress={() => setShowFuelBanner((v) => !v)}
-          accessibilityLabel="Find fuel nearby"
-          accessibilityRole="button"
-        >
-          <Text style={styles.fuelIcon}>⛽</Text>
-        </TouchableOpacity>
-      )}
-
-      {/* SOS button — bottom-right */}
-      {user && groupId && (
-        <View style={[styles.sosContainer, { bottom: insets.bottom + 240 }]}>
-          {mySosId
-            ? <TouchableOpacity style={styles.sosCancelBtn} onPress={cancelMySos} accessibilityLabel="Cancel SOS"><Text style={styles.sosText}>CANCEL SOS</Text></TouchableOpacity>
-            : <TouchableOpacity style={styles.sosBtn} onPress={handleSosPress} accessibilityLabel="Send SOS emergency alert"><Text style={styles.sosText}>SOS</Text></TouchableOpacity>
-          }
+        <View style={[styles.fabContainer, { bottom: insets.bottom + 228 }]}>
+          {fabOpen && (
+            <>
+              <TouchableOpacity
+                style={styles.fabItem}
+                onPress={() => { setFabOpen(false); setShowFuelBanner((v) => !v); }}
+                accessibilityLabel="Find fuel nearby"
+                accessibilityRole="button"
+              >
+                <Text style={styles.fabItemIcon}>⛽</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.fabItem}
+                onPress={() => { setFabOpen(false); setShowHazardPicker(true); }}
+                accessibilityLabel="Report a road hazard"
+                accessibilityRole="button"
+              >
+                <Text style={styles.fabItemIcon}>⚠️</Text>
+              </TouchableOpacity>
+              {mySosId ? (
+                <TouchableOpacity
+                  style={[styles.fabItem, styles.fabSosCancelItem]}
+                  onPress={() => { setFabOpen(false); void cancelMySos(); }}
+                  accessibilityLabel="Cancel SOS"
+                  accessibilityRole="button"
+                >
+                  <Text style={styles.fabItemText}>✕ SOS</Text>
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity
+                  style={[styles.fabItem, styles.fabSosItem]}
+                  onPress={() => { setFabOpen(false); handleSosPress(); }}
+                  accessibilityLabel="Send SOS emergency alert"
+                  accessibilityRole="button"
+                >
+                  <Text style={styles.fabItemIcon}>🆘</Text>
+                </TouchableOpacity>
+              )}
+              {pttChannelId && (
+                <Pressable
+                  style={[styles.fabItem, styles.fabPttItem, fabPttActive && styles.fabPttItemActive]}
+                  onPressIn={() => { setFabPttActive(true); handlePttStart(); }}
+                  onPressOut={() => { setFabPttActive(false); handlePttEnd(); }}
+                  accessibilityLabel={fabPttActive ? 'Transmitting — release to stop' : 'Hold for push-to-talk'}
+                  accessibilityRole="button"
+                >
+                  <Text style={styles.fabItemIcon}>🎙</Text>
+                  <Text style={styles.fabPttLabel}>{fabPttActive ? 'LIVE' : 'PTT'}</Text>
+                </Pressable>
+              )}
+            </>
+          )}
+          <TouchableOpacity
+            style={[styles.fabMain, fabOpen && styles.fabMainOpen]}
+            onPress={() => setFabOpen((v) => !v)}
+            accessibilityLabel={fabOpen ? 'Close actions menu' : 'Open actions menu'}
+            accessibilityRole="button"
+          >
+            <Text style={styles.fabMainIcon}>{fabOpen ? '✕' : '⚡'}</Text>
+          </TouchableOpacity>
         </View>
       )}
 
@@ -868,6 +892,55 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   rowSosText: { fontSize: 18 },
+
+  // FAB — floating action button cluster (bottom-right)
+  fabContainer: {
+    position: 'absolute',
+    right: 16,
+    alignItems: 'center',
+    zIndex: 10,
+  },
+  fabMain: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: '#1C1C1C',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: '#555555',
+    shadowColor: '#000',
+    shadowOpacity: 0.4,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 8,
+    marginTop: 8,
+  },
+  fabMainOpen: { borderColor: '#DC143C' },
+  fabMainIcon: { fontSize: 26 },
+  fabItem: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: '#1C1C1C',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: '#555555',
+    shadowColor: '#000',
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 5,
+    marginTop: 8,
+  },
+  fabItemIcon: { fontSize: 22 },
+  fabItemText: { color: '#fff', fontWeight: '800', fontSize: 11 },
+  fabSosItem: { borderColor: '#DC143C' },
+  fabSosCancelItem: { borderColor: '#555', backgroundColor: '#3a3a3a' },
+  fabPttItem: { borderColor: '#444' },
+  fabPttItemActive: { backgroundColor: '#10b981', borderColor: '#fff' },
+  fabPttLabel: { color: '#fff', fontSize: 9, fontWeight: '800', letterSpacing: 0.5 },
 
   // Offline / connection-lost banner
   offlineBanner: {

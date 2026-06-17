@@ -16,8 +16,9 @@ import {
   View,
 } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
-import { io, Socket } from 'socket.io-client';
 import { apiClient } from '../services/apiClient';
+import { useGroupStore } from '../stores/groupStore';
+import { useSocketStore } from '../stores/socketStore';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -43,7 +44,6 @@ interface GroupMember {
 
 interface Props {
   userId: string;
-  socketUrl: string;
 }
 
 // Shape of each member object returned by GET /groups/:id/members
@@ -62,14 +62,22 @@ interface MemberApiItem {
 // ConvoyScreen
 // ---------------------------------------------------------------------------
 
-export default function ConvoyScreen({ userId, socketUrl }: Props) {
+export default function ConvoyScreen({ userId }: Props) {
   const [group, setGroup] = useState<ConvoyGroup | null>(null);
   const [members, setMembers] = useState<GroupMember[]>([]);
   const [loading, setLoading] = useState(false);
   const [joinCode, setJoinCode] = useState('');
   const [groupName, setGroupName] = useState('');
   const [view, setView] = useState<'home' | 'create' | 'join'>('home');
-  const socketRef = useRef<Socket | null>(null);
+
+  const { socket } = useSocketStore();
+
+  const setActiveGroupId = useGroupStore((s) => s.setActiveGroupId);
+
+  // Keep global group store in sync so the map tab can read the active group id
+  useEffect(() => {
+    setActiveGroupId(group?.id ?? null);
+  }, [group?.id, setActiveGroupId]);
 
   const isAdmin = group?.adminId === userId;
 
@@ -94,27 +102,17 @@ export default function ConvoyScreen({ userId, socketUrl }: Props) {
     fetchMembers(group.id);
   }, [group?.id, fetchMembers]);
 
-  // ── Socket: listen for group:ended while a group is active ───────────────
+  // ── Socket: listen for group:ended using the shared MapScreen socket ────
   useEffect(() => {
-    if (!group) return;
-
-    const socket = io(socketUrl, {
-      transports: ['websocket'],
-      auth: { groupId: group.id },
-    });
-    socketRef.current = socket;
-
-    socket.on('group:ended', () => {
+    if (!socket || !group) return;
+    const handleGroupEnded = () => {
       setGroup(null);
       setMembers([]);
       setView('home');
-    });
-
-    return () => {
-      socket.disconnect();
-      socketRef.current = null;
     };
-  }, [group?.id, socketUrl]);
+    socket.on('group:ended', handleGroupEnded);
+    return () => { socket.off('group:ended', handleGroupEnded); };
+  }, [socket, group]);
 
   // ── Create group (Req 7.1–7.3) ────────────────────────────────────────────
   const handleCreate = useCallback(async () => {

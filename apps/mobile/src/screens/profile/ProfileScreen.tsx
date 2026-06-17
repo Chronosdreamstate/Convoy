@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -62,12 +62,22 @@ export default function ProfileScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [saveSuccess, setSaveSuccess] = useState(false);
 
   // Inline-edit state
   const [displayName, setDisplayName] = useState('');
   const [pttCallsign, setPttCallsign] = useState('');
   const [privacy, setPrivacy] = useState<'open' | 'invite_only'>('open');
   const [isDirty, setIsDirty] = useState(false);
+
+  // Mounted guard — prevents setState calls after the component unmounts
+  const isMounted = useRef(true);
+  useEffect(() => {
+    isMounted.current = true;
+    return () => {
+      isMounted.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     void loadProfile();
@@ -78,6 +88,7 @@ export default function ProfileScreen() {
     setError(null);
     try {
       const res = await apiClient.get<Profile>('/api/v1/users/me');
+      if (!isMounted.current) return;
       const p = res.data;
       setProfile(p);
       setDisplayName(p.displayName);
@@ -85,9 +96,10 @@ export default function ProfileScreen() {
       setPrivacy(p.privacy);
       setIsDirty(false);
     } catch {
+      if (!isMounted.current) return;
       setError('Failed to load profile. Please try again.');
     } finally {
-      setIsLoading(false);
+      if (isMounted.current) setIsLoading(false);
     }
   };
 
@@ -101,21 +113,29 @@ export default function ProfileScreen() {
 
     setIsSaving(true);
     setError(null);
+    setSaveSuccess(false);
     try {
       const res = await apiClient.patch<Profile>('/api/v1/users/me', {
         displayName: trimmed,
         pttCallsign: pttCallsign.trim() || null,
         privacy,
       });
+      if (!isMounted.current) return;
       setProfile(res.data);
       setDisplayName(res.data.displayName);
       setPttCallsign(res.data.pttCallsign ?? '');
       setPrivacy(res.data.privacy);
       setIsDirty(false);
+      setSaveSuccess(true);
+      // Clear the success banner after 3 seconds
+      setTimeout(() => {
+        if (isMounted.current) setSaveSuccess(false);
+      }, 3000);
     } catch {
+      if (!isMounted.current) return;
       setError('Failed to update profile.');
     } finally {
-      setIsSaving(false);
+      if (isMounted.current) setIsSaving(false);
     }
   };
 
@@ -155,6 +175,7 @@ export default function ProfileScreen() {
         <Text style={styles.pageTitle}>Profile</Text>
 
         {error ? <Text style={styles.errorText}>{error}</Text> : null}
+        {saveSuccess ? <Text style={styles.successText}>Profile saved successfully.</Text> : null}
 
         {/* Avatar + name */}
         <View style={styles.avatarSection}>
@@ -243,6 +264,20 @@ export default function ProfileScreen() {
           <Text style={styles.friendsChevron}>›</Text>
         </TouchableOpacity>
 
+        {/* Settings */}
+        <TouchableOpacity
+          style={styles.settingsBtn}
+          onPress={() => router.push('/(tabs)/settings')}
+          accessibilityRole="button"
+          accessibilityLabel="Go to Settings"
+        >
+          <View style={styles.settingsBtnInner}>
+            <Text style={styles.settingsBtnIcon}>⚙️</Text>
+            <Text style={styles.settingsBtnText}>Settings</Text>
+          </View>
+          <Text style={styles.settingsChevron}>›</Text>
+        </TouchableOpacity>
+
         {/* Sign out */}
         <TouchableOpacity
           style={styles.signOutBtn}
@@ -284,6 +319,12 @@ const styles = StyleSheet.create({
   },
   errorText: {
     color: '#f87171',
+    fontSize: 13,
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  successText: {
+    color: '#4ade80',
     fontSize: 13,
     marginBottom: 16,
     textAlign: 'center',
@@ -410,6 +451,39 @@ const styles = StyleSheet.create({
     color: '#F0F0F0',
   },
   friendsChevron: {
+    fontSize: 22,
+    color: '#555555',
+    fontWeight: '300',
+  },
+
+  // Settings button
+  settingsBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#1C1C1C',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#2A2A2A',
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    marginBottom: 14,
+    minHeight: 60,
+  },
+  settingsBtnInner: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  settingsBtnIcon: {
+    fontSize: 20,
+    marginRight: 12,
+  },
+  settingsBtnText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#F0F0F0',
+  },
+  settingsChevron: {
     fontSize: 22,
     color: '#555555',
     fontWeight: '300',
