@@ -357,11 +357,6 @@ export default function SettingsScreen() {
               onSelect={(v) => { setMapStyle(v); mark(); }}
             />
           </View>
-        </View>
-
-        {/* ── PRIVACY ─────────────────────────────────────────────────────── */}
-        <SectionHeader title="PRIVACY" />
-        <View style={styles.sectionCard}>
           <SettingRow
             icon="🌄"
             label="Scenic Routing"
@@ -375,8 +370,13 @@ export default function SettingsScreen() {
                 accessibilityLabel="Scenic routing toggle"
               />
             }
+            last
           />
+        </View>
 
+        {/* ── PRIVACY ─────────────────────────────────────────────────────── */}
+        <SectionHeader title="PRIVACY" />
+        <View style={styles.sectionCard}>
           <SettingRow
             icon="⚠️"
             label="Hazard Alert Distance"

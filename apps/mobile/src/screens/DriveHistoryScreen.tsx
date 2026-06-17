@@ -239,10 +239,10 @@ export default function DriveHistoryScreen() {
         onEndReachedThreshold={0.3}
         ListEmptyComponent={
           <View style={styles.emptyState}>
-            <Text style={styles.emptyEmoji}>🚗</Text>
+            <Text style={styles.emptyEmoji}>🛣️</Text>
             <Text style={styles.emptyTitle}>No drives yet</Text>
             <Text style={styles.emptySubtitle}>
-              Start your first convoy to record a drive!
+              Your drive history will appear here after your first convoy.
             </Text>
           </View>
         }

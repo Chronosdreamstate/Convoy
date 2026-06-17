@@ -97,8 +97,17 @@ function FriendsTab() {
 
   if (loading) {
     return (
-      <View style={styles.centered}>
-        <ActivityIndicator color="#DC143C" size="large" />
+      <View style={styles.skeletonContainer}>
+        {[0, 1, 2, 3].map((i) => (
+          <View key={i} style={styles.skeletonRow}>
+            <View style={styles.skeletonAvatar} />
+            <View style={styles.skeletonLines}>
+              <View style={[styles.skeletonLine, { width: '55%' }]} />
+              <View style={[styles.skeletonLine, { width: '35%', marginTop: 6 }]} />
+            </View>
+            <View style={styles.skeletonBtn} />
+          </View>
+        ))}
       </View>
     );
   }
@@ -495,6 +504,44 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingBottom: 32,
     paddingTop: 4,
+  },
+  skeletonContainer: {
+    flex: 1,
+    backgroundColor: '#0A0A0A',
+    paddingHorizontal: 16,
+    paddingTop: 12,
+  },
+  skeletonRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#1C1C1C',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 10,
+    opacity: 0.6,
+    gap: 12,
+  },
+  skeletonAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#2A2A2A',
+    flexShrink: 0,
+  },
+  skeletonLines: {
+    flex: 1,
+  },
+  skeletonLine: {
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: '#2A2A2A',
+  },
+  skeletonBtn: {
+    width: 64,
+    height: 32,
+    borderRadius: 8,
+    backgroundColor: '#2A2A2A',
+    flexShrink: 0,
   },
   centered: {
     flex: 1,
