@@ -46,6 +46,29 @@ export interface IDeviceStore {
   getTokensForUser(userId: string): Promise<Array<{ token: string; platform: 'ios' | 'android' }>>;
 }
 
+export interface IPreferenceStore {
+  getPreferences(userId: string): Promise<{
+    notif_hazard: boolean;
+    notif_group_events: boolean;
+    notif_friend_requests: boolean;
+    notif_navigation: boolean;
+  } | null>;
+}
+
+type PrefKey = 'notif_hazard' | 'notif_group_events' | 'notif_friend_requests' | 'notif_navigation';
+
+const PREFERENCE_KEY: Record<NotificationType, PrefKey> = {
+  hazard_alert:           'notif_hazard',
+  gap_alert:              'notif_navigation',
+  arriving_destination:   'notif_navigation',
+  fuel_suggest:           'notif_navigation',
+  group_event:            'notif_group_events',
+  group_invite:           'notif_group_events',
+  rally_point:            'notif_group_events',
+  sos_alert:              'notif_group_events', // always sent — key unused for SOS
+  friend_request:         'notif_friend_requests',
+} as const;
+
 // ---------------------------------------------------------------------------
 // Queue factory
 // ---------------------------------------------------------------------------
@@ -62,14 +85,23 @@ export function createNotificationWorker(
   connection: IORedis,
   deviceStore: IDeviceStore,
   gateway: IPushGateway,
+  preferenceStore: IPreferenceStore,
 ): Worker<NotificationJob> {
   return new Worker<NotificationJob>(
     'notifications',
     async (job: Job<NotificationJob>) => {
       const { userId, type, title, body, data } = job.data;
-      const devices = await deviceStore.getTokensForUser(userId);
 
-      // SOS alerts bypass any per-category checks — always high priority (Req 15.5)
+      // SOS alerts always send regardless of user preferences (Req 15.5)
+      if (type !== 'sos_alert') {
+        const prefs = await preferenceStore.getPreferences(userId);
+        if (prefs !== null) {
+          const prefKey = PREFERENCE_KEY[type];
+          if (!prefs[prefKey]) return; // user opted out of this category
+        }
+      }
+
+      const devices = await deviceStore.getTokensForUser(userId);
       const priority: 'normal' | 'high' = type === 'sos_alert' ? 'high' : 'normal';
 
       await Promise.all(

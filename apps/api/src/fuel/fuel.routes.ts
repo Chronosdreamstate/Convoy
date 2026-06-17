@@ -108,6 +108,9 @@ const fuelRoutes: FastifyPluginAsync = async (fastify) => {
     if (isNaN(lat) || isNaN(lng)) {
       return reply.status(400).send({ error: 'lat and lng are required' });
     }
+    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+      return reply.status(400).send({ error: 'lat must be -90 to 90 and lng must be -180 to 180' });
+    }
 
     const stations = await searchFuelStations(lat, lng, FUEL_SEARCH_RADIUS_M, env.MAPBOX_API_TOKEN);
 

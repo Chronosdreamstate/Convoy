@@ -71,7 +71,7 @@ export async function handleLocationUpdate(params: {
   // 1a. Read the previous location BEFORE overwriting it (needed for distance accumulation)
   const prevLocRaw = await redis.hgetall(locKey);
 
-  // 1b. Write new location to Redis with 10-second sliding-window TTL (Req 8.2)
+  // 1b. Write new location to Redis with 35-second TTL (aligned with 30s stale threshold + buffer)
   await redis.hset(locKey, {
     lat: String(location.lat),
     lng: String(location.lng),
@@ -79,7 +79,7 @@ export async function handleLocationUpdate(params: {
     speed_kph: String(location.speed_kph),
     ts: String(location.ts),
   });
-  await redis.expire(locKey, 10);
+  await redis.expire(locKey, 35);
 
   // 1c. Accumulate per-member movement into the group distance counter (fuel suggestion, Req 21.1)
   if (prevLocRaw && prevLocRaw.lat && prevLocRaw.lng) {
@@ -89,11 +89,8 @@ export async function handleLocationUpdate(params: {
     );
     if (delta > 0) {
       const distanceKey = `group:${groupId}:distance_m`;
-      const isNew = await redis.exists(distanceKey) === 0;
       await redis.incrbyfloat(distanceKey, delta);
-      if (isNew) {
-        await redis.expire(distanceKey, 86_400); // 24-hour TTL
-      }
+      await redis.expire(distanceKey, 86_400); // 24-hour TTL — always refresh to avoid TOCTOU gap
     }
   }
 
@@ -217,12 +214,12 @@ export async function handlePttEnd(params: {
 }): Promise<void> {
   const { groupId, userId, logId, db, io, now = Date.now() } = params;
 
-  // Get the log row to find channel and validate duration
+  // Get the log row to find channel and validate duration — include group_id to prevent cross-group manipulation
   const logResult = await db.query<{
     id: string; channel_id: string | null; started_at: Date;
   }>(
-    'SELECT id, channel_id, started_at FROM ptt_log WHERE id = $1 AND user_id = $2',
-    [logId, userId],
+    'SELECT id, channel_id, started_at FROM ptt_log WHERE id = $1 AND user_id = $2 AND group_id = $3',
+    [logId, userId, groupId],
   );
   const log = logResult.rows[0];
   if (!log) return;
@@ -309,8 +306,11 @@ export async function handleHazardProximity(params: {
   const alertedKey = `hazard_alerted:${userId}`;
 
   for (const hazard of hazards.rows) {
-    const alreadyAlerted = await redis.sismember(alertedKey, hazard.id);
-    if (alreadyAlerted) continue;
+    // Use sadd return value as atomic gate — avoids sismember→sadd TOCTOU race
+    const added = await redis.sadd(alertedKey, hazard.id);
+    if (added === 0) continue;
+
+    await redis.expire(alertedKey, 3600);
 
     io.to(`user:${userId}`).emit('hazard:nearby', {
       id: hazard.id,
@@ -318,9 +318,6 @@ export async function handleHazardProximity(params: {
       lat: hazard.lat,
       lng: hazard.lng,
     });
-
-    await redis.sadd(alertedKey, hazard.id);
-    await redis.expire(alertedKey, 3600);
   }
 }
 
@@ -331,18 +328,28 @@ export function registerSocketHandlers(
   fastify: FastifyInstance,
   io: SocketIO,
 ): (socket: Socket) => void {
-  return (socket: Socket) => {
+  return async (socket: Socket) => {
     const userId = socket.data.userId as string;
     const groupId = socket.data.groupId as string;
 
-    if (!groupId) {
+    if (!userId || !groupId) {
       socket.disconnect(true);
       return;
     }
 
-    // Join group room and personal room
-    void socket.join(`group:${groupId}`);
-    void socket.join(`user:${userId}`);
+    // Verify active membership before joining room — prevents unauthorized room access
+    const memberCheck = await fastify.db.query<{ id: string }>(
+      `SELECT id FROM convoy_members WHERE group_id = $1 AND user_id = $2 AND left_at IS NULL`,
+      [groupId, userId],
+    );
+    if (memberCheck.rows.length === 0) {
+      socket.disconnect(true);
+      return;
+    }
+
+    // Join group room and personal room — must be awaited before broadcasting
+    await socket.join(`group:${groupId}`);
+    await socket.join(`user:${userId}`);
 
     // Notify other group members (Req 8.3)
     socket.to(`group:${groupId}`).emit('member:joined', { userId });
@@ -351,50 +358,50 @@ export function registerSocketHandlers(
     socket.on('location:update', (data: unknown) => {
       const parsed = locationSchema.safeParse(data);
       if (!parsed.success) return;
-      void handleLocationUpdate({
+      handleLocationUpdate({
         groupId,
         userId,
         location: parsed.data,
         redis: fastify.redis,
         db: fastify.db,
         io,
-      });
+      }).catch((err: unknown) => fastify.log.error({ err }, 'location update error'));
       // Proximity check runs alongside gap-alert logic (Req 11.7, 11.8)
-      void handleHazardProximity({
+      handleHazardProximity({
         userId,
         location: { lat: parsed.data.lat, lng: parsed.data.lng },
         db: fastify.db,
         redis: fastify.redis,
         io,
-      });
+      }).catch((err: unknown) => fastify.log.error({ err }, 'hazard proximity error'));
     });
 
     // PTT start (Req 10.1–10.4)
     socket.on('ptt:start', (data: unknown) => {
       const { channelId } = (data as PttStartPayload) ?? {};
       if (!channelId) return;
-      void handlePttStart({
+      handlePttStart({
         groupId, userId, channelId,
         db: fastify.db,
         io,
-      });
+      }).catch((err: unknown) => fastify.log.error({ err }, 'ptt start error'));
     });
 
     // PTT end (Req 10.5, 10.6)
     socket.on('ptt:end', (data: unknown) => {
       const { logId } = (data as { logId: string }) ?? {};
       if (!logId) return;
-      void handlePttEnd({
+      handlePttEnd({
         groupId, userId, logId,
         db: fastify.db,
         io,
-      });
+      }).catch((err: unknown) => fastify.log.error({ err }, 'ptt end error'));
     });
 
     // Notify group on disconnect and clean up Redis presence (Req 8.3)
     socket.on('disconnect', () => {
       io.to(`group:${groupId}`).emit('member:left', { userId });
-      void fastify.redis.del(`loc:${groupId}:${userId}`);
+      fastify.redis.del(`loc:${groupId}:${userId}`).catch((err: unknown) => fastify.log.error({ err }, 'redis del error'));
     });
   };
 }

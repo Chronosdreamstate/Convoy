@@ -165,6 +165,15 @@ async function groupsRoutes(
       );
 
       await client.query('COMMIT');
+
+      // Record session start time in Redis for fuel suggestion duration tracking (Req 21.1)
+      await fastify.redis.set(
+        `group:${group.id}:started_at`,
+        String(Date.now()),
+        'EX',
+        86_400, // 24-hour TTL — group sessions won't run longer than this
+      );
+
       return reply.status(201).send(groupToResponse(group, 1));
     } catch (err) {
       await client.query('ROLLBACK');
@@ -442,6 +451,9 @@ async function groupsRoutes(
       client.release();
     }
 
+    // Clean up fuel-tracking Redis keys
+    await fastify.redis.del(`group:${id}:started_at`, `group:${id}:distance_m`);
+
     // Notify all members in the group room that the group has ended (Req 7.9)
     fastify.io.to(`group:${id}`).emit('group:ended', { endedBy: userId, groupId: id });
 
@@ -519,8 +531,8 @@ async function groupsRoutes(
 
       await fastify.db.query(
         `UPDATE convoy_members SET is_muted = $1
-         WHERE group_id = $2 AND left_at IS NULL`,
-        [parsed.data.muted, id],
+         WHERE group_id = $2 AND left_at IS NULL AND user_id != $3`,
+        [parsed.data.muted, id, userId],
       );
 
       return reply.status(200).send({ message: parsed.data.muted ? 'All members muted' : 'All members unmuted' });

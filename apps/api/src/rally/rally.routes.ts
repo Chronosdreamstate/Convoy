@@ -114,7 +114,11 @@ const rallyRoutes: FastifyPluginAsync = async (fastify) => {
       const userId = (request.user as { sub: string }).sub;
       const groupId = request.params.id;
 
-      const body = latLngBody.parse(request.body);
+      const bodyParsed = latLngBody.safeParse(request.body);
+      if (!bodyParsed.success) {
+        return reply.status(400).send({ error: 'lat and lng are required and must be valid coordinates' });
+      }
+      const body = bodyParsed.data;
 
       // Property 34: must be an active group member (Req 20.6)
       const memberResult = await fastify.db.query<{ id: string }>(
@@ -208,7 +212,11 @@ const rallyRoutes: FastifyPluginAsync = async (fastify) => {
       const userId = (request.user as { sub: string }).sub;
       const groupId = request.params.id;
 
-      const body = latLngBody.parse(request.body);
+      const bodyParsed2 = latLngBody.safeParse(request.body);
+      if (!bodyParsed2.success) {
+        return reply.status(400).send({ error: 'lat and lng are required and must be valid coordinates' });
+      }
+      const body = bodyParsed2.data;
 
       // Active member check
       const memberResult = await fastify.db.query<{ id: string }>(
@@ -232,10 +240,12 @@ const rallyRoutes: FastifyPluginAsync = async (fastify) => {
       const createdAt = new Date().toISOString();
       const sosData = JSON.stringify({ groupId, userId, lat: body.lat, lng: body.lng, createdAt });
 
-      // Persist in Redis (transient; clears when group ends)
-      await fastify.redis.setex(`sos:${sosId}`, SOS_TTL_S, sosData);
-      await fastify.redis.setex(`sos:user:${groupId}:${userId}`, SOS_TTL_S, sosId);
-      await fastify.redis.setex(cooldownKey, SOS_COOLDOWN_S, '1');
+      // Persist in Redis atomically via pipeline (transient; clears when group ends)
+      const pipeline = fastify.redis.pipeline();
+      pipeline.setex(`sos:${sosId}`, SOS_TTL_S, sosData);
+      pipeline.setex(`sos:user:${groupId}:${userId}`, SOS_TTL_S, sosId);
+      pipeline.setex(cooldownKey, SOS_COOLDOWN_S, '1');
+      await pipeline.exec();
 
       const sosPayload = { id: sosId, userId, groupId, lat: body.lat, lng: body.lng, createdAt };
 
@@ -264,6 +274,11 @@ const rallyRoutes: FastifyPluginAsync = async (fastify) => {
         lng: number;
         createdAt: string;
       };
+
+      // Verify SOS belongs to the group specified in the URL
+      if (sos.groupId !== groupId) {
+        return reply.status(404).send({ error: 'SOS not found or already expired' });
+      }
 
       const groupResult = await fastify.db.query<{ admin_id: string }>(
         'SELECT admin_id FROM convoy_groups WHERE id = $1',
@@ -324,7 +339,11 @@ const rallyRoutes: FastifyPluginAsync = async (fastify) => {
     await request.jwtVerify();
     const userId = (request.user as { sub: string }).sub;
 
-    const body = latLngBody.parse(request.body);
+    const bodyParsed3 = latLngBody.safeParse(request.body);
+    if (!bodyParsed3.success) {
+      return reply.status(400).send({ error: 'lat and lng are required and must be valid coordinates' });
+    }
+    const body = bodyParsed3.data;
 
     // SOS cooldown (Req 37.5)
     const cooldownKey = `sos:cooldown:${userId}`;
@@ -345,8 +364,10 @@ const rallyRoutes: FastifyPluginAsync = async (fastify) => {
     const createdAt = new Date().toISOString();
     const sosData = JSON.stringify({ groupId: null, userId, lat: body.lat, lng: body.lng, createdAt });
 
-    await fastify.redis.setex(`sos:${sosId}`, SOS_TTL_S, sosData);
-    await fastify.redis.setex(cooldownKey, SOS_COOLDOWN_S, '1');
+    const sosPipeline = fastify.redis.pipeline();
+    sosPipeline.setex(`sos:${sosId}`, SOS_TTL_S, sosData);
+    sosPipeline.setex(cooldownKey, SOS_COOLDOWN_S, '1');
+    await sosPipeline.exec();
 
     const sosPayload = { id: sosId, userId, groupId: null, lat: body.lat, lng: body.lng, createdAt };
 

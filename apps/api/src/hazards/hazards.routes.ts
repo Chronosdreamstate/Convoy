@@ -301,6 +301,7 @@ export default async function hazardsRoutes(fastify: FastifyInstance): Promise<v
       `UPDATE hazard_reports
        SET dismissal_count = dismissal_count + 1,
            status = CASE WHEN dismissal_count + 1 >= 3 THEN 'dismissed' ELSE status END,
+           expires_at = CASE WHEN dismissal_count + 1 >= 3 THEN now() ELSE expires_at END,
            updated_at = now()
        WHERE id = $1 AND status = 'active'
        RETURNING id, dismissal_count, status`,

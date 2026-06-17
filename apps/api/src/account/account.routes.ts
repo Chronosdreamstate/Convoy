@@ -75,7 +75,7 @@ const accountRoutes: FastifyPluginAsync = async (fastify) => {
     await fastify.db.query('DELETE FROM users WHERE id = $1', [userId]);
 
     // Clear refresh-token cookie so the client can't reuse the old session
-    reply.clearCookie('refresh_token', { path: '/api/v1/auth/refresh' });
+    reply.clearCookie('refreshToken', { path: '/' });
 
     return reply.send({ success: true, message: 'Account and all associated data deleted.' });
   });

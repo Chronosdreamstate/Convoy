@@ -6,6 +6,7 @@
 import { FastifyInstance } from 'fastify';
 import { Pool } from 'pg';
 import jwt from 'jsonwebtoken';
+import { z } from 'zod';
 import { authenticate } from '../middleware/authenticate';
 import { env } from '../config/env';
 
@@ -35,7 +36,7 @@ export function userIdToAgoraUid(userId: string): number {
 
 /** Channel name scoped to a group and channel (sent to Agora). */
 export function buildAgoraChannelName(groupId: string, channelId: string): string {
-  return `${groupId.slice(0, 8)}-${channelId.slice(0, 8)}`;
+  return `${groupId.replace(/-/g, '')}-${channelId.replace(/-/g, '')}`;
 }
 
 /**
@@ -121,6 +122,15 @@ function generateAgoraToken(channelName: string, uid: number, ttlSeconds: number
 }
 
 // ---------------------------------------------------------------------------
+// Schemas
+// ---------------------------------------------------------------------------
+
+const tokenBodySchema = z.object({
+  groupId: z.string().uuid(),
+  channelId: z.string().uuid(),
+});
+
+// ---------------------------------------------------------------------------
 // Routes
 // ---------------------------------------------------------------------------
 
@@ -132,9 +142,9 @@ export default async function pttRoutes(fastify: FastifyInstance): Promise<void>
   // -------------------------------------------------------------------------
   fastify.post('/ptt/token', { preHandler: authenticate }, async (request, reply) => {
     const userId = (request.user as { sub: string }).sub;
-    const { groupId, channelId } = request.body as { groupId: string; channelId: string };
-
-    if (!groupId || !channelId) return reply.badRequest('groupId and channelId are required');
+    const parsed = tokenBodySchema.safeParse(request.body);
+    if (!parsed.success) return reply.badRequest('groupId and channelId must be valid UUIDs');
+    const { groupId, channelId } = parsed.data;
 
     // Verify active membership (Req 10.1)
     const memberResult = await pool.query<{ is_muted: boolean }>(

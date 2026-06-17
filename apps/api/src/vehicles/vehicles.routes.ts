@@ -131,12 +131,16 @@ async function vehiclesRoutes(
     const userId = (request.user as { sub: string }).sub;
     const { id } = request.params as { id: string };
 
-    const result = await fastify.db.query(
-      `DELETE FROM vehicles WHERE id = $1 AND user_id = $2 RETURNING id`,
+    const fetchResult = await fastify.db.query<{ id: string; is_active: boolean }>(
+      `SELECT id, is_active FROM vehicles WHERE id = $1 AND user_id = $2`,
       [id, userId],
     );
+    if (!fetchResult.rows[0]) return reply.notFound('Vehicle not found');
+    if (fetchResult.rows[0].is_active) {
+      return reply.status(409).send({ error: 'Cannot delete the active vehicle. Activate another vehicle first.' });
+    }
 
-    if (result.rowCount === 0) return reply.notFound('Vehicle not found');
+    await fastify.db.query(`DELETE FROM vehicles WHERE id = $1`, [id]);
     return reply.status(204).send();
   });
 

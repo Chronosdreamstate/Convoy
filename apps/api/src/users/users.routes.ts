@@ -153,6 +153,10 @@ async function usersRoutes(
       return reply.send({ user: null });
     }
 
+    if (u.privacy === 'invite_only') {
+      return reply.send({ user: null });
+    }
+
     return reply.send({
       user: {
         id: u.id,
@@ -177,11 +181,11 @@ async function usersRoutes(
 
     const { pushToken, platform } = parsed.data;
 
-    // Upsert by push_token: update if it already exists, otherwise insert.
+    // Upsert by push_token: reassign user_id if token moved to a different account.
     await fastify.db.query(
       `WITH upd AS (
          UPDATE devices
-         SET platform = $3, updated_at = now()
+         SET user_id = $1, platform = $3, updated_at = now()
          WHERE push_token = $2
          RETURNING id
        )

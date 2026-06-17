@@ -142,8 +142,8 @@ const drivesRoutes: FastifyPluginAsync = async (fastify) => {
     const userId = (request.user as { sub: string }).sub;
 
     const query = (request.query as { page?: string; limit?: string });
-    const page = Math.max(1, parseInt(query.page ?? '1', 10));
-    const limit = Math.min(50, Math.max(1, parseInt(query.limit ?? '20', 10)));
+    const page = Math.max(1, parseInt(query.page ?? '1', 10) || 1);
+    const limit = Math.min(50, Math.max(1, parseInt(query.limit ?? '20', 10) || 20));
     const offset = (page - 1) * limit;
 
     const result = await fastify.db.query<RawDriveRow>(
@@ -196,6 +196,16 @@ const drivesRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.status(400).send({ error: 'Invalid request body', details: parsed.error.flatten() });
     }
     const body = parsed.data;
+
+    if (body.groupId) {
+      const memberCheck = await fastify.db.query<{ id: string }>(
+        `SELECT id FROM convoy_members WHERE group_id = $1 AND user_id = $2 AND left_at IS NULL`,
+        [body.groupId, userId],
+      );
+      if (memberCheck.rows.length === 0) {
+        return reply.status(403).send({ error: 'Not an active member of the specified group' });
+      }
+    }
 
     const result = await fastify.db.query<{ id: string; created_at: Date }>(
       `INSERT INTO drive_history

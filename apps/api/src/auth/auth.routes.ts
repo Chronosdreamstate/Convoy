@@ -105,6 +105,20 @@ async function authRoutes(fastify: FastifyInstance, _opts: FastifyPluginOptions)
     }
 
     const { email, password } = result.data;
+
+    // Reject if this email already has an email auth provider (prevents duplicate rows)
+    const existing = await fastify.db.query(
+      `SELECT u.id FROM users u
+       JOIN auth_providers ap ON ap.user_id = u.id AND ap.provider = 'email'
+       WHERE u.email = $1 LIMIT 1`,
+      [email],
+    );
+    if (existing.rows.length > 0) {
+      return reply.status(409).send({
+        error: { code: 'EMAIL_EXISTS', message: 'An account with this email already exists.' },
+      });
+    }
+
     const hashedPassword = await bcrypt.hash(password, BCRYPT_ROUNDS);
 
     const user = await upsertUserByEmail(email, hashedPassword, fastify.db);

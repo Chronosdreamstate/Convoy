@@ -112,11 +112,12 @@ export async function upsertUserByEmail(
 
     const user = userResult.rows[0];
 
-    // Upsert auth_providers — store the hashed password as provider_id
+    // Upsert auth_providers — conflict on (user_id, provider) since each user
+    // can only have one email auth entry; update password hash on re-register
     await client.query(
       `INSERT INTO auth_providers (user_id, provider, provider_id)
        VALUES ($1, 'email', $2)
-       ON CONFLICT (provider, provider_id) DO NOTHING`,
+       ON CONFLICT (user_id, provider) DO UPDATE SET provider_id = EXCLUDED.provider_id`,
       [user.id, hashedPassword],
     );
 

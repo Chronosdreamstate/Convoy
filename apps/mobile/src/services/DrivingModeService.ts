@@ -62,7 +62,9 @@ export class DrivingModeService {
 
   stop(): void {
     this.unsubBt?.();
+    this.unsubBt = null;
     this.unsubCarPlay?.();
+    this.unsubCarPlay = null;
   }
 
   /** Manual override from UI (Req 28.4, 28.5). Pass null to return to auto mode. */
