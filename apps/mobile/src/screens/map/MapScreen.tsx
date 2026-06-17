@@ -30,6 +30,9 @@ import SpeedLimitHUD from '../../components/SpeedLimitHUD';
 import FuelSuggestionBanner from '../../components/FuelSuggestionBanner';
 import { SQLiteOfflineDB } from '../../services/OfflineCacheService';
 import { MotionStateService } from '../../services/MotionStateService';
+import { PTTService } from '../../services/PTTService';
+import { agoraEngineAdapter } from '../../services/AgoraEngineAdapter';
+import { apiTokenFetcher } from '../../services/ApiTokenFetcher';
 
 interface GapAlert { memberId: string; distanceM: number }
 interface SosAlert { pin: SosPin; memberName: string }
@@ -54,6 +57,16 @@ function formatElapsed(receivedAt: number): string {
 }
 
 const motionStateService = new MotionStateService();
+
+const hapticAdapter = {
+  impact: () => {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const Haptics = require('expo-haptics');
+      void Haptics.impactAsync('medium');
+    } catch { /* expo-haptics not installed — non-fatal */ }
+  },
+};
 
 // Module-level SQLite DB instance — initialised once per app lifecycle
 const offlineDB = new SQLiteOfflineDB();
@@ -113,9 +126,10 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
   const { socket } = useSocketStore();
   const mapStyle = useSettingsStore((s) => s.mapStyle);
 
-  const socketRef   = useRef<Socket | null>(null);
-  const mapRef      = useRef<MapView>(null);
-  const mySosIdRef  = useRef<string | null>(null);
+  const socketRef      = useRef<Socket | null>(null);
+  const mapRef         = useRef<MapView>(null);
+  const mySosIdRef     = useRef<string | null>(null);
+  const pttServiceRef  = useRef<PTTService | null>(null);
 
   // Keep mySosIdRef in sync so the socket handler closure always sees the current value
   useEffect(() => { mySosIdRef.current = mySosId; }, [mySosId]);
@@ -147,6 +161,31 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
     return () => { mounted = false; sub?.remove(); };
   }, []);
 
+  // PTTService lifecycle — create/destroy when socket or active channel changes
+  useEffect(() => {
+    if (!socket || !pttChannelId || !groupId) {
+      if (pttServiceRef.current) {
+        void pttServiceRef.current.leaveChannel();
+        pttServiceRef.current = null;
+      }
+      return;
+    }
+
+    const service = new PTTService(
+      agoraEngineAdapter,
+      apiTokenFetcher,
+      socket,
+      hapticAdapter,
+    );
+    pttServiceRef.current = service;
+    void service.joinChannel({ groupId, channelId: pttChannelId, maxSeconds: 30 });
+
+    return () => {
+      void service.leaveChannel();
+      pttServiceRef.current = null;
+    };
+  }, [socket, pttChannelId, groupId]);
+
   // WebSocket
   useEffect(() => {
     if (!token || !groupId) return;
@@ -154,10 +193,11 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
     socketRef.current = socket;
     useSocketStore.getState().setSocket(socket);
 
-    // Capture logId from ptt:transmit so ptt:end can reference it
+    // Forward our own logId to PTTService; keep fabPttLogIdRef for socket-only fallback
     socket.on('ptt:transmit', (data: { logId: string; userId: string }) => {
       if (data.userId === user?.id) {
         fabPttLogIdRef.current = data.logId;
+        pttServiceRef.current?.setCurrentLogId(data.logId);
       }
     });
 
@@ -326,17 +366,27 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
   }, []);
 
   const handlePttStart = useCallback(() => {
-    if (!socketRef.current || !pttChannelId) return;
     setIsPttTransmitting(true);
-    socketRef.current.emit('ptt:start', { channelId: pttChannelId });
+    if (pttServiceRef.current) {
+      // PTTService handles socket emit + Agora mic open
+      pttServiceRef.current.holdStart();
+    } else if (socketRef.current && pttChannelId) {
+      // Fallback: socket signalling only (no Agora audio)
+      socketRef.current.emit('ptt:start', { channelId: pttChannelId });
+    }
   }, [pttChannelId]);
 
   const handlePttEnd = useCallback(() => {
-    if (!socketRef.current || !fabPttLogIdRef.current) return;
     setIsPttTransmitting(false);
-    socketRef.current.emit('ptt:end', { logId: fabPttLogIdRef.current });
-    fabPttLogIdRef.current = null;
-  }, []);
+    if (pttServiceRef.current) {
+      // PTTService handles socket emit + Agora mic close
+      pttServiceRef.current.holdEnd();
+    } else if (socketRef.current && fabPttLogIdRef.current) {
+      // Fallback: socket signalling only
+      socketRef.current.emit('ptt:end', { logId: fabPttLogIdRef.current });
+      fabPttLogIdRef.current = null;
+    }
+  }, [pttChannelId]);
 
   const handleCalculateRoute = useCallback(async () => {
     if (!myLocation || !routeDestInput.trim()) return;
