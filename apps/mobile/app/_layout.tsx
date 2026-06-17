@@ -1,6 +1,8 @@
 ﻿import { useEffect, useRef } from 'react';
 import { Stack, useRouter } from 'expo-router';
+import type { Router } from 'expo-router';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import * as Notifications from 'expo-notifications';
 import { useAuthStore } from '../src/stores/authStore';
 import { authService } from '../src/services/AuthService';
 import { apiClient } from '../src/services/apiClient';
@@ -12,6 +14,35 @@ import {
 // Set up foreground notification display behaviour at module load time,
 // before any notifications can arrive.
 setupNotificationHandler();
+
+/** Navigate to the correct screen based on notification data. */
+function handleNotificationNavigation(
+  router: Router,
+  data: Record<string, string> | undefined,
+): void {
+  const type = data?.type;
+  switch (type) {
+    case 'sos_alert':
+      router.push('/(tabs)/map');
+      break;
+    case 'friend_request':
+      router.push('/friends');
+      break;
+    case 'group_invite':
+    case 'group_event':
+    case 'rally_point':
+      router.push('/(tabs)/convoy');
+      break;
+    case 'hazard_alert':
+    case 'gap_alert':
+    case 'fuel_suggest':
+    case 'arriving_destination':
+      router.push('/(tabs)/map');
+      break;
+    default:
+      break;
+  }
+}
 
 export default function RootLayout() {
   const { isAuthenticated, isLoading, setUser, setLoading, signOut: storeSignOut } = useAuthStore();
@@ -52,6 +83,26 @@ export default function RootLayout() {
       // Non-fatal - silently ignored if push setup fails
     });
   }, [isAuthenticated, isLoading]);
+
+  // Handle notification taps while app is in background (live listener)
+  useEffect(() => {
+    const sub = Notifications.addNotificationResponseReceivedListener((response) => {
+      const data = response.notification.request.content.data as Record<string, string>;
+      handleNotificationNavigation(router, data);
+    });
+    return () => sub.remove();
+  }, []);
+
+  // Handle the case where the app was killed and launched FROM a notification tap
+  useEffect(() => {
+    Notifications.getLastNotificationResponseAsync().then((response) => {
+      if (!response) return;
+      const data = response.notification.request.content.data as Record<string, string>;
+      handleNotificationNavigation(router, data);
+    }).catch(() => {
+      // Non-fatal — silently ignore if getLastNotificationResponseAsync fails
+    });
+  }, []);
 
   // Navigation guard: redirect unauthenticated users to welcome screen
   useEffect(() => {

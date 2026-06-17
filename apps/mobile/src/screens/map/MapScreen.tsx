@@ -14,6 +14,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ExpoLocation from 'expo-location';
 import { io, Socket } from 'socket.io-client';
 import { useAuthStore } from '../../stores/authStore';
+import { authService } from '../../services/AuthService';
 import { useLocationStore, MemberLocation } from '../../stores/locationStore';
 import { rallyService, RallyPoint, SosPin } from '../../services/RallyService';
 import { apiClient } from '../../services/apiClient';
@@ -142,6 +143,34 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
             );
           }
         }).catch(() => { /* non-fatal */ });
+      }
+    });
+
+    // Handle auth errors on connect/reconnect (e.g. expired access token during a network outage).
+    // socket.io fires connect_error when the server middleware rejects the handshake.
+    socket.on('connect_error', async (err: Error) => {
+      const isAuthError =
+        err.message.includes('401') ||
+        err.message.toLowerCase().includes('unauthorized') ||
+        err.message.toLowerCase().includes('token');
+
+      if (!isAuthError) return;
+
+      // Pause built-in reconnection while we refresh the token to avoid a retry storm.
+      socket.io.opts.reconnection = false;
+
+      try {
+        const newToken = await authService.refreshToken();
+        if (newToken) {
+          socket.auth = { token: newToken, groupId };
+          socket.io.opts.reconnection = true;
+          socket.connect();
+        } else {
+          // refreshToken returned null — refresh token is also expired; force sign-out.
+          useAuthStore.getState().signOut();
+        }
+      } catch {
+        useAuthStore.getState().signOut();
       }
     });
 

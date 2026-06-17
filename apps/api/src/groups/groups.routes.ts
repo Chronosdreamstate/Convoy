@@ -251,9 +251,17 @@ async function groupsRoutes(
       return reply.forbidden('This group is invite-only');
     }
 
-    // Check if already an active member
+    // Check if already an active member — idempotent: return 200 with current group data
     const existing = await getActiveMember(group.id, userId, fastify.db);
-    if (existing) return reply.conflict('You are already a member of this group');
+    if (existing) {
+      const countResult = await fastify.db.query<{ member_count: string }>(
+        `SELECT COUNT(*) FILTER (WHERE left_at IS NULL) AS member_count
+         FROM convoy_members WHERE group_id = $1`,
+        [group.id],
+      );
+      const memberCount = parseInt(countResult.rows[0]?.member_count ?? '0', 10);
+      return reply.status(200).send(groupToResponse(group, memberCount));
+    }
 
     const client = await fastify.db.connect();
     try {
@@ -295,7 +303,15 @@ async function groupsRoutes(
       client.release();
     }
 
-    return reply.status(200).send(groupToResponse(group));
+    // Fetch the current member count after joining
+    const countResult = await fastify.db.query<{ member_count: string }>(
+      `SELECT COUNT(*) FILTER (WHERE left_at IS NULL) AS member_count
+       FROM convoy_members WHERE group_id = $1`,
+      [group.id],
+    );
+    const memberCount = parseInt(countResult.rows[0]?.member_count ?? '0', 10);
+
+    return reply.status(200).send(groupToResponse(group, memberCount));
   });
 
   // -------------------------------------------------------------------------

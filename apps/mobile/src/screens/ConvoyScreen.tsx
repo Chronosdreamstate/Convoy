@@ -3,7 +3,7 @@
  * Requirements: 7.1–7.9, 8.4–8.5, 9.1–9.3, 15.4, 36.5, 36.6
  */
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -16,6 +16,7 @@ import {
   View,
 } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
+import { io, Socket } from 'socket.io-client';
 import { apiClient } from '../services/apiClient';
 
 // ---------------------------------------------------------------------------
@@ -42,29 +43,78 @@ interface GroupMember {
 
 interface Props {
   userId: string;
+  socketUrl: string;
+}
+
+// Shape of each member object returned by GET /groups/:id/members
+interface MemberApiItem {
+  id: string;
+  userId: string;
+  displayName: string;
+  avatarUrl?: string | null;
+  pttCallsign?: string | null;
+  isAdmin: boolean;
+  isMuted: boolean;
+  joinedAt: string;
 }
 
 // ---------------------------------------------------------------------------
 // ConvoyScreen
 // ---------------------------------------------------------------------------
 
-export default function ConvoyScreen({ userId }: Props) {
+export default function ConvoyScreen({ userId, socketUrl }: Props) {
   const [group, setGroup] = useState<ConvoyGroup | null>(null);
   const [members, setMembers] = useState<GroupMember[]>([]);
   const [loading, setLoading] = useState(false);
   const [joinCode, setJoinCode] = useState('');
   const [groupName, setGroupName] = useState('');
   const [view, setView] = useState<'home' | 'create' | 'join'>('home');
+  const socketRef = useRef<Socket | null>(null);
 
   const isAdmin = group?.adminId === userId;
+
+  // ── Helper: fetch and normalise the members list ──────────────────────────
+  const fetchMembers = useCallback((groupId: string) => {
+    apiClient
+      .get<{ members: MemberApiItem[] }>(`/api/v1/groups/${groupId}/members`)
+      .then((res) => {
+        const normalised: GroupMember[] = res.data.members.map((m) => ({
+          userId: m.userId,
+          displayName: m.displayName ?? '',
+          isMuted: m.isMuted,
+        }));
+        setMembers(normalised);
+      })
+      .catch(() => {/* silently fail – user will see empty list */});
+  }, []);
 
   // ── Load members when group becomes non-null ──────────────────────────────
   useEffect(() => {
     if (!group) return;
-    apiClient.get(`/api/v1/groups/${group.id}/members`)
-      .then((res) => setMembers(res.data))
-      .catch(() => {/* silently fail – user will see empty list */});
-  }, [group?.id]);
+    fetchMembers(group.id);
+  }, [group?.id, fetchMembers]);
+
+  // ── Socket: listen for group:ended while a group is active ───────────────
+  useEffect(() => {
+    if (!group) return;
+
+    const socket = io(socketUrl, {
+      transports: ['websocket'],
+      auth: { groupId: group.id },
+    });
+    socketRef.current = socket;
+
+    socket.on('group:ended', () => {
+      setGroup(null);
+      setMembers([]);
+      setView('home');
+    });
+
+    return () => {
+      socket.disconnect();
+      socketRef.current = null;
+    };
+  }, [group?.id, socketUrl]);
 
   // ── Create group (Req 7.1–7.3) ────────────────────────────────────────────
   const handleCreate = useCallback(async () => {
@@ -170,14 +220,37 @@ export default function ConvoyScreen({ userId }: Props) {
   // ── Mute member (Admin only, Req 10.11) ──────────────────────────────────
   const handleMute = useCallback(async (memberId: string) => {
     if (!group) return;
+    const target = members.find((m) => m.userId === memberId);
+    if (!target) return;
+    const newMuted = !target.isMuted;
     try {
-      await apiClient.post(`/api/v1/groups/${group.id}/members/${memberId}/mute`);
-      setMembers((prev) =>
-        prev.map((m) => (m.userId === memberId ? { ...m, isMuted: !m.isMuted } : m)),
-      );
+      await apiClient.post(`/api/v1/groups/${group.id}/members/${memberId}/mute`, { muted: newMuted });
+      // Re-fetch to stay in sync with server state
+      fetchMembers(group.id);
     } catch {
       Alert.alert('Error', 'Could not mute member.');
+      // No optimistic update was applied, so no rollback needed
     }
+  }, [group, members, fetchMembers]);
+
+  // ── Kick member (Admin only) ──────────────────────────────────────────────
+  const handleKick = useCallback((memberId: string) => {
+    if (!group) return;
+    Alert.alert('Kick member', 'Remove this member?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Remove',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await apiClient.delete(`/api/v1/groups/${group.id}/members/${memberId}`);
+            setMembers((prev) => prev.filter((m) => m.userId !== memberId));
+          } catch {
+            Alert.alert('Error', 'Could not kick member.');
+          }
+        },
+      },
+    ]);
   }, [group]);
 
   // ── Home: no group ────────────────────────────────────────────────────────
@@ -308,12 +381,20 @@ export default function ConvoyScreen({ userId }: Props) {
             </View>
 
             {isAdmin && m.userId !== userId && (
-              <TouchableOpacity
-                style={[styles.muteBtn, m.isMuted && styles.muteBtnActive]}
-                onPress={() => void handleMute(m.userId)}
-              >
-                <Text style={styles.muteBtnText}>{m.isMuted ? 'Unmute' : 'Mute'}</Text>
-              </TouchableOpacity>
+              <View style={styles.adminActions}>
+                <TouchableOpacity
+                  style={[styles.muteBtn, m.isMuted && styles.muteBtnActive]}
+                  onPress={() => void handleMute(m.userId)}
+                >
+                  <Text style={styles.muteBtnText}>{m.isMuted ? 'Unmute' : 'Mute'}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.kickBtn}
+                  onPress={() => handleKick(m.userId)}
+                >
+                  <Text style={styles.kickBtnText}>Kick</Text>
+                </TouchableOpacity>
+              </View>
             )}
           </View>
         )}
@@ -479,6 +560,7 @@ const styles = StyleSheet.create({
   memberName: { color: '#F0F0F0', fontSize: 15, fontWeight: '600' },
   memberMetaRow: { flexDirection: 'row', gap: 10, marginTop: 3 },
   memberMeta: { color: '#555555', fontSize: 12 },
+  adminActions: { flexDirection: 'row', gap: 6 },
   muteBtn: {
     backgroundColor: '#2A2A2A', borderRadius: 8,
     paddingHorizontal: 12, paddingVertical: 8, minWidth: 64,
@@ -486,6 +568,13 @@ const styles = StyleSheet.create({
   },
   muteBtnActive: { backgroundColor: '#DC143C' },
   muteBtnText: { color: '#F0F0F0', fontSize: 12, fontWeight: '600' },
+  kickBtn: {
+    backgroundColor: '#1A0505', borderRadius: 8,
+    paddingHorizontal: 12, paddingVertical: 8, minWidth: 48,
+    alignItems: 'center', minHeight: 36, justifyContent: 'center',
+    borderWidth: 1, borderColor: '#5C1010',
+  },
+  kickBtnText: { color: '#FF8080', fontSize: 12, fontWeight: '600' },
   emptyMembers: {
     paddingVertical: 32,
     alignItems: 'center',

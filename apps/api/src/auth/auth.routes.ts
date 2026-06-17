@@ -1,6 +1,7 @@
 import { FastifyInstance, FastifyPluginOptions } from 'fastify';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import { createRemoteJWKSet, jwtVerify, JWTPayload } from 'jose';
 import {
   otpRequestSchema,
   otpVerifySchema,
@@ -18,6 +19,57 @@ import {
   setRefreshCookie,
 } from './auth.service';
 import { env } from '../config/env';
+
+// ---------------------------------------------------------------------------
+// Provider token verification (Bug 1 fix)
+// ---------------------------------------------------------------------------
+
+const PROVIDER_JWKS_URLS: Record<'google' | 'apple', string> = {
+  google: 'https://www.googleapis.com/oauth2/v3/certs',
+  apple: 'https://appleid.apple.com/auth/keys',
+};
+
+/** In-memory JWKS cache entry */
+interface JwksCache {
+  keySet: ReturnType<typeof createRemoteJWKSet>;
+  expiresAt: number;
+}
+
+const jwksCache = new Map<string, JwksCache>();
+const JWKS_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+function getJwks(provider: 'google' | 'apple'): ReturnType<typeof createRemoteJWKSet> {
+  const now = Date.now();
+  const cached = jwksCache.get(provider);
+  if (cached && cached.expiresAt > now) {
+    return cached.keySet;
+  }
+  const keySet = createRemoteJWKSet(new URL(PROVIDER_JWKS_URLS[provider]));
+  jwksCache.set(provider, { keySet, expiresAt: now + JWKS_TTL_MS });
+  return keySet;
+}
+
+/**
+ * Verify an ID token issued by Google or Apple using their published JWKS.
+ * Returns the `sub` (provider user ID) and optional `email` on success.
+ * Throws on any verification failure.
+ */
+async function verifyProviderToken(
+  provider: 'google' | 'apple',
+  idToken: string,
+): Promise<{ sub: string; email?: string }> {
+  const JWKS = getJwks(provider);
+  const { payload } = await jwtVerify<JWTPayload>(idToken, JWKS);
+
+  if (typeof payload.sub !== 'string' || !payload.sub) {
+    throw new Error('Token missing sub claim');
+  }
+
+  return {
+    sub: payload.sub,
+    ...(typeof payload.email === 'string' ? { email: payload.email } : {}),
+  };
+}
 
 const BCRYPT_ROUNDS = 10;
 
@@ -208,21 +260,14 @@ async function authRoutes(fastify: FastifyInstance, _opts: FastifyPluginOptions)
 
     const { provider, idToken } = result.data;
 
-    // TODO: verify idToken with provider public keys (Apple / Google)
-    // For now we decode without verification for development purposes only.
-    // In production, verify the signature using provider's JWKS endpoint.
     let providerId: string;
     let email: string | null = null;
 
     try {
-      // Decode without verify — REPLACE with proper verification in production
-      const decoded = jwt.decode(idToken) as Record<string, unknown> | null;
-      if (!decoded || typeof decoded.sub !== 'string') {
-        throw new Error('Invalid token structure');
-      }
-      providerId = decoded.sub;
-      if (typeof decoded.email === 'string') {
-        email = decoded.email;
+      const verified = await verifyProviderToken(provider, idToken);
+      providerId = verified.sub;
+      if (verified.email) {
+        email = verified.email;
       }
     } catch {
       return reply.status(401).send({
@@ -264,8 +309,18 @@ async function authRoutes(fastify: FastifyInstance, _opts: FastifyPluginOptions)
       return reply.unauthorized('Invalid token payload');
     }
 
-    // Issue new access token only
-    const accessToken = fastify.jwt.sign({ sub: userId });
+    // Verify the user still exists in the database
+    const userCheck = await fastify.db.query<{ id: string }>(
+      `SELECT id FROM users WHERE id = $1`,
+      [userId],
+    );
+    if (userCheck.rows.length === 0) {
+      return reply.unauthorized('User not found');
+    }
+
+    // Rotate: issue both a new access token AND a new refresh token
+    const { accessToken, refreshToken: newRefreshToken } = await issueTokens(userId, fastify);
+    setRefreshCookie(reply, newRefreshToken, env.NODE_ENV);
 
     return reply.send({ accessToken });
   });
