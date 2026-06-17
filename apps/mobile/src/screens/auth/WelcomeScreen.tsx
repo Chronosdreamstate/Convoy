@@ -6,8 +6,11 @@ import {
   StyleSheet,
   SafeAreaView,
   Linking,
+  Platform,
+  Alert,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { authService } from '../../services/AuthService';
 
 const PRIVACY_POLICY_URL = 'https://convoy.app/privacy';
 const TERMS_URL = 'https://convoy.app/terms';
@@ -16,9 +19,37 @@ export default function WelcomeScreen() {
   const router = useRouter();
 
   const handleOpenUrl = (url: string) => {
-    Linking.openURL(url).catch(() => {
-      // Silently fail — URL opening errors should not crash the app
-    });
+    Linking.openURL(url).catch(() => {});
+  };
+
+  const handleAppleSignIn = async () => {
+    if (Platform.OS !== 'ios') return;
+    try {
+      // expo-apple-authentication must be installed: npx expo install expo-apple-authentication
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const AppleAuth = require('expo-apple-authentication');
+      const credential = await AppleAuth.signInAsync({
+        requestedScopes: [
+          AppleAuth.AppleAuthenticationScope.FULL_NAME,
+          AppleAuth.AppleAuthenticationScope.EMAIL,
+        ],
+      });
+      if (credential.identityToken) {
+        await authService.signInSocial('apple', credential.identityToken);
+        router.replace('/(tabs)/map');
+      }
+    } catch (err: unknown) {
+      const code = (err as { code?: string })?.code;
+      if (code === 'ERR_REQUEST_CANCELED') return;
+      Alert.alert('Sign In Failed', 'Could not sign in with Apple. Please try another method.');
+    }
+  };
+
+  const handleGoogleSignIn = async () => {
+    Alert.alert(
+      'Google Sign-In',
+      'Coming soon — install @react-native-google-signin/google-signin and configure OAuth to enable this.',
+    );
   };
 
   return (
@@ -55,6 +86,27 @@ export default function WelcomeScreen() {
           accessibilityLabel="Sign in with Email"
         >
           <Text style={styles.secondaryButtonText}>✉️  Sign in with Email</Text>
+        </TouchableOpacity>
+
+        {/* Social sign-in — Apple (iOS App Store required), Google */}
+        {Platform.OS === 'ios' && (
+          <TouchableOpacity
+            style={styles.appleButton}
+            onPress={() => { void handleAppleSignIn(); }}
+            accessibilityRole="button"
+            accessibilityLabel="Sign in with Apple"
+          >
+            <Text style={styles.appleButtonText}>  Sign in with Apple</Text>
+          </TouchableOpacity>
+        )}
+
+        <TouchableOpacity
+          style={styles.googleButton}
+          onPress={() => { void handleGoogleSignIn(); }}
+          accessibilityRole="button"
+          accessibilityLabel="Sign in with Google"
+        >
+          <Text style={styles.googleButtonText}>G  Sign in with Google</Text>
         </TouchableOpacity>
       </View>
 
@@ -165,6 +217,40 @@ const styles = StyleSheet.create({
   },
   secondaryButtonText: {
     color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+    letterSpacing: 0.3,
+  },
+  appleButton: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    paddingVertical: 18,
+    paddingHorizontal: 24,
+    alignItems: 'center',
+    minHeight: 56,
+    justifyContent: 'center',
+    marginTop: 10,
+  },
+  appleButtonText: {
+    color: '#000000',
+    fontSize: 16,
+    fontWeight: '600',
+    letterSpacing: 0.3,
+  },
+  googleButton: {
+    backgroundColor: '#1C1C1C',
+    borderRadius: 14,
+    paddingVertical: 18,
+    paddingHorizontal: 24,
+    alignItems: 'center',
+    minHeight: 56,
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#4285F4',
+    marginTop: 10,
+  },
+  googleButtonText: {
+    color: '#4285F4',
     fontSize: 16,
     fontWeight: '600',
     letterSpacing: 0.3,

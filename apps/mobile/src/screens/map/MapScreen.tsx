@@ -4,12 +4,14 @@ import {
   FlatList,
   Modal,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
-import MapView, { Marker, LongPressEvent, PROVIDER_DEFAULT } from 'react-native-maps';
+import MapView, { Marker, Polyline, LongPressEvent, PROVIDER_DEFAULT } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ExpoLocation from 'expo-location';
 import { io, Socket } from 'socket.io-client';
@@ -27,9 +29,15 @@ import HazardPicker from '../../components/HazardPicker';
 import SpeedLimitHUD from '../../components/SpeedLimitHUD';
 import FuelSuggestionBanner from '../../components/FuelSuggestionBanner';
 import { SQLiteOfflineDB } from '../../services/OfflineCacheService';
+import { MotionStateService } from '../../services/MotionStateService';
 
 interface GapAlert { memberId: string; distanceM: number }
 interface SosAlert { pin: SosPin; memberName: string }
+interface RouteAlternative {
+  distanceM: number;
+  durationS: number;
+  geometry: { coordinates: [number, number][] };
+}
 
 interface Props {
   groupId: string;
@@ -44,6 +52,8 @@ function formatElapsed(receivedAt: number): string {
   const s = Math.floor((Date.now() - receivedAt) / 1000);
   return s < 60 ? `${s}s ago` : `${Math.floor(s / 60)}m ago`;
 }
+
+const motionStateService = new MotionStateService();
 
 // Module-level SQLite DB instance — initialised once per app lifecycle
 const offlineDB = new SQLiteOfflineDB();
@@ -88,6 +98,17 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
   // Member panel tab
   const [panelTab, setPanelTab] = useState<'members' | 'pttlog'>('members');
 
+  // Route planning
+  const [routeCoords, setRouteCoords]             = useState<Array<{ latitude: number; longitude: number }>>([]);
+  const [routeAlternatives, setRouteAlternatives] = useState<RouteAlternative[]>([]);
+  const [selectedRouteIdx, setSelectedRouteIdx]   = useState<number>(0);
+  const [showRouteModal, setShowRouteModal]       = useState(false);
+  const [routeDestInput, setRouteDestInput]       = useState('');
+  const [isCalcRoute, setIsCalcRoute]             = useState(false);
+
+  // Driving mode (manual toggle)
+  const [drivingModeActive, setDrivingModeActive] = useState(false);
+
   // Reactive socket and settings from shared stores
   const { socket } = useSocketStore();
   const mapStyle = useSettingsStore((s) => s.mapStyle);
@@ -115,8 +136,10 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
       sub = await ExpoLocation.watchPositionAsync(
         { accuracy: ExpoLocation.Accuracy.High, distanceInterval: 10 },
         (loc) => {
+          const speedKph = (loc.coords.speed ?? 0) * 3.6;
           setMyLocation({ lat: loc.coords.latitude, lng: loc.coords.longitude });
-          setMySpeedKph((loc.coords.speed ?? 0) * 3.6);
+          setMySpeedKph(speedKph);
+          motionStateService.update(speedKph);
         },
       );
       if (!mounted) sub.remove();
@@ -217,6 +240,12 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
     });
 
     socket.on('gap:alert', (a: GapAlert) => setGapAlerts((p) => [...p.filter((x) => x.memberId !== a.memberId), a]));
+    socket.on('route:pushed', (data: { geometry: { coordinates: [number, number][] } }) => {
+      const coords = data.geometry.coordinates.map(([lng, lat]) => ({ latitude: lat, longitude: lng }));
+      setRouteCoords(coords);
+      setShowRouteModal(false);
+      Alert.alert('Route Updated', 'The group leader pushed a new route to the convoy.');
+    });
     socket.on('rally:set', (r: RallyPoint) => { setRallyPoints((p) => new Map(p).set(r.id, r)); setRallyAlert(r); });
     socket.on('rally:cancelled', ({ rallyId }: { rallyId: string }) => { setRallyPoints((p) => { const n = new Map(p); n.delete(rallyId); return n; }); setRallyAlert((p) => p?.id === rallyId ? null : p); });
     socket.on('sos:alert', (data: SosPin) => {
@@ -309,6 +338,49 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
     fabPttLogIdRef.current = null;
   }, []);
 
+  const handleCalculateRoute = useCallback(async () => {
+    if (!myLocation || !routeDestInput.trim()) return;
+    setIsCalcRoute(true);
+    try {
+      const searchRes = await apiClient.get<{ results: Array<{ lat: number; lng: number; name: string }> }>(
+        `/api/v1/places/search?q=${encodeURIComponent(routeDestInput.trim())}`,
+      );
+      const dest = searchRes.data.results[0];
+      if (!dest) { Alert.alert('No results', 'No location found for that search.'); return; }
+      const routeRes = await apiClient.post<{ routes: RouteAlternative[] }>('/api/v1/routes/calculate', {
+        origin: { lat: myLocation.lat, lng: myLocation.lng },
+        destination: { lat: dest.lat, lng: dest.lng },
+      });
+      const alts = routeRes.data.routes;
+      setRouteAlternatives(alts);
+      setSelectedRouteIdx(0);
+      const coords = alts[0]?.geometry.coordinates.map(([lng, lat]) => ({ latitude: lat, longitude: lng })) ?? [];
+      setRouteCoords(coords);
+    } catch {
+      Alert.alert('Error', 'Could not calculate route.');
+    } finally {
+      setIsCalcRoute(false);
+    }
+  }, [myLocation, routeDestInput]);
+
+  const handleSelectRouteAlt = useCallback((idx: number) => {
+    setSelectedRouteIdx(idx);
+    const coords = routeAlternatives[idx]?.geometry.coordinates.map(([lng, lat]) => ({ latitude: lat, longitude: lng })) ?? [];
+    setRouteCoords(coords);
+  }, [routeAlternatives]);
+
+  const handlePushRoute = useCallback(async () => {
+    if (!groupId || !routeAlternatives[selectedRouteIdx]) return;
+    try {
+      await apiClient.post(`/api/v1/groups/${groupId}/route`, {
+        geometry: routeAlternatives[selectedRouteIdx].geometry,
+      });
+      setShowRouteModal(false);
+    } catch {
+      Alert.alert('Error', 'Could not push route to group.');
+    }
+  }, [groupId, routeAlternatives, selectedRouteIdx]);
+
   const handleHazardSelect = useCallback(async (type: HazardType) => {
     if (!myLocation) {
       Alert.alert('Location required', 'Enable location permissions to report a hazard.');
@@ -371,6 +443,14 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
         {sosPinList.map((s) => (
           <Marker key={s.id} coordinate={{ latitude: s.lat, longitude: s.lng }} title="SOS" pinColor="#ef4444" />
         ))}
+        {routeCoords.length > 0 && (
+          <Polyline
+            coordinates={routeCoords}
+            strokeColor="#DC143C"
+            strokeWidth={4}
+            lineDashPattern={[1]}
+          />
+        )}
       </MapView>
 
       {/* Offline banner — shown when socket is disconnected */}
@@ -412,6 +492,22 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
         <View style={[styles.fabContainer, { bottom: insets.bottom + 228 }]}>
           {fabOpen && (
             <>
+              <TouchableOpacity
+                style={styles.fabItem}
+                onPress={() => { setFabOpen(false); setShowRouteModal(true); }}
+                accessibilityLabel="Plan route"
+                accessibilityRole="button"
+              >
+                <Text style={styles.fabItemIcon}>🗺</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.fabItem, drivingModeActive && styles.fabItemActive]}
+                onPress={() => { setFabOpen(false); setDrivingModeActive((v) => !v); }}
+                accessibilityLabel={drivingModeActive ? 'Exit driving mode' : 'Enter driving mode'}
+                accessibilityRole="button"
+              >
+                <Text style={styles.fabItemIcon}>🚗</Text>
+              </TouchableOpacity>
               <TouchableOpacity
                 style={styles.fabItem}
                 onPress={() => { setFabOpen(false); setShowFuelBanner((v) => !v); }}
@@ -645,6 +741,102 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
         onSelect={handleHazardSelect}
         onClose={() => setShowHazardPicker(false)}
       />
+
+      {/* Route planning modal */}
+      <Modal transparent visible={showRouteModal} animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalBox, styles.routeModalBox]}>
+            <Text style={styles.modalTitle}>🗺  Plan Route</Text>
+            <View style={styles.routeInputRow}>
+              <TextInput
+                style={styles.routeInput}
+                placeholder="Enter destination"
+                placeholderTextColor="#555555"
+                value={routeDestInput}
+                onChangeText={setRouteDestInput}
+                returnKeyType="search"
+                onSubmitEditing={() => void handleCalculateRoute()}
+              />
+              <TouchableOpacity
+                style={[styles.routeSearchBtn, isCalcRoute && { opacity: 0.5 }]}
+                onPress={() => void handleCalculateRoute()}
+                disabled={isCalcRoute}
+              >
+                <Text style={styles.routeSearchBtnText}>{isCalcRoute ? '…' : 'Go'}</Text>
+              </TouchableOpacity>
+            </View>
+
+            {routeAlternatives.length > 0 && (
+              <View style={styles.routeAlts}>
+                <Text style={styles.routeAltsLabel}>CHOOSE ROUTE</Text>
+                {routeAlternatives.map((alt, idx) => {
+                  const km = (alt.distanceM / 1000).toFixed(1);
+                  const min = Math.round(alt.durationS / 60);
+                  const hrs = Math.floor(min / 60);
+                  const remMin = min % 60;
+                  const dur = hrs > 0 ? `${hrs}h ${remMin}m` : `${min}m`;
+                  return (
+                    <TouchableOpacity
+                      key={idx}
+                      style={[styles.routeAltRow, selectedRouteIdx === idx && styles.routeAltRowActive]}
+                      onPress={() => handleSelectRouteAlt(idx)}
+                    >
+                      <View style={styles.routeAltBody}>
+                        <Text style={[styles.routeAltLabel, selectedRouteIdx === idx && styles.routeAltLabelActive]}>
+                          Route {idx + 1}
+                        </Text>
+                        <Text style={styles.routeAltMeta}>{km} km · {dur}</Text>
+                      </View>
+                      {selectedRouteIdx === idx && <Text style={styles.routeAltCheck}>✓</Text>}
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            )}
+
+            {routeCoords.length > 0 && routeAlternatives.length > 0 && (
+              <TouchableOpacity
+                style={styles.routeClearBtn}
+                onPress={() => { setRouteCoords([]); setRouteAlternatives([]); setRouteDestInput(''); }}
+              >
+                <Text style={styles.routeClearText}>Clear Route</Text>
+              </TouchableOpacity>
+            )}
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity style={styles.modalCancel} onPress={() => setShowRouteModal(false)}>
+                <Text style={styles.modalCancelText}>Close</Text>
+              </TouchableOpacity>
+              {isAdmin && routeAlternatives.length > 0 && (
+                <TouchableOpacity style={styles.modalConfirm} onPress={() => void handlePushRoute()}>
+                  <Text style={styles.modalConfirmText}>Push to Group</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Driving mode overlay — simplified HUD */}
+      {drivingModeActive && (
+        <View style={styles.drivingOverlay}>
+          <View style={styles.drivingSpeedBox}>
+            <Text style={styles.drivingSpeedValue}>{Math.round(mySpeedKph)}</Text>
+            <Text style={styles.drivingSpeedUnit}>km/h</Text>
+          </View>
+          <View style={styles.drivingInfo}>
+            <Text style={styles.drivingTitle}>DRIVING MODE</Text>
+            <Text style={styles.drivingConnected}>{isConnected ? '● LIVE' : '● OFFLINE'}</Text>
+          </View>
+          <TouchableOpacity
+            style={styles.drivingExitBtn}
+            onPress={() => setDrivingModeActive(false)}
+            accessibilityLabel="Exit driving mode"
+          >
+            <Text style={styles.drivingExitText}>Exit</Text>
+          </TouchableOpacity>
+        </View>
+      )}
     </View>
   );
 }
@@ -1000,11 +1192,101 @@ const styles = StyleSheet.create({
   },
   fabItemIcon: { fontSize: 22 },
   fabItemText: { color: '#fff', fontWeight: '800', fontSize: 11 },
+  fabItemActive: { borderColor: '#DC143C', backgroundColor: '#1A0505' },
   fabSosItem: { borderColor: '#DC143C' },
   fabSosCancelItem: { borderColor: '#555', backgroundColor: '#3a3a3a' },
   fabPttItem: { borderColor: '#444' },
   fabPttItemActive: { backgroundColor: '#10b981', borderColor: '#fff' },
   fabPttLabel: { color: '#fff', fontSize: 9, fontWeight: '800', letterSpacing: 0.5 },
+
+  // Route modal
+  routeModalBox: {
+    width: '100%',
+    maxHeight: '80%',
+    borderRadius: 16,
+    paddingHorizontal: 20,
+    paddingVertical: 24,
+    marginHorizontal: 0,
+  },
+  routeInputRow: { flexDirection: 'row', gap: 8, marginBottom: 16 },
+  routeInput: {
+    flex: 1,
+    backgroundColor: '#0A0A0A',
+    color: '#F0F0F0',
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    fontSize: 15,
+    borderWidth: 1,
+    borderColor: '#2A2A2A',
+  },
+  routeSearchBtn: {
+    backgroundColor: '#DC143C',
+    borderRadius: 10,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 44,
+  },
+  routeSearchBtnText: { color: '#fff', fontWeight: '800', fontSize: 16 },
+  routeAlts: { marginBottom: 16 },
+  routeAltsLabel: { color: '#555555', fontSize: 10, fontWeight: '700', letterSpacing: 1.5, marginBottom: 8 },
+  routeAltRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    backgroundColor: '#0A0A0A',
+    borderWidth: 1,
+    borderColor: '#2A2A2A',
+    marginBottom: 6,
+  },
+  routeAltRowActive: { borderColor: '#DC143C', backgroundColor: '#1A0505' },
+  routeAltBody: { flex: 1 },
+  routeAltLabel: { color: '#888888', fontSize: 14, fontWeight: '600' },
+  routeAltLabelActive: { color: '#DC143C' },
+  routeAltMeta: { color: '#555555', fontSize: 12, marginTop: 2 },
+  routeAltCheck: { color: '#DC143C', fontSize: 18, fontWeight: '900' },
+  routeClearBtn: { paddingVertical: 10, alignItems: 'center', marginBottom: 12 },
+  routeClearText: { color: '#555555', fontSize: 13, textDecorationLine: 'underline' },
+
+  // Driving mode overlay (bottom bar HUD)
+  drivingOverlay: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: '#0A0A0Af5',
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    borderTopWidth: 2,
+    borderTopColor: '#DC143C',
+    zIndex: 15,
+  },
+  drivingSpeedBox: {
+    alignItems: 'center',
+    marginRight: 20,
+    minWidth: 64,
+  },
+  drivingSpeedValue: { color: '#F0F0F0', fontSize: 44, fontWeight: '900', lineHeight: 48 },
+  drivingSpeedUnit: { color: '#555555', fontSize: 11, fontWeight: '700', letterSpacing: 1 },
+  drivingInfo: { flex: 1 },
+  drivingTitle: { color: '#DC143C', fontSize: 12, fontWeight: '800', letterSpacing: 2 },
+  drivingConnected: { color: '#555555', fontSize: 12, marginTop: 4 },
+  drivingExitBtn: {
+    backgroundColor: '#1C1C1C',
+    borderRadius: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: '#2A2A2A',
+    minHeight: 40,
+    justifyContent: 'center',
+  },
+  drivingExitText: { color: '#888888', fontWeight: '600', fontSize: 13 },
 
   // Offline / connection-lost banner
   offlineBanner: {

@@ -15,6 +15,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import MapView, { Polyline, PROVIDER_DEFAULT } from 'react-native-maps';
 import { apiClient } from '../services/apiClient';
 
 // ---------------------------------------------------------------------------
@@ -32,6 +33,7 @@ interface DriveRecord {
   startedAt: string;
   endedAt: string;
   summaryCardUrl: string | null;
+  routeTrace?: { type: string; coordinates: [number, number][] } | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -100,6 +102,15 @@ interface DetailProps {
 }
 
 function DriveDetail({ drive, onBack, onShare, sharing }: DetailProps) {
+  const routeCoords = drive.routeTrace?.coordinates.map(([lng, lat]) => ({
+    latitude: lat,
+    longitude: lng,
+  })) ?? [];
+
+  const midIdx = Math.floor(routeCoords.length / 2);
+  const centerLat = routeCoords[midIdx]?.latitude ?? 37.7749;
+  const centerLng = routeCoords[midIdx]?.longitude ?? -122.4194;
+
   return (
     <View style={styles.detail}>
       <TouchableOpacity style={styles.backBtn} onPress={onBack} accessibilityLabel="Go back">
@@ -111,11 +122,36 @@ function DriveDetail({ drive, onBack, onShare, sharing }: DetailProps) {
         {formatDate(drive.endedAt)} · {formatTime(drive.endedAt)}
       </Text>
 
-      {/* Large map placeholder */}
-      <View style={styles.mapPlaceholder}>
-        <Text style={styles.mapPlaceholderIcon}>🗺</Text>
-        <Text style={styles.mapPlaceholderText}>Route map</Text>
-      </View>
+      {/* Route map */}
+      {routeCoords.length > 1 ? (
+        <View style={styles.mapPlaceholder}>
+          <MapView
+            provider={PROVIDER_DEFAULT}
+            style={styles.driveMapView}
+            initialRegion={{
+              latitude: centerLat,
+              longitude: centerLng,
+              latitudeDelta: 0.15,
+              longitudeDelta: 0.15,
+            }}
+            scrollEnabled={false}
+            zoomEnabled={false}
+            rotateEnabled={false}
+            pitchEnabled={false}
+          >
+            <Polyline
+              coordinates={routeCoords}
+              strokeColor="#DC143C"
+              strokeWidth={3}
+            />
+          </MapView>
+        </View>
+      ) : (
+        <View style={styles.mapPlaceholder}>
+          <Text style={styles.mapPlaceholderIcon}>🗺</Text>
+          <Text style={styles.mapPlaceholderText}>Route map unavailable</Text>
+        </View>
+      )}
 
       {/* 2×2 stats grid */}
       <View style={styles.statsGrid}>
@@ -162,7 +198,7 @@ export default function DriveHistoryScreen() {
       const res = await apiClient.get<{
         drives: DriveRecord[];
         pagination: { pages: number };
-      }>(`/api/v1/drives?page=${pageNum}&limit=20`);
+      }>(`/api/v1/drives?page=${pageNum}&limit=20&includeRoute=true`);
       setDrives((prev) => (replace ? res.data.drives : [...prev, ...res.data.drives]));
       setHasMore(pageNum < res.data.pagination.pages);
     } catch {
@@ -411,6 +447,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#2A2A2A',
     gap: 8,
+    overflow: 'hidden',
+  },
+  driveMapView: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 14,
   },
   mapPlaceholderIcon: { fontSize: 40 },
   mapPlaceholderText: { color: '#888888', fontSize: 13 },

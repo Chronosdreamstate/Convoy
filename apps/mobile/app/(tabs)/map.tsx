@@ -9,23 +9,17 @@ const SOCKET_URL = API_URL.replace(/^http/, 'ws');
 export default function MapTab() {
   const { isAuthenticated, accessToken } = useAuthStore();
   const activeGroupId = useGroupStore((s) => s.activeGroupId);
+  const pttChannelId = useGroupStore((s) => s.pttChannelId);
 
-  // Not authenticated → explore mode (no group)
-  if (!isAuthenticated) {
-    return <GuestMapScreen />;
-  }
+  if (!isAuthenticated) return <GuestMapScreen />;
+  if (!activeGroupId) return <GuestMapScreen />;
 
-  // Authenticated but not in an active group → explore mode
-  if (!activeGroupId) {
-    return <GuestMapScreen />;
-  }
-
-  // Authenticated and in an active group → live map
   return (
     <MapScreen
       groupId={activeGroupId}
       accessToken={accessToken ?? ''}
       socketUrl={SOCKET_URL}
+      pttChannelId={pttChannelId ?? undefined}
     />
   );
 }

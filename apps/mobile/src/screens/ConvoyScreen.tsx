@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
+  ScrollView,
   Share,
   StyleSheet,
   Text,
@@ -34,6 +35,13 @@ interface ConvoyGroup {
   status: 'active' | 'ended';
   memberCount: number;
   gapThresholdM: number;
+}
+
+interface PttChannel {
+  id: string;
+  name: string;
+  isAll: boolean;
+  memberCount: number;
 }
 
 function haversineM(lat1: number, lng1: number, lat2: number, lng2: number): number {
@@ -89,15 +97,73 @@ export default function ConvoyScreen({ userId }: Props) {
   const [groupName, setGroupName] = useState('');
   const [view, setView] = useState<'home' | 'create' | 'join'>('home');
 
+  const [pttChannels, setPttChannels] = useState<PttChannel[]>([]);
+  const [activePttChannelId, setActivePttChannelId] = useState<string | null>(null);
+  const [showNewChannel, setShowNewChannel] = useState(false);
+  const [newChannelName, setNewChannelName] = useState('');
+
   const { socket } = useSocketStore();
   const { memberLocations } = useLocationStore();
 
   const setActiveGroupId = useGroupStore((s) => s.setActiveGroupId);
+  const setPttChannelId = useGroupStore((s) => s.setPttChannelId);
 
   // Keep global group store in sync so the map tab can read the active group id
   useEffect(() => {
     setActiveGroupId(group?.id ?? null);
   }, [group?.id, setActiveGroupId]);
+
+  // Sync active PTT channel to global store
+  useEffect(() => {
+    setPttChannelId(activePttChannelId);
+  }, [activePttChannelId, setPttChannelId]);
+
+  // Fetch PTT channels when group loads / changes
+  const fetchChannels = useCallback(async (groupId: string) => {
+    try {
+      const res = await apiClient.get<PttChannel[]>(`/api/v1/groups/${groupId}/channels`);
+      setPttChannels(res.data);
+      // Auto-join "All" channel if not already in a channel
+      setActivePttChannelId((prev) => {
+        if (prev) return prev;
+        return res.data.find((c) => c.isAll)?.id ?? null;
+      });
+    } catch { /* silently fail */ }
+  }, []);
+
+  useEffect(() => {
+    if (!group) {
+      setPttChannels([]);
+      setActivePttChannelId(null);
+      return;
+    }
+    void fetchChannels(group.id);
+  }, [group?.id, fetchChannels]);
+
+  const handleJoinChannel = useCallback(async (channelId: string) => {
+    if (!group || channelId === activePttChannelId) return;
+    try {
+      await apiClient.post(`/api/v1/groups/${group.id}/channels/${channelId}/join`);
+      setActivePttChannelId(channelId);
+    } catch {
+      Alert.alert('Error', 'Could not switch PTT channel.');
+    }
+  }, [group, activePttChannelId]);
+
+  const handleCreateChannel = useCallback(async () => {
+    if (!group || !newChannelName.trim()) return;
+    try {
+      const res = await apiClient.post<PttChannel>(
+        `/api/v1/groups/${group.id}/channels`,
+        { name: newChannelName.trim() },
+      );
+      setPttChannels((prev) => [...prev, res.data]);
+      setNewChannelName('');
+      setShowNewChannel(false);
+    } catch {
+      Alert.alert('Error', 'Could not create channel.');
+    }
+  }, [group, newChannelName]);
 
   const isAdmin = group?.adminId === userId;
 
@@ -407,6 +473,62 @@ export default function ConvoyScreen({ userId }: Props) {
             </View>
           </View>
         )}
+
+        {/* PTT channel selector */}
+        {pttChannels.length > 0 && (
+          <View style={styles.channelSection}>
+            <Text style={styles.gapLabel}>PTT CHANNEL</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.channelRow}>
+              {pttChannels.map((ch) => (
+                <TouchableOpacity
+                  key={ch.id}
+                  style={[styles.channelChip, activePttChannelId === ch.id && styles.channelChipActive]}
+                  onPress={() => void handleJoinChannel(ch.id)}
+                  accessibilityLabel={`Switch to channel ${ch.name}`}
+                >
+                  <Text style={[styles.channelChipText, activePttChannelId === ch.id && styles.channelChipTextActive]}>
+                    {ch.isAll ? '📢 All' : `# ${ch.name}`}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+              {isAdmin && !showNewChannel && (
+                <TouchableOpacity
+                  style={styles.channelNewChip}
+                  onPress={() => setShowNewChannel(true)}
+                  accessibilityLabel="Create new PTT channel"
+                >
+                  <Text style={styles.channelNewText}>+ Channel</Text>
+                </TouchableOpacity>
+              )}
+            </ScrollView>
+            {isAdmin && showNewChannel && (
+              <View style={styles.newChannelRow}>
+                <TextInput
+                  style={[styles.input, styles.newChannelInput]}
+                  placeholder="Channel name"
+                  placeholderTextColor="#555555"
+                  value={newChannelName}
+                  onChangeText={setNewChannelName}
+                  autoFocus
+                  returnKeyType="done"
+                  onSubmitEditing={() => void handleCreateChannel()}
+                />
+                <TouchableOpacity
+                  style={styles.newChannelAdd}
+                  onPress={() => void handleCreateChannel()}
+                >
+                  <Text style={styles.newChannelAddText}>Add</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.newChannelCancel}
+                  onPress={() => { setShowNewChannel(false); setNewChannelName(''); }}
+                >
+                  <Text style={styles.newChannelCancelText}>✕</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
+        )}
       </View>
 
       <Text style={styles.sectionLabel}>MEMBERS ({members.length})</Text>
@@ -659,4 +781,66 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
   actions: { paddingTop: 4, paddingBottom: 4 },
+
+  // PTT channel management
+  channelSection: { marginTop: 14, paddingTop: 14, borderTopWidth: 1, borderTopColor: '#2A2A2A' },
+  channelRow: { flexDirection: 'row' },
+  channelChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: '#0A0A0A',
+    borderWidth: 1,
+    borderColor: '#2A2A2A',
+    marginRight: 8,
+    minHeight: 34,
+    justifyContent: 'center',
+  },
+  channelChipActive: { borderColor: '#DC143C', backgroundColor: '#1A0505' },
+  channelChipText: { color: '#555555', fontSize: 12, fontWeight: '600' },
+  channelChipTextActive: { color: '#DC143C' },
+  channelNewChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: '#0A0A0A',
+    borderWidth: 1,
+    borderColor: '#2A2A2A',
+    borderStyle: 'dashed',
+    marginRight: 8,
+    minHeight: 34,
+    justifyContent: 'center',
+  },
+  channelNewText: { color: '#555555', fontSize: 12, fontWeight: '600' },
+  newChannelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+    gap: 8,
+  },
+  newChannelInput: {
+    flex: 1,
+    marginBottom: 0,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    fontSize: 14,
+  },
+  newChannelAdd: {
+    backgroundColor: '#DC143C',
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    minHeight: 36,
+    justifyContent: 'center',
+  },
+  newChannelAddText: { color: '#fff', fontWeight: '700', fontSize: 13 },
+  newChannelCancel: {
+    backgroundColor: '#2A2A2A',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    minHeight: 36,
+    justifyContent: 'center',
+  },
+  newChannelCancelText: { color: '#888888', fontWeight: '600', fontSize: 14 },
 });
