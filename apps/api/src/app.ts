@@ -22,6 +22,7 @@ import fuelRoutes from './fuel/fuel.routes';
 import accountRoutes from './account/account.routes';
 import placesRoutes from './places/places.routes';
 import socketioPlugin from './plugins/socketio';
+import notificationsPlugin from './plugins/notifications';
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
@@ -62,6 +63,9 @@ export async function buildApp(): Promise<FastifyInstance> {
   // Database and cache plugins
   await app.register(dbPlugin);
   await app.register(redisPlugin);
+
+  // Push notification queue and worker
+  await app.register(notificationsPlugin);
 
   // Auth routes
   await app.register(authRoutes, { prefix: '/api/v1' });

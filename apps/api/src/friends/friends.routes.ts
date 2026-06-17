@@ -122,6 +122,16 @@ async function friendsRoutes(
       [requesterId, addresseeId, initialStatus],
     );
 
+    if (initialStatus === 'pending') {
+      fastify.enqueueNotification({
+        userId: addresseeId,
+        type: 'friend_request',
+        title: 'New Friend Request',
+        body: 'You have a new friend request',
+        data: { friendshipId: result.rows[0].id },
+      }).catch((err: unknown) => fastify.log.error({ err }, 'notify friend_request failed'));
+    }
+
     return reply.status(201).send({
       id: result.rows[0].id,
       status: result.rows[0].status,
@@ -179,6 +189,14 @@ async function friendsRoutes(
       if (!result.rows[0]) {
         return reply.notFound('Friend request not found');
       }
+
+      fastify.enqueueNotification({
+        userId: result.rows[0].requester_id,
+        type: 'friend_request',
+        title: 'Friend Request Accepted',
+        body: 'Your friend request was accepted',
+        data: { friendshipId: result.rows[0].id },
+      }).catch((err: unknown) => fastify.log.error({ err }, 'notify friend_accept failed'));
 
       return reply.send({ id: result.rows[0].id, status: 'accepted' });
     },
