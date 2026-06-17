@@ -104,7 +104,7 @@ export default function InviteScreen() {
     if (!userId) return;
     setSending(true);
     try {
-      await apiClient.post('/api/v1/friends/request', { addresseeId: userId });
+      await apiClient.post('/api/v1/friends/requests', { addresseeId: userId });
       setState({ kind: 'sent' });
     } catch (err: unknown) {
       const status =

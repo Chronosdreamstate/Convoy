@@ -14,6 +14,7 @@ import {
 import { useRouter } from 'expo-router';
 import { apiClient } from '../../services/apiClient';
 import { authService } from '../../services/AuthService';
+import { useSettingsStore } from '../../stores/settingsStore';
 
 interface Settings {
   hazardAlertDistanceM: number;
@@ -134,6 +135,7 @@ function ChipSelector<T extends string | number>({ options, selected, onSelect }
 
 export default function SettingsScreen() {
   const router = useRouter();
+  const setGlobalSettings = useSettingsStore((s) => s.setSettings);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -163,6 +165,7 @@ export default function SettingsScreen() {
       const s = response.data;
       applySettings(s);
       setSettings(s);
+      setGlobalSettings({ mapStyle: s.mapStyle, hazardAlertDistanceM: s.hazardAlertDistanceM, scenicRouting: s.scenicRouting });
       setIsDirty(false);
     } catch {
       setError('Failed to load settings. Please try again.');
@@ -200,6 +203,7 @@ export default function SettingsScreen() {
         notifNavigation,
       });
       setSettings(response.data);
+      setGlobalSettings({ mapStyle: response.data.mapStyle, hazardAlertDistanceM: response.data.hazardAlertDistanceM, scenicRouting: response.data.scenicRouting });
       setIsDirty(false);
       Alert.alert('Saved', 'Your settings have been updated.');
     } catch {

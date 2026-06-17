@@ -15,6 +15,8 @@ import * as ExpoLocation from 'expo-location';
 import { io, Socket } from 'socket.io-client';
 import { useAuthStore } from '../../stores/authStore';
 import { useSocketStore } from '../../stores/socketStore';
+import { useSettingsStore } from '../../stores/settingsStore';
+import PTTLogPanel from '../../components/PTTLogPanel';
 import { authService } from '../../services/AuthService';
 import { useLocationStore, MemberLocation } from '../../stores/locationStore';
 import { rallyService, RallyPoint, SosPin } from '../../services/RallyService';
@@ -79,9 +81,16 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
   const [showFuelBanner, setShowFuelBanner]         = useState(false);
 
   // FAB menu state
-  const [fabOpen, setFabOpen]       = useState(false);
+  const [fabOpen, setFabOpen]         = useState(false);
   const [fabPttActive, setFabPttActive] = useState(false);
-  const fabPttLogIdRef              = useRef<string | null>(null);
+  const fabPttLogIdRef                = useRef<string | null>(null);
+
+  // Member panel tab
+  const [panelTab, setPanelTab] = useState<'members' | 'pttlog'>('members');
+
+  // Reactive socket and settings from shared stores
+  const { socket } = useSocketStore();
+  const mapStyle = useSettingsStore((s) => s.mapStyle);
 
   const socketRef   = useRef<Socket | null>(null);
   const mapRef      = useRef<MapView>(null);
@@ -121,6 +130,13 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
     const socket = io(socketUrl, { transports: ['websocket'], auth: { token, groupId } });
     socketRef.current = socket;
     useSocketStore.getState().setSocket(socket);
+
+    // Capture logId from ptt:transmit so ptt:end can reference it
+    socket.on('ptt:transmit', (data: { logId: string; userId: string }) => {
+      if (data.userId === user?.id) {
+        fabPttLogIdRef.current = data.logId;
+      }
+    });
 
     socket.on('connect', () => {
       setIsConnected(true);
@@ -287,10 +303,11 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
   }, [pttChannelId]);
 
   const handlePttEnd = useCallback(() => {
-    if (!socketRef.current || !pttChannelId) return;
+    if (!socketRef.current || !fabPttLogIdRef.current) return;
     setIsPttTransmitting(false);
-    socketRef.current.emit('ptt:end', { channelId: pttChannelId });
-  }, [pttChannelId]);
+    socketRef.current.emit('ptt:end', { logId: fabPttLogIdRef.current });
+    fabPttLogIdRef.current = null;
+  }, []);
 
   const handleHazardSelect = useCallback(async (type: HazardType) => {
     if (!myLocation) {
@@ -331,6 +348,8 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
         ref={mapRef}
         provider={PROVIDER_DEFAULT}
         style={styles.map}
+        mapType={mapStyle}
+        showsTraffic
         showsUserLocation
         followsUserLocation
         initialRegion={{ latitude: 37.7749, longitude: -122.4194, latitudeDelta: 0.1, longitudeDelta: 0.1 }}
@@ -492,7 +511,31 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
       {/* Member panel — dark overlay at bottom */}
       <View style={[styles.memberPanel, { paddingBottom: Math.max(insets.bottom, 8) }]}>
         <View style={styles.panelHandle} />
-        <Text style={styles.panelTitle}>Members ({members.length})</Text>
+        {/* Tab bar */}
+        <View style={styles.panelTabRow}>
+          <TouchableOpacity
+            style={[styles.panelTab, panelTab === 'members' && styles.panelTabActive]}
+            onPress={() => setPanelTab('members')}
+          >
+            <Text style={[styles.panelTabText, panelTab === 'members' && styles.panelTabTextActive]}>
+              Members ({members.length})
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.panelTab, panelTab === 'pttlog' && styles.panelTabActive]}
+            onPress={() => setPanelTab('pttlog')}
+          >
+            <Text style={[styles.panelTabText, panelTab === 'pttlog' && styles.panelTabTextActive]}>
+              PTT Log
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {panelTab === 'pttlog' ? (
+          socket
+            ? <PTTLogPanel socket={socket} />
+            : <View style={styles.panelConnecting}><Text style={styles.emptyText}>Connecting…</Text></View>
+        ) : (
         <FlatList
           data={members}
           keyExtractor={(m) => m.userId}
@@ -519,6 +562,7 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
           }}
           ListEmptyComponent={<Text style={styles.emptyText}>No members yet</Text>}
         />
+        )}
       </View>
 
       {/* SOS person picker modal */}
@@ -828,6 +872,26 @@ const styles = StyleSheet.create({
     elevation: 8,
     zIndex: 5,
   },
+  panelTabRow: {
+    flexDirection: 'row',
+    marginBottom: 8,
+    borderRadius: 8,
+    backgroundColor: '#1A1A1A',
+    padding: 2,
+  },
+  panelTab: {
+    flex: 1,
+    paddingVertical: 6,
+    alignItems: 'center',
+    borderRadius: 6,
+    minHeight: 30,
+    justifyContent: 'center',
+  },
+  panelTabActive: { backgroundColor: '#DC143C' },
+  panelTabText: { color: '#555555', fontSize: 11, fontWeight: '600' },
+  panelTabTextActive: { color: '#FFFFFF' },
+  panelConnecting: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+
   panelHandle: {
     width: 36,
     height: 4,

@@ -16,9 +16,11 @@ import {
   View,
 } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
+import * as ExpoLocation from 'expo-location';
 import { apiClient } from '../services/apiClient';
 import { useGroupStore } from '../stores/groupStore';
 import { useSocketStore } from '../stores/socketStore';
+import { useLocationStore } from '../stores/locationStore';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -31,7 +33,24 @@ interface ConvoyGroup {
   adminId: string;
   status: 'active' | 'ended';
   memberCount: number;
+  gapThresholdM: number;
 }
+
+function haversineM(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6_371_000;
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+const GAP_OPTIONS = [
+  { label: '500 m', value: 500 },
+  { label: '1 km', value: 1000 },
+  { label: '2 km', value: 2000 },
+  { label: '5 km', value: 5000 },
+];
 
 interface GroupMember {
   userId: string;
@@ -71,6 +90,7 @@ export default function ConvoyScreen({ userId }: Props) {
   const [view, setView] = useState<'home' | 'create' | 'join'>('home');
 
   const { socket } = useSocketStore();
+  const { memberLocations } = useLocationStore();
 
   const setActiveGroupId = useGroupStore((s) => s.setActiveGroupId);
 
@@ -114,6 +134,17 @@ export default function ConvoyScreen({ userId }: Props) {
     return () => { socket.off('group:ended', handleGroupEnded); };
   }, [socket, group]);
 
+  // ── Gap threshold (Admin only) ────────────────────────────────────────────
+  const handleSetGapThreshold = useCallback(async (metres: number) => {
+    if (!group) return;
+    try {
+      await apiClient.patch(`/api/v1/groups/${group.id}/settings`, { gapThresholdM: metres });
+      setGroup((prev) => prev ? { ...prev, gapThresholdM: metres } : null);
+    } catch {
+      Alert.alert('Error', 'Could not update gap threshold.');
+    }
+  }, [group]);
+
   // ── Create group (Req 7.1–7.3) ────────────────────────────────────────────
   const handleCreate = useCallback(async () => {
     if (!groupName.trim()) return Alert.alert('Error', 'Enter a group name.');
@@ -123,6 +154,7 @@ export default function ConvoyScreen({ userId }: Props) {
       setGroup(res.data);
       setView('home');
       setGroupName('');
+      ExpoLocation.requestBackgroundPermissionsAsync().catch(() => {});
     } catch {
       Alert.alert('Error', 'Could not create group.');
     } finally {
@@ -139,6 +171,7 @@ export default function ConvoyScreen({ userId }: Props) {
       setGroup(res.data);
       setView('home');
       setJoinCode('');
+      ExpoLocation.requestBackgroundPermissionsAsync().catch(() => {});
     } catch {
       Alert.alert('Error', 'Invalid join code or group not found.');
     } finally {
@@ -353,6 +386,27 @@ export default function ConvoyScreen({ userId }: Props) {
             <Text style={styles.shareCodeText}>Share</Text>
           </TouchableOpacity>
         </View>
+
+        {/* Gap threshold — admin only */}
+        {isAdmin && (
+          <View style={styles.gapSection}>
+            <Text style={styles.gapLabel}>GAP ALERT DISTANCE</Text>
+            <View style={styles.gapOptions}>
+              {GAP_OPTIONS.map((opt) => (
+                <TouchableOpacity
+                  key={opt.value}
+                  style={[styles.gapChip, group.gapThresholdM === opt.value && styles.gapChipActive]}
+                  onPress={() => void handleSetGapThreshold(opt.value)}
+                  accessibilityLabel={`Set gap threshold to ${opt.label}`}
+                >
+                  <Text style={[styles.gapChipText, group.gapThresholdM === opt.value && styles.gapChipTextActive]}>
+                    {opt.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+        )}
       </View>
 
       <Text style={styles.sectionLabel}>MEMBERS ({members.length})</Text>
@@ -361,19 +415,26 @@ export default function ConvoyScreen({ userId }: Props) {
         data={members}
         keyExtractor={(m) => m.userId}
         style={styles.memberList}
-        renderItem={({ item: m }) => (
+        renderItem={({ item: m }) => {
+          const mLoc = memberLocations[m.userId];
+          const adminLoc = memberLocations[group.adminId];
+          const distFromLead = mLoc && adminLoc && m.userId !== group.adminId
+            ? haversineM(adminLoc.lat, adminLoc.lng, mLoc.lat, mLoc.lng)
+            : null;
+          const isLive = !!memberLocations[m.userId];
+          return (
           <View style={styles.memberRow}>
             {/* Online/offline dot */}
-            <View style={[styles.statusDot, m.isOnline ? styles.dotOnline : styles.dotOffline]} />
+            <View style={[styles.statusDot, isLive ? styles.dotOnline : styles.dotOffline]} />
 
             <View style={styles.memberInfo}>
               <Text style={styles.memberName}>{m.displayName}</Text>
               <View style={styles.memberMetaRow}>
-                {m.speedKph != null && (
-                  <Text style={styles.memberMeta}>💨 {m.speedKph.toFixed(0)} km/h</Text>
+                {mLoc && (
+                  <Text style={styles.memberMeta}>💨 {mLoc.speedKph.toFixed(0)} km/h</Text>
                 )}
-                {m.distanceM != null && (
-                  <Text style={styles.memberMeta}>📍 {(m.distanceM / 1000).toFixed(1)} km behind</Text>
+                {distFromLead != null && (
+                  <Text style={styles.memberMeta}>📍 {(distFromLead / 1000).toFixed(1)} km from lead</Text>
                 )}
               </View>
             </View>
@@ -395,7 +456,8 @@ export default function ConvoyScreen({ userId }: Props) {
               </View>
             )}
           </View>
-        )}
+          );
+        }}
         ListEmptyComponent={
           <View style={styles.emptyMembers}>
             <Text style={styles.emptyMembersText}>Waiting for members to join…</Text>
@@ -532,6 +594,18 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   shareCodeText: { color: '#fff', fontWeight: '700', fontSize: 12 },
+
+  // Gap threshold
+  gapSection: { marginTop: 14, paddingTop: 14, borderTopWidth: 1, borderTopColor: '#2A2A2A' },
+  gapLabel: { color: '#555555', fontSize: 10, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 8 },
+  gapOptions: { flexDirection: 'row', gap: 8 },
+  gapChip: {
+    flex: 1, paddingVertical: 8, borderRadius: 8, backgroundColor: '#0A0A0A',
+    borderWidth: 1, borderColor: '#2A2A2A', alignItems: 'center', minHeight: 36, justifyContent: 'center',
+  },
+  gapChipActive: { borderColor: '#DC143C', backgroundColor: '#1A0505' },
+  gapChipText: { color: '#555555', fontSize: 12, fontWeight: '600' },
+  gapChipTextActive: { color: '#DC143C' },
 
   sectionLabel: { color: '#555555', fontSize: 11, fontWeight: '700', marginBottom: 8, letterSpacing: 1.5 },
   memberList: { flex: 1 },

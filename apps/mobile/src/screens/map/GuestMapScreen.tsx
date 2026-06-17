@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, Text, TouchableOpacity, View, Alert } from 'react-native';
 import MapView, { PROVIDER_DEFAULT } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ExpoLocation from 'expo-location';
@@ -53,6 +53,26 @@ export default function GuestMapScreen() {
         initialRegion={initialRegion}
         showsUserLocation
       />
+
+      {/* Re-center button — top-left */}
+      <TouchableOpacity
+        style={[styles.recenterBtn, { top: insets.top + 8 }]}
+        onPress={() => {
+          ExpoLocation.getCurrentPositionAsync({ accuracy: ExpoLocation.Accuracy.Balanced })
+            .then((loc) => {
+              mapRef.current?.animateToRegion({
+                latitude: loc.coords.latitude,
+                longitude: loc.coords.longitude,
+                latitudeDelta: 0.05,
+                longitudeDelta: 0.05,
+              }, 500);
+            })
+            .catch(() => Alert.alert('Location unavailable', 'Enable location in Settings.'));
+        }}
+        accessibilityLabel="Re-center map"
+      >
+        <Text style={styles.recenterText}>⊕</Text>
+      </TouchableOpacity>
 
       {permissionDenied && (
         <View style={styles.permissionBanner}>
@@ -173,4 +193,22 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   signInText: { color: '#fff', fontWeight: '700', fontSize: 16 },
+
+  recenterBtn: {
+    position: 'absolute',
+    left: 12,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 3,
+    zIndex: 10,
+  },
+  recenterText: { fontSize: 24 },
 });
