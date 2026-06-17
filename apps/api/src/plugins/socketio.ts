@@ -26,8 +26,6 @@ async function socketioPlugin(fastify: FastifyInstance): Promise<void> {
   if (env.NODE_ENV !== 'test') {
     const pubClient = new Redis(env.REDIS_URL, { lazyConnect: false });
     const subClient = pubClient.duplicate();
-    // ioredis is compatible with the adapter at runtime; ts-expect-error suppresses the type mismatch
-    // @ts-expect-error — ioredis satisfies the required pub/sub interface at runtime
     io.adapter(createAdapter(pubClient, subClient));
     fastify.addHook('onClose', async () => {
       await Promise.allSettled([pubClient.quit(), subClient.quit()]);

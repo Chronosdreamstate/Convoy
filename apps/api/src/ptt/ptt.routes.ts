@@ -5,7 +5,8 @@
 
 import { FastifyInstance } from 'fastify';
 import { Pool } from 'pg';
-import jwt from 'jsonwebtoken';
+import { createHash } from 'node:crypto';
+import { RtcTokenBuilder, RtcRole } from 'agora-token';
 import { z } from 'zod';
 import { authenticate } from '../middleware/authenticate';
 import { env } from '../config/env';
@@ -34,9 +35,12 @@ export function userIdToAgoraUid(userId: string): number {
   return uid;
 }
 
-/** Channel name scoped to a group and channel (sent to Agora). */
+/**
+ * Channel name scoped to a group and channel (sent to Agora).
+ * SHA-256 hash keeps it under Agora's 64-byte limit while avoiding collisions.
+ */
 export function buildAgoraChannelName(groupId: string, channelId: string): string {
-  return `${groupId.replace(/-/g, '')}-${channelId.replace(/-/g, '')}`;
+  return createHash('sha256').update(`${groupId}:${channelId}`).digest('hex').slice(0, 32);
 }
 
 /**
@@ -108,16 +112,19 @@ export function enforceExactlyOneChannel<T>(
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-/** Generate an Agora RTC token (uses JWT as placeholder; swap for agora-access-token in prod). */
+/** Generate a real Agora RTC token via agora-token SDK. Falls back to a dev placeholder. */
 function generateAgoraToken(channelName: string, uid: number, ttlSeconds: number): string {
   if (!env.AGORA_APP_ID || !env.AGORA_APP_CERTIFICATE) {
     return `dev-token-${channelName}-${uid}-${ttlSeconds}`;
   }
-  // In production: replace with RtcTokenBuilder.buildTokenWithUid() from agora-access-token
-  return jwt.sign(
-    { appId: env.AGORA_APP_ID, channelName, uid, privileges: { joinChannel: 1 } },
+  return RtcTokenBuilder.buildTokenWithUid(
+    env.AGORA_APP_ID,
     env.AGORA_APP_CERTIFICATE,
-    { expiresIn: ttlSeconds },
+    channelName,
+    uid,
+    RtcRole.PUBLISHER,
+    ttlSeconds,
+    ttlSeconds,
   );
 }
 
