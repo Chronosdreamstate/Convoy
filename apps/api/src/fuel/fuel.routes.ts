@@ -149,8 +149,20 @@ const fuelRoutes: FastifyPluginAsync = async (fastify) => {
       ]);
 
       const distanceM = rawDistance ? parseFloat(rawDistance) : 0;
-      const durationS = rawStartedAt
-        ? Math.floor((Date.now() - parseInt(rawStartedAt, 10)) / 1000)
+
+      let startedAtMs: number | null = rawStartedAt ? parseInt(rawStartedAt, 10) : null;
+      if (startedAtMs === null) {
+        // Redis TTL may have expired — fall back to DB for active groups
+        const groupRow = await fastify.db.query<{ started_at: Date }>(
+          `SELECT started_at FROM convoy_groups WHERE id = $1 AND status = 'active'`,
+          [groupId],
+        );
+        if (groupRow.rows[0]) {
+          startedAtMs = groupRow.rows[0].started_at.getTime();
+        }
+      }
+      const durationS = startedAtMs !== null
+        ? Math.floor((Date.now() - startedAtMs) / 1000)
         : 0;
 
       const suggest = shouldSuggestFuel({ distanceM, durationS });

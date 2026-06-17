@@ -20,13 +20,18 @@ export default function GuestMapScreen() {
   const mapRef = React.useRef<MapView>(null);
 
   useEffect(() => {
+    let mounted = true;
     (async () => {
       const { status } = await ExpoLocation.requestForegroundPermissionsAsync();
+      if (!mounted) return;
       if (status !== 'granted') {
         setPermissionDenied(true);
         return;
       }
-      const loc = await ExpoLocation.getCurrentPositionAsync({});
+      const loc = await ExpoLocation.getCurrentPositionAsync({
+        accuracy: ExpoLocation.Accuracy.Balanced,
+      });
+      if (!mounted) return;
       const region = {
         latitude: loc.coords.latitude,
         longitude: loc.coords.longitude,
@@ -36,6 +41,7 @@ export default function GuestMapScreen() {
       setInitialRegion(region);
       mapRef.current?.animateToRegion(region, 500);
     })();
+    return () => { mounted = false; };
   }, []);
 
   return (

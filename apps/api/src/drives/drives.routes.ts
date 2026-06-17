@@ -90,21 +90,28 @@ export function serializeDriveRow(row: RawDriveRow): DriveResponse {
 // Summary-card URL builder (Mapbox Static Images API)
 // ---------------------------------------------------------------------------
 
-export function buildSummaryCardUrl(
-  coordinates: [number, number][],
-  accessToken: string,
-): string {
+/**
+ * Builds a token-free Mapbox Static Images URL for DB storage.
+ * Callers must append `&access_token=<token>` before returning to clients.
+ */
+export function buildSummaryCardUrl(coordinates: [number, number][]): string {
   if (coordinates.length === 0) return '';
 
-  // Encode the route as a simplified GeoJSON path overlay
   const lineString = { type: 'LineString', coordinates };
   const encoded = encodeURIComponent(JSON.stringify(lineString));
   const overlay = `geojson(${encoded})`;
 
   return (
     `https://api.mapbox.com/styles/v1/mapbox/streets-v12/static/${overlay}` +
-    `/auto/600x338?padding=40&access_token=${accessToken}`
+    `/auto/600x338?padding=40`
   );
+}
+
+/** Attaches the current Mapbox token to a stored token-free summary card URL. */
+export function hydrateSummaryCardUrl(url: string | null, accessToken: string): string | null {
+  if (!url) return null;
+  if (url.includes('access_token=')) return url; // already hydrated (legacy rows)
+  return `${url}&access_token=${accessToken}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -164,7 +171,10 @@ const drivesRoutes: FastifyPluginAsync = async (fastify) => {
     const total = parseInt(countResult.rows[0].total, 10);
 
     return reply.send({
-      drives: result.rows.map(serializeDriveRow),
+      drives: result.rows.map((row) => ({
+        ...serializeDriveRow(row),
+        summaryCardUrl: hydrateSummaryCardUrl(row.summary_card_url, env.MAPBOX_API_TOKEN),
+      })),
       pagination: { page, limit, total, pages: Math.ceil(total / limit) },
     });
   });
@@ -183,7 +193,11 @@ const drivesRoutes: FastifyPluginAsync = async (fastify) => {
       [id, userId],
     );
     if (result.rows.length === 0) return reply.status(404).send({ error: 'Drive not found' });
-    return reply.send(serializeDriveRow(result.rows[0]));
+    const row = result.rows[0];
+    return reply.send({
+      ...serializeDriveRow(row),
+      summaryCardUrl: hydrateSummaryCardUrl(row.summary_card_url, env.MAPBOX_API_TOKEN),
+    });
   });
 
   // ── POST /drives ──────────────────────────────────────────────────────────
@@ -268,14 +282,15 @@ const drivesRoutes: FastifyPluginAsync = async (fastify) => {
       const { route_trace } = driveResult.rows[0];
       const coordinates = (route_trace as { coordinates: [number, number][] }).coordinates ?? [];
 
-      const summaryCardUrl = buildSummaryCardUrl(coordinates, env.MAPBOX_API_TOKEN);
+      // Store the token-free URL; token is appended at serve time so rotation doesn't break rows
+      const storedUrl = buildSummaryCardUrl(coordinates);
 
       await fastify.db.query(
         'UPDATE drive_history SET summary_card_url = $1 WHERE id = $2',
-        [summaryCardUrl, id],
+        [storedUrl, id],
       );
 
-      return reply.send({ summaryCardUrl });
+      return reply.send({ summaryCardUrl: hydrateSummaryCardUrl(storedUrl, env.MAPBOX_API_TOKEN) });
     },
   );
 

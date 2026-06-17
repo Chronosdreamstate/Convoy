@@ -137,6 +137,7 @@ async function usersRoutes(
   // GET /users/search?phone=
   // -------------------------------------------------------------------------
   fastify.get('/users/search', { preHandler: [authenticate] }, async (request, reply) => {
+    const userId = (request.user as { sub: string }).sub;
     const phone = (request.query as Record<string, string | undefined>).phone;
     if (!phone) {
       return reply.badRequest('phone query parameter is required');
@@ -154,7 +155,18 @@ async function usersRoutes(
     }
 
     if (u.privacy === 'invite_only') {
-      return reply.send({ user: null });
+      const friendCheck = await fastify.db.query(
+        `SELECT 1 FROM friendships
+         WHERE status = 'accepted'
+           AND (
+             (requester_id = $1 AND addressee_id = $2)
+             OR (requester_id = $2 AND addressee_id = $1)
+           )`,
+        [userId, u.id],
+      );
+      if ((friendCheck.rowCount ?? 0) === 0) {
+        return reply.send({ user: null });
+      }
     }
 
     return reply.send({

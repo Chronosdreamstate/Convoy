@@ -328,6 +328,9 @@ export function registerSocketHandlers(
   fastify: FastifyInstance,
   io: SocketIO,
 ): (socket: Socket) => void {
+  const lastLocUpdate = new Map<string, number>();
+  const LOC_RATE_LIMIT_MS = 2_500; // server-side floor: 1 update per 2.5 s per socket
+
   return async (socket: Socket) => {
     const userId = socket.data.userId as string;
     const groupId = socket.data.groupId as string;
@@ -356,6 +359,11 @@ export function registerSocketHandlers(
 
     // Handle real-time location updates (Req 8.1, 8.2)
     socket.on('location:update', (data: unknown) => {
+      const now = Date.now();
+      const last = lastLocUpdate.get(socket.id) ?? 0;
+      if (now - last < LOC_RATE_LIMIT_MS) return;
+      lastLocUpdate.set(socket.id, now);
+
       const parsed = locationSchema.safeParse(data);
       if (!parsed.success) return;
       handleLocationUpdate({
@@ -400,6 +408,7 @@ export function registerSocketHandlers(
 
     // Notify group on disconnect and clean up Redis presence (Req 8.3)
     socket.on('disconnect', () => {
+      lastLocUpdate.delete(socket.id);
       io.to(`group:${groupId}`).emit('member:left', { userId });
       fastify.redis.del(`loc:${groupId}:${userId}`).catch((err: unknown) => fastify.log.error({ err }, 'redis del error'));
     });

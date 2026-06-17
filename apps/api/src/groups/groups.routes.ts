@@ -259,6 +259,16 @@ async function groupsRoutes(
     try {
       await client.query('BEGIN');
 
+      // Lock the group row to prevent a concurrent end-group from slipping in before the INSERT
+      const lockResult = await client.query<{ status: string }>(
+        'SELECT status FROM convoy_groups WHERE id = $1 FOR UPDATE',
+        [group.id],
+      );
+      if (lockResult.rows[0]?.status !== 'active') {
+        await client.query('ROLLBACK');
+        return reply.gone('This group has ended');
+      }
+
       // Upsert member row (handles rejoin after leaving)
       await client.query(
         `INSERT INTO convoy_members (group_id, user_id)
