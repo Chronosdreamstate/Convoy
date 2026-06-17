@@ -60,12 +60,12 @@ export default function GarageScreen() {
 
   const handleRefresh = useCallback(async () => {
     setIsRefreshing(true);
-    await loadVehicles();
+    await loadVehicles(true);
     setIsRefreshing(false);
   }, []);
 
-  const loadVehicles = async () => {
-    setIsLoading(true);
+  const loadVehicles = async (silent = false) => {
+    if (!silent) setIsLoading(true);
     setError(null);
     try {
       const response = await apiClient.get<{ vehicles: Vehicle[] }>('/api/v1/vehicles');
@@ -73,7 +73,7 @@ export default function GarageScreen() {
     } catch {
       setError('Failed to load garage. Please try again.');
     } finally {
-      setIsLoading(false);
+      if (!silent) setIsLoading(false);
     }
   };
 

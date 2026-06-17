@@ -40,6 +40,9 @@ const envSchema = z.object({
 
   // Migrations
   MIGRATIONS_DIR: z.string().default('./src/db/migrations'),
+
+  // Nominatim (OpenStreetMap geocoding) — contact email required by usage policy
+  NOMINATIM_CONTACT_EMAIL: z.string().email().default('support@convoy.app'),
 });
 
 function parseEnv() {

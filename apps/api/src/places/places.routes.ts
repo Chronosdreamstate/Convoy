@@ -1,5 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { authenticate } from '../middleware/authenticate';
+import { env } from '../config/env';
 
 interface NominatimResult {
   place_id: number;
@@ -60,7 +61,7 @@ export default async function placesRoutes(app: FastifyInstance) {
     let res: Response;
     try {
       res = await fetch(url.toString(), {
-        headers: { 'User-Agent': 'ConvoyApp/1.0 (manjoytsunny13@gmail.com)' },
+        headers: { 'User-Agent': `ConvoyApp/1.0 (${env.NOMINATIM_CONTACT_EMAIL})` },
         signal: AbortSignal.timeout(8000),
       });
     } catch (err: unknown) {

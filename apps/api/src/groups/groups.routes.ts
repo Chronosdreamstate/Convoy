@@ -559,6 +559,7 @@ async function groupsRoutes(
       const group = groupResult.rows[0];
       if (!group) return reply.notFound('Group not found');
       if (group.admin_id !== adminUserId) return reply.forbidden('Only the Admin can mute members');
+      if (targetUserId === adminUserId) return reply.badRequest('Admin cannot mute themselves');
 
       const result = await fastify.db.query(
         `UPDATE convoy_members SET is_muted = $1
