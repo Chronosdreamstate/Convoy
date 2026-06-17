@@ -23,6 +23,7 @@ import {
   OfflineHazard,
   OfflineDrive,
   OfflinePack,
+  CachedPosition,
 } from './OfflineCacheService';
 import { SyncService, ISyncApiClient } from './SyncService';
 
@@ -60,6 +61,16 @@ class InMemoryOfflineDB implements IOfflineDB {
   async clearDrives(ids: string[]): Promise<void> {
     const set = new Set(ids);
     this.drives = this.drives.filter((d) => !set.has(d.id));
+  }
+
+  private positions: Map<string, CachedPosition> = new Map();
+
+  async saveLastPosition(pos: CachedPosition): Promise<void> {
+    this.positions.set(`${pos.userId}:${pos.groupId}`, pos);
+  }
+
+  async getLastPositions(groupId: string): Promise<CachedPosition[]> {
+    return Array.from(this.positions.values()).filter((p) => p.groupId === groupId);
   }
 }
 
@@ -116,6 +127,10 @@ const driveArb = fc.record({
   endedAt: fc.integer({ min: 1_000_000_001, max: 2_000_000_000 }),
   distanceMeters: fc.float({ min: 100, max: 500_000, noNaN: true }),
   durationSeconds: fc.float({ min: 60, max: 86_400, noNaN: true }),
+  routeTrace: fc.constant('{"type":"LineString","coordinates":[[0,0],[1,1]]}'),
+  avgSpeedKph: fc.option(fc.float({ min: 0, max: 200, noNaN: true }), { nil: null }),
+  topSpeedKph: fc.option(fc.float({ min: 0, max: 300, noNaN: true }), { nil: null }),
+  memberCount: fc.integer({ min: 1, max: 20 }),
 });
 
 const packArb = fc.record({

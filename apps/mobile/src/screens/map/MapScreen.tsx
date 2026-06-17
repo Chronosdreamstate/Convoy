@@ -22,6 +22,7 @@ import DestinationSearch, { SearchResult } from '../../components/DestinationSea
 import HazardPicker from '../../components/HazardPicker';
 import SpeedLimitHUD from '../../components/SpeedLimitHUD';
 import FuelSuggestionBanner from '../../components/FuelSuggestionBanner';
+import { SQLiteOfflineDB } from '../../services/OfflineCacheService';
 
 interface GapAlert { memberId: string; distanceM: number }
 interface SosAlert { pin: SosPin; memberName: string }
@@ -40,9 +41,21 @@ function formatElapsed(receivedAt: number): string {
   return s < 60 ? `${s}s ago` : `${Math.floor(s / 60)}m ago`;
 }
 
+// Module-level SQLite DB instance — initialised once per app lifecycle
+const offlineDB = new SQLiteOfflineDB();
+let offlineDBReady = false;
+(async () => {
+  try {
+    await offlineDB.init();
+    offlineDBReady = true;
+  } catch {
+    // Non-fatal — offline caching simply won't work
+  }
+})();
+
 export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = false, pttChannelId }: Props) {
   const { user, token } = useAuthStore();
-  const { memberLocations, updateMemberLocation, clearGroup, evictStale } = useLocationStore();
+  const { memberLocations, stalePositions, updateMemberLocation, clearGroup, evictStale, setStalePositions, clearStalePositions } = useLocationStore();
   const insets = useSafeAreaInsets();
 
   const [gapAlerts, setGapAlerts]     = useState<GapAlert[]>([]);
@@ -100,12 +113,57 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
     if (!token || !groupId) return;
     const socket = io(socketUrl, { transports: ['websocket'], auth: { token, groupId } });
     socketRef.current = socket;
-    socket.on('connect', () => { setIsConnected(true); setIsOnline(true); });
-    socket.on('disconnect', () => { setIsConnected(false); setIsOnline(false); });
+
+    socket.on('connect', () => {
+      setIsConnected(true);
+      setIsOnline(true);
+      // Clear stale fallback data — live data is flowing again
+      clearStalePositions();
+    });
+
+    socket.on('disconnect', () => {
+      setIsConnected(false);
+      setIsOnline(false);
+      // Load last-known positions from local cache so the map stays populated
+      if (offlineDBReady) {
+        offlineDB.getLastPositions(groupId).then((cached) => {
+          if (cached.length > 0) {
+            setStalePositions(
+              cached.map((c) => ({
+                userId: c.userId,
+                lat: c.lat,
+                lng: c.lng,
+                heading: c.heading,
+                speedKph: c.speedKph,
+                ts: c.ts,
+                receivedAt: c.savedAt,
+                isStale: true,
+              })),
+            );
+          }
+        }).catch(() => { /* non-fatal */ });
+      }
+    });
+
     socket.on('location:update', (d: { userId: string; lat: number; lng: number; heading: number; speed_kph: number; ts: number }) => {
       if (d.userId === user?.id) return;
-      updateMemberLocation({ userId: d.userId, lat: d.lat, lng: d.lng, heading: d.heading, speedKph: d.speed_kph, ts: d.ts, receivedAt: Date.now() });
+      const loc: MemberLocation = { userId: d.userId, lat: d.lat, lng: d.lng, heading: d.heading, speedKph: d.speed_kph, ts: d.ts, receivedAt: Date.now() };
+      updateMemberLocation(loc);
+      // Persist for offline fallback
+      if (offlineDBReady) {
+        offlineDB.saveLastPosition({
+          userId: d.userId,
+          groupId,
+          lat: d.lat,
+          lng: d.lng,
+          heading: d.heading,
+          speedKph: d.speed_kph,
+          ts: d.ts,
+          savedAt: Date.now(),
+        }).catch(() => { /* non-fatal */ });
+      }
     });
+
     socket.on('gap:alert', (a: GapAlert) => setGapAlerts((p) => [...p.filter((x) => x.memberId !== a.memberId), a]));
     socket.on('rally:set', (r: RallyPoint) => { setRallyPoints((p) => new Map(p).set(r.id, r)); setRallyAlert(r); });
     socket.on('rally:cancelled', ({ rallyId }: { rallyId: string }) => { setRallyPoints((p) => { const n = new Map(p); n.delete(rallyId); return n; }); setRallyAlert((p) => p?.id === rallyId ? null : p); });
@@ -119,7 +177,7 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
     });
     socket.on('sos:cancelled', ({ sosId }: { sosId: string }) => { setSosPins((p) => { const n = new Map(p); n.delete(sosId); return n; }); setSosAlerts((p) => p.filter((a) => a.pin.id !== sosId)); if (mySosIdRef.current === sosId) setMySosId(null); });
     return () => { socket.disconnect(); clearGroup(); };
-  }, [token, groupId, socketUrl, updateMemberLocation, user?.id, clearGroup]);
+  }, [token, groupId, socketUrl, updateMemberLocation, user?.id, clearGroup, setStalePositions, clearStalePositions]);
 
   const recenter = useCallback(() => {
     if (!mapRef.current) return;
@@ -210,7 +268,7 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
     }
   }, [myLocation]);
 
-  const handleFuelStationSelect = useCallback(async (station: { lat: number; lng: number; [key: string]: unknown }) => {
+  const handleFuelStationSelect = useCallback(async (station: { id: string; name: string; distanceM: number; lat: number; lng: number; address: string }) => {
     if (!groupId) return;
     try {
       await rallyService.broadcastRally(groupId, station.lat, station.lng);
@@ -220,7 +278,10 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
     }
   }, [groupId]);
 
-  const members    = Object.values(memberLocations);
+  // When disconnected, merge stale (cached) positions for members not in live data
+  const liveMemberIds = new Set(Object.keys(memberLocations));
+  const staleFallback = Object.values(stalePositions).filter((p) => !liveMemberIds.has(p.userId));
+  const members    = [...Object.values(memberLocations), ...staleFallback];
   const rallies    = Array.from(rallyPoints.values());
   const sosPinList = Array.from(sosPins.values());
   const staleMs    = 30_000;
@@ -240,7 +301,14 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
         onLongPress={handleLongPress}
       >
         {members.map((m: MemberLocation) => (
-          <Marker key={m.userId} coordinate={{ latitude: m.lat, longitude: m.lng }} title={`Member ${m.userId.slice(0, 6)}`} description={`${m.speedKph.toFixed(0)} km/h`} pinColor="#DC143C" />
+          <Marker
+            key={m.userId}
+            coordinate={{ latitude: m.lat, longitude: m.lng }}
+            title={`Member ${m.userId.slice(0, 6)}`}
+            description={m.isStale ? `Last seen ${formatElapsed(m.receivedAt)}` : `${m.speedKph.toFixed(0)} km/h`}
+            pinColor="#DC143C"
+            opacity={m.isStale ? 0.45 : 1}
+          />
         ))}
         {rallies.map((r) => (
           <Marker key={r.id} coordinate={{ latitude: r.lat, longitude: r.lng }} title="Rally Point" description={r.address ?? undefined} pinColor="#22c55e" />
@@ -249,6 +317,13 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
           <Marker key={s.id} coordinate={{ latitude: s.lat, longitude: s.lng }} title="SOS" pinColor="#ef4444" />
         ))}
       </MapView>
+
+      {/* Offline banner — shown when socket is disconnected */}
+      {!isConnected && (
+        <View style={styles.offlineBanner}>
+          <Text style={styles.offlineBannerText}>Connection lost — showing last known positions</Text>
+        </View>
+      )}
 
       {/* Floating search bar — centered top, clears connection badge */}
       <View style={[styles.searchWrapper, { top: topBase }]}>
@@ -764,4 +839,23 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   rowSosText: { fontSize: 18 },
+
+  // Offline / connection-lost banner
+  offlineBanner: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: '#B45309',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    zIndex: 20,
+  },
+  offlineBannerText: {
+    color: '#FFF7ED',
+    fontSize: 13,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+  },
 });

@@ -359,6 +359,8 @@ async function groupsRoutes(
     const group = groupResult.rows[0];
     if (!group || group.status !== 'active') return reply.gone('Group is not active');
 
+    let groupEnded = false;
+
     const client = await fastify.db.connect();
     try {
       await client.query('BEGIN');
@@ -404,6 +406,7 @@ async function groupsRoutes(
           );
           // Clear PTT log in same transaction (Req 27.4)
           await cleanupGroupPttLog(id, client);
+          groupEnded = true;
         }
       }
 
@@ -413,6 +416,17 @@ async function groupsRoutes(
       throw err;
     } finally {
       client.release();
+    }
+
+    // If the group was auto-ended because admin was last member, clean up Redis and notify
+    if (groupEnded) {
+      // Clear fuel-tracking and distance Redis keys
+      fastify.redis
+        .del(`group:${id}:started_at`, `group:${id}:distance_m`)
+        .catch((err: unknown) => fastify.log.error({ err }, 'Failed to delete group Redis keys on auto-end'));
+
+      // Notify any remaining socket connections that the group has ended
+      fastify.io.to(`group:${id}`).emit('group:ended', { endedBy: userId, groupId: id });
     }
 
     return reply.status(200).send({ message: 'Left group' });
@@ -444,7 +458,7 @@ async function groupsRoutes(
         [id],
       );
 
-      // Mark all active members as left
+      // Mark all active members as left (soft-close the group)
       await client.query(
         `UPDATE convoy_members SET left_at = now() WHERE group_id = $1 AND left_at IS NULL`,
         [id],
@@ -462,13 +476,74 @@ async function groupsRoutes(
     }
 
     // Clean up fuel-tracking Redis keys
-    await fastify.redis.del(`group:${id}:started_at`, `group:${id}:distance_m`);
+    fastify.redis
+      .del(`group:${id}:started_at`, `group:${id}:distance_m`)
+      .catch((err: unknown) => fastify.log.error({ err }, 'Failed to delete group Redis keys on end'));
 
     // Notify all members in the group room that the group has ended (Req 7.9)
     fastify.io.to(`group:${id}`).emit('group:ended', { endedBy: userId, groupId: id });
 
     return reply.status(200).send({ message: 'Group ended' });
   });
+
+  // -------------------------------------------------------------------------
+  // DELETE /groups/:id/members/:targetUserId — kick member (admin only)
+  // -------------------------------------------------------------------------
+  fastify.delete(
+    '/groups/:id/members/:targetUserId',
+    { preHandler: [authenticate] },
+    async (request, reply) => {
+      const adminUserId = (request.user as { sub: string }).sub;
+      const { id, targetUserId } = request.params as { id: string; targetUserId: string };
+
+      // Prevent admin from kicking themselves
+      if (targetUserId === adminUserId) {
+        return reply.badRequest('Admin cannot kick themselves');
+      }
+
+      const groupResult = await fastify.db.query<{ admin_id: string; status: string }>(
+        'SELECT admin_id, status FROM convoy_groups WHERE id = $1',
+        [id],
+      );
+      const group = groupResult.rows[0];
+      if (!group) return reply.notFound('Group not found');
+      if (group.admin_id !== adminUserId) return reply.forbidden('Only the Admin can kick members');
+      if (group.status !== 'active') return reply.gone('Group is not active');
+
+      // Soft-delete: set left_at = now() on the target member's active row
+      const result = await fastify.db.query<{ id: string }>(
+        `UPDATE convoy_members
+         SET left_at = now()
+         WHERE group_id = $1 AND user_id = $2 AND left_at IS NULL
+         RETURNING id`,
+        [id, targetUserId],
+      );
+
+      if ((result.rowCount ?? 0) === 0) {
+        return reply.notFound('Member not found or already left');
+      }
+
+      // Remove kicked member from all PTT channels in this group
+      fastify.db
+        .query(
+          `DELETE FROM ptt_channel_members
+           WHERE user_id = $1 AND channel_id IN (
+             SELECT id FROM ptt_channels WHERE group_id = $2
+           )`,
+          [targetUserId, id],
+        )
+        .catch((err: unknown) =>
+          fastify.log.error({ err }, 'Failed to remove kicked member from PTT channels'),
+        );
+
+      // Notify the kicked user on their personal socket room
+      fastify.io
+        .to(`user:${targetUserId}`)
+        .emit('member:kicked', { groupId: id });
+
+      return reply.status(200).send({ message: 'Member kicked' });
+    },
+  );
 
   // -------------------------------------------------------------------------
   // PATCH /groups/:id/settings — admin only (Req 10.11, 24.3)
@@ -513,7 +588,10 @@ async function groupsRoutes(
         values,
       );
 
-      return reply.send(groupToResponse(result.rows[0]));
+      const updated = result.rows[0];
+      if (!updated) return reply.notFound('Group not found');
+
+      return reply.send(groupToResponse(updated));
     },
   );
 
@@ -550,7 +628,7 @@ async function groupsRoutes(
   );
 
   // -------------------------------------------------------------------------
-  // POST /groups/:id/members/:userId/mute — admin only (Req 10.11)
+  // POST /groups/:id/members/:targetUserId/mute — admin only (Req 10.11)
   // -------------------------------------------------------------------------
   fastify.post(
     '/groups/:id/members/:targetUserId/mute',

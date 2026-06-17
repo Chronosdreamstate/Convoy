@@ -10,6 +10,8 @@ export interface MemberLocation {
   receivedAt: number;
   /** Timestamp the member device reported (ms) */
   ts: number;
+  /** True when this position was loaded from the offline cache (not a live update) */
+  isStale?: boolean;
 }
 
 interface LocationState {
@@ -17,6 +19,8 @@ interface LocationState {
   memberLocations: Record<string, MemberLocation>;
   /** Current user's own GPS position */
   myLocation: Omit<MemberLocation, 'userId'> | null;
+  /** Last-known positions loaded from the local cache after a disconnect */
+  stalePositions: Record<string, MemberLocation>;
 
   updateMemberLocation: (loc: MemberLocation) => void;
   removeMember: (userId: string) => void;
@@ -24,11 +28,16 @@ interface LocationState {
   clearGroup: () => void;
   /** Remove entries whose receivedAt is older than staleMs */
   evictStale: (staleMs: number) => void;
+  /** Overwrite stalePositions with positions loaded from the offline cache */
+  setStalePositions: (positions: MemberLocation[]) => void;
+  /** Clear stale positions (called on reconnect) */
+  clearStalePositions: () => void;
 }
 
 export const useLocationStore = create<LocationState>((set) => ({
   memberLocations: {},
   myLocation: null,
+  stalePositions: {},
 
   updateMemberLocation: (loc) =>
     set((state) => ({
@@ -43,7 +52,7 @@ export const useLocationStore = create<LocationState>((set) => ({
 
   updateMyLocation: (loc) => set({ myLocation: loc }),
 
-  clearGroup: () => set({ memberLocations: {} }),
+  clearGroup: () => set({ memberLocations: {}, stalePositions: {} }),
 
   evictStale: (staleMs) =>
     set((state) => {
@@ -54,4 +63,14 @@ export const useLocationStore = create<LocationState>((set) => ({
       }
       return { memberLocations: next };
     }),
+
+  setStalePositions: (positions) => {
+    const map: Record<string, MemberLocation> = {};
+    for (const p of positions) {
+      map[p.userId] = { ...p, isStale: true };
+    }
+    set({ stalePositions: map });
+  },
+
+  clearStalePositions: () => set({ stalePositions: {} }),
 }));

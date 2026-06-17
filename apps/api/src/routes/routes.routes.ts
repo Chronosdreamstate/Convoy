@@ -158,6 +158,13 @@ async function routesRoutes(
     const parsed = pushRouteSchema.safeParse(request.body);
     if (!parsed.success) return reply.badRequest(parsed.error.errors[0].message);
 
+    // Verify caller is an active member of the group
+    const memberResult = await fastify.db.query<{ id: string }>(
+      'SELECT id FROM convoy_members WHERE group_id = $1 AND user_id = $2 AND left_at IS NULL',
+      [groupId, userId],
+    );
+    if (!memberResult.rows[0]) return reply.forbidden('You are not a member of this group');
+
     // Verify caller is the group admin
     const groupResult = await fastify.db.query<{ admin_id: string; status: string }>(
       'SELECT admin_id, status FROM convoy_groups WHERE id = $1',

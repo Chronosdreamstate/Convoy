@@ -32,12 +32,15 @@ class InMemoryLocationDB implements ILocationDB {
 }
 
 function buildMockSocket(emitLog: LocationData[]) {
-  return {
+  const mock = {
     connected: true,
-    emit: (_event: string, data: LocationData) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    emit(_event: string, data: LocationData): any {
       emitLog.push(data);
+      return mock;
     },
   };
+  return mock;
 }
 
 // ---------------------------------------------------------------------------
@@ -100,7 +103,7 @@ describe('Property 13: Location broadcast interval is at most 3 seconds', () => 
 
   it('shouldThrottle returns false exactly once per 3s window', () => {
     const service = new LocationService(
-      { connected: true, emit: () => {} },
+      { connected: true, emit: (): any => {} },
       new InMemoryLocationDB(),
       'user-3',
     );
@@ -144,7 +147,7 @@ describe('Property 14: Offline cache preserves last-known Member positions', () 
           const db = new InMemoryLocationDB();
           await db.init();
           const service = new LocationService(
-            { connected: false, emit: () => {} },
+            { connected: false, emit: (): any => {} },
             db,
             userId,
           );
@@ -173,8 +176,8 @@ describe('Property 14: Offline cache preserves last-known Member positions', () 
     const memberA = 'member-a';
     const memberB = 'member-b';
 
-    const serviceA = new LocationService({ connected: false, emit: () => {} }, db, memberA);
-    const serviceB = new LocationService({ connected: false, emit: () => {} }, db, memberB);
+    const serviceA = new LocationService({ connected: false, emit: (): any => {} }, db, memberA);
+    const serviceB = new LocationService({ connected: false, emit: (): any => {} }, db, memberB);
 
     await serviceA.handleGPSUpdate({ lat: 10, lng: 20, heading: 90, speed_kph: 50, ts: 1000 });
     await serviceB.handleGPSUpdate({ lat: 30, lng: 40, heading: 180, speed_kph: 70, ts: 2000 });

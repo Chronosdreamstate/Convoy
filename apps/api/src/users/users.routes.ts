@@ -134,6 +134,35 @@ async function usersRoutes(
   });
 
   // -------------------------------------------------------------------------
+  // GET /users/:id — public profile (used by invite deep-link handler)
+  // Returns only non-sensitive public fields regardless of privacy setting,
+  // because the viewer already has the UUID (they received an invite link).
+  // -------------------------------------------------------------------------
+  fastify.get('/users/:id', { preHandler: [authenticate] }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+
+    const result = await fastify.db.query<
+      Pick<UserRow, 'id' | 'display_name' | 'avatar_url' | 'ptt_callsign'>
+    >(
+      `SELECT id, display_name, avatar_url, ptt_callsign
+       FROM users WHERE id = $1`,
+      [id],
+    );
+
+    const u = result.rows[0];
+    if (!u) {
+      return reply.notFound('User not found');
+    }
+
+    return reply.send({
+      id: u.id,
+      displayName: u.display_name,
+      avatarUrl: u.avatar_url,
+      pttCallsign: u.ptt_callsign,
+    });
+  });
+
+  // -------------------------------------------------------------------------
   // GET /users/search?phone=
   // -------------------------------------------------------------------------
   fastify.get('/users/search', { preHandler: [authenticate] }, async (request, reply) => {

@@ -41,6 +41,17 @@ export interface OfflinePack {
 // Injectable interfaces (enable unit testing without real SQLite / Mapbox)
 // ---------------------------------------------------------------------------
 
+export interface CachedPosition {
+  userId: string;
+  groupId: string;
+  lat: number;
+  lng: number;
+  heading: number;
+  speedKph: number;
+  ts: number;
+  savedAt: number; // epoch ms when we wrote this row
+}
+
 export interface IOfflineDB {
   init(): Promise<void>;
   saveHazard(hazard: OfflineHazard): Promise<void>;
@@ -49,6 +60,8 @@ export interface IOfflineDB {
   saveDrive(drive: OfflineDrive): Promise<void>;
   getPendingDrives(): Promise<OfflineDrive[]>;
   clearDrives(ids: string[]): Promise<void>;
+  saveLastPosition(pos: CachedPosition): Promise<void>;
+  getLastPositions(groupId: string): Promise<CachedPosition[]>;
 }
 
 export interface IMapOfflineManager {
@@ -91,6 +104,17 @@ export class SQLiteOfflineDB implements IOfflineDB {
         avg_speed_kph    REAL,
         top_speed_kph    REAL,
         member_count     INTEGER NOT NULL DEFAULT 1
+      );
+      CREATE TABLE IF NOT EXISTS last_positions (
+        user_id    TEXT NOT NULL,
+        group_id   TEXT NOT NULL,
+        lat        REAL NOT NULL,
+        lng        REAL NOT NULL,
+        heading    REAL NOT NULL,
+        speed_kph  REAL NOT NULL,
+        ts         INTEGER NOT NULL,
+        saved_at   INTEGER NOT NULL,
+        PRIMARY KEY (user_id, group_id)
       );
     `);
   }
@@ -169,6 +193,34 @@ export class SQLiteOfflineDB implements IOfflineDB {
     this.ensureDB();
     const placeholders = ids.map(() => '?').join(',');
     await this.db!.runAsync(`DELETE FROM offline_drives WHERE id IN (${placeholders})`, ids);
+  }
+
+  async saveLastPosition(pos: CachedPosition): Promise<void> {
+    this.ensureDB();
+    await this.db!.runAsync(
+      `INSERT OR REPLACE INTO last_positions
+         (user_id, group_id, lat, lng, heading, speed_kph, ts, saved_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [pos.userId, pos.groupId, pos.lat, pos.lng, pos.heading, pos.speedKph, pos.ts, pos.savedAt],
+    );
+  }
+
+  async getLastPositions(groupId: string): Promise<CachedPosition[]> {
+    this.ensureDB();
+    const rows = await this.db!.getAllAsync<{
+      user_id: string; group_id: string; lat: number; lng: number;
+      heading: number; speed_kph: number; ts: number; saved_at: number;
+    }>('SELECT * FROM last_positions WHERE group_id = ?', [groupId]);
+    return rows.map((r) => ({
+      userId: r.user_id,
+      groupId: r.group_id,
+      lat: r.lat,
+      lng: r.lng,
+      heading: r.heading,
+      speedKph: r.speed_kph,
+      ts: r.ts,
+      savedAt: r.saved_at,
+    }));
   }
 
   private ensureDB(): void {
@@ -258,5 +310,15 @@ export class OfflineCacheService {
   /** Queue a completed drive record for later sync (Req 14.1). */
   async saveOfflineDrive(drive: OfflineDrive): Promise<void> {
     await this.db.saveDrive(drive);
+  }
+
+  /** Persist the most-recent position for a member so it survives disconnects. */
+  async saveLastPosition(pos: CachedPosition): Promise<void> {
+    await this.db.saveLastPosition(pos);
+  }
+
+  /** Return all cached positions for a group (one row per member). */
+  async getLastPositions(groupId: string): Promise<CachedPosition[]> {
+    return this.db.getLastPositions(groupId);
   }
 }
