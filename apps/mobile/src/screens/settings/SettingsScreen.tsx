@@ -165,7 +165,7 @@ export default function SettingsScreen() {
       const s = response.data;
       applySettings(s);
       setSettings(s);
-      setGlobalSettings({ mapStyle: s.mapStyle, hazardAlertDistanceM: s.hazardAlertDistanceM, scenicRouting: s.scenicRouting });
+      setGlobalSettings({ mapStyle: s.mapStyle, hazardAlertDistanceM: s.hazardAlertDistanceM, scenicRouting: s.scenicRouting, pttMaxSeconds: s.pttMaxSeconds });
       setIsDirty(false);
     } catch {
       setError('Failed to load settings. Please try again.');
@@ -203,7 +203,7 @@ export default function SettingsScreen() {
         notifNavigation,
       });
       setSettings(response.data);
-      setGlobalSettings({ mapStyle: response.data.mapStyle, hazardAlertDistanceM: response.data.hazardAlertDistanceM, scenicRouting: response.data.scenicRouting });
+      setGlobalSettings({ mapStyle: response.data.mapStyle, hazardAlertDistanceM: response.data.hazardAlertDistanceM, scenicRouting: response.data.scenicRouting, pttMaxSeconds: response.data.pttMaxSeconds });
       setIsDirty(false);
       Alert.alert('Saved', 'Your settings have been updated.');
     } catch {

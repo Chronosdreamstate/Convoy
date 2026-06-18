@@ -1,4 +1,5 @@
 ﻿import { useEffect, useRef } from 'react';
+import { Platform } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import type { Router } from 'expo-router';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -79,9 +80,16 @@ export default function RootLayout() {
     if (!isAuthenticated || isLoading) return;
     if (pushRegisteredRef.current) return;
     pushRegisteredRef.current = true;
-    registerForPushNotificationsAsync().catch(() => {
-      // Non-fatal - silently ignored if push setup fails
-    });
+    registerForPushNotificationsAsync()
+      .then((pushToken) => {
+        if (pushToken) {
+          return apiClient.post('/api/v1/devices', {
+            pushToken,
+            platform: Platform.OS === 'ios' ? 'ios' : 'android',
+          });
+        }
+      })
+      .catch(() => {});
   }, [isAuthenticated, isLoading]);
 
   // Handle notification taps while app is in background (live listener)
