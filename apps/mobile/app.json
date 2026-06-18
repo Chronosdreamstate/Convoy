@@ -32,11 +32,18 @@
     "plugins": [
       "expo-router",
       "expo-secure-store",
+      "expo-apple-authentication",
       [
         "expo-location",
         {
           "locationAlwaysAndWhenInUsePermission": "CONVOY needs your location to share it with your convoy group.",
           "locationWhenInUsePermission": "CONVOY needs your location while you're using the app."
+        }
+      ],
+      [
+        "@react-native-google-signin/google-signin",
+        {
+          "iosUrlScheme": "com.googleusercontent.apps.REPLACE_WITH_IOS_CLIENT_ID_REVERSED"
         }
       ]
     ],

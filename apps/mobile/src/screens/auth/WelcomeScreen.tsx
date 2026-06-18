@@ -11,6 +11,13 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { authService } from '../../services/AuthService';
+import { GoogleSignin } from '@react-native-google-signin/google-signin';
+
+GoogleSignin.configure({
+  iosClientId: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID,
+  webClientId: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID,
+  offlineAccess: true,
+});
 
 const PRIVACY_POLICY_URL = 'https://convoy.app/privacy';
 const TERMS_URL = 'https://convoy.app/terms';
@@ -46,10 +53,22 @@ export default function WelcomeScreen() {
   };
 
   const handleGoogleSignIn = async () => {
-    Alert.alert(
-      'Google Sign-In',
-      'Coming soon — install @react-native-google-signin/google-signin and configure OAuth to enable this.',
-    );
+    if (!process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID && !process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID) {
+      Alert.alert('Not configured', 'Google Sign-In requires EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID and EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID in your .env file.');
+      return;
+    }
+    try {
+      await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+      const userInfo = await GoogleSignin.signIn();
+      const idToken = userInfo.data?.idToken ?? null;
+      if (!idToken) { Alert.alert('Sign In Failed', 'No ID token returned from Google.'); return; }
+      await authService.signInSocial('google', idToken);
+      router.replace('/(tabs)/map');
+    } catch (err: unknown) {
+      const code = (err as { code?: string })?.code;
+      if (code === 'SIGN_IN_CANCELLED' || code === '12501') return;
+      Alert.alert('Sign In Failed', 'Could not sign in with Google. Please try another method.');
+    }
   };
 
   return (
