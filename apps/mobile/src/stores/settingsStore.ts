@@ -6,12 +6,14 @@ interface SettingsState {
   mapStyle: MapStyle;
   hazardAlertDistanceM: number;
   scenicRouting: boolean;
-  setSettings: (s: Partial<Pick<SettingsState, 'mapStyle' | 'hazardAlertDistanceM' | 'scenicRouting'>>) => void;
+  pttMaxSeconds: number;
+  setSettings: (s: Partial<Pick<SettingsState, 'mapStyle' | 'hazardAlertDistanceM' | 'scenicRouting' | 'pttMaxSeconds'>>) => void;
 }
 
 export const useSettingsStore = create<SettingsState>((set) => ({
   mapStyle: 'standard',
   hazardAlertDistanceM: 805,
   scenicRouting: false,
+  pttMaxSeconds: 30,
   setSettings: (s) => set(s),
 }));

@@ -184,6 +184,28 @@ async function groupsRoutes(
   });
 
   // -------------------------------------------------------------------------
+  // GET /groups/public — list open groups for discovery (must be before /:id)
+  // -------------------------------------------------------------------------
+  fastify.get('/groups/public', { preHandler: [authenticate] }, async (request, reply) => {
+    const result = await fastify.db.query<GroupRow & { member_count: string }>(
+      `SELECT g.id, g.name, g.join_code, g.admin_id, g.access_type, g.status,
+              g.gap_threshold_m, g.ptt_max_seconds, g.created_at, g.ended_at,
+              COUNT(m.id) FILTER (WHERE m.left_at IS NULL) AS member_count
+       FROM convoy_groups g
+       LEFT JOIN convoy_members m ON m.group_id = g.id
+       WHERE g.access_type = 'open' AND g.status = 'active'
+       GROUP BY g.id
+       ORDER BY member_count DESC, g.created_at DESC
+       LIMIT 50`,
+      [],
+    );
+
+    return reply.send({
+      groups: result.rows.map((g) => groupToResponse(g, parseInt(g.member_count, 10))),
+    });
+  });
+
+  // -------------------------------------------------------------------------
   // GET /groups/:id — get group details
   // -------------------------------------------------------------------------
   fastify.get('/groups/:id', { preHandler: [authenticate] }, async (request, reply) => {

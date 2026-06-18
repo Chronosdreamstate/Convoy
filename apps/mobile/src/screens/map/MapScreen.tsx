@@ -125,14 +125,32 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
   // Reactive socket and settings from shared stores
   const { socket } = useSocketStore();
   const mapStyle = useSettingsStore((s) => s.mapStyle);
+  const scenicRouting = useSettingsStore((s) => s.scenicRouting);
+  const pttMaxSeconds = useSettingsStore((s) => s.pttMaxSeconds);
 
-  const socketRef      = useRef<Socket | null>(null);
-  const mapRef         = useRef<MapView>(null);
-  const mySosIdRef     = useRef<string | null>(null);
-  const pttServiceRef  = useRef<PTTService | null>(null);
+  const socketRef       = useRef<Socket | null>(null);
+  const mapRef          = useRef<MapView>(null);
+  const mySosIdRef      = useRef<string | null>(null);
+  const pttServiceRef   = useRef<PTTService | null>(null);
+  const memberNamesRef  = useRef<Record<string, string>>({});
 
   // Keep mySosIdRef in sync so the socket handler closure always sees the current value
   useEffect(() => { mySosIdRef.current = mySosId; }, [mySosId]);
+
+  // Fetch member display names once when group is active so markers and panels show real names
+  useEffect(() => {
+    if (!groupId || !token) { memberNamesRef.current = {}; return; }
+    apiClient
+      .get<{ members: Array<{ userId: string; displayName?: string }> }>(`/api/v1/groups/${groupId}/members`)
+      .then((res) => {
+        const map: Record<string, string> = {};
+        for (const m of res.data.members) {
+          if (m.displayName) map[m.userId] = m.displayName;
+        }
+        memberNamesRef.current = map;
+      })
+      .catch(() => {});
+  }, [groupId, token]);
 
   // Evict members who haven't reported a location in 30s
   useEffect(() => {
@@ -178,7 +196,7 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
       hapticAdapter,
     );
     pttServiceRef.current = service;
-    void service.joinChannel({ groupId, channelId: pttChannelId, maxSeconds: 30 });
+    void service.joinChannel({ groupId, channelId: pttChannelId, maxSeconds: pttMaxSeconds });
 
     return () => {
       void service.leaveChannel();
@@ -262,7 +280,7 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
 
     socket.on('location:update', (d: { userId: string; lat: number; lng: number; heading: number; speed_kph: number; ts: number }) => {
       if (d.userId === user?.id) return;
-      const loc: MemberLocation = { userId: d.userId, lat: d.lat, lng: d.lng, heading: d.heading, speedKph: d.speed_kph, ts: d.ts, receivedAt: Date.now() };
+      const loc: MemberLocation = { userId: d.userId, displayName: memberNamesRef.current[d.userId], lat: d.lat, lng: d.lng, heading: d.heading, speedKph: d.speed_kph, ts: d.ts, receivedAt: Date.now() };
       updateMemberLocation(loc);
       // Persist for offline fallback
       if (offlineDBReady) {
@@ -292,7 +310,7 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
       setSosPins((p) => new Map(p).set(data.id, data));
       setSosAlerts((prev) => {
         if (prev.some((a) => a.pin.id === data.id)) return prev;
-        const name = data.userId === user?.id ? 'You' : `Member ${data.userId.slice(0, 6)}`;
+        const name = data.userId === user?.id ? 'You' : (memberNamesRef.current[data.userId] ?? `Member ${data.userId.slice(0, 6)}`);
         return [...prev, { pin: data, memberName: name }];
       });
     });
@@ -400,6 +418,7 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
       const routeRes = await apiClient.post<{ routes: RouteAlternative[] }>('/api/v1/routes/calculate', {
         origin: { lat: myLocation.lat, lng: myLocation.lng },
         destination: { lat: dest.lat, lng: dest.lng },
+        scenic: scenicRouting,
       });
       const alts = routeRes.data.routes;
       setRouteAlternatives(alts);
@@ -481,7 +500,7 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
           <Marker
             key={m.userId}
             coordinate={{ latitude: m.lat, longitude: m.lng }}
-            title={`Member ${m.userId.slice(0, 6)}`}
+            title={m.displayName ?? `Member ${m.userId.slice(0, 6)}`}
             description={m.isStale ? `Last seen ${formatElapsed(m.receivedAt)}` : `${m.speedKph.toFixed(0)} km/h`}
             pinColor="#DC143C"
             opacity={m.isStale ? 0.45 : 1}
@@ -635,7 +654,7 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
       {/* Gap alerts */}
       {gapAlerts.length > 0 && (
         <View style={styles.alertBanner}>
-          {gapAlerts.map((a) => <Text key={a.memberId} style={styles.alertText}>⚠ Member {a.memberId.slice(0, 6)} is {(a.distanceM / 1000).toFixed(1)} km behind</Text>)}
+          {gapAlerts.map((a) => <Text key={a.memberId} style={styles.alertText}>⚠ {memberNamesRef.current[a.memberId] ?? `Member ${a.memberId.slice(0, 6)}`} is {(a.distanceM / 1000).toFixed(1)} km behind</Text>)}
         </View>
       )}
 
@@ -687,11 +706,11 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
           keyExtractor={(m) => m.userId}
           renderItem={({ item: m }) => {
             const isStale = Date.now() - m.receivedAt > staleMs;
-            const memberName = `Member ${m.userId.slice(0, 6)}`;
+            const memberName = m.displayName ?? `Member ${m.userId.slice(0, 6)}`;
             return (
               <View style={styles.memberRow}>
                 <View style={[styles.dot, isStale ? styles.dotOffline : styles.dotOnline]} />
-                <Text style={styles.memberText}>{m.userId.slice(0, 8)}…</Text>
+                <Text style={styles.memberText}>{memberName}</Text>
                 <Text style={styles.memberDetail}>{isStale ? formatElapsed(m.receivedAt) : `${m.speedKph.toFixed(0)} km/h`}</Text>
                 {groupId && (
                   <TouchableOpacity
@@ -737,7 +756,7 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
             {/* Convoy members */}
             {members.length > 0 && <View style={styles.pickerDivider} />}
             {members.map((m) => {
-              const name = `Member ${m.userId.slice(0, 6)}`;
+              const name = m.displayName ?? `Member ${m.userId.slice(0, 6)}`;
               return (
                 <TouchableOpacity
                   key={m.userId}

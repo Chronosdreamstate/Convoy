@@ -95,12 +95,15 @@ export default function ConvoyScreen({ userId }: Props) {
   const [loading, setLoading] = useState(false);
   const [joinCode, setJoinCode] = useState('');
   const [groupName, setGroupName] = useState('');
-  const [view, setView] = useState<'home' | 'create' | 'join'>('home');
+  const [view, setView] = useState<'home' | 'create' | 'join' | 'discover'>('home');
 
   const [pttChannels, setPttChannels] = useState<PttChannel[]>([]);
   const [activePttChannelId, setActivePttChannelId] = useState<string | null>(null);
   const [showNewChannel, setShowNewChannel] = useState(false);
   const [newChannelName, setNewChannelName] = useState('');
+
+  const [publicGroups, setPublicGroups] = useState<ConvoyGroup[]>([]);
+  const [discoverLoading, setDiscoverLoading] = useState(false);
 
   const { socket } = useSocketStore();
   const { memberLocations } = useLocationStore();
@@ -164,6 +167,32 @@ export default function ConvoyScreen({ userId }: Props) {
       Alert.alert('Error', 'Could not create channel.');
     }
   }, [group, newChannelName]);
+
+  const fetchPublicGroups = useCallback(async () => {
+    setDiscoverLoading(true);
+    try {
+      const res = await apiClient.get<{ groups: ConvoyGroup[] }>('/api/v1/groups/public');
+      setPublicGroups(res.data.groups);
+    } catch {
+      Alert.alert('Error', 'Could not load public convoys.');
+    } finally {
+      setDiscoverLoading(false);
+    }
+  }, []);
+
+  const handleJoinByCode = useCallback(async (code: string) => {
+    setLoading(true);
+    try {
+      const res = await apiClient.post<ConvoyGroup>('/api/v1/groups/join', { code: code.toUpperCase() });
+      setGroup(res.data);
+      setView('home');
+      ExpoLocation.requestBackgroundPermissionsAsync().catch(() => {});
+    } catch {
+      Alert.alert('Error', 'Could not join group.');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   const isAdmin = group?.adminId === userId;
 
@@ -398,6 +427,54 @@ export default function ConvoyScreen({ userId }: Props) {
       );
     }
 
+    if (view === 'discover') {
+      return (
+        <View style={styles.container}>
+          <View style={styles.headerBar}>
+            <Text style={styles.headerTitle}>DISCOVER</Text>
+            <TouchableOpacity onPress={() => setView('home')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <Text style={styles.headerBack}>← Back</Text>
+            </TouchableOpacity>
+          </View>
+          <TouchableOpacity
+            style={[styles.secondaryBtn, { marginBottom: 16 }]}
+            onPress={fetchPublicGroups}
+            disabled={discoverLoading}
+          >
+            {discoverLoading
+              ? <ActivityIndicator color="#888888" />
+              : <Text style={styles.secondaryBtnText}>Refresh</Text>}
+          </TouchableOpacity>
+          <FlatList
+            data={publicGroups}
+            keyExtractor={(g) => g.id}
+            renderItem={({ item: g }) => (
+              <View style={styles.discoverRow}>
+                <View style={styles.discoverInfo}>
+                  <Text style={styles.discoverName}>{g.name}</Text>
+                  <Text style={styles.discoverMeta}>{g.memberCount} member{g.memberCount !== 1 ? 's' : ''} · Open</Text>
+                </View>
+                <TouchableOpacity
+                  style={styles.discoverJoinBtn}
+                  onPress={() => void handleJoinByCode(g.joinCode)}
+                  disabled={loading}
+                >
+                  <Text style={styles.discoverJoinText}>Join</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+            ListEmptyComponent={
+              <View style={styles.emptyMembers}>
+                <Text style={styles.emptyMembersText}>
+                  {discoverLoading ? 'Loading…' : 'No open convoys found. Tap Refresh to search.'}
+                </Text>
+              </View>
+            }
+          />
+        </View>
+      );
+    }
+
     return (
       <View style={styles.container}>
         <View style={styles.emptyHero}>
@@ -411,6 +488,12 @@ export default function ConvoyScreen({ userId }: Props) {
           </TouchableOpacity>
           <TouchableOpacity style={styles.secondaryBtn} onPress={() => setView('join')}>
             <Text style={styles.secondaryBtnText}>Join with Code</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.secondaryBtn}
+            onPress={() => { setView('discover'); void fetchPublicGroups(); }}
+          >
+            <Text style={styles.secondaryBtnText}>Browse Open Convoys</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -781,6 +864,32 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
   actions: { paddingTop: 4, paddingBottom: 4 },
+
+  // Discover view
+  headerBack: { color: '#888888', fontSize: 14, fontWeight: '600' },
+  discoverRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#1C1C1C',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#2A2A2A',
+    minHeight: 60,
+  },
+  discoverInfo: { flex: 1 },
+  discoverName: { color: '#F0F0F0', fontSize: 15, fontWeight: '600' },
+  discoverMeta: { color: '#555555', fontSize: 12, marginTop: 3 },
+  discoverJoinBtn: {
+    backgroundColor: '#DC143C',
+    borderRadius: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    minHeight: 36,
+    justifyContent: 'center',
+  },
+  discoverJoinText: { color: '#fff', fontWeight: '700', fontSize: 13 },
 
   // PTT channel management
   channelSection: { marginTop: 14, paddingTop: 14, borderTopWidth: 1, borderTopColor: '#2A2A2A' },

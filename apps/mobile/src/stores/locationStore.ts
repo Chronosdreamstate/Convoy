@@ -2,6 +2,7 @@ import { create } from 'zustand';
 
 export interface MemberLocation {
   userId: string;
+  displayName?: string;
   lat: number;
   lng: number;
   heading: number;
