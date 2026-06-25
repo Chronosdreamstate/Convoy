@@ -98,7 +98,11 @@ function LogRow({ entry }: { entry: PttLogEntry }) {
   const time = new Date(entry.startedAt).toISOString().slice(11, 19); // HH:MM:SS
 
   return (
-    <View style={styles.row}>
+    <View
+      style={styles.row}
+      accessible
+      accessibilityLabel={`${name} transmitted at ${time} UTC`}
+    >
       <View style={styles.mic}>
         <Text style={styles.micIcon}>🎙</Text>
       </View>

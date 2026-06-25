@@ -63,6 +63,7 @@ export default function IdleMapScreen() {
             })
             .catch(() => Alert.alert('Location unavailable', 'Enable location in Settings.'));
         }}
+        accessibilityRole="button"
         accessibilityLabel="Re-center map"
       >
         <Text style={styles.recenterText}>⊕</Text>
