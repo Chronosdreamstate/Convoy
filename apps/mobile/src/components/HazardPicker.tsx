@@ -111,9 +111,11 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.4)',
   },
   sheet: {
-    backgroundColor: '#1C1C1E',
+    backgroundColor: '#1C1C1C',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
+    borderWidth: 1,
+    borderColor: '#2A2A2A',
     paddingTop: 8,
     paddingBottom: 32,
     paddingHorizontal: 16,
@@ -123,7 +125,7 @@ const styles = StyleSheet.create({
     width: 36,
     height: 4,
     borderRadius: 2,
-    backgroundColor: '#d1d5db',
+    backgroundColor: '#555555',
     marginBottom: 12,
   },
   title: {
@@ -161,7 +163,7 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 11,
     fontWeight: '600',
-    color: '#D1D5DB',
+    color: '#F0F0F0',
     textAlign: 'center',
   },
   cancel: {
@@ -172,6 +174,6 @@ const styles = StyleSheet.create({
   cancelText: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#ef4444',
+    color: '#DC143C',
   },
 });

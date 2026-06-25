@@ -37,6 +37,15 @@ import { DriveService } from '../../services/DriveService';
 
 interface GapAlert { memberId: string; distanceM: number }
 interface SosAlert { pin: SosPin; memberName: string }
+interface HazardPin { id: string; type: string; lat: number; lng: number }
+
+const HAZARD_EMOJI: Record<string, string> = {
+  pothole: '🕳️', accident: '🚗', roadwork: '🚧', debris: '🪨',
+  animal: '🦌', speed_trap: '📷', ice: '🧊', flood: '🌊', other: '⚠️',
+};
+function hazardLabel(type: string): string {
+  return (type.charAt(0).toUpperCase() + type.slice(1)).replace('_', ' ');
+}
 interface RouteAlternative {
   distanceM: number;
   durationS: number;
@@ -87,6 +96,8 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
   const insets = useSafeAreaInsets();
 
   const [gapAlerts, setGapAlerts]     = useState<GapAlert[]>([]);
+  const [hazardPins, setHazardPins]   = useState<Map<string, HazardPin>>(new Map());
+  const [hazardAlerts, setHazardAlerts] = useState<HazardPin[]>([]);
   const [isConnected, setIsConnected] = useState(false);
   const [rallyPoints, setRallyPoints] = useState<Map<string, RallyPoint>>(new Map());
   const [rallyAlert, setRallyAlert]   = useState<RallyPoint | null>(null);
@@ -321,6 +332,20 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
     });
 
     socket.on('gap:alert', (a: GapAlert) => setGapAlerts((p) => [...p.filter((x) => x.memberId !== a.memberId), a]));
+
+    // Hazard pins: add new reports to the map, alert user on proximity, remove on expiry
+    socket.on('hazard:new', (h: HazardPin) => {
+      setHazardPins((p) => new Map(p).set(h.id, h));
+    });
+    socket.on('hazard:nearby', (h: HazardPin) => {
+      setHazardPins((p) => new Map(p).set(h.id, h));
+      setHazardAlerts((prev) => prev.some((a) => a.id === h.id) ? prev : [...prev, h]);
+    });
+    socket.on('hazard:expired', ({ id }: { id: string }) => {
+      setHazardPins((p) => { const n = new Map(p); n.delete(id); return n; });
+      setHazardAlerts((prev) => prev.filter((a) => a.id !== id));
+    });
+
     socket.on('route:pushed', (data: { geometry: { coordinates: [number, number][] } }) => {
       const coords = data.geometry.coordinates.map(([lng, lat]) => ({ latitude: lat, longitude: lng }));
       setRouteCoords(coords);
@@ -522,8 +547,8 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
   const liveMemberIds = new Set(Object.keys(memberLocations));
   const staleFallback = Object.values(stalePositions).filter((p) => !liveMemberIds.has(p.userId));
   const members    = [...Object.values(memberLocations), ...staleFallback];
-  const rallies    = Array.from(rallyPoints.values());
-  const sosPinList = Array.from(sosPins.values());
+  const rallies      = Array.from(rallyPoints.values());
+  const sosPinList   = Array.from(sosPins.values());
   const staleMs    = 30_000;
 
   // Safe-area-aware top offset for floating UI elements
@@ -557,6 +582,14 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
         ))}
         {sosPinList.map((s) => (
           <Marker key={s.id} coordinate={{ latitude: s.lat, longitude: s.lng }} title="SOS" pinColor="#ef4444" />
+        ))}
+        {Array.from(hazardPins.values()).map((h) => (
+          <Marker
+            key={h.id}
+            coordinate={{ latitude: h.lat, longitude: h.lng }}
+            title={`${HAZARD_EMOJI[h.type] ?? '⚠️'} ${hazardLabel(h.type)}`}
+            pinColor="#f59e0b"
+          />
         ))}
         {routeCoords.length > 0 && (
           <Polyline
@@ -712,6 +745,28 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
               onPress={() => setGapAlerts([])}
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               accessibilityLabel="Dismiss gap alerts"
+            >
+              <Text style={styles.alertDismiss}>✕</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
+      {/* Hazard proximity alerts */}
+      {hazardAlerts.length > 0 && (
+        <View style={styles.hazardBanner}>
+          <View style={styles.alertBannerRow}>
+            <View style={styles.alertBannerTexts}>
+              {hazardAlerts.map((h) => (
+                <Text key={h.id} style={styles.hazardAlertText}>
+                  {HAZARD_EMOJI[h.type] ?? '⚠️'} {hazardLabel(h.type)} ahead
+                </Text>
+              ))}
+            </View>
+            <TouchableOpacity
+              onPress={() => setHazardAlerts([])}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              accessibilityLabel="Dismiss hazard alerts"
             >
               <Text style={styles.alertDismiss}>✕</Text>
             </TouchableOpacity>
@@ -1136,7 +1191,7 @@ const styles = StyleSheet.create({
   },
   sosText: { color: '#fff', fontWeight: '900', fontSize: 13 },
 
-  // Gap / rally / SOS alert banners
+  // Gap / hazard / rally / SOS alert banners
   alertBanner: {
     position: 'absolute',
     bottom: 280,
@@ -1147,6 +1202,17 @@ const styles = StyleSheet.create({
     padding: 10,
     zIndex: 8,
   },
+  hazardBanner: {
+    position: 'absolute',
+    bottom: 320,
+    left: 12,
+    right: 12,
+    backgroundColor: '#92400ecc',
+    borderRadius: 8,
+    padding: 10,
+    zIndex: 8,
+  },
+  hazardAlertText: { color: '#fef3c7', fontSize: 13 },
   alertBannerRow: { flexDirection: 'row', alignItems: 'flex-start' },
   alertBannerTexts: { flex: 1 },
   alertText: { color: '#fff', fontSize: 13 },
