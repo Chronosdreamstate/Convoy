@@ -2,7 +2,11 @@ import { FastifyInstance, FastifyReply } from 'fastify';
 import { Pool } from 'pg';
 import Redis from 'ioredis';
 import jwt from 'jsonwebtoken';
+import { randomUUID } from 'node:crypto';
 import { env } from '../config/env';
+
+// 30 days in seconds — must match JWT_REFRESH_TTL config
+const REFRESH_TOKEN_TTL_S = 30 * 24 * 60 * 60;
 
 // ---------------------------------------------------------------------------
 // OTP helpers
@@ -217,25 +221,32 @@ export async function upsertUserBySocial(
 export interface TokenPair {
   accessToken: string;
   refreshToken: string;
+  jti: string;
 }
 
 /**
  * Issue an access token (15 min) via fastify.jwt and a refresh token (30d)
  * directly via jsonwebtoken using JWT_REFRESH_SECRET.
+ * Stores the refresh token's jti in Redis so the previous token can be invalidated on rotation.
  */
 export async function issueTokens(
   userId: string,
   fastify: FastifyInstance,
 ): Promise<TokenPair> {
+  const jti = randomUUID();
+
   // Access token — signed by @fastify/jwt (uses JWT_SECRET, TTL = JWT_ACCESS_TTL)
   const accessToken = fastify.jwt.sign({ sub: userId });
 
-  // Refresh token — signed directly with JWT_REFRESH_SECRET
-  const refreshToken = jwt.sign({ sub: userId }, env.JWT_REFRESH_SECRET, {
+  // Refresh token — signed directly with JWT_REFRESH_SECRET; includes jti for rotation
+  const refreshToken = jwt.sign({ sub: userId, jti }, env.JWT_REFRESH_SECRET, {
     expiresIn: env.JWT_REFRESH_TTL as jwt.SignOptions['expiresIn'],
   });
 
-  return { accessToken, refreshToken };
+  // Record the active jti so old tokens can be rejected on next refresh
+  await fastify.redis.setex(`rtk:${userId}`, REFRESH_TOKEN_TTL_S, jti);
+
+  return { accessToken, refreshToken, jti };
 }
 
 // ---------------------------------------------------------------------------

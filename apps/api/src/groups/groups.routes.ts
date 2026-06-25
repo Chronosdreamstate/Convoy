@@ -592,8 +592,8 @@ async function groupsRoutes(
         return reply.notFound('Member not found or already left');
       }
 
-      // Remove kicked member from all PTT channels in this group
-      fastify.db
+      // Remove kicked member from all PTT channels in this group (awaited for data integrity)
+      await fastify.db
         .query(
           `DELETE FROM ptt_channel_members
            WHERE user_id = $1 AND channel_id IN (

@@ -53,7 +53,7 @@ async function friendsRoutes(
   // -------------------------------------------------------------------------
   fastify.get('/friends/invite-link', { preHandler: [authenticate] }, async (request, reply) => {
     const userId = (request.user as { sub: string }).sub;
-    const link = `convoy://invite?userId=${userId}`;
+    const link = `convoy://invite?userId=${encodeURIComponent(userId)}`;
     return reply.send({ inviteLink: link, qrData: link });
   });
 

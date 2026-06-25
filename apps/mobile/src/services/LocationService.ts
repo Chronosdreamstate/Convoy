@@ -159,8 +159,9 @@ export class LocationService {
           heading: pos.coords.heading ?? 0,
           speed_kph: (pos.coords.speed ?? 0) * 3.6, // m/s → km/h
           ts: pos.timestamp,
-        }).catch(() => {
-          // GPS callback errors are non-fatal; last-known position may be stale
+        }).catch((err: unknown) => {
+          // GPS callback errors are non-fatal (e.g. SQLite disk full), but log for observability
+          if (__DEV__) console.error('[LocationService] GPS callback error:', err);
         });
       },
     );

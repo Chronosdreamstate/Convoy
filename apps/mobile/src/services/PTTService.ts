@@ -171,6 +171,7 @@ export class PTTService {
   async leaveChannel(): Promise<void> {
     if (this.isTransmitting) this.holdEnd();
     this.session = null;
+    this.expiryListenerRegistered = false; // reset so next joinChannel re-registers for the new session
     await this.engine.leaveChannel();
     if (this.listenersRegistered) {
       this.socket.off('ptt:transmit', this.pttTransmitHandler);

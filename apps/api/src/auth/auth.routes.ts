@@ -305,8 +305,19 @@ async function authRoutes(fastify: FastifyInstance, _opts: FastifyPluginOptions)
     }
 
     const userId = payload.sub;
+    const presentedJti = payload.jti;
     if (!userId) {
       return reply.unauthorized('Invalid token payload');
+    }
+
+    // Verify the jti matches the last-issued token — rejects replayed or rotated-out tokens
+    if (presentedJti) {
+      const storedJti = await fastify.redis.get(`rtk:${userId}`);
+      if (storedJti !== presentedJti) {
+        // Possible token reuse attack — invalidate all refresh tokens for this user
+        await fastify.redis.del(`rtk:${userId}`);
+        return reply.unauthorized('Refresh token has already been used or revoked');
+      }
     }
 
     // Verify the user still exists in the database
@@ -318,7 +329,7 @@ async function authRoutes(fastify: FastifyInstance, _opts: FastifyPluginOptions)
       return reply.unauthorized('User not found');
     }
 
-    // Rotate: issue both a new access token AND a new refresh token
+    // Rotate: issue both a new access token AND a new refresh token (stores new jti in Redis)
     const { accessToken, refreshToken: newRefreshToken } = await issueTokens(userId, fastify);
     setRefreshCookie(reply, newRefreshToken, env.NODE_ENV);
 
@@ -328,7 +339,19 @@ async function authRoutes(fastify: FastifyInstance, _opts: FastifyPluginOptions)
   // -------------------------------------------------------------------------
   // POST /auth/logout
   // -------------------------------------------------------------------------
-  fastify.post('/auth/logout', async (_request, reply) => {
+  fastify.post('/auth/logout', async (request, reply) => {
+    // Invalidate the refresh token jti if the user is authenticated
+    const token = request.cookies?.refreshToken;
+    if (token) {
+      try {
+        const payload = jwt.verify(token, env.JWT_REFRESH_SECRET) as jwt.JwtPayload;
+        if (payload.sub) {
+          await fastify.redis.del(`rtk:${payload.sub}`);
+        }
+      } catch {
+        // Token already expired or invalid — nothing to invalidate
+      }
+    }
     reply.clearCookie('refreshToken', { path: '/' });
     return reply.status(200).send({ message: 'Logged out' });
   });

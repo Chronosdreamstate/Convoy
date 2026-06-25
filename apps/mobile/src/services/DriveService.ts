@@ -82,7 +82,9 @@ export function computeDriveStats(points: TrackPoint[]): DriveStats | null {
 
   const durationS = Math.round((points[points.length - 1].ts - points[0].ts) / 1000);
   const avgSpeedKph = durationS > 0 ? (distanceM / 1000) / (durationS / 3600) : null;
-  const topSpeedKph = points.reduce((max, p) => Math.max(max, p.speedKph), 0);
+  const rawTopSpeed = points.reduce((max, p) => Math.max(max, p.speedKph), 0);
+  // Return null when all speed readings are 0 — device speed was unavailable, not literally 0 kph
+  const topSpeedKph = rawTopSpeed > 0 ? Math.round(rawTopSpeed * 10) / 10 : null;
 
   return {
     routeTrace: {
@@ -92,7 +94,7 @@ export function computeDriveStats(points: TrackPoint[]): DriveStats | null {
     distanceM: Math.round(distanceM),
     durationS,
     avgSpeedKph: avgSpeedKph !== null ? Math.round(avgSpeedKph * 10) / 10 : null,
-    topSpeedKph: Math.round(topSpeedKph * 10) / 10,
+    topSpeedKph,
   };
 }
 

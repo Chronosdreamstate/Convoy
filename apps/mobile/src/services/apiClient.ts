@@ -6,6 +6,20 @@ const SECURE_STORE_KEY = 'convoy_access_token';
 
 const baseURL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
 
+// Retry policy: up to 3 attempts with exponential backoff (Req 43.1).
+const MAX_RETRIES = 3;
+const RETRY_BASE_MS = 500;
+
+function isRetryable(error: AxiosError): boolean {
+  if (!error.response) return true; // network timeout / no response
+  return error.response.status >= 500;
+}
+
+function retryDelay(attempt: number): Promise<void> {
+  const ms = RETRY_BASE_MS * Math.pow(2, attempt);
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export const apiClient = axios.create({
   baseURL,
   withCredentials: true, // send HttpOnly refresh-token cookie on every request
@@ -52,7 +66,21 @@ function processQueue(error: unknown, token: string | null): void {
 apiClient.interceptors.response.use(
   (response) => response,
   async (error: AxiosError) => {
-    const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean };
+    const originalRequest = error.config as InternalAxiosRequestConfig & {
+      _retry?: boolean;
+      _retryCount?: number;
+    };
+
+    // 5xx / network-timeout retry with exponential backoff (Req 43.1)
+    if (isRetryable(error) && error.response?.status !== 401) {
+      const attempt = originalRequest._retryCount ?? 0;
+      if (attempt < MAX_RETRIES) {
+        originalRequest._retryCount = attempt + 1;
+        await retryDelay(attempt);
+        return apiClient(originalRequest);
+      }
+      return Promise.reject(error);
+    }
 
     if (error.response?.status !== 401 || originalRequest._retry) {
       return Promise.reject(error);

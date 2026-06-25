@@ -6,6 +6,7 @@
 import { FastifyInstance } from 'fastify';
 import { Pool } from 'pg';
 import { Redis } from 'ioredis';
+import { z } from 'zod';
 import { authenticate } from '../middleware/authenticate';
 
 // ---------------------------------------------------------------------------
@@ -86,6 +87,27 @@ export function serializeHazardRow(row: RawHazardRow): HazardResponse {
 }
 
 // ---------------------------------------------------------------------------
+// Request schemas
+// ---------------------------------------------------------------------------
+
+const createHazardSchema = z.object({
+  type: z.enum(HAZARD_TYPES),
+  lat: z.number().min(-90).max(90),
+  lng: z.number().min(-180).max(180),
+});
+
+const bulkHazardItemSchema = z.object({
+  type: z.enum(HAZARD_TYPES),
+  lat: z.number().min(-90).max(90),
+  lng: z.number().min(-180).max(180),
+  createdAt: z.number().optional(),
+});
+
+const bulkHazardsSchema = z.object({
+  hazards: z.array(bulkHazardItemSchema).min(1).max(100),
+});
+
+// ---------------------------------------------------------------------------
 // Internal rate-limit helper
 // ---------------------------------------------------------------------------
 
@@ -107,17 +129,11 @@ export default async function hazardsRoutes(fastify: FastifyInstance): Promise<v
   // POST /hazards — create hazard report (Req 11.1)
   fastify.post('/hazards', { preHandler: authenticate }, async (request, reply) => {
     const userId = (request.user as { sub: string }).sub;
-    const { type, lat, lng } = request.body as { type: string; lat: number; lng: number };
-
-    if (!HAZARD_TYPES.includes(type as HazardType)) {
-      return reply.badRequest(`Invalid hazard type. Must be one of: ${HAZARD_TYPES.join(', ')}`);
+    const parsed = createHazardSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.badRequest(parsed.error.errors[0].message);
     }
-    if (typeof lat !== 'number' || typeof lng !== 'number') {
-      return reply.badRequest('lat and lng must be numbers');
-    }
-    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
-      return reply.badRequest('lat must be -90 to 90 and lng must be -180 to 180');
-    }
+    const { type, lat, lng } = parsed.data;
 
     const allowed = await checkRateLimit(redis, userId);
     if (!allowed) {
@@ -186,28 +202,20 @@ export default async function hazardsRoutes(fastify: FastifyInstance): Promise<v
       [lngNum, latNum, cappedRadiusM],
     );
 
-    return result.rows.map(serializeHazardRow);
+    return { hazards: result.rows.map(serializeHazardRow) };
   });
 
   // POST /hazards/bulk — sync offline queue (no rate limit) — MUST be before /:id routes
   fastify.post('/hazards/bulk', { preHandler: authenticate }, async (request, reply) => {
     const userId = (request.user as { sub: string }).sub;
-    const { hazards } = request.body as {
-      hazards: Array<{ type: string; lat: number; lng: number; createdAt?: number }>;
-    };
-
-    if (!Array.isArray(hazards) || hazards.length === 0) {
-      return reply.badRequest('hazards must be a non-empty array');
+    const bulkParsed = bulkHazardsSchema.safeParse(request.body);
+    if (!bulkParsed.success) {
+      return reply.badRequest(bulkParsed.error.errors[0].message);
     }
-    if (hazards.length > 100) {
-      return reply.badRequest('Maximum 100 hazards per bulk request');
-    }
+    const { hazards } = bulkParsed.data;
 
     const inserted: string[] = [];
     for (const h of hazards) {
-      if (!HAZARD_TYPES.includes(h.type as HazardType)) continue;
-      if (typeof h.lat !== 'number' || typeof h.lng !== 'number' ||
-          h.lat < -90 || h.lat > 90 || h.lng < -180 || h.lng > 180) continue;
       const created = h.createdAt ? new Date(h.createdAt) : new Date();
       const expires = computeExpiresAt(created.getTime());
       const r = await pool.query<{ id: string }>(

@@ -287,12 +287,13 @@ export class OfflineCacheService {
     const packs = await this.mapManager.getPacks();
     const totalMB = packs.reduce((sum, p) => sum + p.sizeBytes, 0) / (1024 * 1024);
 
-    // Evict oldest packs until we have enough room for a new download (Req 4.3)
+    // Evict oldest packs until we have room for a new download (Req 4.3).
+    // Use <= so we stop as soon as remaining is AT or BELOW the limit, not strictly under it.
     if (totalMB >= this.maxSizeMB) {
       const sorted = packs.slice().sort((a, b) => a.createdAt - b.createdAt);
       let remaining = totalMB;
       for (const pack of sorted) {
-        if (remaining < this.maxSizeMB) break;
+        if (remaining <= this.maxSizeMB) break;
         await this.mapManager.deletePack(pack.name);
         remaining -= pack.sizeBytes / (1024 * 1024);
       }

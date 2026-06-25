@@ -58,7 +58,6 @@ interface Props {
   groupId: string;
   accessToken: string;
   socketUrl: string;
-  gapThresholdM?: number;
   isAdmin?: boolean;
   pttChannelId?: string;
 }
@@ -135,6 +134,9 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
 
   // Driving mode (manual toggle)
   const [drivingModeActive, setDrivingModeActive] = useState(false);
+
+  // PTT voice availability — tracks Agora engine connection state (Req 43.3)
+  const [pttVoiceAvailable, setPttVoiceAvailable] = useState(true);
 
   // Reactive socket and settings from shared stores
   const { socket } = useSocketStore();
@@ -222,6 +224,7 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
         void pttServiceRef.current.leaveChannel();
         pttServiceRef.current = null;
       }
+      setPttVoiceAvailable(true);
       return;
     }
 
@@ -234,7 +237,13 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
     pttServiceRef.current = service;
     void service.joinChannel({ groupId, channelId: pttChannelId, maxSeconds: pttMaxSeconds });
 
+    // Poll Agora engine availability every 5s to update "Voice unavailable" indicator (Req 43.3)
+    const availabilityPoll = setInterval(() => {
+      setPttVoiceAvailable(pttServiceRef.current?.voiceAvailable ?? true);
+    }, 5_000);
+
     return () => {
+      clearInterval(availabilityPoll);
       void service.leaveChannel();
       pttServiceRef.current = null;
     };
@@ -243,7 +252,14 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
   // WebSocket
   useEffect(() => {
     if (!token || !groupId) return;
-    const socket = io(socketUrl, { transports: ['websocket'], auth: { token, groupId } });
+    // Exponential backoff: 1s initial, 30s cap, ±25% jitter (Req 43.2)
+    const socket = io(socketUrl, {
+      transports: ['websocket'],
+      auth: { token, groupId },
+      reconnectionDelay: 1_000,
+      reconnectionDelayMax: 30_000,
+      randomizationFactor: 0.25,
+    });
     socketRef.current = socket;
     useSocketStore.getState().setSocket(socket);
 
@@ -488,11 +504,23 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
       );
       const dest = Array.isArray(searchRes.data) ? searchRes.data[0] : undefined;
       if (!dest) { Alert.alert('No results', 'No location found for that search.'); return; }
-      const routeRes = await apiClient.post<{ routes: RouteAlternative[] }>('/api/v1/routes/calculate', {
+
+      const routeBody = {
         origin: { lat: myLocation.lat, lng: myLocation.lng },
         destination: { lat: dest.lat, lng: dest.lng },
         scenic: scenicRouting,
-      });
+      };
+      let routeRes = await apiClient.post<{ routes: RouteAlternative[] }>('/api/v1/routes/calculate', routeBody);
+
+      // If scenic routing yielded no results, fall back to standard routing (Req 22.4)
+      if (scenicRouting && (!routeRes.data.routes?.length)) {
+        Alert.alert('Scenic unavailable', 'Scenic routing is not available for this route. Showing standard routes.');
+        routeRes = await apiClient.post<{ routes: RouteAlternative[] }>('/api/v1/routes/calculate', {
+          ...routeBody,
+          scenic: false,
+        });
+      }
+
       const alts = routeRes.data.routes;
       setRouteAlternatives(alts);
       setSelectedRouteIdx(0);
@@ -621,6 +649,7 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
       <View style={[styles.searchWrapper, { top: topBase }]}>
         <DestinationSearch
           isOnline={isOnline}
+          isInMotion={mySpeedKph > 5}
           onSelect={handleSearchSelect}
         />
       </View>
@@ -702,14 +731,27 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
               )}
               {pttChannelId && (
                 <Pressable
-                  style={[styles.fabItem, styles.fabPttItem, fabPttActive && styles.fabPttItemActive]}
-                  onPressIn={() => { setFabPttActive(true); handlePttStart(); }}
+                  style={[
+                    styles.fabItem,
+                    styles.fabPttItem,
+                    fabPttActive && styles.fabPttItemActive,
+                    !pttVoiceAvailable && styles.fabPttItemUnavailable,
+                  ]}
+                  onPressIn={() => { if (pttVoiceAvailable) { setFabPttActive(true); handlePttStart(); } }}
                   onPressOut={() => { setFabPttActive(false); handlePttEnd(); }}
-                  accessibilityLabel={fabPttActive ? 'Transmitting — release to stop' : 'Hold for push-to-talk'}
+                  accessibilityLabel={
+                    !pttVoiceAvailable
+                      ? 'Voice unavailable'
+                      : fabPttActive
+                        ? 'Transmitting — release to stop'
+                        : 'Hold for push-to-talk'
+                  }
                   accessibilityRole="button"
                 >
-                  <Text style={styles.fabItemIcon}>🎙</Text>
-                  <Text style={styles.fabPttLabel}>{fabPttActive ? 'LIVE' : 'PTT'}</Text>
+                  <Text style={styles.fabItemIcon}>{pttVoiceAvailable ? '🎙' : '🚫'}</Text>
+                  <Text style={styles.fabPttLabel}>
+                    {!pttVoiceAvailable ? 'NO VOICE' : fabPttActive ? 'LIVE' : 'PTT'}
+                  </Text>
                 </Pressable>
               )}
             </>
@@ -1405,6 +1447,7 @@ const styles = StyleSheet.create({
   fabSosCancelItem: { borderColor: '#555', backgroundColor: '#3a3a3a' },
   fabPttItem: { borderColor: '#444' },
   fabPttItemActive: { backgroundColor: '#10b981', borderColor: '#fff' },
+  fabPttItemUnavailable: { backgroundColor: '#2A2A2A', borderColor: '#555', opacity: 0.6 },
   fabPttLabel: { color: '#fff', fontSize: 9, fontWeight: '800', letterSpacing: 0.5 },
 
   // Route modal

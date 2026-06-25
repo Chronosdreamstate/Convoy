@@ -37,12 +37,15 @@ interface Props {
   isOnline: boolean;
   onSelect: (result: SearchResult) => void;
   placeholder?: string;
+  /** When true, free-text input is suppressed per Req 32.1 */
+  isInMotion?: boolean;
 }
 
 export default function DestinationSearch({
   isOnline,
   onSelect,
   placeholder = 'Search destination…',
+  isInMotion = false,
 }: Props) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchResult[]>([]);
@@ -54,7 +57,7 @@ export default function DestinationSearch({
 
   const runSearch = useCallback(
     async (q: string) => {
-      if (!isOnline) { setResults([]); setError(null); return; }
+      if (!isOnline || isInMotion) { setResults([]); setError(null); return; }
       if (q.trim().length < 3) { setResults([]); return; }
 
       // Cancel any in-flight request
@@ -87,7 +90,7 @@ export default function DestinationSearch({
         setLoading(false);
       }
     },
-    [isOnline],
+    [isOnline, isInMotion],
   );
 
   useEffect(() => {
@@ -122,9 +125,9 @@ export default function DestinationSearch({
           onChangeText={setQuery}
           onFocus={() => setFocused(true)}
           onBlur={() => setTimeout(() => setFocused(false), 150)}
-          placeholder={isOnline ? placeholder : 'Search unavailable offline'}
+          placeholder={isInMotion ? 'Park to type a destination' : (isOnline ? placeholder : 'Search unavailable offline')}
           placeholderTextColor="#555555"
-          editable={isOnline}
+          editable={isOnline && !isInMotion}
           returnKeyType="search"
           clearButtonMode="while-editing"
           accessibilityLabel="Destination search"
@@ -154,7 +157,12 @@ export default function DestinationSearch({
           )}
 
           {/* Results */}
-          {results.length > 0 && (
+          {isInMotion && (
+            <View style={styles.motionBanner}>
+              <Text style={styles.motionText}>Use voice or select a recent destination while driving</Text>
+            </View>
+          )}
+          {!isInMotion && results.length > 0 && (
             <FlatList
               data={results}
               keyExtractor={(r) => r.id}
@@ -164,7 +172,8 @@ export default function DestinationSearch({
                 <TouchableOpacity
                   style={styles.result}
                   onPress={() => handleSelect(item)}
-                  accessibilityLabel={`Select ${item.name}`}
+                  accessibilityLabel={`Select destination: ${item.name}`}
+                  accessibilityRole="button"
                 >
                   <Text style={styles.resultName} numberOfLines={1}>{item.name}</Text>
                   <Text style={styles.resultAddress} numberOfLines={1}>{item.address}</Text>
@@ -177,7 +186,7 @@ export default function DestinationSearch({
           )}
 
           {/* No results */}
-          {!loading && !error && isOnline && results.length === 0 && query.length >= 3 && (
+          {!isInMotion && !loading && !error && isOnline && results.length === 0 && query.length >= 3 && (
             <Text style={styles.noResults}>No results found</Text>
           )}
         </View>
@@ -233,6 +242,8 @@ const styles = StyleSheet.create({
 
   offlineBanner: { padding: 12, backgroundColor: '#2A2A2A' },
   offlineText: { color: '#888888', fontSize: 13, textAlign: 'center' },
+  motionBanner: { padding: 12, backgroundColor: '#1A1505' },
+  motionText: { color: '#B8860B', fontSize: 13, textAlign: 'center' },
 
   list: { maxHeight: 320 },
   result: {

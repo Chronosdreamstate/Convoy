@@ -142,7 +142,7 @@ function FriendsTab() {
             accessibilityLabel={`Remove ${friend.displayName}`}
           >
             {removing === friend.id ? (
-              <ActivityIndicator color="#f87171" size="small" />
+              <ActivityIndicator color="#DC143C" size="small" />
             ) : (
               <Text style={styles.removeBtnText}>Remove</Text>
             )}
@@ -661,11 +661,11 @@ const styles = StyleSheet.create({
   },
   removeBtn: {
     borderWidth: 1,
-    borderColor: '#f87171',
+    borderColor: '#DC143C',
     backgroundColor: 'transparent',
   },
   removeBtnText: {
-    color: '#f87171',
+    color: '#DC143C',
     fontSize: 13,
     fontWeight: '600',
   },
@@ -766,7 +766,7 @@ const styles = StyleSheet.create({
 
   // Errors
   errorText: {
-    color: '#f87171',
+    color: '#DC143C',
     fontSize: 13,
     marginBottom: 12,
     textAlign: 'center',

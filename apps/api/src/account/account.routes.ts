@@ -4,12 +4,12 @@
  */
 
 import { FastifyPluginAsync } from 'fastify';
+import { authenticate } from '../middleware/authenticate';
 
 const accountRoutes: FastifyPluginAsync = async (fastify) => {
   // ── GET /account/export ───────────────────────────────────────────────────
   // GDPR Article 20 data export (Req 42.4)
-  fastify.get('/account/export', async (request, reply) => {
-    await request.jwtVerify();
+  fastify.get('/account/export', { preHandler: [authenticate] }, async (request, reply) => {
     const userId = (request.user as { sub: string }).sub;
 
     const [userResult, drivesResult, friendsResult] = await Promise.all([
@@ -67,14 +67,14 @@ const accountRoutes: FastifyPluginAsync = async (fastify) => {
 
   // ── DELETE /account ───────────────────────────────────────────────────────
   // Hard-delete all user data within 30 days — executes immediately (Req 36.3)
-  fastify.delete('/account', async (request, reply) => {
-    await request.jwtVerify();
+  fastify.delete('/account', { preHandler: [authenticate] }, async (request, reply) => {
     const userId = (request.user as { sub: string }).sub;
 
     // Cascade deletes handle all linked records (users has ON DELETE CASCADE)
     await fastify.db.query('DELETE FROM users WHERE id = $1', [userId]);
 
-    // Clear refresh-token cookie so the client can't reuse the old session
+    // Invalidate refresh token jti and clear cookie
+    await fastify.redis.del(`rtk:${userId}`);
     reply.clearCookie('refreshToken', { path: '/' });
 
     return reply.send({ success: true, message: 'Account and all associated data deleted.' });
