@@ -115,31 +115,31 @@ function LogRow({ entry }: { entry: PttLogEntry }) {
 // ---------------------------------------------------------------------------
 
 const styles = StyleSheet.create({
-  list: { flex: 1, backgroundColor: '#111827' },
+  list: { flex: 1, backgroundColor: '#0A0A0A' },
 
   empty: {
     flex: 1, alignItems: 'center', justifyContent: 'center',
-    backgroundColor: '#111827', padding: 24,
+    backgroundColor: '#0A0A0A', padding: 24,
   },
-  emptyText: { color: '#6b7280', fontSize: 13 },
+  emptyText: { color: '#555555', fontSize: 13 },
 
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 8,
+    paddingVertical: 10,
     paddingHorizontal: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#1f2937',
+    borderBottomColor: '#1C1C1C',
   },
   mic: {
     width: 28, height: 28,
     borderRadius: 14,
-    backgroundColor: '#374151',
+    backgroundColor: '#2A2A2A',
     alignItems: 'center', justifyContent: 'center',
     marginRight: 10,
   },
   micIcon: { fontSize: 14 },
   rowBody: { flex: 1 },
-  name: { fontSize: 13, fontWeight: '600', color: '#f9fafb' },
-  time: { fontSize: 11, color: '#6b7280', marginTop: 1 },
+  name: { fontSize: 13, fontWeight: '600', color: '#F0F0F0' },
+  time: { fontSize: 11, color: '#555555', marginTop: 1 },
 });

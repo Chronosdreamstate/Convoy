@@ -129,7 +129,7 @@ export default function DestinationSearch({
           clearButtonMode="while-editing"
           accessibilityLabel="Destination search"
         />
-        {loading && <ActivityIndicator style={styles.spinner} size="small" color="#3b82f6" />}
+        {loading && <ActivityIndicator style={styles.spinner} size="small" color="#DC143C" />}
       </View>
 
       {/* Dropdown results panel */}
@@ -242,7 +242,7 @@ const styles = StyleSheet.create({
   resultAddress: { fontSize: 12, color: '#6b7280', marginTop: 2 },
   resultCategory: {
     fontSize: 11,
-    color: '#3b82f6',
+    color: '#DC143C',
     marginTop: 2,
     textTransform: 'capitalize',
   },
