@@ -85,6 +85,15 @@ export default function EmailScreen() {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
+          <TouchableOpacity
+            style={styles.backBtn}
+            onPress={() => router.back()}
+            accessibilityLabel="Go back"
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Text style={styles.backBtnText}>← Back</Text>
+          </TouchableOpacity>
+
           <View style={styles.header}>
             <Text style={styles.title}>
               {mode === 'signin' ? 'Welcome back' : 'Create account'}
@@ -191,6 +200,8 @@ const styles = StyleSheet.create({
     color: '#888888',
     lineHeight: 22,
   },
+  backBtn: { paddingTop: 8, paddingBottom: 16, alignSelf: 'flex-start' },
+  backBtnText: { color: '#DC143C', fontSize: 16, fontWeight: '600' },
   form: {
     gap: 8,
   },

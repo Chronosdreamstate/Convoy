@@ -57,6 +57,15 @@ export default function PhoneScreen() {
         style={styles.inner}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
+        <TouchableOpacity
+          style={styles.backBtn}
+          onPress={() => router.back()}
+          accessibilityLabel="Go back"
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        >
+          <Text style={styles.backBtnText}>← Back</Text>
+        </TouchableOpacity>
+
         <View style={styles.header}>
           <Text style={styles.title}>Enter your number</Text>
           <Text style={styles.subtitle}>
@@ -65,7 +74,7 @@ export default function PhoneScreen() {
         </View>
 
         <View style={styles.form}>
-          <Text style={styles.label}>Phone number (E.164 format, e.g. +15550001234)</Text>
+          <Text style={styles.label}>Phone Number</Text>
           <TextInput
             style={styles.input}
             value={phone}
@@ -75,6 +84,7 @@ export default function PhoneScreen() {
             keyboardType="phone-pad"
             autoComplete="tel"
             textContentType="telephoneNumber"
+            autoFocus
             returnKeyType="send"
             onSubmitEditing={handleSendOtp}
             accessibilityLabel="Phone number input"
@@ -129,6 +139,8 @@ const styles = StyleSheet.create({
   form: {
     gap: 12,
   },
+  backBtn: { paddingTop: 8, paddingBottom: 16, alignSelf: 'flex-start' },
+  backBtnText: { color: '#DC143C', fontSize: 16, fontWeight: '600' },
   label: {
     fontSize: 13,
     color: '#AAAAAA',

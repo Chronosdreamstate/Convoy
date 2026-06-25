@@ -99,6 +99,15 @@ export default function OtpScreen() {
         style={styles.inner}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
+        <TouchableOpacity
+          style={styles.backBtn}
+          onPress={() => router.back()}
+          accessibilityLabel="Go back"
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        >
+          <Text style={styles.backBtnText}>← Back</Text>
+        </TouchableOpacity>
+
         <View style={styles.header}>
           <Text style={styles.title}>Enter the code</Text>
           <Text style={styles.subtitle}>
@@ -192,6 +201,8 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontWeight: '600',
   },
+  backBtn: { paddingTop: 8, paddingBottom: 16, alignSelf: 'flex-start' },
+  backBtnText: { color: '#DC143C', fontSize: 16, fontWeight: '600' },
   form: {
     gap: 12,
   },
