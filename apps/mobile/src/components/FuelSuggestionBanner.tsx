@@ -66,7 +66,11 @@ export default function FuelSuggestionBanner({
       <View style={styles.panel}>
         <View style={styles.header}>
           <Text style={styles.title}>Fuel Stations Nearby</Text>
-          <TouchableOpacity onPress={() => { setStations(null); onDismiss(); }}>
+          <TouchableOpacity
+            onPress={() => { setStations(null); onDismiss(); }}
+            accessibilityRole="button"
+            accessibilityLabel="Close fuel stations panel"
+          >
             <Text style={styles.close}>Done</Text>
           </TouchableOpacity>
         </View>
@@ -82,6 +86,8 @@ export default function FuelSuggestionBanner({
                 style={styles.stationRow}
                 onPress={() => { if (isAdmin) { onSelectStation(s); setStations(null); } }}
                 disabled={!isAdmin}
+                accessibilityRole="button"
+                accessibilityLabel={`${isAdmin ? 'Select' : 'View'} fuel station: ${s.name}, ${s.distanceM >= 1000 ? `${(s.distanceM / 1000).toFixed(1)} km` : `${s.distanceM} m`} away`}
               >
                 <View style={styles.stationInfo}>
                   <Text style={styles.stationName}>{s.name}</Text>
@@ -112,13 +118,20 @@ export default function FuelSuggestionBanner({
           style={styles.findBtn}
           onPress={fetchStations}
           disabled={loading}
+          accessibilityRole="button"
+          accessibilityLabel="Find nearby fuel stations"
         >
           {loading
             ? <ActivityIndicator color="#fff" size="small" />
             : <Text style={styles.findBtnText}>Find Fuel</Text>
           }
         </TouchableOpacity>
-        <TouchableOpacity style={styles.dismissBtn} onPress={onDismiss}>
+        <TouchableOpacity
+          style={styles.dismissBtn}
+          onPress={onDismiss}
+          accessibilityRole="button"
+          accessibilityLabel="Dismiss fuel suggestion"
+        >
           <Text style={styles.dismissText}>Dismiss</Text>
         </TouchableOpacity>
       </View>

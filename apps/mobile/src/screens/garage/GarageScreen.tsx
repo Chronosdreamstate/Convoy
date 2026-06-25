@@ -323,7 +323,8 @@ export default function GarageScreen() {
               </Text>
               <TouchableOpacity
                 onPress={closeModal}
-                accessibilityLabel="Close"
+                accessibilityRole="button"
+                accessibilityLabel="Close vehicle form"
                 hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               >
                 <Text style={styles.modalClose}>✕</Text>

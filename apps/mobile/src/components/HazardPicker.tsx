@@ -88,7 +88,12 @@ export default function HazardPicker({ visible, isInMotion, onSelect, onClose }:
               );
             })}
           </View>
-          <TouchableOpacity style={styles.cancel} onPress={onClose}>
+          <TouchableOpacity
+            style={styles.cancel}
+            onPress={onClose}
+            accessibilityRole="button"
+            accessibilityLabel="Cancel hazard report"
+          >
             <Text style={styles.cancelText}>Cancel</Text>
           </TouchableOpacity>
         </View>

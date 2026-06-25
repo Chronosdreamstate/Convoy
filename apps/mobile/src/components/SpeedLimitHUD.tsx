@@ -18,8 +18,16 @@ export default function SpeedLimitHUD({ postedLimitKph, currentSpeedKph }: Props
     postedLimitKph !== null &&
     RouteService.isSpeedLimitExceeded(currentSpeedKph, postedLimitKph);
 
+  const label = postedLimitKph !== null
+    ? `Speed limit: ${postedLimitKph} km/h${exceeded ? ', exceeded' : ''}`
+    : 'Speed limit unavailable';
+
   return (
-    <View style={[styles.container, exceeded && styles.exceeded]}>
+    <View
+      style={[styles.container, exceeded && styles.exceeded]}
+      accessibilityLabel={label}
+      accessibilityRole="text"
+    >
       <Text style={styles.label} maxFontSizeMultiplier={1}>SPEED LIMIT</Text>
       <Text style={[styles.value, exceeded && styles.valueExceeded]} maxFontSizeMultiplier={1.2}>
         {postedLimitKph !== null ? postedLimitKph : '–'}
