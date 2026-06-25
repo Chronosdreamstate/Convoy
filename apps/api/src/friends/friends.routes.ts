@@ -58,9 +58,9 @@ async function friendsRoutes(
   });
 
   // -------------------------------------------------------------------------
-  // POST /friends/request — send a friend request (Req 17.3–17.7)
+  // POST /friends/requests — send a friend request (Req 17.3–17.7)
   // -------------------------------------------------------------------------
-  fastify.post('/friends/request', { preHandler: [authenticate] }, async (request, reply) => {
+  fastify.post('/friends/requests', { preHandler: [authenticate] }, async (request, reply) => {
     const requesterId = (request.user as { sub: string }).sub;
 
     const parsed = requestBodySchema.safeParse(request.body);
@@ -251,6 +251,7 @@ async function friendsRoutes(
 
     return reply.send({
       friends: result.rows.map((r) => ({
+        id: r.friendship_id,       // used by mobile for DELETE /friends/:id
         friendshipId: r.friendship_id,
         userId: r.id,
         displayName: r.display_name,
