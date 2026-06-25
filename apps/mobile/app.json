@@ -32,13 +32,10 @@
       "versionCode": 1,
       "permissions": [
         "android.permission.RECORD_AUDIO",
-        "android.permission.CAMERA"
+        "android.permission.CAMERA",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION"
       ]
-    },
-    "extra": {
-      "eas": {
-        "projectId": "REPLACE_AFTER_EAS_INIT"
-      }
     },
     "web": {
       "bundler": "metro",
@@ -64,6 +61,13 @@
     ],
     "experiments": {
       "typedRoutes": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "10e02def-bbdc-482d-bbca-0486b648d655"
+      }
+    },
+    "owner": "chronoss"
   }
 }

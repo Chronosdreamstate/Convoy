@@ -33,6 +33,7 @@ import { MotionStateService } from '../../services/MotionStateService';
 import { PTTService } from '../../services/PTTService';
 import { agoraEngineAdapter } from '../../services/AgoraEngineAdapter';
 import { apiTokenFetcher } from '../../services/ApiTokenFetcher';
+import { DriveService } from '../../services/DriveService';
 
 interface GapAlert { memberId: string; distanceM: number }
 interface SosAlert { pin: SosPin; memberName: string }
@@ -133,6 +134,8 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
   const mySosIdRef      = useRef<string | null>(null);
   const pttServiceRef   = useRef<PTTService | null>(null);
   const memberNamesRef  = useRef<Record<string, string>>({});
+  const driveServiceRef = useRef(new DriveService());
+  const memberCountRef  = useRef(0);
 
   // Keep mySosIdRef in sync so the socket handler closure always sees the current value
   useEffect(() => { mySosIdRef.current = mySosId; }, [mySosId]);
@@ -148,6 +151,7 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
           if (m.displayName) map[m.userId] = m.displayName;
         }
         memberNamesRef.current = map;
+        memberCountRef.current = res.data.members.length;
       })
       .catch(() => {});
   }, [groupId, token]);
@@ -157,6 +161,11 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
     const interval = setInterval(() => evictStale(30_000), 30_000);
     return () => clearInterval(interval);
   }, [evictStale]);
+
+  // Start a drive recording session for this group
+  useEffect(() => {
+    driveServiceRef.current.startSession();
+  }, [groupId]);
 
   // Track own location for SOS targeting
   useEffect(() => {
@@ -172,6 +181,7 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
           setMyLocation({ lat: loc.coords.latitude, lng: loc.coords.longitude });
           setMySpeedKph(speedKph);
           motionStateService.update(speedKph);
+          driveServiceRef.current.addPoint(loc.coords.latitude, loc.coords.longitude, speedKph);
         },
       );
       if (!mounted) sub.remove();
@@ -315,7 +325,30 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
       });
     });
     socket.on('sos:cancelled', ({ sosId }: { sosId: string }) => { setSosPins((p) => { const n = new Map(p); n.delete(sosId); return n; }); setSosAlerts((p) => p.filter((a) => a.pin.id !== sosId)); if (mySosIdRef.current === sosId) setMySosId(null); });
-    return () => { socket.disconnect(); useSocketStore.getState().setSocket(null); clearGroup(); };
+
+    socket.on('group:ended', () => {
+      void driveServiceRef.current.finishSession({
+        groupId,
+        memberCount: memberCountRef.current,
+        offlineCache: offlineDB,
+        api: { postDrive: (body) => apiClient.post('/api/v1/drives', body).then((r) => r.data) },
+        isOnline: () => socket.connected,
+      });
+    });
+
+    return () => {
+      // Save drive before disconnecting — idempotent if group:ended already called it
+      void driveServiceRef.current.finishSession({
+        groupId,
+        memberCount: memberCountRef.current,
+        offlineCache: offlineDB,
+        api: { postDrive: (body) => apiClient.post('/api/v1/drives', body).then((r) => r.data) },
+        isOnline: () => true,
+      });
+      socket.disconnect();
+      useSocketStore.getState().setSocket(null);
+      clearGroup();
+    };
   }, [token, groupId, socketUrl, updateMemberLocation, user?.id, clearGroup, setStalePositions, clearStalePositions]);
 
   const recenter = useCallback(() => {

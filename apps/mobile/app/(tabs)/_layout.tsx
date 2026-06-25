@@ -3,7 +3,7 @@ import { Text } from 'react-native';
 
 function TabIcon({ emoji, focused }: { emoji: string; focused: boolean }) {
   return (
-    <Text style={{ fontSize: 20, opacity: focused ? 1 : 0.55 }}>{emoji}</Text>
+    <Text style={{ fontSize: 22, opacity: focused ? 1 : 0.45 }}>{emoji}</Text>
   );
 }
 
@@ -16,17 +16,20 @@ export default function TabsLayout() {
           backgroundColor: '#0A0A0A',
           borderTopColor: '#1C1C1C',
           borderTopWidth: 1,
+          height: 64,
+          paddingBottom: 10,
+          paddingTop: 6,
         },
         tabBarActiveTintColor: '#DC143C',
         tabBarInactiveTintColor: '#555555',
-        tabBarLabelStyle: { fontSize: 10 },
+        tabBarLabelStyle: { fontSize: 10, fontWeight: '600' },
       }}
     >
       <Tabs.Screen
         name="map"
         options={{
           title: 'Map',
-          tabBarIcon: ({ focused }) => <TabIcon emoji="🗺" focused={focused} />,
+          tabBarIcon: ({ focused }) => <TabIcon emoji="🗺️" focused={focused} />,
         }}
       />
       <Tabs.Screen
@@ -40,7 +43,7 @@ export default function TabsLayout() {
         name="drives"
         options={{
           title: 'Drives',
-          tabBarIcon: ({ focused }) => <TabIcon emoji="📋" focused={focused} />,
+          tabBarIcon: ({ focused }) => <TabIcon emoji="🛣️" focused={focused} />,
         }}
       />
       <Tabs.Screen
@@ -57,11 +60,11 @@ export default function TabsLayout() {
           tabBarIcon: ({ focused }) => <TabIcon emoji="👤" focused={focused} />,
         }}
       />
+      {/* Settings is accessible from Profile — hidden from tab bar to keep navigation clean */}
       <Tabs.Screen
         name="settings"
         options={{
-          title: 'Settings',
-          tabBarIcon: ({ focused }) => <TabIcon emoji="⚙️" focused={focused} />,
+          href: null,
         }}
       />
     </Tabs>
