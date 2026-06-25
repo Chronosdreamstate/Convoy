@@ -328,6 +328,7 @@ export default function DriveHistoryScreen() {
             colors={['#DC143C']}
           />
         }
+        ListFooterComponent={loadingMore ? <ActivityIndicator color="#DC143C" style={styles.footerSpinner} /> : null}
         ListEmptyComponent={
           <View style={styles.emptyState}>
             <Text style={styles.emptyEmoji}>🛣️</Text>
@@ -419,6 +420,8 @@ const styles = StyleSheet.create({
 
   list: { paddingHorizontal: 16, paddingBottom: 20 },
   listEmpty: { flex: 1, paddingHorizontal: 16 },
+
+  footerSpinner: { paddingVertical: 20 },
 
   // Empty state
   emptyState: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 80 },
