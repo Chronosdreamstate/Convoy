@@ -432,10 +432,10 @@ export default function ConvoyScreen({ userId }: Props) {
             onChangeText={setGroupName}
             autoFocus
           />
-          <TouchableOpacity style={styles.primaryBtn} onPress={handleCreate} disabled={loading}>
+          <TouchableOpacity style={styles.primaryBtn} onPress={handleCreate} disabled={loading} accessibilityRole="button" accessibilityLabel="Create convoy">
             {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryBtnText}>Create</Text>}
           </TouchableOpacity>
-          <TouchableOpacity style={styles.secondaryBtn} onPress={() => setView('home')}>
+          <TouchableOpacity style={styles.secondaryBtn} onPress={() => setView('home')} accessibilityRole="button" accessibilityLabel="Cancel and go back">
             <Text style={styles.secondaryBtnText}>Cancel</Text>
           </TouchableOpacity>
         </SafeAreaView>
@@ -456,10 +456,10 @@ export default function ConvoyScreen({ userId }: Props) {
             maxLength={6}
             autoFocus
           />
-          <TouchableOpacity style={styles.primaryBtn} onPress={handleJoin} disabled={loading}>
+          <TouchableOpacity style={styles.primaryBtn} onPress={handleJoin} disabled={loading} accessibilityRole="button" accessibilityLabel="Join convoy with code">
             {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryBtnText}>Join</Text>}
           </TouchableOpacity>
-          <TouchableOpacity style={styles.secondaryBtn} onPress={() => setView('home')}>
+          <TouchableOpacity style={styles.secondaryBtn} onPress={() => setView('home')} accessibilityRole="button" accessibilityLabel="Cancel and go back">
             <Text style={styles.secondaryBtnText}>Cancel</Text>
           </TouchableOpacity>
         </SafeAreaView>
@@ -471,7 +471,7 @@ export default function ConvoyScreen({ userId }: Props) {
         <SafeAreaView style={styles.container}>
           <View style={styles.headerBar}>
             <Text style={styles.headerTitle}>DISCOVER</Text>
-            <TouchableOpacity onPress={() => setView('home')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <TouchableOpacity onPress={() => setView('home')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} accessibilityRole="button" accessibilityLabel="Go back">
               <Text style={styles.headerBack}>← Back</Text>
             </TouchableOpacity>
           </View>
@@ -479,6 +479,8 @@ export default function ConvoyScreen({ userId }: Props) {
             style={[styles.secondaryBtn, { marginBottom: 16 }]}
             onPress={fetchPublicGroups}
             disabled={discoverLoading}
+            accessibilityRole="button"
+            accessibilityLabel="Refresh convoy list"
           >
             {discoverLoading
               ? <ActivityIndicator color="#888888" />
@@ -497,6 +499,8 @@ export default function ConvoyScreen({ userId }: Props) {
                   style={styles.discoverJoinBtn}
                   onPress={() => void handleJoinByCode(g.joinCode)}
                   disabled={loading}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Join convoy: ${g.name}`}
                 >
                   <Text style={styles.discoverJoinText}>Join</Text>
                 </TouchableOpacity>
@@ -522,15 +526,17 @@ export default function ConvoyScreen({ userId }: Props) {
           <Text style={styles.subtitle}>Start or join a driving group</Text>
         </View>
         <View style={styles.homeActions}>
-          <TouchableOpacity style={styles.primaryBtn} onPress={() => setView('create')}>
+          <TouchableOpacity style={styles.primaryBtn} onPress={() => setView('create')} accessibilityRole="button" accessibilityLabel="Create a new convoy group">
             <Text style={styles.primaryBtnText}>Create Group</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.secondaryBtn} onPress={() => setView('join')}>
+          <TouchableOpacity style={styles.secondaryBtn} onPress={() => setView('join')} accessibilityRole="button" accessibilityLabel="Join a convoy with a code">
             <Text style={styles.secondaryBtnText}>Join with Code</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.secondaryBtn}
             onPress={() => { setView('discover'); void fetchPublicGroups(); }}
+            accessibilityRole="button"
+            accessibilityLabel="Browse open convoys"
           >
             <Text style={styles.secondaryBtnText}>Browse Open Convoys</Text>
           </TouchableOpacity>
@@ -561,6 +567,7 @@ export default function ConvoyScreen({ userId }: Props) {
           <TouchableOpacity
             style={styles.copyBtn}
             onPress={handleCopyCode}
+            accessibilityRole="button"
             accessibilityLabel="Copy join code"
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
@@ -571,6 +578,7 @@ export default function ConvoyScreen({ userId }: Props) {
           <TouchableOpacity
             style={styles.shareCodeBtn}
             onPress={handleShareCode}
+            accessibilityRole="button"
             accessibilityLabel="Share join code"
           >
             <Text style={styles.shareCodeText}>Share</Text>
@@ -578,6 +586,7 @@ export default function ConvoyScreen({ userId }: Props) {
           <TouchableOpacity
             style={styles.qrBtn}
             onPress={() => setShowQR(true)}
+            accessibilityRole="button"
             accessibilityLabel="Show QR code for join link"
           >
             <Text style={styles.qrBtnText}>QR</Text>
@@ -594,6 +603,7 @@ export default function ConvoyScreen({ userId }: Props) {
                   key={opt.value}
                   style={[styles.gapChip, group.gapThresholdM === opt.value && styles.gapChipActive]}
                   onPress={() => { if (!guardInMotion()) void handleSetGapThreshold(opt.value); }}
+                  accessibilityRole="button"
                   accessibilityLabel={`Set gap threshold to ${opt.label}`}
                 >
                   <Text style={[styles.gapChipText, group.gapThresholdM === opt.value && styles.gapChipTextActive]}>
@@ -615,6 +625,7 @@ export default function ConvoyScreen({ userId }: Props) {
                   key={ch.id}
                   style={[styles.channelChip, activePttChannelId === ch.id && styles.channelChipActive]}
                   onPress={() => void handleJoinChannel(ch.id)}
+                  accessibilityRole="button"
                   accessibilityLabel={`Switch to channel ${ch.name}`}
                 >
                   <Text style={[styles.channelChipText, activePttChannelId === ch.id && styles.channelChipTextActive]}>
@@ -626,6 +637,7 @@ export default function ConvoyScreen({ userId }: Props) {
                 <TouchableOpacity
                   style={styles.channelNewChip}
                   onPress={() => { if (!guardInMotion()) setShowNewChannel(true); }}
+                  accessibilityRole="button"
                   accessibilityLabel="Create new PTT channel"
                 >
                   <Text style={styles.channelNewText}>+ Channel</Text>
@@ -647,12 +659,16 @@ export default function ConvoyScreen({ userId }: Props) {
                 <TouchableOpacity
                   style={styles.newChannelAdd}
                   onPress={() => void handleCreateChannel()}
+                  accessibilityRole="button"
+                  accessibilityLabel="Add PTT channel"
                 >
                   <Text style={styles.newChannelAddText}>Add</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={styles.newChannelCancel}
                   onPress={() => { setShowNewChannel(false); setNewChannelName(''); }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Cancel new channel"
                 >
                   <Text style={styles.newChannelCancelText}>✕</Text>
                 </TouchableOpacity>
@@ -697,12 +713,16 @@ export default function ConvoyScreen({ userId }: Props) {
                 <TouchableOpacity
                   style={[styles.muteBtn, m.isMuted && styles.muteBtnActive]}
                   onPress={() => void handleMute(m.userId)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${m.isMuted ? 'Unmute' : 'Mute'} ${m.displayName}`}
                 >
                   <Text style={styles.muteBtnText}>{m.isMuted ? 'Unmute' : 'Mute'}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={styles.kickBtn}
                   onPress={() => handleKick(m.userId)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Kick ${m.displayName} from convoy`}
                 >
                   <Text style={styles.kickBtnText}>Kick</Text>
                 </TouchableOpacity>
@@ -722,11 +742,11 @@ export default function ConvoyScreen({ userId }: Props) {
       <View style={styles.actions}>
         <View style={styles.actionsDivider} />
         {isAdmin && (
-          <TouchableOpacity style={styles.dangerBtn} onPress={handleEnd}>
+          <TouchableOpacity style={styles.dangerBtn} onPress={handleEnd} accessibilityRole="button" accessibilityLabel="End convoy for all members">
             <Text style={styles.dangerBtnText}>🛑  End Convoy</Text>
           </TouchableOpacity>
         )}
-        <TouchableOpacity style={styles.secondaryBtn} onPress={handleLeave}>
+        <TouchableOpacity style={styles.secondaryBtn} onPress={handleLeave} accessibilityRole="button" accessibilityLabel="Leave convoy">
           <Text style={styles.secondaryBtnText}>Leave Convoy</Text>
         </TouchableOpacity>
       </View>
@@ -743,6 +763,7 @@ export default function ConvoyScreen({ userId }: Props) {
           style={styles.qrOverlay}
           activeOpacity={1}
           onPress={() => setShowQR(false)}
+          accessibilityRole="button"
           accessibilityLabel="Close QR code"
         >
           <View style={styles.qrCard}>

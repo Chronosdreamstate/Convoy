@@ -798,6 +798,7 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
       <TouchableOpacity
         style={[styles.recenterBtn, { top: topBase }]}
         onPress={recenter}
+        accessibilityRole="button"
         accessibilityLabel="Re-center map"
       >
         <Text style={styles.recenterText}>⊕</Text>
@@ -969,7 +970,12 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
 
       {/* Rally alert */}
       {rallyAlert && (
-        <TouchableOpacity style={styles.rallyBanner} onPress={() => { Alert.alert('Rally Point', rallyAlert.address ?? `${rallyAlert.lat.toFixed(5)}, ${rallyAlert.lng.toFixed(5)}`); setRallyAlert(null); }}>
+        <TouchableOpacity
+          style={styles.rallyBanner}
+          onPress={() => { Alert.alert('Rally Point', rallyAlert.address ?? `${rallyAlert.lat.toFixed(5)}, ${rallyAlert.lng.toFixed(5)}`); setRallyAlert(null); }}
+          accessibilityRole="button"
+          accessibilityLabel={`Rally Point${rallyAlert.address ? `: ${rallyAlert.address}` : ''} — tap for details`}
+        >
           <Text style={styles.rallyBannerText}>🚩 Rally Point set{rallyAlert.address ? `: ${rallyAlert.address}` : ''} — Tap for directions</Text>
         </TouchableOpacity>
       )}
@@ -978,7 +984,7 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
       {sosAlerts.length > 0 && (
         <View style={[styles.sosBanner, { top: topBase + 60 }]}>
           {sosAlerts.map((a) => <Text key={a.pin.id} style={styles.sosBannerText}>🆘 EMERGENCY — {a.memberName} needs help!</Text>)}
-          <TouchableOpacity onPress={() => setSosAlerts([])} accessibilityLabel="Dismiss SOS alerts"><Text style={styles.sosBannerDismiss}>Dismiss</Text></TouchableOpacity>
+          <TouchableOpacity onPress={() => setSosAlerts([])} accessibilityRole="button" accessibilityLabel="Dismiss SOS alerts"><Text style={styles.sosBannerDismiss}>Dismiss</Text></TouchableOpacity>
         </View>
       )}
 
@@ -990,6 +996,9 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
           <TouchableOpacity
             style={[styles.panelTab, panelTab === 'members' && styles.panelTabActive]}
             onPress={() => setPanelTab('members')}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: panelTab === 'members' }}
+            accessibilityLabel={`Members tab, ${members.length} members`}
           >
             <Text style={[styles.panelTabText, panelTab === 'members' && styles.panelTabTextActive]}>
               Members ({members.length})
@@ -998,6 +1007,9 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
           <TouchableOpacity
             style={[styles.panelTab, panelTab === 'pttlog' && styles.panelTabActive]}
             onPress={() => setPanelTab('pttlog')}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: panelTab === 'pttlog' }}
+            accessibilityLabel="PTT Log tab"
           >
             <Text style={[styles.panelTabText, panelTab === 'pttlog' && styles.panelTabTextActive]}>
               PTT Log
@@ -1025,6 +1037,7 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
                   <TouchableOpacity
                     style={styles.rowSosBtn}
                     onPress={() => handlePickSosTarget(memberName, m.lat, m.lng)}
+                    accessibilityRole="button"
                     accessibilityLabel={`SOS for ${memberName}`}
                     hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                   >
@@ -1051,6 +1064,8 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
               style={[styles.pickerRow, !myLocation && styles.pickerRowDisabled]}
               disabled={!myLocation}
               onPress={() => handlePickSosTarget('Yourself', myLocation?.lat ?? 0, myLocation?.lng ?? 0)}
+              accessibilityRole="button"
+              accessibilityLabel={myLocation ? 'SOS for yourself using your GPS location' : 'Location unavailable'}
             >
               <Text style={styles.pickerRowEmoji}>🙋</Text>
               <View style={styles.pickerRowBody}>
@@ -1071,6 +1086,8 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
                   key={m.userId}
                   style={styles.pickerRow}
                   onPress={() => handlePickSosTarget(name, m.lat, m.lng)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`SOS for ${name}`}
                 >
                   <Text style={styles.pickerRowEmoji}>🚗</Text>
                   <View style={styles.pickerRowBody}>
@@ -1085,6 +1102,8 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
             <TouchableOpacity
               style={[styles.modalCancel, { marginTop: 16 }]}
               onPress={() => setShowSosPicker(false)}
+              accessibilityRole="button"
+              accessibilityLabel="Cancel SOS selection"
             >
               <Text style={styles.modalCancelText}>Cancel</Text>
             </TouchableOpacity>
@@ -1101,10 +1120,20 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
               {pendingSosName ? `This will broadcast ${pendingSosName}'s location` : "This will broadcast your location"} to all convoy members as an emergency alert.
             </Text>
             <View style={styles.modalActions}>
-              <TouchableOpacity style={styles.modalCancel} onPress={() => { setShowSosConfirm(false); setPendingSosCoord(null); setPendingSosName(''); }}>
+              <TouchableOpacity
+                style={styles.modalCancel}
+                onPress={() => { setShowSosConfirm(false); setPendingSosCoord(null); setPendingSosName(''); }}
+                accessibilityRole="button"
+                accessibilityLabel="Cancel SOS"
+              >
                 <Text style={styles.modalCancelText}>Cancel</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.modalConfirm} onPress={confirmSos}>
+              <TouchableOpacity
+                style={styles.modalConfirm}
+                onPress={confirmSos}
+                accessibilityRole="button"
+                accessibilityLabel="Confirm and send SOS emergency alert"
+              >
                 <Text style={styles.modalConfirmText}>SEND SOS</Text>
               </TouchableOpacity>
             </View>
@@ -1139,6 +1168,8 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
                 style={[styles.routeSearchBtn, isCalcRoute && { opacity: 0.5 }]}
                 onPress={() => void handleCalculateRoute()}
                 disabled={isCalcRoute}
+                accessibilityRole="button"
+                accessibilityLabel="Calculate route"
               >
                 <Text style={styles.routeSearchBtnText}>{isCalcRoute ? '…' : 'Go'}</Text>
               </TouchableOpacity>
@@ -1158,6 +1189,9 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
                       key={idx}
                       style={[styles.routeAltRow, selectedRouteIdx === idx && styles.routeAltRowActive]}
                       onPress={() => handleSelectRouteAlt(idx)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Route ${idx + 1}: ${(alt.distance / 1000).toFixed(1)} km`}
+                      accessibilityState={{ selected: selectedRouteIdx === idx }}
                     >
                       <View style={styles.routeAltBody}>
                         <Text style={[styles.routeAltLabel, selectedRouteIdx === idx && styles.routeAltLabelActive]}>
@@ -1176,17 +1210,29 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
               <TouchableOpacity
                 style={styles.routeClearBtn}
                 onPress={() => { setRouteCoords([]); setRouteAlternatives([]); setRouteDestInput(''); setPostedSpeedLimitKph(null); activeDestRef.current = null; }}
+                accessibilityRole="button"
+                accessibilityLabel="Clear current route"
               >
                 <Text style={styles.routeClearText}>Clear Route</Text>
               </TouchableOpacity>
             )}
 
             <View style={styles.modalActions}>
-              <TouchableOpacity style={styles.modalCancel} onPress={() => setShowRouteModal(false)}>
+              <TouchableOpacity
+                style={styles.modalCancel}
+                onPress={() => setShowRouteModal(false)}
+                accessibilityRole="button"
+                accessibilityLabel="Close route planner"
+              >
                 <Text style={styles.modalCancelText}>Close</Text>
               </TouchableOpacity>
               {isAdmin && routeAlternatives.length > 0 && (
-                <TouchableOpacity style={styles.modalConfirm} onPress={() => void handlePushRoute()}>
+                <TouchableOpacity
+                  style={styles.modalConfirm}
+                  onPress={() => void handlePushRoute()}
+                  accessibilityRole="button"
+                  accessibilityLabel="Push selected route to all group members"
+                >
                   <Text style={styles.modalConfirmText}>Push to Group</Text>
                 </TouchableOpacity>
               )}
@@ -1209,6 +1255,7 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
           <TouchableOpacity
             style={styles.drivingExitBtn}
             onPress={() => setDrivingModeActive(false)}
+            accessibilityRole="button"
             accessibilityLabel="Exit driving mode"
           >
             <Text style={styles.drivingExitText}>Exit</Text>
