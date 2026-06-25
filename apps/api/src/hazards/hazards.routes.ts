@@ -127,7 +127,7 @@ export default async function hazardsRoutes(fastify: FastifyInstance): Promise<v
   const redis: Redis = fastify.redis;
 
   // POST /hazards — create hazard report (Req 11.1)
-  fastify.post('/hazards', { preHandler: authenticate }, async (request, reply) => {
+  fastify.post('/hazards', { preHandler: [authenticate] }, async (request, reply) => {
     const userId = (request.user as { sub: string }).sub;
     const parsed = createHazardSchema.safeParse(request.body);
     if (!parsed.success) {
@@ -169,7 +169,7 @@ export default async function hazardsRoutes(fastify: FastifyInstance): Promise<v
   });
 
   // GET /hazards?lat=&lng=&radius= — active hazards by proximity (Req 11.4)
-  fastify.get('/hazards', { preHandler: authenticate }, async (request, reply) => {
+  fastify.get('/hazards', { preHandler: [authenticate] }, async (request, reply) => {
     const { lat, lng, radius } = request.query as {
       lat?: string; lng?: string; radius?: string;
     };
@@ -206,7 +206,7 @@ export default async function hazardsRoutes(fastify: FastifyInstance): Promise<v
   });
 
   // POST /hazards/bulk — sync offline queue (no rate limit) — MUST be before /:id routes
-  fastify.post('/hazards/bulk', { preHandler: authenticate }, async (request, reply) => {
+  fastify.post('/hazards/bulk', { preHandler: [authenticate] }, async (request, reply) => {
     const userId = (request.user as { sub: string }).sub;
     const bulkParsed = bulkHazardsSchema.safeParse(request.body);
     if (!bulkParsed.success) {
@@ -242,7 +242,7 @@ export default async function hazardsRoutes(fastify: FastifyInstance): Promise<v
   });
 
   // POST /hazards/:id/confirm — confirm a report (Req 11.5)
-  fastify.post('/hazards/:id/confirm', { preHandler: authenticate }, async (request, reply) => {
+  fastify.post('/hazards/:id/confirm', { preHandler: [authenticate] }, async (request, reply) => {
     const userId = (request.user as { sub: string }).sub;
     const { id } = request.params as { id: string };
 
@@ -290,7 +290,7 @@ export default async function hazardsRoutes(fastify: FastifyInstance): Promise<v
   });
 
   // POST /hazards/:id/dismiss — dismiss a report (Req 11.6)
-  fastify.post('/hazards/:id/dismiss', { preHandler: authenticate }, async (request, reply) => {
+  fastify.post('/hazards/:id/dismiss', { preHandler: [authenticate] }, async (request, reply) => {
     const userId = (request.user as { sub: string }).sub;
     const { id } = request.params as { id: string };
 
