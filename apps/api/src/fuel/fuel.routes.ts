@@ -5,6 +5,7 @@
 
 import { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
+import { authenticate } from '../middleware/authenticate';
 import { env } from '../config/env';
 
 // ---------------------------------------------------------------------------
@@ -58,7 +59,12 @@ async function searchFuelStations(
     `&bbox=${lng - 0.15},${lat - 0.15},${lng + 0.15},${lat + 0.15}` +
     `&access_token=${accessToken}`;
 
-  const res = await fetch(url);
+  let res: Response;
+  try {
+    res = await fetch(url);
+  } catch {
+    return [];
+  }
   if (!res.ok) return [];
   const data = (await res.json()) as {
     features: Array<{
@@ -98,8 +104,7 @@ async function searchFuelStations(
 const fuelRoutes: FastifyPluginAsync = async (fastify) => {
   // ── GET /places/fuel ─────────────────────────────────────────────────────
   // Property 36: accessible to all Members (Req 21.4)
-  fastify.get('/places/fuel', async (request, reply) => {
-    await request.jwtVerify();
+  fastify.get('/places/fuel', { preHandler: [authenticate] }, async (request, reply) => {
 
     const q = request.query as { lat?: string; lng?: string };
     const lat = parseFloat(q.lat ?? '');
@@ -125,8 +130,8 @@ const fuelRoutes: FastifyPluginAsync = async (fastify) => {
   // Returns whether the group has reached a fuel suggestion threshold (Req 21.1)
   fastify.get<{ Params: { id: string } }>(
     '/groups/:id/fuel/status',
+    { preHandler: [authenticate] },
     async (request, reply) => {
-      await request.jwtVerify();
       const userId = (request.user as { sub: string }).sub;
       const groupId = request.params.id;
 
