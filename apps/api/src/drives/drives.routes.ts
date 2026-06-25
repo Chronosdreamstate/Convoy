@@ -5,6 +5,7 @@
 
 import { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
+import { authenticate } from '../middleware/authenticate';
 import { env } from '../config/env';
 
 // ---------------------------------------------------------------------------
@@ -144,8 +145,7 @@ const driveBodySchema = z.object({
 
 const drivesRoutes: FastifyPluginAsync = async (fastify) => {
   // ── GET /drives ───────────────────────────────────────────────────────────
-  fastify.get('/drives', async (request, reply) => {
-    await request.jwtVerify();
+  fastify.get('/drives', { preHandler: [authenticate] }, async (request, reply) => {
     const userId = (request.user as { sub: string }).sub;
 
     const query = (request.query as { page?: string; limit?: string });
@@ -180,8 +180,7 @@ const drivesRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // ── GET /drives/:id ───────────────────────────────────────────────────────
-  fastify.get<{ Params: { id: string } }>('/drives/:id', async (request, reply) => {
-    await request.jwtVerify();
+  fastify.get<{ Params: { id: string } }>('/drives/:id', { preHandler: [authenticate] }, async (request, reply) => {
     const userId = (request.user as { sub: string }).sub;
     const { id } = request.params;
 
@@ -201,8 +200,7 @@ const drivesRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // ── POST /drives ──────────────────────────────────────────────────────────
-  fastify.post('/drives', async (request, reply) => {
-    await request.jwtVerify();
+  fastify.post('/drives', { preHandler: [authenticate] }, async (request, reply) => {
     const userId = (request.user as { sub: string }).sub;
 
     const parsed = driveBodySchema.safeParse(request.body);
@@ -264,8 +262,8 @@ const drivesRoutes: FastifyPluginAsync = async (fastify) => {
   // ── POST /drives/:id/summary-card ─────────────────────────────────────────
   fastify.post<{ Params: { id: string } }>(
     '/drives/:id/summary-card',
+    { preHandler: [authenticate] },
     async (request, reply) => {
-      await request.jwtVerify();
       const userId = (request.user as { sub: string }).sub;
       const { id } = request.params;
 
@@ -295,8 +293,7 @@ const drivesRoutes: FastifyPluginAsync = async (fastify) => {
   );
 
   // ── DELETE /drives/:id ────────────────────────────────────────────────────
-  fastify.delete<{ Params: { id: string } }>('/drives/:id', async (request, reply) => {
-    await request.jwtVerify();
+  fastify.delete<{ Params: { id: string } }>('/drives/:id', { preHandler: [authenticate] }, async (request, reply) => {
     const userId = (request.user as { sub: string }).sub;
     const { id } = request.params;
 

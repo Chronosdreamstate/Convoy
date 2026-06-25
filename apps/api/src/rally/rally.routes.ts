@@ -6,6 +6,7 @@
 import { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
+import { authenticate } from '../middleware/authenticate';
 import { env } from '../config/env';
 
 // ---------------------------------------------------------------------------
@@ -109,8 +110,8 @@ const rallyRoutes: FastifyPluginAsync = async (fastify) => {
   // ── POST /groups/:id/rally ────────────────────────────────────────────────
   fastify.post<{ Params: { id: string } }>(
     '/groups/:id/rally',
+    { preHandler: [authenticate] },
     async (request, reply) => {
-      await request.jwtVerify();
       const userId = (request.user as { sub: string }).sub;
       const groupId = request.params.id;
 
@@ -163,8 +164,8 @@ const rallyRoutes: FastifyPluginAsync = async (fastify) => {
   // ── DELETE /groups/:id/rally/:rallyId ─────────────────────────────────────
   fastify.delete<{ Params: { id: string; rallyId: string } }>(
     '/groups/:id/rally/:rallyId',
+    { preHandler: [authenticate] },
     async (request, reply) => {
-      await request.jwtVerify();
       const userId = (request.user as { sub: string }).sub;
       const { id: groupId, rallyId } = request.params;
 
@@ -207,8 +208,8 @@ const rallyRoutes: FastifyPluginAsync = async (fastify) => {
   // ── POST /groups/:id/sos ──────────────────────────────────────────────────
   fastify.post<{ Params: { id: string } }>(
     '/groups/:id/sos',
+    { preHandler: [authenticate] },
     async (request, reply) => {
-      await request.jwtVerify();
       const userId = (request.user as { sub: string }).sub;
       const groupId = request.params.id;
 
@@ -275,8 +276,8 @@ const rallyRoutes: FastifyPluginAsync = async (fastify) => {
   // ── DELETE /groups/:id/sos/:sosId ─────────────────────────────────────────
   fastify.delete<{ Params: { id: string; sosId: string } }>(
     '/groups/:id/sos/:sosId',
+    { preHandler: [authenticate] },
     async (request, reply) => {
-      await request.jwtVerify();
       const userId = (request.user as { sub: string }).sub;
       const { id: groupId, sosId } = request.params;
 
@@ -320,8 +321,8 @@ const rallyRoutes: FastifyPluginAsync = async (fastify) => {
   // ── DELETE /sos/:sosId — cancel standalone SOS ───────────────────────────
   fastify.delete<{ Params: { sosId: string } }>(
     '/sos/:sosId',
+    { preHandler: [authenticate] },
     async (request, reply) => {
-      await request.jwtVerify();
       const userId = (request.user as { sub: string }).sub;
       const { sosId } = request.params;
 
@@ -351,8 +352,7 @@ const rallyRoutes: FastifyPluginAsync = async (fastify) => {
   );
 
   // ── POST /sos — standalone SOS (no active group) ─────────────────────────
-  fastify.post('/sos', async (request, reply) => {
-    await request.jwtVerify();
+  fastify.post('/sos', { preHandler: [authenticate] }, async (request, reply) => {
     const userId = (request.user as { sub: string }).sub;
 
     const bodyParsed3 = latLngBody.safeParse(request.body);
