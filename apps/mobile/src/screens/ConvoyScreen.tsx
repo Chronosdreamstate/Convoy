@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
+  SafeAreaView,
   ScrollView,
   Share,
   StyleSheet,
@@ -104,6 +105,7 @@ export default function ConvoyScreen({ userId }: Props) {
 
   const [publicGroups, setPublicGroups] = useState<ConvoyGroup[]>([]);
   const [discoverLoading, setDiscoverLoading] = useState(false);
+  const [copyFeedback, setCopyFeedback] = useState(false);
 
   const { socket } = useSocketStore();
   const { memberLocations } = useLocationStore();
@@ -289,7 +291,8 @@ export default function ConvoyScreen({ userId }: Props) {
     if (!group) return;
     try {
       await Clipboard.setStringAsync(group.joinCode);
-      Alert.alert('Copied!', `Join code ${group.joinCode} copied to clipboard.`);
+      setCopyFeedback(true);
+      setTimeout(() => setCopyFeedback(false), 2000);
     } catch {
       try {
         await Share.share({ message: `Join my convoy! Code: ${group.joinCode}` });
@@ -383,7 +386,7 @@ export default function ConvoyScreen({ userId }: Props) {
   if (!group) {
     if (view === 'create') {
       return (
-        <View style={styles.container}>
+        <SafeAreaView style={styles.container}>
           <Text style={styles.title}>Create Convoy</Text>
           <TextInput
             style={styles.input}
@@ -399,13 +402,13 @@ export default function ConvoyScreen({ userId }: Props) {
           <TouchableOpacity style={styles.secondaryBtn} onPress={() => setView('home')}>
             <Text style={styles.secondaryBtnText}>Cancel</Text>
           </TouchableOpacity>
-        </View>
+        </SafeAreaView>
       );
     }
 
     if (view === 'join') {
       return (
-        <View style={styles.container}>
+        <SafeAreaView style={styles.container}>
           <Text style={styles.title}>Join Convoy</Text>
           <TextInput
             style={[styles.input, styles.codeInput]}
@@ -423,13 +426,13 @@ export default function ConvoyScreen({ userId }: Props) {
           <TouchableOpacity style={styles.secondaryBtn} onPress={() => setView('home')}>
             <Text style={styles.secondaryBtnText}>Cancel</Text>
           </TouchableOpacity>
-        </View>
+        </SafeAreaView>
       );
     }
 
     if (view === 'discover') {
       return (
-        <View style={styles.container}>
+        <SafeAreaView style={styles.container}>
           <View style={styles.headerBar}>
             <Text style={styles.headerTitle}>DISCOVER</Text>
             <TouchableOpacity onPress={() => setView('home')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
@@ -471,12 +474,12 @@ export default function ConvoyScreen({ userId }: Props) {
               </View>
             }
           />
-        </View>
+        </SafeAreaView>
       );
     }
 
     return (
-      <View style={styles.container}>
+      <SafeAreaView style={styles.container}>
         <View style={styles.emptyHero}>
           <Text style={styles.emptyEmoji}>🚗</Text>
           <Text style={styles.title}>No Active Convoy</Text>
@@ -496,13 +499,13 @@ export default function ConvoyScreen({ userId }: Props) {
             <Text style={styles.secondaryBtnText}>Browse Open Convoys</Text>
           </TouchableOpacity>
         </View>
-      </View>
+      </SafeAreaView>
     );
   }
 
   // ── Active group view ─────────────────────────────────────────────────────
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container}>
       {/* Header bar */}
       <View style={styles.headerBar}>
         <Text style={styles.headerTitle}>CONVOY</Text>
@@ -525,7 +528,9 @@ export default function ConvoyScreen({ userId }: Props) {
             accessibilityLabel="Copy join code"
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
-            <Text style={styles.copyBtnText}>Copy</Text>
+            <Text style={[styles.copyBtnText, copyFeedback && { color: '#22c55e' }]}>
+              {copyFeedback ? '✓ Copied' : 'Copy'}
+            </Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.shareCodeBtn}
@@ -682,7 +687,7 @@ export default function ConvoyScreen({ userId }: Props) {
           <Text style={styles.secondaryBtnText}>Leave Convoy</Text>
         </TouchableOpacity>
       </View>
-    </View>
+    </SafeAreaView>
   );
 }
 

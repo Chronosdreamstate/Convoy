@@ -7,8 +7,8 @@ import {
   SafeAreaView,
   ScrollView,
   ActivityIndicator,
-  Switch,
   Alert,
+  Switch,
   Share,
 } from 'react-native';
 import { useRouter } from 'expo-router';
@@ -141,6 +141,8 @@ export default function SettingsScreen() {
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isDirty, setIsDirty] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
+  const saveSuccessTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Local editable copies
   const [mapStyle, setMapStyle] = useState<Settings['mapStyle']>('standard');
@@ -205,7 +207,9 @@ export default function SettingsScreen() {
       setSettings(response.data);
       setGlobalSettings({ mapStyle: response.data.mapStyle, hazardAlertDistanceM: response.data.hazardAlertDistanceM, scenicRouting: response.data.scenicRouting, pttMaxSeconds: response.data.pttMaxSeconds });
       setIsDirty(false);
-      Alert.alert('Saved', 'Your settings have been updated.');
+      setSaveSuccess(true);
+      if (saveSuccessTimer.current) clearTimeout(saveSuccessTimer.current);
+      saveSuccessTimer.current = setTimeout(() => setSaveSuccess(false), 3000);
     } catch {
       setError('Failed to save settings. Please try again.');
     } finally {
@@ -266,6 +270,7 @@ export default function SettingsScreen() {
         <Text style={styles.title}>Settings</Text>
 
         {error ? <Text style={styles.errorText}>{error}</Text> : null}
+        {saveSuccess ? <Text style={styles.successText}>Settings saved.</Text> : null}
 
         {/* ── ACCOUNT ─────────────────────────────────────────────────────── */}
         <SectionHeader title="ACCOUNT" />
@@ -374,12 +379,24 @@ export default function SettingsScreen() {
                 accessibilityLabel="Scenic routing toggle"
               />
             }
+          />
+          <SettingRow
+            icon="💾"
+            label="Map Cache Size"
+            subtitle={`${cacheMb} MB`}
             last
           />
+          <View style={styles.chipContainer}>
+            <ChipSelector
+              options={CACHE_SIZES.map((c) => ({ label: c.label, value: c.mb }))}
+              selected={cacheMb}
+              onSelect={(v) => { setCacheMb(v); mark(); }}
+            />
+          </View>
         </View>
 
-        {/* ── PRIVACY ─────────────────────────────────────────────────────── */}
-        <SectionHeader title="PRIVACY" />
+        {/* ── DRIVING ─────────────────────────────────────────────────────── */}
+        <SectionHeader title="DRIVING" />
         <View style={styles.sectionCard}>
           <SettingRow
             icon="⚠️"
@@ -398,25 +415,13 @@ export default function SettingsScreen() {
             icon="🎙"
             label="PTT Max Duration"
             subtitle={`${pttMaxSecs} seconds`}
+            last
           />
           <View style={styles.chipContainer}>
             <ChipSelector
               options={PTT_DURATIONS.map((d) => ({ label: d.label, value: d.seconds }))}
               selected={pttMaxSecs}
               onSelect={(v) => { setPttMaxSecs(v); mark(); }}
-            />
-          </View>
-
-          <SettingRow
-            icon="💾"
-            label="Map Cache Size"
-            subtitle={`${cacheMb} MB`}
-          />
-          <View style={styles.chipContainer}>
-            <ChipSelector
-              options={CACHE_SIZES.map((c) => ({ label: c.label, value: c.mb }))}
-              selected={cacheMb}
-              onSelect={(v) => { setCacheMb(v); mark(); }}
             />
           </View>
         </View>
@@ -476,6 +481,11 @@ const styles = StyleSheet.create({
   },
   errorText: {
     color: '#ef4444',
+    fontSize: 13,
+    marginBottom: 16,
+  },
+  successText: {
+    color: '#4ade80',
     fontSize: 13,
     marginBottom: 16,
   },
