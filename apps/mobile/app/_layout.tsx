@@ -1,5 +1,5 @@
 ﻿import { useEffect, useRef } from 'react';
-import { Platform } from 'react-native';
+import { AppState, Platform } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import type { Router } from 'expo-router';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -11,10 +11,53 @@ import {
   registerForPushNotificationsAsync,
   setupNotificationHandler,
 } from '../src/services/NotificationService';
+import { SyncService } from '../src/services/SyncService';
+import { SQLiteOfflineDB } from '../src/services/OfflineCacheService';
+import type { OfflineHazard, OfflineDrive } from '../src/services/OfflineCacheService';
 
 // Set up foreground notification display behaviour at module load time,
 // before any notifications can arrive.
 setupNotificationHandler();
+
+// ---------------------------------------------------------------------------
+// Offline sync — drains SQLite queue when the app comes to foreground
+// ---------------------------------------------------------------------------
+
+const syncDB = new SQLiteOfflineDB();
+void syncDB.init();
+
+const syncService = new SyncService(
+  syncDB,
+  {
+    postBulkHazards: async (hazards: OfflineHazard[]) => {
+      await apiClient.post('/api/v1/hazards/bulk', {
+        hazards: hazards.map((h) => ({ type: h.type, lat: h.lat, lng: h.lng, createdAt: h.createdAt })),
+      });
+    },
+    postDrive: async (drive: OfflineDrive) => {
+      await apiClient.post('/api/v1/drives', {
+        groupId: drive.groupId || null,
+        routeTrace: JSON.parse(drive.routeTrace) as unknown,
+        distanceM: drive.distanceMeters,
+        durationS: drive.durationSeconds,
+        avgSpeedKph: drive.avgSpeedKph,
+        topSpeedKph: drive.topSpeedKph,
+        memberCount: drive.memberCount,
+        startedAt: new Date(drive.startedAt).toISOString(),
+        endedAt: new Date(drive.endedAt).toISOString(),
+      });
+    },
+  },
+  {
+    subscribe(callback: (online: boolean) => void): () => void {
+      const sub = AppState.addEventListener('change', (state) => {
+        if (state === 'active') callback(true);
+      });
+      callback(true);
+      return () => sub.remove();
+    },
+  },
+);
 
 /** Navigate to the correct screen based on notification data. */
 function handleNotificationNavigation(
@@ -72,6 +115,13 @@ export default function RootLayout() {
     init();
     return () => { cancelled = true; };
   }, []);
+
+  // Start syncing offline queue once authenticated; stop on sign-out
+  useEffect(() => {
+    if (!isAuthenticated || isLoading) return;
+    syncService.start();
+    return () => syncService.stop();
+  }, [isAuthenticated, isLoading]);
 
   // Push registration: run once after the user is confirmed authenticated.
   // The useRef guard prevents re-registration on re-renders or StrictMode double-invocations.
