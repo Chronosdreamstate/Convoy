@@ -6,7 +6,7 @@
  */
 
 import fc from 'fast-check';
-import { processMapboxRoutes, formatDistance, formatDuration } from './routes.routes';
+import { processMapboxRoutes, formatDistance, formatDuration, extractSpeedLimitKph } from './routes.routes';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -86,6 +86,56 @@ describe('Property 6: Route calculation returns 1 to 3 alternatives', () => {
         },
       ),
       { numRuns: 30 },
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Property 6b: extractSpeedLimitKph (Req 23)
+// ---------------------------------------------------------------------------
+describe('extractSpeedLimitKph', () => {
+  it('returns null when legs is undefined', () => {
+    expect(extractSpeedLimitKph(undefined)).toBeNull();
+  });
+
+  it('returns null when all entries are unknown', () => {
+    expect(extractSpeedLimitKph([{ annotation: { maxspeed: [{ unknown: true }, { unknown: true }] } }])).toBeNull();
+  });
+
+  it('returns the modal speed limit in kph', () => {
+    const legs = [{ annotation: { maxspeed: [
+      { speed: 50, unit: 'km/h' },
+      { speed: 50, unit: 'km/h' },
+      { speed: 80, unit: 'km/h' },
+    ] } }];
+    expect(extractSpeedLimitKph(legs)).toBe(50);
+  });
+
+  it('converts mph to kph', () => {
+    const legs = [{ annotation: { maxspeed: [{ speed: 55, unit: 'mph' }] } }];
+    const result = extractSpeedLimitKph(legs);
+    expect(result).toBeGreaterThan(80);  // 55 mph ≈ 88 kph
+    expect(result).toBeLessThan(95);
+  });
+
+  it('property: result is always null or a positive number', () => {
+    const maxspeedEntryArb = fc.oneof(
+      fc.constant({ unknown: true }),
+      fc.record({ speed: fc.integer({ min: 10, max: 200 }), unit: fc.constantFrom('km/h', 'mph') }),
+    );
+    const legsArb = fc.array(
+      fc.record({ annotation: fc.record({ maxspeed: fc.array(maxspeedEntryArb, { maxLength: 10 }) }) }),
+      { maxLength: 3 },
+    );
+    fc.assert(
+      fc.property(legsArb, (legs) => {
+        const result = extractSpeedLimitKph(legs);
+        if (result !== null) {
+          expect(result).toBeGreaterThan(0);
+          expect(Number.isFinite(result)).toBe(true);
+        }
+      }),
+      { numRuns: 50 },
     );
   });
 });

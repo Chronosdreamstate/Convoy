@@ -35,7 +35,10 @@ function buildMockIO(log: Emission[]): IoBroadcaster {
   };
 }
 
-function buildMockRedis(store: Record<string, Record<string, string>>): Redis {
+function buildMockRedis(
+  store: Record<string, Record<string, string>>,
+  stringStore: Record<string, string> = {},
+): Redis {
   return {
     hset: async (key: string, fields: Record<string, string>) => {
       store[key] = { ...(store[key] ?? {}), ...fields };
@@ -43,6 +46,18 @@ function buildMockRedis(store: Record<string, Record<string, string>>): Redis {
     },
     expire: async () => 1,
     hgetall: async (key: string) => store[key] ?? null,
+    incrbyfloat: async (key: string, delta: number) => {
+      const prev = parseFloat(stringStore[key] ?? '0');
+      const next = prev + delta;
+      stringStore[key] = String(next);
+      return next;
+    },
+    set: async (key: string, _value: string, ..._args: unknown[]) => {
+      // Simulate NX: only set if key doesn't already exist
+      if (stringStore[key] !== undefined) return null;
+      stringStore[key] = '1';
+      return 'OK';
+    },
   } as unknown as Redis;
 }
 

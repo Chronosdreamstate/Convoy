@@ -13,6 +13,7 @@ import {
   View,
 } from 'react-native';
 import { apiClient } from '../services/apiClient';
+import { useRecentDestinationsStore, RecentDestination } from '../stores/recentDestinationsStore';
 
 export interface SearchResult {
   id: string;
@@ -54,6 +55,8 @@ export default function DestinationSearch({
   const [focused, setFocused] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+
+  const { destinations: recentDestinations, addDestination } = useRecentDestinationsStore();
 
   const runSearch = useCallback(
     async (q: string) => {
@@ -107,7 +110,16 @@ export default function DestinationSearch({
       setQuery(item.name);
       setResults([]);
       setFocused(false);
+      addDestination({ id: item.id, name: item.name, address: item.address, lat: item.lat, lng: item.lng });
       onSelect(item);
+    },
+    [onSelect, addDestination],
+  );
+
+  const handleRecentSelect = useCallback(
+    (item: RecentDestination) => {
+      setFocused(false);
+      onSelect({ id: item.id, name: item.name, address: item.address, category: null, lat: item.lat, lng: item.lng });
     },
     [onSelect],
   );
@@ -156,12 +168,35 @@ export default function DestinationSearch({
             </View>
           )}
 
-          {/* Results */}
+          {/* Motion banner + recent destinations (Req 32.2) */}
           {isInMotion && (
-            <View style={styles.motionBanner}>
-              <Text style={styles.motionText}>Use voice or select a recent destination while driving</Text>
+            <View>
+              <View style={styles.motionBanner}>
+                <Text style={styles.motionText}>Recent destinations — tap to navigate</Text>
+              </View>
+              {recentDestinations.length > 0 ? (
+                recentDestinations.map((item) => (
+                  <TouchableOpacity
+                    key={item.id}
+                    style={styles.result}
+                    onPress={() => handleRecentSelect(item)}
+                    accessibilityLabel={`Navigate to recent destination: ${item.name}`}
+                    accessibilityRole="button"
+                  >
+                    <Text style={styles.recentIcon}>🕐</Text>
+                    <View style={styles.recentBody}>
+                      <Text style={styles.resultName} numberOfLines={1}>{item.name}</Text>
+                      <Text style={styles.resultAddress} numberOfLines={1}>{item.address}</Text>
+                    </View>
+                  </TouchableOpacity>
+                ))
+              ) : (
+                <Text style={styles.noResults}>No recent destinations yet</Text>
+              )}
             </View>
           )}
+
+          {/* Results */}
           {!isInMotion && results.length > 0 && (
             <FlatList
               data={results}
@@ -242,17 +277,20 @@ const styles = StyleSheet.create({
 
   offlineBanner: { padding: 12, backgroundColor: '#2A2A2A' },
   offlineText: { color: '#888888', fontSize: 13, textAlign: 'center' },
-  motionBanner: { padding: 12, backgroundColor: '#1A1505' },
-  motionText: { color: '#B8860B', fontSize: 13, textAlign: 'center' },
+  motionBanner: { padding: 10, paddingBottom: 4, backgroundColor: '#1A1505' },
+  motionText: { color: '#B8860B', fontSize: 12, fontWeight: '600', textAlign: 'center' },
 
   list: { maxHeight: 320 },
   result: {
+    flexDirection: 'row',
+    alignItems: 'center',
     padding: 12,
     minHeight: 44,
-    justifyContent: 'center',
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: '#2A2A2A',
   },
+  recentIcon: { fontSize: 16, marginRight: 10 },
+  recentBody: { flex: 1 },
   resultName: { fontSize: 14, fontWeight: '600', color: '#F0F0F0' },
   resultAddress: { fontSize: 12, color: '#888888', marginTop: 2 },
   resultCategory: {
