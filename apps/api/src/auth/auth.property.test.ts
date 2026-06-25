@@ -11,6 +11,12 @@
  *   - Validates: Requirements 2.8
  */
 
+// jose is ESM-only; stub it so ts-jest (CommonJS) can import auth.routes.ts
+jest.mock('jose', () => ({
+  createRemoteJWKSet: jest.fn(() => jest.fn()),
+  jwtVerify: jest.fn().mockResolvedValue({ payload: { sub: 'test-sub', email: 'test@example.com' } }),
+}));
+
 import Fastify, { FastifyInstance } from 'fastify';
 import fastifyJwt from '@fastify/jwt';
 import fastifyCookie from '@fastify/cookie';

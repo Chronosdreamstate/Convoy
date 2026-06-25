@@ -21,6 +21,7 @@ import { useSettingsStore } from '../../stores/settingsStore';
 import PTTLogPanel from '../../components/PTTLogPanel';
 import { authService } from '../../services/AuthService';
 import { useLocationStore, MemberLocation } from '../../stores/locationStore';
+import { useMotionStore } from '../../stores/motionStore';
 import { rallyService, RallyPoint, SosPin } from '../../services/RallyService';
 import { apiClient } from '../../services/apiClient';
 import { HazardType } from '../../services/HazardService';
@@ -87,6 +88,7 @@ const offlineDBReady: Promise<boolean> = offlineDB.init().then(() => true).catch
 export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = false, pttChannelId }: Props) {
   const { user, token } = useAuthStore();
   const { memberLocations, stalePositions, updateMemberLocation, clearGroup, evictStale, setStalePositions, clearStalePositions } = useLocationStore();
+  const setIsInMotion = useMotionStore((s) => s.setIsInMotion);
   const insets = useSafeAreaInsets();
 
   const [gapAlerts, setGapAlerts]     = useState<GapAlert[]>([]);
@@ -207,6 +209,7 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
           setMyLocation(pos);
           setMySpeedKph(speedKph);
           motionStateService.update(speedKph);
+          setIsInMotion(motionStateService.state === 'in_motion');
           driveServiceRef.current.addPoint(loc.coords.latitude, loc.coords.longitude, speedKph);
           // Broadcast own position to group (throttled to ≤1 emit per 3 s)
           const now = Date.now();

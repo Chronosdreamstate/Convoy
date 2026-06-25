@@ -127,6 +127,20 @@ async function clientQuery(sql: string, values?: unknown[]): Promise<{ rows: unk
     return { rows: [], rowCount: 0 };
   }
 
+  // SELECT convoy_groups FOR UPDATE (join-endpoint lock query)
+  if (norm.includes('FROM CONVOY_GROUPS') && norm.includes('FOR UPDATE')) {
+    const id = values![0] as string;
+    const g = groups.find((g) => g.id === id);
+    return { rows: g ? [{ status: g.status }] : [], rowCount: g ? 1 : 0 };
+  }
+
+  // SELECT count of active members (idempotent join check)
+  if (norm.includes('COUNT(*)') && norm.includes('FROM CONVOY_MEMBERS') && norm.includes('GROUP_ID = $1')) {
+    const groupId = values![0] as string;
+    const count = members.filter((m) => m.group_id === groupId && m.left_at === null).length;
+    return { rows: [{ member_count: String(count) }], rowCount: 1 };
+  }
+
   // INSERT convoy_groups
   if (norm.startsWith('INSERT INTO CONVOY_GROUPS')) {
     const [name, joinCode, adminId, accessType] = values as [string, string, string, string];
@@ -280,12 +294,17 @@ function buildMockPool(): Pool {
 // ---------------------------------------------------------------------------
 function buildMockRedis(): Redis {
   const counts: Record<string, number> = {};
+  const store = new Map<string, string>();
   return {
     incr: async (key: string) => {
       counts[key] = (counts[key] ?? 0) + 1;
       return counts[key];
     },
     expire: async () => 1,
+    set: async (key: string, value: string) => { store.set(key, value); return 'OK'; },
+    get: async (key: string) => store.get(key) ?? null,
+    del: async (key: string) => { store.delete(key); return 1; },
+    exists: async (key: string) => (store.has(key) ? 1 : 0),
   } as unknown as Redis;
 }
 
@@ -306,6 +325,12 @@ function buildTestApp(): FastifyInstance {
 
   app.register(fp(async (inst) => { inst.decorate('db', buildMockPool()); }), { name: 'db' });
   app.register(fp(async (inst) => { inst.decorate('redis', buildMockRedis()); }), { name: 'redis' });
+  // Stub socket.io and notification queue (groups.routes uses fastify.io and fastify.enqueueNotification)
+  app.register(fp(async (inst) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    inst.decorate('io', { to: () => ({ emit: () => true }) } as any);
+    inst.decorate('enqueueNotification', async () => {});
+  }), { name: 'io' });
 
   app.register(groupsRoutes, { prefix: '/api/v1' });
 

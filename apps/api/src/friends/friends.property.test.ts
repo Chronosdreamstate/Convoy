@@ -285,6 +285,7 @@ function buildTestApp(): FastifyInstance {
   app.register(fastifySensible);
   app.register(fp(async (i) => { i.decorate('db', buildMockPool()); }, { name: 'db' }));
   app.register(fp(async (i) => { i.decorate('redis', buildMockRedis()); }, { name: 'redis' }));
+  app.register(fp(async (i) => { i.decorate('enqueueNotification', async () => {}); }, { name: 'enqueueNotification' }));
   app.register(friendsRoutes, { prefix: '/api/v1' });
 
   return app;
@@ -332,7 +333,7 @@ describe('Property 24: Friend request behavior matches privacy setting', () => {
 
         const res = await app.inject({
           method: 'POST',
-          url: '/api/v1/friends/request',
+          url: '/api/v1/friends/requests',
           headers: bearerFor(app, REQUESTER.id),
           payload: { addresseeId: OPEN_USER.id },
         });
@@ -357,7 +358,7 @@ describe('Property 24: Friend request behavior matches privacy setting', () => {
 
         const res = await app.inject({
           method: 'POST',
-          url: '/api/v1/friends/request',
+          url: '/api/v1/friends/requests',
           headers: bearerFor(app, REQUESTER.id),
           payload: { addresseeId: INVITE_USER.id },
         });
@@ -386,7 +387,7 @@ describe('Property 25: Accepting a friend request is bidirectional', () => {
     // Send request
     const reqRes = await app.inject({
       method: 'POST',
-      url: '/api/v1/friends/request',
+      url: '/api/v1/friends/requests',
       headers: bearerFor(app, REQUESTER.id),
       payload: { addresseeId: INVITE_USER.id },
     });
@@ -435,7 +436,7 @@ describe('Property 26: Declining a friend request generates no notification', ()
     // Send request
     const reqRes = await app.inject({
       method: 'POST',
-      url: '/api/v1/friends/request',
+      url: '/api/v1/friends/requests',
       headers: bearerFor(app, REQUESTER.id),
       payload: { addresseeId: INVITE_USER.id },
     });
@@ -485,7 +486,7 @@ describe('Property 27: Removing a friend is bidirectional', () => {
         // Become friends (open privacy — auto-accept)
         const reqRes = await app.inject({
           method: 'POST',
-          url: '/api/v1/friends/request',
+          url: '/api/v1/friends/requests',
           headers: bearerFor(app, REQUESTER.id),
           payload: { addresseeId: OPEN_USER.id },
         });
@@ -540,7 +541,7 @@ describe('Property 28: Blocking prevents further requests', () => {
         // OPEN_USER tries to send a request to REQUESTER — must be rejected
         const reqRes = await app.inject({
           method: 'POST',
-          url: '/api/v1/friends/request',
+          url: '/api/v1/friends/requests',
           headers: bearerFor(app, OPEN_USER.id),
           payload: { addresseeId: REQUESTER.id },
         });
@@ -568,7 +569,7 @@ describe('Property 28: Blocking prevents further requests', () => {
     // REQUESTER also cannot request OPEN_USER
     const reqRes = await app.inject({
       method: 'POST',
-      url: '/api/v1/friends/request',
+      url: '/api/v1/friends/requests',
       headers: bearerFor(app, REQUESTER.id),
       payload: { addresseeId: OPEN_USER.id },
     });
@@ -585,7 +586,7 @@ describe('Property 28: Blocking prevents further requests', () => {
     // Become friends first
     await app.inject({
       method: 'POST',
-      url: '/api/v1/friends/request',
+      url: '/api/v1/friends/requests',
       headers: bearerFor(app, REQUESTER.id),
       payload: { addresseeId: OPEN_USER.id },
     });

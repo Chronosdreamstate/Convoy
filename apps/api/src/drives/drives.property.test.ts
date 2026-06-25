@@ -10,6 +10,7 @@ import {
   isDrivesSortedDesc,
   serializeDriveRow,
   buildSummaryCardUrl,
+  hydrateSummaryCardUrl,
   REQUIRED_DRIVE_FIELDS,
   RawDriveRow,
   DriveResponse,
@@ -193,17 +194,36 @@ describe('Property 32: Drive History is sorted reverse-chronologically', () => {
 
 describe('buildSummaryCardUrl', () => {
   test('returns empty string for no coordinates', () => {
-    expect(buildSummaryCardUrl([], 'token')).toBe('');
+    expect(buildSummaryCardUrl([])).toBe('');
   });
 
-  test('returns a URL containing the access token', () => {
-    const url = buildSummaryCardUrl([[10, 20], [11, 21]], 'my-token');
-    expect(url).toContain('my-token');
+  test('returns a token-free Mapbox URL', () => {
+    const url = buildSummaryCardUrl([[10, 20], [11, 21]]);
     expect(url).toContain('mapbox.com');
+    expect(url).not.toContain('access_token=');
   });
 
   test('URL contains LineString coordinates', () => {
-    const url = buildSummaryCardUrl([[10, 20]], 'tok');
+    const url = buildSummaryCardUrl([[10, 20]]);
     expect(url).toContain('LineString');
+  });
+});
+
+describe('hydrateSummaryCardUrl', () => {
+  test('returns null for null input', () => {
+    expect(hydrateSummaryCardUrl(null, 'tok')).toBeNull();
+  });
+
+  test('appends token to a token-free URL', () => {
+    const base = buildSummaryCardUrl([[10, 20]]);
+    const hydrated = hydrateSummaryCardUrl(base, 'my-token');
+    expect(hydrated).toContain('access_token=my-token');
+    expect(hydrated).toContain('mapbox.com');
+  });
+
+  test('does not double-append token if already present', () => {
+    const url = 'https://api.mapbox.com/foo?access_token=existing';
+    const hydrated = hydrateSummaryCardUrl(url, 'new-token');
+    expect(hydrated).toBe(url);
   });
 });

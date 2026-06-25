@@ -8,6 +8,8 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
+  Image,
+  Modal,
   SafeAreaView,
   ScrollView,
   Share,
@@ -24,6 +26,7 @@ import { haversineDistanceM } from '../services/DriveService';
 import { useGroupStore } from '../stores/groupStore';
 import { useSocketStore } from '../stores/socketStore';
 import { useLocationStore } from '../stores/locationStore';
+import { useMotionStore } from '../stores/motionStore';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -99,9 +102,11 @@ export default function ConvoyScreen({ userId }: Props) {
   const [publicGroups, setPublicGroups] = useState<ConvoyGroup[]>([]);
   const [discoverLoading, setDiscoverLoading] = useState(false);
   const [copyFeedback, setCopyFeedback] = useState(false);
+  const [showQR, setShowQR] = useState(false);
 
   const { socket } = useSocketStore();
   const { memberLocations } = useLocationStore();
+  const isInMotion = useMotionStore((s) => s.isInMotion);
 
   const activeGroupId = useGroupStore((s) => s.activeGroupId);
   const setActiveGroupId = useGroupStore((s) => s.setActiveGroupId);
@@ -299,6 +304,13 @@ export default function ConvoyScreen({ userId }: Props) {
       setLoading(false);
     }
   }, [joinCode]);
+
+  // Req 34 — block multi-step flows when in motion
+  const guardInMotion = useCallback((): boolean => {
+    if (!isInMotion) return false;
+    Alert.alert('Park to continue', 'Please park before making group settings changes.');
+    return true;
+  }, [isInMotion]);
 
   // ── Share join code (Req 7.3) ─────────────────────────────────────────────
   const handleShareCode = useCallback(async () => {
@@ -563,6 +575,13 @@ export default function ConvoyScreen({ userId }: Props) {
           >
             <Text style={styles.shareCodeText}>Share</Text>
           </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.qrBtn}
+            onPress={() => setShowQR(true)}
+            accessibilityLabel="Show QR code for join link"
+          >
+            <Text style={styles.qrBtnText}>QR</Text>
+          </TouchableOpacity>
         </View>
 
         {/* Gap threshold — admin only */}
@@ -574,7 +593,7 @@ export default function ConvoyScreen({ userId }: Props) {
                 <TouchableOpacity
                   key={opt.value}
                   style={[styles.gapChip, group.gapThresholdM === opt.value && styles.gapChipActive]}
-                  onPress={() => void handleSetGapThreshold(opt.value)}
+                  onPress={() => { if (!guardInMotion()) void handleSetGapThreshold(opt.value); }}
                   accessibilityLabel={`Set gap threshold to ${opt.label}`}
                 >
                   <Text style={[styles.gapChipText, group.gapThresholdM === opt.value && styles.gapChipTextActive]}>
@@ -606,7 +625,7 @@ export default function ConvoyScreen({ userId }: Props) {
               {isAdmin && !showNewChannel && (
                 <TouchableOpacity
                   style={styles.channelNewChip}
-                  onPress={() => setShowNewChannel(true)}
+                  onPress={() => { if (!guardInMotion()) setShowNewChannel(true); }}
                   accessibilityLabel="Create new PTT channel"
                 >
                   <Text style={styles.channelNewText}>+ Channel</Text>
@@ -711,6 +730,38 @@ export default function ConvoyScreen({ userId }: Props) {
           <Text style={styles.secondaryBtnText}>Leave Convoy</Text>
         </TouchableOpacity>
       </View>
+
+      {/* QR code modal (Req 7.3) */}
+      <Modal
+        visible={showQR}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowQR(false)}
+        accessibilityViewIsModal
+      >
+        <TouchableOpacity
+          style={styles.qrOverlay}
+          activeOpacity={1}
+          onPress={() => setShowQR(false)}
+          accessibilityLabel="Close QR code"
+        >
+          <View style={styles.qrCard}>
+            <Text style={styles.qrTitle}>Scan to Join</Text>
+            <Text style={styles.qrSubtitle}>{group?.name}</Text>
+            <Image
+              style={styles.qrImage}
+              source={{
+                uri: `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(
+                  `https://convoy.app/join/${group?.joinCode ?? ''}`,
+                )}`,
+              }}
+              accessibilityLabel={`QR code for join code ${group?.joinCode ?? ''}`}
+            />
+            <Text style={styles.qrCodeLabel}>{group?.joinCode}</Text>
+            <Text style={styles.qrDismiss}>Tap anywhere to close</Text>
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -828,6 +879,36 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   shareCodeText: { color: '#fff', fontWeight: '700', fontSize: 12 },
+  qrBtn: {
+    borderWidth: 1,
+    borderColor: '#DC143C',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    minHeight: 36,
+    justifyContent: 'center',
+  },
+  qrBtnText: { color: '#DC143C', fontWeight: '700', fontSize: 12 },
+
+  // QR modal
+  qrOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.75)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  qrCard: {
+    backgroundColor: '#1A1A1A',
+    borderRadius: 16,
+    padding: 24,
+    alignItems: 'center',
+    width: 300,
+  },
+  qrTitle: { color: '#fff', fontSize: 18, fontWeight: '700', marginBottom: 4 },
+  qrSubtitle: { color: '#888', fontSize: 13, marginBottom: 16 },
+  qrImage: { width: 240, height: 240, borderRadius: 8, marginBottom: 12 },
+  qrCodeLabel: { color: '#DC143C', fontSize: 20, fontWeight: '800', letterSpacing: 4, marginBottom: 8 },
+  qrDismiss: { color: '#555', fontSize: 11 },
 
   // Gap threshold
   gapSection: { marginTop: 14, paddingTop: 14, borderTopWidth: 1, borderTopColor: '#2A2A2A' },

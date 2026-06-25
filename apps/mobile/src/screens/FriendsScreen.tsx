@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Image,
+  Modal,
   SafeAreaView,
   ScrollView,
   Share,
@@ -421,6 +423,9 @@ const TABS: { id: TabId; label: string }[] = [
 export default function FriendsScreen() {
   const [activeTab, setActiveTab] = useState<TabId>('friends');
   const [isInviting, setIsInviting] = useState(false);
+  const [showInviteQR, setShowInviteQR] = useState(false);
+  const [inviteLink, setInviteLink] = useState<string | null>(null);
+  const [isLoadingQR, setIsLoadingQR] = useState(false);
 
   const handleInvite = useCallback(async () => {
     setIsInviting(true);
@@ -437,23 +442,51 @@ export default function FriendsScreen() {
     }
   }, []);
 
+  // Req 17.2 — show QR code for friend invite link
+  const handleShowQR = useCallback(async () => {
+    setIsLoadingQR(true);
+    try {
+      const res = await apiClient.get<{ inviteLink: string }>('/api/v1/friends/invite-link');
+      setInviteLink(res.data.inviteLink);
+      setShowInviteQR(true);
+    } catch {
+      Alert.alert('Error', 'Could not generate invite link.');
+    } finally {
+      setIsLoadingQR(false);
+    }
+  }, []);
+
   return (
     <SafeAreaView style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Friends</Text>
-        <TouchableOpacity
-          style={styles.inviteBtn}
-          onPress={() => { void handleInvite(); }}
-          disabled={isInviting}
-          accessibilityRole="button"
-          accessibilityLabel="Invite friends"
-        >
-          {isInviting
-            ? <ActivityIndicator color="#DC143C" size="small" />
-            : <Text style={styles.inviteBtnText}>+ Invite</Text>
-          }
-        </TouchableOpacity>
+        <View style={styles.headerActions}>
+          <TouchableOpacity
+            style={styles.qrInviteBtn}
+            onPress={() => { void handleShowQR(); }}
+            disabled={isLoadingQR}
+            accessibilityRole="button"
+            accessibilityLabel="Show QR code invite"
+          >
+            {isLoadingQR
+              ? <ActivityIndicator color="#DC143C" size="small" />
+              : <Text style={styles.inviteBtnText}>QR</Text>
+            }
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.inviteBtn}
+            onPress={() => { void handleInvite(); }}
+            disabled={isInviting}
+            accessibilityRole="button"
+            accessibilityLabel="Invite friends"
+          >
+            {isInviting
+              ? <ActivityIndicator color="#DC143C" size="small" />
+              : <Text style={styles.inviteBtnText}>+ Invite</Text>
+            }
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Tab pills */}
@@ -483,6 +516,39 @@ export default function FriendsScreen() {
         {activeTab === 'requests' && <RequestsTab />}
         {activeTab === 'find' && <FindPeopleTab />}
       </View>
+
+      {/* QR invite modal (Req 17.2) */}
+      <Modal
+        visible={showInviteQR}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowInviteQR(false)}
+        accessibilityViewIsModal
+      >
+        <TouchableOpacity
+          style={styles.qrOverlay}
+          activeOpacity={1}
+          onPress={() => setShowInviteQR(false)}
+          accessibilityLabel="Close QR invite"
+        >
+          <View style={styles.qrCard}>
+            <Text style={styles.qrTitle}>Friend Invite</Text>
+            <Text style={styles.qrSubtitle}>Scan to send me a friend request</Text>
+            {inviteLink ? (
+              <Image
+                style={styles.qrImage}
+                source={{
+                  uri: `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(inviteLink)}`,
+                }}
+                accessibilityLabel="QR code for friend invite"
+              />
+            ) : (
+              <ActivityIndicator color="#DC143C" style={styles.qrImage} />
+            )}
+            <Text style={styles.qrDismiss}>Tap anywhere to close</Text>
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -509,6 +575,11 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#F0F0F0',
   },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
   inviteBtn: {
     backgroundColor: '#1C1C1C',
     borderRadius: 10,
@@ -521,11 +592,42 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#DC143C',
   },
+  qrInviteBtn: {
+    backgroundColor: '#1C1C1C',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    minHeight: 36,
+    minWidth: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#DC143C',
+  },
   inviteBtnText: {
     color: '#DC143C',
     fontSize: 13,
     fontWeight: '700',
   },
+
+  // QR modal
+  qrOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.75)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  qrCard: {
+    backgroundColor: '#1A1A1A',
+    borderRadius: 16,
+    padding: 24,
+    alignItems: 'center',
+    width: 300,
+  },
+  qrTitle: { color: '#fff', fontSize: 18, fontWeight: '700', marginBottom: 4 },
+  qrSubtitle: { color: '#888', fontSize: 13, marginBottom: 16, textAlign: 'center' },
+  qrImage: { width: 240, height: 240, borderRadius: 8, marginBottom: 16 },
+  qrDismiss: { color: '#555', fontSize: 11 },
 
   // Tabs
   tabBar: {
