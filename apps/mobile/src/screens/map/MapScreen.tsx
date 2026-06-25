@@ -136,6 +136,7 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
   const memberNamesRef  = useRef<Record<string, string>>({});
   const driveServiceRef = useRef(new DriveService());
   const memberCountRef  = useRef(0);
+  const lastEmitRef     = useRef<number>(-3000); // throttle own-location emits to 1/3 s
 
   // Keep mySosIdRef in sync so the socket handler closure always sees the current value
   useEffect(() => { mySosIdRef.current = mySosId; }, [mySosId]);
@@ -167,7 +168,7 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
     driveServiceRef.current.startSession();
   }, [groupId]);
 
-  // Track own location for SOS targeting
+  // Track own location — update local state, feed drive recorder, and broadcast to group
   useEffect(() => {
     let sub: ExpoLocation.LocationSubscription | null = null;
     let mounted = true;
@@ -182,6 +183,18 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
           setMySpeedKph(speedKph);
           motionStateService.update(speedKph);
           driveServiceRef.current.addPoint(loc.coords.latitude, loc.coords.longitude, speedKph);
+          // Broadcast own position to group (throttled to ≤1 emit per 3 s)
+          const now = Date.now();
+          if (socketRef.current?.connected && now - lastEmitRef.current >= 3000) {
+            socketRef.current.emit('location:update', {
+              lat: loc.coords.latitude,
+              lng: loc.coords.longitude,
+              heading: loc.coords.heading ?? 0,
+              speed_kph: speedKph,
+              ts: loc.timestamp,
+            });
+            lastEmitRef.current = now;
+          }
         },
       );
       if (!mounted) sub.remove();
@@ -687,7 +700,22 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
       {/* Gap alerts */}
       {gapAlerts.length > 0 && (
         <View style={styles.alertBanner}>
-          {gapAlerts.map((a) => <Text key={a.memberId} style={styles.alertText}>⚠ {memberNamesRef.current[a.memberId] ?? `Member ${a.memberId.slice(0, 6)}`} is {(a.distanceM / 1000).toFixed(1)} km behind</Text>)}
+          <View style={styles.alertBannerRow}>
+            <View style={styles.alertBannerTexts}>
+              {gapAlerts.map((a) => (
+                <Text key={a.memberId} style={styles.alertText}>
+                  ⚠ {memberNamesRef.current[a.memberId] ?? `Member ${a.memberId.slice(0, 6)}`} is {(a.distanceM / 1000).toFixed(1)} km behind
+                </Text>
+              ))}
+            </View>
+            <TouchableOpacity
+              onPress={() => setGapAlerts([])}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              accessibilityLabel="Dismiss gap alerts"
+            >
+              <Text style={styles.alertDismiss}>✕</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       )}
 
@@ -1119,7 +1147,10 @@ const styles = StyleSheet.create({
     padding: 10,
     zIndex: 8,
   },
+  alertBannerRow: { flexDirection: 'row', alignItems: 'flex-start' },
+  alertBannerTexts: { flex: 1 },
   alertText: { color: '#fff', fontSize: 13 },
+  alertDismiss: { color: '#fff', fontSize: 16, fontWeight: '700', marginLeft: 8, lineHeight: 20 },
   rallyBanner: {
     position: 'absolute',
     bottom: 330,
