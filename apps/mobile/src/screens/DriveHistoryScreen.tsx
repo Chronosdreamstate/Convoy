@@ -10,6 +10,7 @@ import {
   FlatList,
   Image,
   Platform,
+  RefreshControl,
   SafeAreaView,
   ScrollView,
   Share,
@@ -221,6 +222,7 @@ function DriveDetail({ drive, onBack, onShare, sharing }: DetailProps) {
 export default function DriveHistoryScreen() {
   const [drives, setDrives] = useState<DriveRecord[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
@@ -235,12 +237,19 @@ export default function DriveHistoryScreen() {
       }>(`/api/v1/drives?page=${pageNum}&limit=20&includeRoute=true`);
       setDrives((prev) => (replace ? res.data.drives : [...prev, ...res.data.drives]));
       setHasMore(pageNum < res.data.pagination.pages);
+      if (replace) setPage(1);
     } catch {
       Alert.alert('Error', 'Could not load drive history.');
     } finally {
       setLoading(false);
     }
   }, []);
+
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await fetchDrives(1, true);
+    setRefreshing(false);
+  }, [fetchDrives]);
 
   useEffect(() => { void fetchDrives(1, true); }, [fetchDrives]);
 
@@ -311,6 +320,14 @@ export default function DriveHistoryScreen() {
         contentContainerStyle={drives.length === 0 ? styles.listEmpty : styles.list}
         onEndReached={loadMore}
         onEndReachedThreshold={0.3}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => { void handleRefresh(); }}
+            tintColor="#DC143C"
+            colors={['#DC143C']}
+          />
+        }
         ListEmptyComponent={
           <View style={styles.emptyState}>
             <Text style={styles.emptyEmoji}>🛣️</Text>
