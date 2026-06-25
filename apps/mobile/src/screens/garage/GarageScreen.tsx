@@ -390,7 +390,7 @@ const styles = StyleSheet.create({
   title: { fontSize: 28, fontWeight: '700', color: '#F0F0F0' },
   subtitle: { color: '#888888', fontSize: 13 },
 
-  errorText: { color: '#ef4444', fontSize: 13, marginBottom: 12 },
+  errorText: { color: '#DC143C', fontSize: 13, marginBottom: 12 },
 
   // Empty state
   emptyState: {
@@ -454,7 +454,7 @@ const styles = StyleSheet.create({
   },
   actionButtonText: { color: '#F0F0F0', fontSize: 13, fontWeight: '600' },
   deleteButton: { backgroundColor: '#1A0505' },
-  deleteButtonText: { color: '#ef4444', fontSize: 13, fontWeight: '600' },
+  deleteButtonText: { color: '#DC143C', fontSize: 13, fontWeight: '600' },
   colorRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 },
   colorSwatch: { width: 10, height: 10, borderRadius: 5, borderWidth: 1, borderColor: '#3A3A3A' },
 

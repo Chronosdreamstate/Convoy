@@ -45,27 +45,27 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   exceeded: {
-    borderColor: '#ef4444',
-    backgroundColor: '#fef2f2',
+    borderColor: '#DC143C',
+    backgroundColor: '#fff0f0',
   },
   label: {
     fontSize: 6,
     fontWeight: '700',
-    color: '#6b7280',
+    color: '#555555',
     letterSpacing: 0.5,
   },
   value: {
     fontSize: 20,
     fontWeight: '800',
-    color: '#111827',
+    color: '#0A0A0A',
     lineHeight: 22,
   },
   valueExceeded: {
-    color: '#ef4444',
+    color: '#DC143C',
   },
   unit: {
     fontSize: 7,
     fontWeight: '600',
-    color: '#9ca3af',
+    color: '#888888',
   },
 });

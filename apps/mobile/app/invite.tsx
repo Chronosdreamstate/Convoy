@@ -369,7 +369,7 @@ const styles = StyleSheet.create({
     minHeight: 52,
     minWidth: 220,
     borderWidth: 1,
-    borderColor: '#333333',
+    borderColor: '#2A2A2A',
     marginTop: 4,
   },
   secondaryBtnText: {

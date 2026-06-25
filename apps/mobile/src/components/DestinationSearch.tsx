@@ -123,7 +123,7 @@ export default function DestinationSearch({
           onFocus={() => setFocused(true)}
           onBlur={() => setTimeout(() => setFocused(false), 150)}
           placeholder={isOnline ? placeholder : 'Search unavailable offline'}
-          placeholderTextColor="#9ca3af"
+          placeholderTextColor="#555555"
           editable={isOnline}
           returnKeyType="search"
           clearButtonMode="while-editing"
@@ -193,12 +193,14 @@ const styles = StyleSheet.create({
   card: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#ffffff',
+    backgroundColor: '#1C1C1C',
     borderRadius: 12,
     paddingHorizontal: 12,
     height: 48,
+    borderWidth: 1,
+    borderColor: '#2A2A2A',
     shadowColor: '#000',
-    shadowOpacity: 0.15,
+    shadowOpacity: 0.4,
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 2 },
     elevation: 5,
@@ -208,27 +210,29 @@ const styles = StyleSheet.create({
     flex: 1,
     height: 48,
     fontSize: 15,
-    color: '#111827',
+    color: '#F0F0F0',
   },
   spinner: { marginLeft: 8 },
 
   dropdown: {
     marginTop: 4,
-    backgroundColor: '#ffffff',
+    backgroundColor: '#1C1C1C',
     borderRadius: 12,
     overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#2A2A2A',
     shadowColor: '#000',
-    shadowOpacity: 0.12,
+    shadowOpacity: 0.4,
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 2 },
     elevation: 4,
   },
 
-  errorRow: { padding: 12, backgroundColor: '#fef2f2' },
-  errorText: { color: '#dc2626', fontSize: 13 },
+  errorRow: { padding: 12, backgroundColor: 'rgba(220,20,60,0.10)' },
+  errorText: { color: '#DC143C', fontSize: 13 },
 
-  offlineBanner: { padding: 12, backgroundColor: '#f3f4f6' },
-  offlineText: { color: '#6b7280', fontSize: 13, textAlign: 'center' },
+  offlineBanner: { padding: 12, backgroundColor: '#2A2A2A' },
+  offlineText: { color: '#888888', fontSize: 13, textAlign: 'center' },
 
   list: { maxHeight: 320 },
   result: {
@@ -236,15 +240,15 @@ const styles = StyleSheet.create({
     minHeight: 44,
     justifyContent: 'center',
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#f3f4f6',
+    borderBottomColor: '#2A2A2A',
   },
-  resultName: { fontSize: 14, fontWeight: '600', color: '#111827' },
-  resultAddress: { fontSize: 12, color: '#6b7280', marginTop: 2 },
+  resultName: { fontSize: 14, fontWeight: '600', color: '#F0F0F0' },
+  resultAddress: { fontSize: 12, color: '#888888', marginTop: 2 },
   resultCategory: {
     fontSize: 11,
     color: '#DC143C',
     marginTop: 2,
     textTransform: 'capitalize',
   },
-  noResults: { padding: 16, color: '#6b7280', textAlign: 'center', fontSize: 13 },
+  noResults: { padding: 16, color: '#888888', textAlign: 'center', fontSize: 13 },
 });
