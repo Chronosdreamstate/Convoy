@@ -144,6 +144,8 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
   const mySosIdRef      = useRef<string | null>(null);
   const pttServiceRef   = useRef<PTTService | null>(null);
   const micPermGrantedRef = useRef(false); // tracks first PTT permission request (Req 36.6)
+  const myLocationRef = useRef<{ lat: number; lng: number } | null>(null); // shadow for callbacks
+  const activeDestRef = useRef<{ lat: number; lng: number } | null>(null); // dest of active route
   const memberNamesRef  = useRef<Record<string, string>>({});
   const memberVehiclesRef = useRef<Record<string, string>>({});
   const driveServiceRef = useRef(new DriveService());
@@ -197,7 +199,9 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
         { accuracy: ExpoLocation.Accuracy.High, distanceInterval: 10 },
         (loc) => {
           const speedKph = (loc.coords.speed ?? 0) * 3.6;
-          setMyLocation({ lat: loc.coords.latitude, lng: loc.coords.longitude });
+          const pos = { lat: loc.coords.latitude, lng: loc.coords.longitude };
+          myLocationRef.current = pos;
+          setMyLocation(pos);
           setMySpeedKph(speedKph);
           motionStateService.update(speedKph);
           driveServiceRef.current.addPoint(loc.coords.latitude, loc.coords.longitude, speedKph);
@@ -259,6 +263,35 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
   useEffect(() => {
     pttServiceRef.current?.setUserVolume(pttVolumePercent);
   }, [pttVolumePercent]);
+
+  // Traffic refresh — re-calculate active route every 60 s (Req 6.3)
+  useEffect(() => {
+    if (routeCoords.length === 0) return;
+    const timer = setInterval(async () => {
+      const origin = myLocationRef.current;
+      const dest = activeDestRef.current;
+      if (!origin || !dest) return;
+      try {
+        const routeBody = { origin, destination: dest, scenic: scenicRouting };
+        const routeRes = await apiClient.post<{ routes: RouteAlternative[] }>('/api/v1/routes/calculate', routeBody);
+        const alts = routeRes.data.routes;
+        if (alts.length > 0) {
+          setRouteAlternatives(alts);
+          // Preserve selected index (clamped to available routes)
+          setSelectedRouteIdx((prev) => {
+            const next = Math.min(prev, alts.length - 1);
+            const coords = alts[next]?.geometry.coordinates.map(([lng, lat]) => ({ latitude: lat, longitude: lng })) ?? [];
+            setRouteCoords(coords);
+            setPostedSpeedLimitKph(alts[next]?.speedLimitKph ?? null);
+            return next;
+          });
+        }
+      } catch { /* silent — stale route continues to display */ }
+    }, 60_000);
+    return () => clearInterval(timer);
+  // scenicRouting and route selection are accessed via refs; routeCoords.length is the gate
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routeCoords.length]);
 
   // WebSocket
   useEffect(() => {
@@ -557,6 +590,7 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
       const coords = alts[0]?.geometry.coordinates.map(([lng, lat]) => ({ latitude: lat, longitude: lng })) ?? [];
       setRouteCoords(coords);
       setPostedSpeedLimitKph(alts[0]?.speedLimitKph ?? null);
+      activeDestRef.current = dest;
     } catch {
       Alert.alert('Error', 'Could not calculate route.');
     } finally {
@@ -1080,7 +1114,7 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
             {routeCoords.length > 0 && routeAlternatives.length > 0 && (
               <TouchableOpacity
                 style={styles.routeClearBtn}
-                onPress={() => { setRouteCoords([]); setRouteAlternatives([]); setRouteDestInput(''); setPostedSpeedLimitKph(null); }}
+                onPress={() => { setRouteCoords([]); setRouteAlternatives([]); setRouteDestInput(''); setPostedSpeedLimitKph(null); activeDestRef.current = null; }}
               >
                 <Text style={styles.routeClearText}>Clear Route</Text>
               </TouchableOpacity>
