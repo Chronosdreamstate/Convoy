@@ -163,13 +163,36 @@ async function usersRoutes(
   });
 
   // -------------------------------------------------------------------------
-  // GET /users/search?phone=
+  // GET /users/search?phone=<e164>  — exact phone lookup (single result)
+  // GET /users/search?q=<name>      — display-name search  (array result)
   // -------------------------------------------------------------------------
   fastify.get('/users/search', { preHandler: [authenticate] }, async (request, reply) => {
     const userId = (request.user as { sub: string }).sub;
-    const phone = (request.query as Record<string, string | undefined>).phone;
+    const query = request.query as Record<string, string | undefined>;
+    const phone = query.phone;
+    const q = query.q?.trim() ?? '';
+
+    // ── Display-name search (used by FriendsScreen / Find People tab) ─────
+    if (q) {
+      if (q.length < 2) return reply.badRequest('q must be at least 2 characters');
+      const result = await fastify.db.query<Pick<UserRow, 'id' | 'display_name' | 'avatar_url'>>(
+        `SELECT id, display_name, avatar_url
+         FROM users
+         WHERE id != $1
+           AND privacy = 'open'
+           AND display_name ILIKE $2
+         ORDER BY display_name
+         LIMIT 20`,
+        [userId, `%${q}%`],
+      );
+      return reply.send({
+        users: result.rows.map((u) => ({ id: u.id, displayName: u.display_name, avatarUrl: u.avatar_url })),
+      });
+    }
+
+    // ── Phone lookup (legacy — returns single user object) ─────────────────
     if (!phone) {
-      return reply.badRequest('phone query parameter is required');
+      return reply.badRequest('phone or q query parameter is required');
     }
 
     const result = await fastify.db.query<Pick<UserRow, 'id' | 'display_name' | 'avatar_url' | 'ptt_callsign' | 'privacy'>>(
