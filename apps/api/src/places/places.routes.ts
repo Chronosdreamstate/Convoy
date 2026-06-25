@@ -64,11 +64,8 @@ export default async function placesRoutes(app: FastifyInstance) {
         headers: { 'User-Agent': `ConvoyApp/1.0 (${env.NOMINATIM_CONTACT_EMAIL})` },
         signal: AbortSignal.timeout(8000),
       });
-    } catch (err: unknown) {
-      if (err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError')) {
-        return reply.send([]);
-      }
-      throw err;
+    } catch {
+      return reply.send([]);
     }
 
     if (!res.ok) return reply.send([]);
