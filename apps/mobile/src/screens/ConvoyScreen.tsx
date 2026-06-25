@@ -110,6 +110,7 @@ export default function ConvoyScreen({ userId }: Props) {
   const { socket } = useSocketStore();
   const { memberLocations } = useLocationStore();
 
+  const activeGroupId = useGroupStore((s) => s.activeGroupId);
   const setActiveGroupId = useGroupStore((s) => s.setActiveGroupId);
   const setPttChannelId = useGroupStore((s) => s.setPttChannelId);
 
@@ -117,6 +118,21 @@ export default function ConvoyScreen({ userId }: Props) {
   useEffect(() => {
     setActiveGroupId(group?.id ?? null);
   }, [group?.id, setActiveGroupId]);
+
+  // On mount: restore full group state when the root layout already resolved an
+  // active group from GET /groups/active (happens after app restart).
+  // By the time ConvoyScreen mounts, authStore.isLoading is false and
+  // activeGroupId is stable — so [] dependency is intentional here.
+  useEffect(() => {
+    if (group !== null || !activeGroupId) return;
+    setLoading(true);
+    apiClient
+      .get<ConvoyGroup>(`/api/v1/groups/${activeGroupId}`)
+      .then((res) => { if (res.data.status === 'active') setGroup(res.data); })
+      .catch(() => {}) // group ended or user no longer a member — leave as null
+      .finally(() => setLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Sync active PTT channel to global store
   useEffect(() => {
