@@ -58,12 +58,13 @@ export class PTTService {
   private isTransmitting = false;
   private listenersRegistered = false;
   private expiryListenerRegistered = false;
+  private userVolume = FULL_VOLUME; // reflects user's pttVolumePercent setting (0–400)
 
   private readonly pttTransmitHandler = () => {
     this.engine.adjustPlaybackSignalVolume(DUCK_VOLUME);
   };
   private readonly pttEndedHandler = () => {
-    this.engine.adjustPlaybackSignalVolume(FULL_VOLUME);
+    this.engine.adjustPlaybackSignalVolume(this.userVolume);
   };
 
   constructor(
@@ -85,6 +86,7 @@ export class PTTService {
     const { token, uid, channelName } = await this.tokenFetcher.fetchToken(groupId, channelId);
 
     await this.engine.joinChannel(token, channelName, uid);
+    this.engine.adjustPlaybackSignalVolume(this.userVolume);
 
     // Auto-refresh before expiry (Req 38.2) — register only once to prevent accumulation
     if (!this.expiryListenerRegistered) {
@@ -135,7 +137,7 @@ export class PTTService {
     }
 
     this.engine.muteLocalAudioStream(true);
-    this.engine.adjustPlaybackSignalVolume(FULL_VOLUME);
+    this.engine.adjustPlaybackSignalVolume(this.userVolume);
 
     // Send end event even without a server-assigned logId (channel fallback)
     this.socket.emit('ptt:end', {
@@ -160,6 +162,14 @@ export class PTTService {
   setAdminMuted(muted: boolean): void {
     this.adminMuted = muted;
     if (muted && this.isTransmitting) this.holdEnd();
+  }
+
+  /** Apply user's volume preference (0–100 percent scale). Updates stored level and Agora immediately. */
+  setUserVolume(volumePercent: number): void {
+    this.userVolume = Math.round(Math.max(0, Math.min(100, volumePercent)) / 100 * 400);
+    if (!this.isTransmitting) {
+      this.engine.adjustPlaybackSignalVolume(this.userVolume);
+    }
   }
 
   /** Adjust PTT receive volume (0–400). */

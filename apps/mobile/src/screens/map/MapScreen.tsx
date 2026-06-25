@@ -137,6 +137,7 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
   const mapStyle = useSettingsStore((s) => s.mapStyle);
   const scenicRouting = useSettingsStore((s) => s.scenicRouting);
   const pttMaxSeconds = useSettingsStore((s) => s.pttMaxSeconds);
+  const pttVolumePercent = useSettingsStore((s) => s.pttVolumePercent);
 
   const socketRef       = useRef<Socket | null>(null);
   const mapRef          = useRef<MapView>(null);
@@ -235,6 +236,7 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
       socket,
       hapticAdapter,
     );
+    service.setUserVolume(pttVolumePercent);
     pttServiceRef.current = service;
     void service.joinChannel({ groupId, channelId: pttChannelId, maxSeconds: pttMaxSeconds });
 
@@ -248,7 +250,14 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
       void service.leaveChannel();
       pttServiceRef.current = null;
     };
+  // pttVolumePercent intentionally excluded — volume changes are applied reactively below
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [socket, pttChannelId, groupId]);
+
+  // Apply volume preference changes to an already-active PTT session (Req 10.8)
+  useEffect(() => {
+    pttServiceRef.current?.setUserVolume(pttVolumePercent);
+  }, [pttVolumePercent]);
 
   // WebSocket
   useEffect(() => {
