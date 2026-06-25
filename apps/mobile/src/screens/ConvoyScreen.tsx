@@ -219,17 +219,24 @@ export default function ConvoyScreen({ userId }: Props) {
     fetchMembers(group.id);
   }, [group?.id, fetchMembers]);
 
-  // ── Socket: listen for group:ended using the shared MapScreen socket ────
+  // ── Socket: real-time group and member events ─────────────────────────────
   useEffect(() => {
     if (!socket || !group) return;
-    const handleGroupEnded = () => {
-      setGroup(null);
-      setMembers([]);
-      setView('home');
-    };
+    const handleGroupEnded = () => { setGroup(null); setMembers([]); setView('home'); };
+    const handleMemberJoined = () => { fetchMembers(group.id); };
+    const handleMemberLeft = () => { fetchMembers(group.id); };
+    const handleKicked = () => { setGroup(null); setMembers([]); setView('home'); };
     socket.on('group:ended', handleGroupEnded);
-    return () => { socket.off('group:ended', handleGroupEnded); };
-  }, [socket, group]);
+    socket.on('member:joined', handleMemberJoined);
+    socket.on('member:left', handleMemberLeft);
+    socket.on('member:kicked', handleKicked);
+    return () => {
+      socket.off('group:ended', handleGroupEnded);
+      socket.off('member:joined', handleMemberJoined);
+      socket.off('member:left', handleMemberLeft);
+      socket.off('member:kicked', handleKicked);
+    };
+  }, [socket, group, fetchMembers]);
 
   // ── Gap threshold (Admin only) ────────────────────────────────────────────
   const handleSetGapThreshold = useCallback(async (metres: number) => {
