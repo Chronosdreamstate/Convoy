@@ -131,10 +131,12 @@ interface DetailProps {
   drive: DriveRecord;
   onBack: () => void;
   onShare: (id: string) => void;
+  onDelete: (id: string) => void;
   sharing: boolean;
+  deleting: boolean;
 }
 
-function DriveDetail({ drive, onBack, onShare, sharing }: DetailProps) {
+function DriveDetail({ drive, onBack, onShare, onDelete, sharing, deleting }: DetailProps) {
   const routeCoords = drive.routeTrace?.coordinates.map(([lng, lat]) => ({
     latitude: lat,
     longitude: lng,
@@ -202,12 +204,26 @@ function DriveDetail({ drive, onBack, onShare, sharing }: DetailProps) {
         <TouchableOpacity
           style={[styles.shareBtn, sharing && styles.shareBtnDisabled]}
           onPress={() => onShare(drive.id)}
-          disabled={sharing}
+          disabled={sharing || deleting}
+          accessibilityLabel="Share summary card"
         >
           {sharing ? (
             <ActivityIndicator color="#fff" />
           ) : (
             <Text style={styles.shareBtnText}>Share Summary Card</Text>
+          )}
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.deleteBtn, deleting && styles.shareBtnDisabled]}
+          onPress={() => onDelete(drive.id)}
+          disabled={deleting || sharing}
+          accessibilityLabel="Delete drive record"
+        >
+          {deleting ? (
+            <ActivityIndicator color="#DC143C" />
+          ) : (
+            <Text style={styles.deleteBtnText}>Delete Record</Text>
           )}
         </TouchableOpacity>
       </ScrollView>
@@ -228,6 +244,7 @@ export default function DriveHistoryScreen() {
   const [hasMore, setHasMore] = useState(true);
   const [selected, setSelected] = useState<DriveRecord | null>(null);
   const [sharingId, setSharingId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const fetchDrives = useCallback(async (pageNum: number, replace: boolean) => {
     try {
@@ -284,6 +301,32 @@ export default function DriveHistoryScreen() {
     }
   }, []);
 
+  const handleDelete = useCallback((driveId: string) => {
+    Alert.alert(
+      'Delete Drive Record',
+      'This permanently removes this drive from your history. This cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            setDeletingId(driveId);
+            try {
+              await apiClient.delete(`/api/v1/drives/${driveId}`);
+              setDrives((prev) => prev.filter((d) => d.id !== driveId));
+              setSelected(null);
+            } catch {
+              Alert.alert('Error', 'Could not delete this drive record. Please try again.');
+            } finally {
+              setDeletingId(null);
+            }
+          },
+        },
+      ],
+    );
+  }, []);
+
   if (selected) {
     return (
       <SafeAreaView style={styles.container}>
@@ -291,7 +334,9 @@ export default function DriveHistoryScreen() {
           drive={selected}
           onBack={() => setSelected(null)}
           onShare={handleShare}
+          onDelete={handleDelete}
           sharing={sharingId === selected.id}
+          deleting={deletingId === selected.id}
         />
       </SafeAreaView>
     );
@@ -544,4 +589,14 @@ const styles = StyleSheet.create({
   },
   shareBtnDisabled: { opacity: 0.6 },
   shareBtnText: { color: '#fff', fontWeight: '700', fontSize: 16 },
+  deleteBtn: {
+    marginTop: 12,
+    paddingVertical: 16,
+    borderRadius: 14,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#DC143C',
+    minHeight: 52,
+  },
+  deleteBtnText: { color: '#DC143C', fontWeight: '700', fontSize: 16 },
 });
