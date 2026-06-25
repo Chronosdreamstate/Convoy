@@ -60,6 +60,7 @@ export default function PhoneScreen() {
         <TouchableOpacity
           style={styles.backBtn}
           onPress={() => router.back()}
+          accessibilityRole="button"
           accessibilityLabel="Go back"
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         >
