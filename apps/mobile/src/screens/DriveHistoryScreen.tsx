@@ -10,6 +10,8 @@ import {
   FlatList,
   Image,
   Platform,
+  SafeAreaView,
+  ScrollView,
   Share,
   StyleSheet,
   Text,
@@ -147,65 +149,67 @@ function DriveDetail({ drive, onBack, onShare, sharing }: DetailProps) {
         <Text style={styles.backText}>← Back</Text>
       </TouchableOpacity>
 
-      <Text style={styles.detailTitle}>Drive Summary</Text>
-      <Text style={styles.detailDate}>
-        {formatDate(drive.endedAt)} · {formatTime(drive.endedAt)}
-      </Text>
+      <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+        <Text style={styles.detailTitle}>Drive Summary</Text>
+        <Text style={styles.detailDate}>
+          {formatDate(drive.endedAt)} · {formatTime(drive.endedAt)}
+        </Text>
 
-      {/* Route map */}
-      {routeCoords.length > 1 ? (
-        <View style={styles.mapPlaceholder}>
-          <MapView
-            provider={PROVIDER_DEFAULT}
-            style={styles.driveMapView}
-            initialRegion={{
-              latitude: centerLat,
-              longitude: centerLng,
-              latitudeDelta: 0.15,
-              longitudeDelta: 0.15,
-            }}
-            scrollEnabled={false}
-            zoomEnabled={false}
-            rotateEnabled={false}
-            pitchEnabled={false}
-          >
-            <Polyline
-              coordinates={routeCoords}
-              strokeColor="#DC143C"
-              strokeWidth={3}
-            />
-          </MapView>
-        </View>
-      ) : (
-        <View style={styles.mapPlaceholder}>
-          <Text style={styles.mapPlaceholderIcon}>🗺</Text>
-          <Text style={styles.mapPlaceholderText}>Route map unavailable</Text>
-        </View>
-      )}
-
-      {/* 2×2 stats grid */}
-      <View style={styles.statsGrid}>
-        <Stat icon="📍" label="Distance" value={formatDistance(drive.distanceM)} />
-        <Stat icon="⏱" label="Duration" value={formatDuration(drive.durationS)} />
-        <Stat icon="💨" label="Avg Speed" value={drive.avgSpeedKph ? `${drive.avgSpeedKph.toFixed(0)} km/h` : '—'} />
-        <Stat icon="🏎" label="Top Speed" value={drive.topSpeedKph ? `${drive.topSpeedKph.toFixed(0)} km/h` : '—'} />
-      </View>
-
-      {drive.memberCount > 0 && (
-        <Text style={styles.detailMembers}>👥 {drive.memberCount} member{drive.memberCount !== 1 ? 's' : ''}</Text>
-      )}
-
-      <TouchableOpacity
-        style={[styles.shareBtn, sharing && styles.shareBtnDisabled]}
-        onPress={() => onShare(drive.id)}
-        disabled={sharing}
-      >
-        {sharing ? (
-          <ActivityIndicator color="#fff" />
+        {/* Route map */}
+        {routeCoords.length > 1 ? (
+          <View style={styles.mapPlaceholder}>
+            <MapView
+              provider={PROVIDER_DEFAULT}
+              style={styles.driveMapView}
+              initialRegion={{
+                latitude: centerLat,
+                longitude: centerLng,
+                latitudeDelta: 0.15,
+                longitudeDelta: 0.15,
+              }}
+              scrollEnabled={false}
+              zoomEnabled={false}
+              rotateEnabled={false}
+              pitchEnabled={false}
+            >
+              <Polyline
+                coordinates={routeCoords}
+                strokeColor="#DC143C"
+                strokeWidth={3}
+              />
+            </MapView>
+          </View>
         ) : (
-          <Text style={styles.shareBtnText}>Share Summary Card</Text>
+          <View style={styles.mapPlaceholder}>
+            <Text style={styles.mapPlaceholderIcon}>🗺</Text>
+            <Text style={styles.mapPlaceholderText}>Route map unavailable</Text>
+          </View>
         )}
-      </TouchableOpacity>
+
+        {/* 2×2 stats grid */}
+        <View style={styles.statsGrid}>
+          <Stat icon="📍" label="Distance" value={formatDistance(drive.distanceM)} />
+          <Stat icon="⏱" label="Duration" value={formatDuration(drive.durationS)} />
+          <Stat icon="💨" label="Avg Speed" value={drive.avgSpeedKph ? `${drive.avgSpeedKph.toFixed(0)} km/h` : '—'} />
+          <Stat icon="🏎" label="Top Speed" value={drive.topSpeedKph ? `${drive.topSpeedKph.toFixed(0)} km/h` : '—'} />
+        </View>
+
+        {drive.memberCount > 0 && (
+          <Text style={styles.detailMembers}>👥 {drive.memberCount} member{drive.memberCount !== 1 ? 's' : ''}</Text>
+        )}
+
+        <TouchableOpacity
+          style={[styles.shareBtn, sharing && styles.shareBtnDisabled]}
+          onPress={() => onShare(drive.id)}
+          disabled={sharing}
+        >
+          {sharing ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <Text style={styles.shareBtnText}>Share Summary Card</Text>
+          )}
+        </TouchableOpacity>
+      </ScrollView>
     </View>
   );
 }
@@ -273,25 +277,29 @@ export default function DriveHistoryScreen() {
 
   if (selected) {
     return (
-      <DriveDetail
-        drive={selected}
-        onBack={() => setSelected(null)}
-        onShare={handleShare}
-        sharing={sharingId === selected.id}
-      />
+      <SafeAreaView style={styles.container}>
+        <DriveDetail
+          drive={selected}
+          onBack={() => setSelected(null)}
+          onShare={handleShare}
+          sharing={sharingId === selected.id}
+        />
+      </SafeAreaView>
     );
   }
 
   if (loading && drives.length === 0) {
     return (
-      <View style={styles.centered}>
-        <ActivityIndicator color="#DC143C" size="large" />
-      </View>
+      <SafeAreaView style={styles.container}>
+        <View style={styles.centered}>
+          <ActivityIndicator color="#DC143C" size="large" />
+        </View>
+      </SafeAreaView>
     );
   }
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container}>
       <View style={styles.screenHeader}>
         <Text style={styles.screenTitle}>Drive History</Text>
         <Text style={styles.screenSubtitle}>{drives.length} drive{drives.length !== 1 ? 's' : ''}</Text>
@@ -369,7 +377,7 @@ export default function DriveHistoryScreen() {
           </View>
         )}
       />
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -379,7 +387,7 @@ export default function DriveHistoryScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0A0A0A' },
-  centered: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#0A0A0A' },
+  centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 
   screenHeader: {
     flexDirection: 'row',
