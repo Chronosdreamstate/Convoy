@@ -12,7 +12,7 @@
  */
 
 import fc from 'fast-check';
-import { PinDropService, DroppedPin, IPinStorage } from './PinDropService';
+import { PinDropService, DroppedPin, IPinStorage, GeocoderFn } from './PinDropService';
 
 // ---------------------------------------------------------------------------
 // Test doubles
@@ -28,12 +28,12 @@ function makeMemoryStorage(): { storage: IPinStorage; data: Map<string, string> 
   return { storage, data };
 }
 
-function makeNullGeocoder(): jest.MockedFunction<(lat: number, lng: number) => Promise<string | null>> {
-  return jest.fn(async () => null);
+function makeNullGeocoder(): jest.MockedFunction<GeocoderFn> {
+  return jest.fn(async (_lat: number, _lng: number) => null);
 }
 
-function makeGeocoder(result: string | null): jest.MockedFunction<(lat: number, lng: number) => Promise<string | null>> {
-  return jest.fn(async () => result);
+function makeGeocoder(result: string | null): jest.MockedFunction<GeocoderFn> {
+  return jest.fn(async (_lat: number, _lng: number) => result);
 }
 
 function makePin(overrides: Partial<DroppedPin> = {}): DroppedPin {
