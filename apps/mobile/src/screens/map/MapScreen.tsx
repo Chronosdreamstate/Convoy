@@ -443,10 +443,10 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
     if (!myLocation || !routeDestInput.trim()) return;
     setIsCalcRoute(true);
     try {
-      const searchRes = await apiClient.get<{ results: Array<{ lat: number; lng: number; name: string }> }>(
+      const searchRes = await apiClient.get<Array<{ lat: number; lng: number; name: string }>>(
         `/api/v1/places/search?q=${encodeURIComponent(routeDestInput.trim())}`,
       );
-      const dest = searchRes.data.results[0];
+      const dest = Array.isArray(searchRes.data) ? searchRes.data[0] : undefined;
       if (!dest) { Alert.alert('No results', 'No location found for that search.'); return; }
       const routeRes = await apiClient.post<{ routes: RouteAlternative[] }>('/api/v1/routes/calculate', {
         origin: { lat: myLocation.lat, lng: myLocation.lng },
