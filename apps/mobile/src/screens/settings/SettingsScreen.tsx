@@ -480,7 +480,7 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
   errorText: {
-    color: '#ef4444',
+    color: '#DC143C',
     fontSize: 13,
     marginBottom: 16,
   },
@@ -543,7 +543,7 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   settingLabelDanger: {
-    color: '#ef4444',
+    color: '#DC143C',
   },
   settingSubtitle: {
     fontSize: 12,

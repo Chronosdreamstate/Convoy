@@ -590,7 +590,7 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
           <Marker key={r.id} coordinate={{ latitude: r.lat, longitude: r.lng }} title="Rally Point" description={r.address ?? undefined} pinColor="#22c55e" />
         ))}
         {sosPinList.map((s) => (
-          <Marker key={s.id} coordinate={{ latitude: s.lat, longitude: s.lng }} title="SOS" pinColor="#ef4444" />
+          <Marker key={s.id} coordinate={{ latitude: s.lat, longitude: s.lng }} title="SOS" pinColor="#DC143C" />
         ))}
         {Array.from(hazardPins.values()).map((h) => (
           <Marker
