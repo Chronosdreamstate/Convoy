@@ -14,6 +14,24 @@ import {
 } from 'react-native';
 import { apiClient } from '../../services/apiClient';
 
+const COLOR_MAP: Record<string, string> = {
+  'black': '#1a1a1a', 'white': '#f5f5f5', 'silver': '#c0c0c0', 'gray': '#808080',
+  'grey': '#808080', 'red': '#DC143C', 'blue': '#1d4ed8', 'navy': '#1e3a5f',
+  'green': '#15803d', 'yellow': '#eab308', 'orange': '#ea580c', 'brown': '#92400e',
+  'gold': '#d97706', 'bronze': '#b45309', 'purple': '#7c3aed', 'pink': '#ec4899',
+  'maroon': '#7f1d1d', 'teal': '#0d9488', 'copper': '#b87333', 'charcoal': '#36454f',
+  'agate': '#444444', 'pearl': '#f0ede0', 'cream': '#fffdd0', 'beige': '#f5f5dc',
+};
+
+function colorSwatch(colorName: string | null): string | null {
+  if (!colorName) return null;
+  const lower = colorName.toLowerCase();
+  for (const [key, hex] of Object.entries(COLOR_MAP)) {
+    if (lower.includes(key)) return hex;
+  }
+  return null;
+}
+
 interface Vehicle {
   id: string;
   year: number | null;
@@ -239,7 +257,12 @@ export default function GarageScreen() {
                   <Text style={styles.vehicleName}>{vehicleLabel(v)}</Text>
                 </View>
                 {v.color ? (
-                  <Text style={styles.vehicleDetail}>{v.color}</Text>
+                  <View style={styles.colorRow}>
+                    {colorSwatch(v.color) ? (
+                      <View style={[styles.colorSwatch, { backgroundColor: colorSwatch(v.color)! }]} />
+                    ) : null}
+                    <Text style={styles.vehicleDetail}>{v.color}</Text>
+                  </View>
                 ) : null}
                 {!v.isActive && (
                   isActivating === v.id
@@ -432,6 +455,8 @@ const styles = StyleSheet.create({
   actionButtonText: { color: '#F0F0F0', fontSize: 13, fontWeight: '600' },
   deleteButton: { backgroundColor: '#1A0505' },
   deleteButtonText: { color: '#ef4444', fontSize: 13, fontWeight: '600' },
+  colorRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 },
+  colorSwatch: { width: 10, height: 10, borderRadius: 5, borderWidth: 1, borderColor: '#3A3A3A' },
 
   // FAB
   fab: {

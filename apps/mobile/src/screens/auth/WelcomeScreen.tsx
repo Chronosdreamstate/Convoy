@@ -115,7 +115,7 @@ export default function WelcomeScreen() {
             accessibilityRole="button"
             accessibilityLabel="Sign in with Apple"
           >
-            <Text style={styles.appleButtonText}>  Sign in with Apple</Text>
+            <Text style={styles.appleButtonText}>Sign in with Apple</Text>
           </TouchableOpacity>
         )}
 
@@ -125,7 +125,7 @@ export default function WelcomeScreen() {
           accessibilityRole="button"
           accessibilityLabel="Sign in with Google"
         >
-          <Text style={styles.googleButtonText}>G  Sign in with Google</Text>
+          <Text style={styles.googleButtonText}>Sign in with Google</Text>
         </TouchableOpacity>
       </View>
 
@@ -190,7 +190,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   buttonSection: {
-    gap: 0,
     paddingBottom: 8,
   },
   primaryButton: {

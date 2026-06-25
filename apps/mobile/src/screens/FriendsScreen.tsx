@@ -208,8 +208,18 @@ function RequestsTab() {
 
   if (loading) {
     return (
-      <View style={styles.centered}>
-        <ActivityIndicator color="#DC143C" size="large" />
+      <View style={styles.skeletonContainer}>
+        {[0, 1, 2].map((i) => (
+          <View key={i} style={styles.skeletonRow}>
+            <View style={styles.skeletonAvatar} />
+            <View style={styles.skeletonLines}>
+              <View style={[styles.skeletonLine, { width: '55%' }]} />
+              <View style={[styles.skeletonLine, { width: '35%', marginTop: 6 }]} />
+            </View>
+            <View style={styles.skeletonBtn} />
+            <View style={[styles.skeletonBtn, { marginLeft: 6 }]} />
+          </View>
+        ))}
       </View>
     );
   }
