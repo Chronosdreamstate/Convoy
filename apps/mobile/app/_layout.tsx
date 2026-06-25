@@ -7,6 +7,7 @@ import * as Notifications from 'expo-notifications';
 import { useAuthStore } from '../src/stores/authStore';
 import { authService } from '../src/services/AuthService';
 import { apiClient } from '../src/services/apiClient';
+import { useGroupStore } from '../src/stores/groupStore';
 import {
   registerForPushNotificationsAsync,
   setupNotificationHandler,
@@ -90,6 +91,7 @@ function handleNotificationNavigation(
 
 export default function RootLayout() {
   const { isAuthenticated, isLoading, setUser, setLoading, signOut: storeSignOut } = useAuthStore();
+  const setActiveGroupId = useGroupStore((s) => s.setActiveGroupId);
   const router = useRouter();
   // Guard: push registration must only run once per session, after auth confirms
   const pushRegisteredRef = useRef(false);
@@ -104,8 +106,14 @@ export default function RootLayout() {
         const freshToken = await authService.refreshToken();
         if (!freshToken) { await authService.signOut(); return; }
         if (cancelled) return;
-        const res = await apiClient.get('/api/v1/users/me');
-        if (!cancelled) setUser(res.data);
+        const [meRes, activeRes] = await Promise.all([
+          apiClient.get('/api/v1/users/me'),
+          apiClient.get<{ group: { id: string } | null }>('/api/v1/groups/active'),
+        ]);
+        if (!cancelled) {
+          setUser(meRes.data);
+          setActiveGroupId(activeRes.data.group?.id ?? null);
+        }
       } catch {
         if (!cancelled) storeSignOut();
       } finally {

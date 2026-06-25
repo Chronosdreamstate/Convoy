@@ -1,8 +1,10 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   SafeAreaView,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   TextInput,
@@ -418,12 +420,40 @@ const TABS: { id: TabId; label: string }[] = [
 
 export default function FriendsScreen() {
   const [activeTab, setActiveTab] = useState<TabId>('friends');
+  const [isInviting, setIsInviting] = useState(false);
+
+  const handleInvite = useCallback(async () => {
+    setIsInviting(true);
+    try {
+      const res = await apiClient.get<{ inviteLink: string }>('/api/v1/friends/invite-link');
+      await Share.share({
+        message: `Join me on CONVOY — the car enthusiast group navigation app! ${res.data.inviteLink}`,
+        url: res.data.inviteLink,
+      });
+    } catch {
+      Alert.alert('Error', 'Could not generate invite link.');
+    } finally {
+      setIsInviting(false);
+    }
+  }, []);
 
   return (
     <SafeAreaView style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Friends</Text>
+        <TouchableOpacity
+          style={styles.inviteBtn}
+          onPress={() => { void handleInvite(); }}
+          disabled={isInviting}
+          accessibilityRole="button"
+          accessibilityLabel="Invite friends"
+        >
+          {isInviting
+            ? <ActivityIndicator color="#DC143C" size="small" />
+            : <Text style={styles.inviteBtnText}>+ Invite</Text>
+          }
+        </TouchableOpacity>
       </View>
 
       {/* Tab pills */}
@@ -467,6 +497,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#0A0A0A',
   },
   header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 24,
     paddingTop: 16,
     paddingBottom: 8,
@@ -475,6 +508,23 @@ const styles = StyleSheet.create({
     fontSize: 28,
     fontWeight: '700',
     color: '#F0F0F0',
+  },
+  inviteBtn: {
+    backgroundColor: '#1C1C1C',
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    minHeight: 36,
+    minWidth: 72,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#DC143C',
+  },
+  inviteBtnText: {
+    color: '#DC143C',
+    fontSize: 13,
+    fontWeight: '700',
   },
 
   // Tabs

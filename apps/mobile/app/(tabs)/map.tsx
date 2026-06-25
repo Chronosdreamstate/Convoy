@@ -1,5 +1,6 @@
 import MapScreen from '../../src/screens/map/MapScreen';
 import GuestMapScreen from '../../src/screens/map/GuestMapScreen';
+import IdleMapScreen from '../../src/screens/map/IdleMapScreen';
 import { useAuthStore } from '../../src/stores/authStore';
 import { useGroupStore } from '../../src/stores/groupStore';
 
@@ -12,7 +13,7 @@ export default function MapTab() {
   const pttChannelId = useGroupStore((s) => s.pttChannelId);
 
   if (!isAuthenticated) return <GuestMapScreen />;
-  if (!activeGroupId) return <GuestMapScreen />;
+  if (!activeGroupId) return <IdleMapScreen />;
 
   return (
     <MapScreen

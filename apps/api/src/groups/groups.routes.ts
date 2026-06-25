@@ -184,6 +184,37 @@ async function groupsRoutes(
   });
 
   // -------------------------------------------------------------------------
+  // GET /groups/active — the caller's current active group, or null (Req 7.6)
+  // Used by mobile to restore group state after an app restart.
+  // Must be registered before /:id to avoid the UUID param matching "active".
+  // -------------------------------------------------------------------------
+  fastify.get('/groups/active', { preHandler: [authenticate] }, async (request, reply) => {
+    const userId = (request.user as { sub: string }).sub;
+
+    const result = await fastify.db.query<GroupRow & { member_count: string }>(
+      `SELECT g.id, g.name, g.join_code, g.admin_id, g.access_type, g.status,
+              g.gap_threshold_m, g.ptt_max_seconds, g.created_at, g.ended_at,
+              COUNT(m2.id) FILTER (WHERE m2.left_at IS NULL) AS member_count
+       FROM convoy_members m
+       JOIN convoy_groups g ON g.id = m.group_id
+       LEFT JOIN convoy_members m2 ON m2.group_id = g.id
+       WHERE m.user_id = $1
+         AND m.left_at IS NULL
+         AND g.status = 'active'
+       GROUP BY g.id
+       LIMIT 1`,
+      [userId],
+    );
+
+    if (result.rows.length === 0) {
+      return reply.send({ group: null });
+    }
+
+    const g = result.rows[0];
+    return reply.send({ group: groupToResponse(g, parseInt(g.member_count, 10)) });
+  });
+
+  // -------------------------------------------------------------------------
   // GET /groups/public — list open groups for discovery (must be before /:id)
   // -------------------------------------------------------------------------
   fastify.get('/groups/public', { preHandler: [authenticate] }, async (request, reply) => {
