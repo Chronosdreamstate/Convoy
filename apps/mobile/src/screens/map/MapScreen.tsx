@@ -47,9 +47,11 @@ function hazardLabel(type: string): string {
   return (type.charAt(0).toUpperCase() + type.slice(1)).replace('_', ' ');
 }
 interface RouteAlternative {
-  distanceM: number;
-  durationS: number;
-  geometry: { coordinates: [number, number][] };
+  distance: number;       // metres (matches backend Route shape)
+  duration: number;       // seconds
+  distanceText: string;
+  durationText: string;
+  geometry: { type: string; coordinates: [number, number][] };
 }
 
 interface Props {
@@ -346,8 +348,8 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
       setHazardAlerts((prev) => prev.filter((a) => a.id !== id));
     });
 
-    socket.on('route:pushed', (data: { geometry: { coordinates: [number, number][] } }) => {
-      const coords = data.geometry.coordinates.map(([lng, lat]) => ({ latitude: lat, longitude: lng }));
+    socket.on('route:pushed', (data: { route: { geometry: { coordinates: [number, number][] } } }) => {
+      const coords = data.route.geometry.coordinates.map(([lng, lat]) => ({ latitude: lat, longitude: lng }));
       setRouteCoords(coords);
       setShowRouteModal(false);
       Alert.alert('Route Updated', 'The group leader pushed a new route to the convoy.');
@@ -510,10 +512,17 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
   }, [routeAlternatives]);
 
   const handlePushRoute = useCallback(async () => {
-    if (!groupId || !routeAlternatives[selectedRouteIdx]) return;
+    const alt = routeAlternatives[selectedRouteIdx];
+    if (!groupId || !alt) return;
     try {
       await apiClient.post(`/api/v1/groups/${groupId}/route`, {
-        geometry: routeAlternatives[selectedRouteIdx].geometry,
+        route: {
+          distance: alt.distance,
+          duration: alt.duration,
+          distanceText: alt.distanceText,
+          durationText: alt.durationText,
+          geometry: alt.geometry,
+        },
       });
       setShowRouteModal(false);
     } catch {
@@ -955,8 +964,8 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
               <View style={styles.routeAlts}>
                 <Text style={styles.routeAltsLabel}>CHOOSE ROUTE</Text>
                 {routeAlternatives.map((alt, idx) => {
-                  const km = (alt.distanceM / 1000).toFixed(1);
-                  const min = Math.round(alt.durationS / 60);
+                  const km = (alt.distance / 1000).toFixed(1);
+                  const min = Math.round(alt.duration / 60);
                   const hrs = Math.floor(min / 60);
                   const remMin = min % 60;
                   const dur = hrs > 0 ? `${hrs}h ${remMin}m` : `${min}m`;
