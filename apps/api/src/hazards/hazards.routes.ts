@@ -214,17 +214,28 @@ export default async function hazardsRoutes(fastify: FastifyInstance): Promise<v
     }
     const { hazards } = bulkParsed.data;
 
+    // Wrap all inserts in a transaction so a partial failure leaves no orphaned rows
+    const client = await pool.connect();
     const inserted: string[] = [];
-    for (const h of hazards) {
-      const created = h.createdAt ? new Date(h.createdAt) : new Date();
-      const expires = computeExpiresAt(created.getTime());
-      const r = await pool.query<{ id: string }>(
-        `INSERT INTO hazard_reports (reporter_id, hazard_type, location, expires_at, created_at)
-         VALUES ($1, $2, ST_SetSRID(ST_MakePoint($3, $4), 4326)::geography, $5, $6)
-         RETURNING id`,
-        [userId, h.type, h.lng, h.lat, expires, created],
-      );
-      inserted.push(r.rows[0].id);
+    try {
+      await client.query('BEGIN');
+      for (const h of hazards) {
+        const created = h.createdAt ? new Date(h.createdAt) : new Date();
+        const expires = computeExpiresAt(created.getTime());
+        const r = await client.query<{ id: string }>(
+          `INSERT INTO hazard_reports (reporter_id, hazard_type, location, expires_at, created_at)
+           VALUES ($1, $2, ST_SetSRID(ST_MakePoint($3, $4), 4326)::geography, $5, $6)
+           RETURNING id`,
+          [userId, h.type, h.lng, h.lat, expires, created],
+        );
+        inserted.push(r.rows[0].id);
+      }
+      await client.query('COMMIT');
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
     }
 
     return reply.code(201).send({ inserted, count: inserted.length });

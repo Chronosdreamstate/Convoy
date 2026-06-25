@@ -106,11 +106,18 @@ export default function ConvoyScreen({ userId }: Props) {
   const activeGroupId = useGroupStore((s) => s.activeGroupId);
   const setActiveGroupId = useGroupStore((s) => s.setActiveGroupId);
   const setPttChannelId = useGroupStore((s) => s.setPttChannelId);
+  const setGroupMeta = useGroupStore((s) => s.setGroupMeta);
+  const clearGroupMeta = useGroupStore((s) => s.clearGroupMeta);
 
-  // Keep global group store in sync so the map tab can read the active group id
+  // Keep global group store in sync so map/other tabs can read group metadata
   useEffect(() => {
     setActiveGroupId(group?.id ?? null);
-  }, [group?.id, setActiveGroupId]);
+    if (group) {
+      setGroupMeta({ name: group.name, memberCount: group.memberCount, adminId: group.adminId });
+    } else {
+      clearGroupMeta();
+    }
+  }, [group?.id, group?.name, group?.memberCount, group?.adminId, setActiveGroupId, setGroupMeta, clearGroupMeta]);
 
   // On mount: restore full group state when the root layout already resolved an
   // active group from GET /groups/active (happens after app restart).
@@ -218,9 +225,10 @@ export default function ConvoyScreen({ userId }: Props) {
           isMuted: m.isMuted,
         }));
         setMembers(normalised);
+        setGroupMeta({ memberCount: res.data.members.length });
       })
       .catch(() => {/* silently fail – user will see empty list */});
-  }, []);
+  }, [setGroupMeta]);
 
   // ── Load members when group becomes non-null ──────────────────────────────
   useEffect(() => {

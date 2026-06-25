@@ -52,6 +52,7 @@ interface RouteAlternative {
   distanceText: string;
   durationText: string;
   geometry: { type: string; coordinates: [number, number][] };
+  speedLimitKph?: number | null;
 }
 
 interface Props {
@@ -79,17 +80,9 @@ const hapticAdapter = {
   },
 };
 
-// Module-level SQLite DB instance — initialised once per app lifecycle
+// Module-level SQLite DB instance — init returns a Promise so callers await it
 const offlineDB = new SQLiteOfflineDB();
-let offlineDBReady = false;
-(async () => {
-  try {
-    await offlineDB.init();
-    offlineDBReady = true;
-  } catch {
-    // Non-fatal — offline caching simply won't work
-  }
-})();
+const offlineDBReady: Promise<boolean> = offlineDB.init().then(() => true).catch(() => false);
 
 export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = false, pttChannelId }: Props) {
   const { user, token } = useAuthStore();
@@ -131,6 +124,7 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
   const [showRouteModal, setShowRouteModal]       = useState(false);
   const [routeDestInput, setRouteDestInput]       = useState('');
   const [isCalcRoute, setIsCalcRoute]             = useState(false);
+  const [postedSpeedLimitKph, setPostedSpeedLimitKph] = useState<number | null>(null);
 
   // Driving mode (manual toggle)
   const [drivingModeActive, setDrivingModeActive] = useState(false);
@@ -149,6 +143,7 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
   const mySosIdRef      = useRef<string | null>(null);
   const pttServiceRef   = useRef<PTTService | null>(null);
   const memberNamesRef  = useRef<Record<string, string>>({});
+  const memberVehiclesRef = useRef<Record<string, string>>({});
   const driveServiceRef = useRef(new DriveService());
   const memberCountRef  = useRef(0);
   const lastEmitRef     = useRef<number>(-3000); // throttle own-location emits to 1/3 s
@@ -160,13 +155,19 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
   useEffect(() => {
     if (!groupId || !token) { memberNamesRef.current = {}; return; }
     apiClient
-      .get<{ members: Array<{ userId: string; displayName?: string }> }>(`/api/v1/groups/${groupId}/members`)
+      .get<{ members: Array<{ userId: string; displayName?: string; vehicle?: { year?: number | null; make?: string | null; model?: string | null; color?: string | null } | null }> }>(`/api/v1/groups/${groupId}/members`)
       .then((res) => {
-        const map: Record<string, string> = {};
+        const names: Record<string, string> = {};
+        const vehicles: Record<string, string> = {};
         for (const m of res.data.members) {
-          if (m.displayName) map[m.userId] = m.displayName;
+          if (m.displayName) names[m.userId] = m.displayName;
+          if (m.vehicle) {
+            const parts = [m.vehicle.color, m.vehicle.year, m.vehicle.make, m.vehicle.model].filter(Boolean);
+            if (parts.length) vehicles[m.userId] = parts.join(' ');
+          }
         }
-        memberNamesRef.current = map;
+        memberNamesRef.current = names;
+        memberVehiclesRef.current = vehicles;
         memberCountRef.current = res.data.members.length;
       })
       .catch(() => {});
@@ -282,8 +283,9 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
       setIsConnected(false);
       setIsOnline(false);
       // Load last-known positions from local cache so the map stays populated
-      if (offlineDBReady) {
-        offlineDB.getLastPositions(groupId).then((cached) => {
+      void offlineDBReady.then((ready) => {
+        if (!ready) return;
+        return offlineDB.getLastPositions(groupId).then((cached) => {
           if (cached.length > 0) {
             setStalePositions(
               cached.map((c) => ({
@@ -298,8 +300,8 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
               })),
             );
           }
-        }).catch(() => { /* non-fatal */ });
-      }
+        });
+      }).catch(() => {});
     });
 
     // Handle auth errors on connect/reconnect (e.g. expired access token during a network outage).
@@ -335,8 +337,9 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
       const loc: MemberLocation = { userId: d.userId, displayName: memberNamesRef.current[d.userId], lat: d.lat, lng: d.lng, heading: d.heading, speedKph: d.speed_kph, ts: d.ts, receivedAt: Date.now() };
       updateMemberLocation(loc);
       // Persist for offline fallback
-      if (offlineDBReady) {
-        offlineDB.saveLastPosition({
+      void offlineDBReady.then((ready) => {
+        if (!ready) return;
+        return offlineDB.saveLastPosition({
           userId: d.userId,
           groupId,
           lat: d.lat,
@@ -345,8 +348,8 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
           speedKph: d.speed_kph,
           ts: d.ts,
           savedAt: Date.now(),
-        }).catch(() => { /* non-fatal */ });
-      }
+        });
+      }).catch(() => {});
     });
 
     socket.on('gap:alert', (a: GapAlert) => setGapAlerts((p) => [...p.filter((x) => x.memberId !== a.memberId), a]));
@@ -364,11 +367,16 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
       setHazardAlerts((prev) => prev.filter((a) => a.id !== id));
     });
 
-    socket.on('route:pushed', (data: { route: { geometry: { coordinates: [number, number][] } } }) => {
+    socket.on('route:pushed', (data: { route: { geometry: { coordinates: [number, number][] }; speedLimitKph?: number | null } }) => {
       const coords = data.route.geometry.coordinates.map(([lng, lat]) => ({ latitude: lat, longitude: lng }));
       setRouteCoords(coords);
+      setPostedSpeedLimitKph(data.route.speedLimitKph ?? null);
       setShowRouteModal(false);
       Alert.alert('Route Updated', 'The group leader pushed a new route to the convoy.');
+    });
+    socket.on('navigation:arrived', () => {
+      Alert.alert('Arrived!', 'You have reached the convoy destination.');
+      setPostedSpeedLimitKph(null);
     });
     socket.on('rally:set', (r: RallyPoint) => { setRallyPoints((p) => new Map(p).set(r.id, r)); setRallyAlert(r); });
     socket.on('rally:cancelled', ({ rallyId }: { rallyId: string }) => { setRallyPoints((p) => { const n = new Map(p); n.delete(rallyId); return n; }); setRallyAlert((p) => p?.id === rallyId ? null : p); });
@@ -526,6 +534,7 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
       setSelectedRouteIdx(0);
       const coords = alts[0]?.geometry.coordinates.map(([lng, lat]) => ({ latitude: lat, longitude: lng })) ?? [];
       setRouteCoords(coords);
+      setPostedSpeedLimitKph(alts[0]?.speedLimitKph ?? null);
     } catch {
       Alert.alert('Error', 'Could not calculate route.');
     } finally {
@@ -535,8 +544,10 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
 
   const handleSelectRouteAlt = useCallback((idx: number) => {
     setSelectedRouteIdx(idx);
-    const coords = routeAlternatives[idx]?.geometry.coordinates.map(([lng, lat]) => ({ latitude: lat, longitude: lng })) ?? [];
+    const alt = routeAlternatives[idx];
+    const coords = alt?.geometry.coordinates.map(([lng, lat]) => ({ latitude: lat, longitude: lng })) ?? [];
     setRouteCoords(coords);
+    setPostedSpeedLimitKph(alt?.speedLimitKph ?? null);
   }, [routeAlternatives]);
 
   const handlePushRoute = useCallback(async () => {
@@ -604,16 +615,21 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
         initialRegion={{ latitude: 37.7749, longitude: -122.4194, latitudeDelta: 0.1, longitudeDelta: 0.1 }}
         onLongPress={handleLongPress}
       >
-        {members.map((m: MemberLocation) => (
-          <Marker
-            key={m.userId}
-            coordinate={{ latitude: m.lat, longitude: m.lng }}
-            title={m.displayName ?? `Member ${m.userId.slice(0, 6)}`}
-            description={m.isStale ? `Last seen ${formatElapsed(m.receivedAt)}` : `${m.speedKph.toFixed(0)} km/h`}
-            pinColor="#DC143C"
-            opacity={m.isStale ? 0.45 : 1}
-          />
-        ))}
+        {members.map((m: MemberLocation) => {
+          const vehicle = memberVehiclesRef.current[m.userId];
+          const speedLine = m.isStale ? `Last seen ${formatElapsed(m.receivedAt)}` : `${m.speedKph.toFixed(0)} km/h`;
+          const description = vehicle ? `${speedLine} · ${vehicle}` : speedLine;
+          return (
+            <Marker
+              key={m.userId}
+              coordinate={{ latitude: m.lat, longitude: m.lng }}
+              title={m.displayName ?? `Member ${m.userId.slice(0, 6)}`}
+              description={description}
+              pinColor="#DC143C"
+              opacity={m.isStale ? 0.45 : 1}
+            />
+          );
+        })}
         {rallies.map((r) => (
           <Marker key={r.id} coordinate={{ latitude: r.lat, longitude: r.lng }} title="Rally Point" description={r.address ?? undefined} pinColor="#22c55e" />
         ))}
@@ -645,14 +661,16 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
         </View>
       )}
 
-      {/* Floating search bar — centered top, clears connection badge */}
-      <View style={[styles.searchWrapper, { top: topBase }]}>
-        <DestinationSearch
-          isOnline={isOnline}
-          isInMotion={mySpeedKph > 5}
-          onSelect={handleSearchSelect}
-        />
-      </View>
+      {/* Floating search bar — hidden in driving mode (Req 28) */}
+      {!drivingModeActive && (
+        <View style={[styles.searchWrapper, { top: topBase }]}>
+          <DestinationSearch
+            isOnline={isOnline}
+            isInMotion={mySpeedKph > 5}
+            onSelect={handleSearchSelect}
+          />
+        </View>
+      )}
 
       {/* Connection badge — top-right */}
       <View style={[styles.badge, isConnected ? styles.badgeOnline : styles.badgeOffline, { top: topBase }]}>
@@ -668,19 +686,26 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
         <Text style={styles.recenterText}>⊕</Text>
       </TouchableOpacity>
 
-      {/* Speed limit HUD — bottom-left, above member panel */}
+      {/* Speed limit HUD — bottom-left, above member panel (Req 23) */}
       <View style={[styles.speedHudContainer, { bottom: insets.bottom + 236 }]}>
-        <SpeedLimitHUD postedLimitKph={null} currentSpeedKph={mySpeedKph} />
+        <SpeedLimitHUD postedLimitKph={postedSpeedLimitKph} currentSpeedKph={mySpeedKph} />
       </View>
 
-      {/* Floating action button — bottom-right, above member panel */}
-      {user && groupId && (
+      {/* Floating action button — hidden in driving mode (Req 28) */}
+      {!drivingModeActive && user && groupId && (
         <View style={[styles.fabContainer, { bottom: insets.bottom + 228 }]}>
           {fabOpen && (
             <>
               <TouchableOpacity
                 style={styles.fabItem}
-                onPress={() => { setFabOpen(false); setShowRouteModal(true); }}
+                onPress={() => {
+                  setFabOpen(false);
+                  if (mySpeedKph > 5) {
+                    Alert.alert('Pull Over First', 'Please stop before planning a route.');
+                    return;
+                  }
+                  setShowRouteModal(true);
+                }}
                 accessibilityLabel="Plan route"
                 accessibilityRole="button"
               >
@@ -840,8 +865,8 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
         </View>
       )}
 
-      {/* Member panel — dark overlay at bottom */}
-      <View style={[styles.memberPanel, { paddingBottom: Math.max(insets.bottom, 8) }]}>
+      {/* Member panel — hidden in driving mode (Req 28) */}
+      {!drivingModeActive && <View style={[styles.memberPanel, { paddingBottom: Math.max(insets.bottom, 8) }]}>
         <View style={styles.panelHandle} />
         {/* Tab bar */}
         <View style={styles.panelTabRow}>
@@ -869,7 +894,7 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
             : <View style={styles.panelConnecting}><Text style={styles.emptyText}>Connecting…</Text></View>
         ) : (
         <FlatList
-          data={members}
+          data={mySpeedKph > 5 ? members.slice(0, 4) : members}
           keyExtractor={(m) => m.userId}
           renderItem={({ item: m }) => {
             const isStale = Date.now() - m.receivedAt > staleMs;
@@ -895,7 +920,7 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
           ListEmptyComponent={<Text style={styles.emptyText}>No members yet</Text>}
         />
         )}
-      </View>
+      </View>}
 
       {/* SOS person picker modal */}
       <Modal transparent visible={showSosPicker} animationType="slide">
@@ -1033,7 +1058,7 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
             {routeCoords.length > 0 && routeAlternatives.length > 0 && (
               <TouchableOpacity
                 style={styles.routeClearBtn}
-                onPress={() => { setRouteCoords([]); setRouteAlternatives([]); setRouteDestInput(''); }}
+                onPress={() => { setRouteCoords([]); setRouteAlternatives([]); setRouteDestInput(''); setPostedSpeedLimitKph(null); }}
               >
                 <Text style={styles.routeClearText}>Clear Route</Text>
               </TouchableOpacity>

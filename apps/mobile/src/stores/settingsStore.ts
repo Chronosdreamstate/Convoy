@@ -9,7 +9,8 @@ interface SettingsState {
   hazardAlertDistanceM: number;
   scenicRouting: boolean;
   pttMaxSeconds: number;
-  setSettings: (s: Partial<Pick<SettingsState, 'mapStyle' | 'hazardAlertDistanceM' | 'scenicRouting' | 'pttMaxSeconds'>>) => void;
+  pttVolumePercent: number;
+  setSettings: (s: Partial<Pick<SettingsState, 'mapStyle' | 'hazardAlertDistanceM' | 'scenicRouting' | 'pttMaxSeconds' | 'pttVolumePercent'>>) => void;
 }
 
 // SecureStore adapter for zustand/persist (non-sensitive app preferences)
@@ -26,17 +27,18 @@ export const useSettingsStore = create<SettingsState>()(
       hazardAlertDistanceM: 805,
       scenicRouting: false,
       pttMaxSeconds: 30,
+      pttVolumePercent: 100,
       setSettings: (s) => set(s),
     }),
     {
       name: 'convoy:settings',
       storage: secureStorage,
-      // Only persist user-configurable fields; exclude actions
       partialize: (state) => ({
         mapStyle: state.mapStyle,
         hazardAlertDistanceM: state.hazardAlertDistanceM,
         scenicRouting: state.scenicRouting,
         pttMaxSeconds: state.pttMaxSeconds,
+        pttVolumePercent: state.pttVolumePercent,
       }),
     },
   ),

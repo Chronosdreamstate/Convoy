@@ -23,12 +23,25 @@ export interface Route {
   distanceText: string;
   durationText: string;
   geometry: RouteGeometry;
+  speedLimitKph: number | null;
+}
+
+interface MapboxMaxspeedEntry {
+  speed?: number;
+  unit?: string;
+  unknown?: boolean;
+  none?: boolean;
+}
+
+interface MapboxLeg {
+  annotation?: { maxspeed?: MapboxMaxspeedEntry[] };
 }
 
 interface MapboxRoute {
   distance: number;
   duration: number;
   geometry: RouteGeometry;
+  legs?: MapboxLeg[];
 }
 
 interface MapboxDirectionsResponse {
@@ -52,6 +65,32 @@ export function formatDuration(seconds: number): string {
 }
 
 /**
+ * Extract the modal posted speed limit (kph) from a Mapbox legs annotation.
+ * Returns null if Mapbox reports all segments as unknown.
+ */
+export function extractSpeedLimitKph(legs?: MapboxLeg[]): number | null {
+  if (!legs?.length) return null;
+  const allSpeeds: number[] = [];
+  for (const leg of legs) {
+    for (const entry of (leg.annotation?.maxspeed ?? [])) {
+      if (entry.speed == null || entry.unknown || entry.none) continue;
+      const kph = entry.unit === 'mph' ? Math.round(entry.speed * 1.60934) : entry.speed;
+      allSpeeds.push(kph);
+    }
+  }
+  if (!allSpeeds.length) return null;
+  const counts = new Map<number, number>();
+  let maxCount = 0;
+  let modal = allSpeeds[0];
+  for (const s of allSpeeds) {
+    const c = (counts.get(s) ?? 0) + 1;
+    counts.set(s, c);
+    if (c > maxCount) { maxCount = c; modal = s; }
+  }
+  return modal;
+}
+
+/**
  * Cap Mapbox alternatives at 3 and normalise to Route shape.
  * Exported for Property 6 testing.
  */
@@ -62,6 +101,7 @@ export function processMapboxRoutes(routes: MapboxRoute[]): Route[] {
     distanceText: formatDistance(r.distance),
     durationText: formatDuration(r.duration),
     geometry: r.geometry,
+    speedLimitKph: extractSpeedLimitKph(r.legs),
   }));
 }
 
@@ -119,6 +159,7 @@ async function routesRoutes(
       geometries: 'geojson',
       overview: 'simplified',
       steps: 'false',
+      annotations: 'maxspeed',  // Req 23: populate speed limit HUD
       access_token: env.MAPBOX_API_TOKEN,
     });
 
@@ -174,6 +215,24 @@ async function routesRoutes(
     if (!group) return reply.notFound('Group not found');
     if (group.status !== 'active') return reply.gone('Group is not active');
     if (group.admin_id !== userId) return reply.forbidden('Only the Admin can push a route');
+
+    // Store destination for arrival detection (Req 15.3)
+    const coords = parsed.data.route.geometry.coordinates;
+    const lastCoord = coords[coords.length - 1];
+    if (lastCoord) {
+      await fastify.redis.hset(`route:${groupId}:dest`, {
+        lat: String(lastCoord[1]),  // GeoJSON coords are [lng, lat]
+        lng: String(lastCoord[0]),
+      });
+      await fastify.redis.expire(`route:${groupId}:dest`, 24 * 60 * 60);
+      // Clear per-user "already notified" flags so everyone can receive the new arrival alert
+      const memberRows = await fastify.db.query<{ user_id: string }>(
+        'SELECT user_id FROM convoy_members WHERE group_id = $1 AND left_at IS NULL',
+        [groupId],
+      );
+      const delKeys = memberRows.rows.map((r) => `arrived:${groupId}:${r.user_id}`);
+      if (delKeys.length) await fastify.redis.del(...delKeys);
+    }
 
     // Emit route:pushed to all members in the group room
     fastify.io.to(`group:${groupId}`).emit('route:pushed', {

@@ -58,6 +58,10 @@ interface MemberRow {
   display_name?: string;
   avatar_url?: string | null;
   ptt_callsign?: string | null;
+  vehicle_year?: number | null;
+  vehicle_make?: string | null;
+  vehicle_model?: string | null;
+  vehicle_color?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -388,9 +392,12 @@ async function groupsRoutes(
 
       const result = await fastify.db.query<MemberRow>(
         `SELECT m.id, m.group_id, m.user_id, m.joined_at, m.left_at, m.is_muted,
-                u.display_name, u.avatar_url, u.ptt_callsign
+                u.display_name, u.avatar_url, u.ptt_callsign,
+                v.year AS vehicle_year, v.make AS vehicle_make,
+                v.model AS vehicle_model, v.color AS vehicle_color
          FROM convoy_members m
          JOIN users u ON u.id = m.user_id
+         LEFT JOIN vehicles v ON v.user_id = m.user_id AND v.is_active = true
          WHERE m.group_id = $1 AND m.left_at IS NULL
          ORDER BY m.joined_at ASC`,
         [id],
@@ -406,6 +413,14 @@ async function groupsRoutes(
           isAdmin: m.user_id === adminId,
           isMuted: m.is_muted,
           joinedAt: m.joined_at,
+          vehicle: (m.vehicle_make || m.vehicle_model)
+            ? {
+                year: m.vehicle_year ?? null,
+                make: m.vehicle_make ?? null,
+                model: m.vehicle_model ?? null,
+                color: m.vehicle_color ?? null,
+              }
+            : null,
         })),
       });
     },

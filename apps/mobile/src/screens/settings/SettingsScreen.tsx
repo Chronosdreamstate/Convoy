@@ -50,6 +50,12 @@ const PTT_DURATIONS = [
   { label: '30 s', seconds: 30 },
   { label: '60 s', seconds: 60 },
 ];
+const PTT_VOLUME_LEVELS = [
+  { label: '25%', value: 25 },
+  { label: '50%', value: 50 },
+  { label: '75%', value: 75 },
+  { label: '100%', value: 100 },
+];
 
 // ---------------------------------------------------------------------------
 // Section header
@@ -136,6 +142,7 @@ function ChipSelector<T extends string | number>({ options, selected, onSelect }
 export default function SettingsScreen() {
   const router = useRouter();
   const setGlobalSettings = useSettingsStore((s) => s.setSettings);
+  const storedVolumePercent = useSettingsStore((s) => s.pttVolumePercent);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -149,11 +156,13 @@ export default function SettingsScreen() {
   const [hazardDistM, setHazardDistM] = useState(805);
   const [cacheMb, setCacheMb] = useState(500);
   const [pttMaxSecs, setPttMaxSecs] = useState(30);
+  const [pttVolumePercent, setPttVolumePercent] = useState(storedVolumePercent);
   const [scenicRouting, setScenicRouting] = useState(false);
   const [notifHazard, setNotifHazard] = useState(true);
   const [notifGroupEvents, setNotifGroupEvents] = useState(true);
   const [notifFriendRequests, setNotifFriendRequests] = useState(true);
   const [notifNavigation, setNotifNavigation] = useState(true);
+  const [friendPrivacy, setFriendPrivacy] = useState<'open' | 'friends_only'>('open');
 
   useEffect(() => {
     loadSettings();
@@ -205,7 +214,13 @@ export default function SettingsScreen() {
         notifNavigation,
       });
       setSettings(response.data);
-      setGlobalSettings({ mapStyle: response.data.mapStyle, hazardAlertDistanceM: response.data.hazardAlertDistanceM, scenicRouting: response.data.scenicRouting, pttMaxSeconds: response.data.pttMaxSeconds });
+      setGlobalSettings({
+        mapStyle: response.data.mapStyle,
+        hazardAlertDistanceM: response.data.hazardAlertDistanceM,
+        scenicRouting: response.data.scenicRouting,
+        pttMaxSeconds: response.data.pttMaxSeconds,
+        pttVolumePercent,
+      });
       setIsDirty(false);
       setSaveSuccess(true);
       if (saveSuccessTimer.current) clearTimeout(saveSuccessTimer.current);
@@ -393,6 +408,44 @@ export default function SettingsScreen() {
               onSelect={(v) => { setCacheMb(v); mark(); }}
             />
           </View>
+        </View>
+
+        {/* ── AUDIO ───────────────────────────────────────────────────────── */}
+        <SectionHeader title="AUDIO" />
+        <View style={styles.sectionCard}>
+          <SettingRow
+            icon="🔊"
+            label="PTT Playback Volume"
+            subtitle={`${pttVolumePercent}% — playback level for incoming transmissions`}
+            last
+          />
+          <View style={styles.chipContainer}>
+            <ChipSelector
+              options={PTT_VOLUME_LEVELS}
+              selected={pttVolumePercent}
+              onSelect={(v) => { setPttVolumePercent(v); mark(); }}
+            />
+          </View>
+        </View>
+
+        {/* ── PRIVACY ─────────────────────────────────────────────────────── */}
+        <SectionHeader title="PRIVACY" />
+        <View style={styles.sectionCard}>
+          <SettingRow
+            icon="🔒"
+            label="Friend Requests"
+            subtitle={friendPrivacy === 'open' ? 'Anyone can send you a friend request' : 'Only friends-of-friends can send requests'}
+            rightSlot={
+              <Switch
+                value={friendPrivacy === 'friends_only'}
+                onValueChange={(v) => { setFriendPrivacy(v ? 'friends_only' : 'open'); mark(); }}
+                trackColor={{ false: '#2A2A2A', true: '#DC143C' }}
+                thumbColor="#FFFFFF"
+                accessibilityLabel="Restrict friend requests to friends of friends"
+              />
+            }
+            last
+          />
         </View>
 
         {/* ── DRIVING ─────────────────────────────────────────────────────── */}

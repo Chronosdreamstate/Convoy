@@ -126,6 +126,23 @@ export async function handleLocationUpdate(params: {
       groupId,
     });
   }
+
+  // 4. Destination arrival notification (Req 15.3)
+  const destRaw = await redis.hgetall(`route:${groupId}:dest`);
+  if (destRaw?.lat && destRaw?.lng) {
+    const destDist = haversineMeters(
+      { lat: location.lat, lng: location.lng },
+      { lat: Number(destRaw.lat), lng: Number(destRaw.lng) },
+    );
+    if (destDist < 200) {
+      // SETNX gate — notify each member at most once per pushed route
+      const arrivedKey = `arrived:${groupId}:${userId}`;
+      const isFirst = await redis.set(arrivedKey, '1', 'EX', 3600, 'NX');
+      if (isFirst === 'OK') {
+        io.to(`user:${userId}`).emit('navigation:arrived', { groupId });
+      }
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
