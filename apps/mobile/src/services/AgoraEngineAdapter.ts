@@ -14,14 +14,21 @@ import type { IAgoraEngine } from './PTTService';
 
 const APP_ID = process.env.EXPO_PUBLIC_AGORA_APP_ID ?? '';
 
-async function requestMicPermission(): Promise<boolean> {
+/**
+ * Request microphone permission the first time the user attempts PTT.
+ * On iOS the system dialog fires automatically when audio is opened; this
+ * handles Android explicitly per Req 36.6.
+ */
+export async function requestMicPermissionForPTT(): Promise<boolean> {
   if (Platform.OS !== 'android') return true;
   try {
+    const already = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO);
+    if (already) return true;
     const result = await PermissionsAndroid.request(
       PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
       {
         title: 'Microphone Access',
-        message: 'CONVOY needs microphone access for push-to-talk.',
+        message: 'CONVOY uses your microphone only while you hold the PTT button to transmit voice to your convoy.',
         buttonPositive: 'Allow',
         buttonNegative: 'Deny',
       },
@@ -66,9 +73,6 @@ class AgoraEngineAdapter implements IAgoraEngine {
 
   async joinChannel(token: string, channelName: string, uid: number): Promise<void> {
     if (!this.engine) return;
-    const hasPerm = await requestMicPermission();
-    if (!hasPerm) return;
-
     this.engine.joinChannel(token, channelName, uid, {
       clientRoleType: 1,            // ClientRoleBroadcaster
       publishMicrophoneTrack: false, // start muted; unmuted on hold

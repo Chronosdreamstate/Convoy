@@ -31,7 +31,7 @@ import FuelSuggestionBanner from '../../components/FuelSuggestionBanner';
 import { SQLiteOfflineDB } from '../../services/OfflineCacheService';
 import { MotionStateService } from '../../services/MotionStateService';
 import { PTTService } from '../../services/PTTService';
-import { agoraEngineAdapter } from '../../services/AgoraEngineAdapter';
+import { agoraEngineAdapter, requestMicPermissionForPTT } from '../../services/AgoraEngineAdapter';
 import { apiTokenFetcher } from '../../services/ApiTokenFetcher';
 import { DriveService } from '../../services/DriveService';
 
@@ -143,6 +143,7 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
   const mapRef          = useRef<MapView>(null);
   const mySosIdRef      = useRef<string | null>(null);
   const pttServiceRef   = useRef<PTTService | null>(null);
+  const micPermGrantedRef = useRef(false); // tracks first PTT permission request (Req 36.6)
   const memberNamesRef  = useRef<Record<string, string>>({});
   const memberVehiclesRef = useRef<Record<string, string>>({});
   const driveServiceRef = useRef(new DriveService());
@@ -490,12 +491,24 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
   }, []);
 
   const handlePttStart = useCallback(() => {
+    // Request mic permission lazily on first PTT attempt (Req 36.6)
+    if (!micPermGrantedRef.current) {
+      void requestMicPermissionForPTT().then((granted) => {
+        micPermGrantedRef.current = granted;
+        if (!granted) return;
+        setIsPttTransmitting(true);
+        if (pttServiceRef.current) {
+          pttServiceRef.current.holdStart();
+        } else if (socketRef.current && pttChannelId) {
+          socketRef.current.emit('ptt:start', { channelId: pttChannelId });
+        }
+      });
+      return;
+    }
     setIsPttTransmitting(true);
     if (pttServiceRef.current) {
-      // PTTService handles socket emit + Agora mic open
       pttServiceRef.current.holdStart();
     } else if (socketRef.current && pttChannelId) {
-      // Fallback: socket signalling only (no Agora audio)
       socketRef.current.emit('ptt:start', { channelId: pttChannelId });
     }
   }, [pttChannelId]);
@@ -1091,12 +1104,12 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
       {drivingModeActive && (
         <View style={styles.drivingOverlay}>
           <View style={styles.drivingSpeedBox}>
-            <Text style={styles.drivingSpeedValue}>{Math.round(mySpeedKph)}</Text>
-            <Text style={styles.drivingSpeedUnit}>km/h</Text>
+            <Text style={styles.drivingSpeedValue} maxFontSizeMultiplier={1.2}>{Math.round(mySpeedKph)}</Text>
+            <Text style={styles.drivingSpeedUnit} maxFontSizeMultiplier={1}>km/h</Text>
           </View>
           <View style={styles.drivingInfo}>
-            <Text style={styles.drivingTitle}>DRIVING MODE</Text>
-            <Text style={styles.drivingConnected}>{isConnected ? '● LIVE' : '● OFFLINE'}</Text>
+            <Text style={styles.drivingTitle} maxFontSizeMultiplier={1.5}>DRIVING MODE</Text>
+            <Text style={styles.drivingConnected} maxFontSizeMultiplier={1.5}>{isConnected ? '● LIVE' : '● OFFLINE'}</Text>
           </View>
           <TouchableOpacity
             style={styles.drivingExitBtn}

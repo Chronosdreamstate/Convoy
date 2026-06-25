@@ -394,18 +394,36 @@ export default function SettingsScreen() {
                 accessibilityLabel="Scenic routing toggle"
               />
             }
+            last
           />
+        </View>
+
+        {/* ── NAVIGATION ──────────────────────────────────────────────────── */}
+        <SectionHeader title="NAVIGATION" />
+        <View style={styles.sectionCard}>
           <SettingRow
-            icon="💾"
-            label="Map Cache Size"
-            subtitle={`${cacheMb} MB`}
+            icon="⚠️"
+            label="Hazard Alert Distance"
+            subtitle={`Alert within ${(hazardDistM * MILES_PER_METRE).toFixed(2)} miles`}
+          />
+          <View style={styles.chipContainer}>
+            <ChipSelector
+              options={HAZARD_DISTANCES.map((d) => ({ label: d.label, value: d.metres }))}
+              selected={hazardDistM}
+              onSelect={(v) => { setHazardDistM(v); mark(); }}
+            />
+          </View>
+          <SettingRow
+            icon="🎙"
+            label="PTT Max Duration"
+            subtitle={`${pttMaxSecs} seconds`}
             last
           />
           <View style={styles.chipContainer}>
             <ChipSelector
-              options={CACHE_SIZES.map((c) => ({ label: c.label, value: c.mb }))}
-              selected={cacheMb}
-              onSelect={(v) => { setCacheMb(v); mark(); }}
+              options={PTT_DURATIONS.map((d) => ({ label: d.label, value: d.seconds }))}
+              selected={pttMaxSecs}
+              onSelect={(v) => { setPttMaxSecs(v); mark(); }}
             />
           </View>
         </View>
@@ -428,6 +446,35 @@ export default function SettingsScreen() {
           </View>
         </View>
 
+        {/* ── OFFLINE ─────────────────────────────────────────────────────── */}
+        <SectionHeader title="OFFLINE" />
+        <View style={styles.sectionCard}>
+          <SettingRow
+            icon="💾"
+            label="Map Cache Size"
+            subtitle={`${cacheMb} MB stored for offline use`}
+            last
+          />
+          <View style={styles.chipContainer}>
+            <ChipSelector
+              options={CACHE_SIZES.map((c) => ({ label: c.label, value: c.mb }))}
+              selected={cacheMb}
+              onSelect={(v) => { setCacheMb(v); mark(); }}
+            />
+          </View>
+        </View>
+
+        {/* ── CARPLAY ─────────────────────────────────────────────────────── */}
+        <SectionHeader title="CARPLAY" />
+        <View style={styles.sectionCard}>
+          <SettingRow
+            icon="🚗"
+            label="CarPlay / Android Auto"
+            subtitle="Connect to your vehicle to configure head unit settings"
+            last
+          />
+        </View>
+
         {/* ── PRIVACY ─────────────────────────────────────────────────────── */}
         <SectionHeader title="PRIVACY" />
         <View style={styles.sectionCard}>
@@ -446,37 +493,6 @@ export default function SettingsScreen() {
             }
             last
           />
-        </View>
-
-        {/* ── DRIVING ─────────────────────────────────────────────────────── */}
-        <SectionHeader title="DRIVING" />
-        <View style={styles.sectionCard}>
-          <SettingRow
-            icon="⚠️"
-            label="Hazard Alert Distance"
-            subtitle={`Alert within ${(hazardDistM * MILES_PER_METRE).toFixed(2)} miles`}
-          />
-          <View style={styles.chipContainer}>
-            <ChipSelector
-              options={HAZARD_DISTANCES.map((d) => ({ label: d.label, value: d.metres }))}
-              selected={hazardDistM}
-              onSelect={(v) => { setHazardDistM(v); mark(); }}
-            />
-          </View>
-
-          <SettingRow
-            icon="🎙"
-            label="PTT Max Duration"
-            subtitle={`${pttMaxSecs} seconds`}
-            last
-          />
-          <View style={styles.chipContainer}>
-            <ChipSelector
-              options={PTT_DURATIONS.map((d) => ({ label: d.label, value: d.seconds }))}
-              selected={pttMaxSecs}
-              onSelect={(v) => { setPttMaxSecs(v); mark(); }}
-            />
-          </View>
         </View>
 
         {/* ── DANGER ZONE ─────────────────────────────────────────────────── */}

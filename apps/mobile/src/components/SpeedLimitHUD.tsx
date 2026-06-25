@@ -20,11 +20,11 @@ export default function SpeedLimitHUD({ postedLimitKph, currentSpeedKph }: Props
 
   return (
     <View style={[styles.container, exceeded && styles.exceeded]}>
-      <Text style={styles.label}>SPEED LIMIT</Text>
-      <Text style={[styles.value, exceeded && styles.valueExceeded]}>
+      <Text style={styles.label} maxFontSizeMultiplier={1}>SPEED LIMIT</Text>
+      <Text style={[styles.value, exceeded && styles.valueExceeded]} maxFontSizeMultiplier={1.2}>
         {postedLimitKph !== null ? postedLimitKph : '–'}
       </Text>
-      <Text style={styles.unit}>km/h</Text>
+      <Text style={styles.unit} maxFontSizeMultiplier={1}>km/h</Text>
     </View>
   );
 }

@@ -108,10 +108,13 @@ export class LocationService {
 
   /**
    * Returns true if the emit should be skipped (throttled).
+   * When returning false (not throttled), records `now` as the last emit time.
    * Exposed for property testing.
    */
   shouldThrottle(now: number): boolean {
-    return now - this.lastEmitTime < THROTTLE_MS;
+    if (now - this.lastEmitTime < THROTTLE_MS) return true;
+    this.lastEmitTime = now;
+    return false;
   }
 
   /** Process a single GPS fix: update store, persist offline cache, maybe emit. */
@@ -133,7 +136,6 @@ export class LocationService {
     const now = Date.now();
     if (this.socket.connected && !this.shouldThrottle(now)) {
       this.socket.emit('location:update', location);
-      this.lastEmitTime = now;
     }
   }
 
