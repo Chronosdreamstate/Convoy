@@ -10,11 +10,15 @@ import {
   Alert,
   Switch,
   Share,
+  Linking,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { apiClient } from '../../services/apiClient';
 import { authService } from '../../services/AuthService';
 import { useSettingsStore } from '../../stores/settingsStore';
+
+const PRIVACY_POLICY_URL = 'https://convoy.app/privacy';
+const TERMS_URL = 'https://convoy.app/terms';
 
 interface Settings {
   hazardAlertDistanceM: number;
@@ -300,6 +304,16 @@ export default function SettingsScreen() {
             label="Export My Data"
             subtitle="Receive a copy of your data"
             onPress={handleExportData}
+          />
+          <SettingRow
+            icon="🔐"
+            label="Privacy Policy"
+            onPress={() => Linking.openURL(PRIVACY_POLICY_URL).catch(() => {})}
+          />
+          <SettingRow
+            icon="📄"
+            label="Terms of Service"
+            onPress={() => Linking.openURL(TERMS_URL).catch(() => {})}
             last
           />
         </View>
