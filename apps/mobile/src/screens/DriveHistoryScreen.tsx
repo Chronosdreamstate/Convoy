@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
+  Image,
   Platform,
   Share,
   StyleSheet,
@@ -17,6 +18,28 @@ import {
 } from 'react-native';
 import MapView, { Polyline, PROVIDER_DEFAULT } from 'react-native-maps';
 import { apiClient } from '../services/apiClient';
+
+const MAPBOX_TOKEN = process.env.EXPO_PUBLIC_MAPBOX_TOKEN ?? '';
+
+function buildStaticMapUrl(coords: [number, number][]): string | null {
+  if (!MAPBOX_TOKEN || coords.length < 2) return null;
+  const step = Math.max(1, Math.floor(coords.length / 25));
+  const sampled: [number, number][] = [];
+  for (let i = 0; i < coords.length; i += step) sampled.push(coords[i]);
+  if (sampled[sampled.length - 1] !== coords[coords.length - 1]) {
+    sampled.push(coords[coords.length - 1]);
+  }
+  const geojson = JSON.stringify({
+    type: 'Feature',
+    geometry: { type: 'LineString', coordinates: sampled },
+    properties: { stroke: '#DC143C', 'stroke-width': 3, 'stroke-opacity': 1 },
+  });
+  return (
+    `https://api.mapbox.com/styles/v1/mapbox/dark-v11/static/` +
+    `geojson(${encodeURIComponent(geojson)})/auto/112x112@2x` +
+    `?padding=12&access_token=${MAPBOX_TOKEN}`
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -79,10 +102,17 @@ function Stat({ icon, label, value }: { icon: string; label: string; value: stri
 }
 
 // ---------------------------------------------------------------------------
-// Map thumbnail placeholder
+// Map thumbnail
 // ---------------------------------------------------------------------------
 
-function MapThumb() {
+function MapThumb({ routeTrace }: { routeTrace?: DriveRecord['routeTrace'] }) {
+  const url = routeTrace?.coordinates
+    ? buildStaticMapUrl(routeTrace.coordinates)
+    : null;
+
+  if (url) {
+    return <Image source={{ uri: url }} style={styles.mapThumb} />;
+  }
   return (
     <View style={styles.mapThumb}>
       <Text style={styles.mapThumbIcon}>🗺</Text>
@@ -290,7 +320,7 @@ export default function DriveHistoryScreen() {
               accessibilityLabel={`Drive on ${formatDate(drive.endedAt)}, ${formatDistance(drive.distanceM)}`}
             >
               {/* Left: map thumbnail */}
-              <MapThumb />
+              <MapThumb routeTrace={drive.routeTrace} />
 
               {/* Right: info */}
               <View style={styles.driveCardContent}>
@@ -400,6 +430,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#2A2A2A',
     flexShrink: 0,
+    overflow: 'hidden',
   },
   mapThumbIcon: { fontSize: 24 },
 
