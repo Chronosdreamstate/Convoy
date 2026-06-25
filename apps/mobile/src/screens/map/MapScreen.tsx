@@ -126,6 +126,9 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
   const [isCalcRoute, setIsCalcRoute]             = useState(false);
   const [postedSpeedLimitKph, setPostedSpeedLimitKph] = useState<number | null>(null);
 
+  // Dropped pin (Req 5.1–5.4)
+  const [droppedPin, setDroppedPin] = useState<{ lat: number; lng: number; address: string | null } | null>(null);
+
   // Driving mode (manual toggle)
   const [drivingModeActive, setDrivingModeActive] = useState(false);
 
@@ -474,12 +477,30 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
   }, [myLocation]);
 
   const handleLongPress = useCallback((e: LongPressEvent) => {
-    if (!groupId) return;
     const { latitude: lat, longitude: lng } = e.nativeEvent.coordinate;
-    Alert.alert('Meet Me Here', 'Broadcast this as a Rally Point to all group members?', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Broadcast', onPress: async () => { try { await rallyService.broadcastRally(groupId, lat, lng); } catch { Alert.alert('Error', 'Could not broadcast rally point.'); } } },
-    ]);
+
+    // Drop pin locally (Req 5.1, 5.4 — no server transmission)
+    setDroppedPin({ lat, lng, address: null });
+    void apiClient.get<{ address: string | null }>('/api/v1/places/reverse', { params: { lat, lng } })
+      .then((res) => setDroppedPin((prev) => prev ? { ...prev, address: res.data.address } : prev))
+      .catch(() => {});
+
+    if (!groupId) return;
+    // In a group, also offer to broadcast as Rally Point (Req 20.1)
+    Alert.alert(
+      'Pin Dropped',
+      'Broadcast this location as a Rally Point to all group members?',
+      [
+        { text: 'Just Pin', style: 'cancel' },
+        {
+          text: 'Broadcast Rally',
+          onPress: async () => {
+            try { await rallyService.broadcastRally(groupId, lat, lng); }
+            catch { Alert.alert('Error', 'Could not broadcast rally point.'); }
+          },
+        },
+      ],
+    );
   }, [groupId]);
 
   // Open person picker — only available inside an active convoy
@@ -686,6 +707,43 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
             />
           );
         })}
+        {/* Dropped pin (Req 5.1–5.3) */}
+        {droppedPin && (
+          <Marker
+            coordinate={{ latitude: droppedPin.lat, longitude: droppedPin.lng }}
+            title="Dropped Pin"
+            description={droppedPin.address ?? 'Loading address…'}
+            pinColor="#F59E0B"
+            onCalloutPress={() => {
+              Alert.alert(
+                'Dropped Pin',
+                droppedPin.address ?? `${droppedPin.lat.toFixed(5)}, ${droppedPin.lng.toFixed(5)}`,
+                [
+                  { text: 'Remove Pin', style: 'destructive', onPress: () => setDroppedPin(null) },
+                  {
+                    text: 'Get Directions',
+                    onPress: () => {
+                      activeDestRef.current = { lat: droppedPin.lat, lng: droppedPin.lng };
+                      void apiClient.post<{ routes: RouteAlternative[] }>('/api/v1/routes/calculate', {
+                        origin: myLocationRef.current ?? { lat: droppedPin.lat, lng: droppedPin.lng },
+                        destination: { lat: droppedPin.lat, lng: droppedPin.lng },
+                        scenic: scenicRouting,
+                      }).then((res) => {
+                        const alts = res.data.routes;
+                        if (alts.length === 0) { Alert.alert('No route found', 'Could not find a route to this pin.'); return; }
+                        setRouteAlternatives(alts);
+                        setSelectedRouteIdx(0);
+                        setRouteCoords(alts[0].geometry.coordinates.map(([lng2, lat2]) => ({ latitude: lat2, longitude: lng2 })));
+                        setPostedSpeedLimitKph(alts[0]?.speedLimitKph ?? null);
+                      }).catch(() => Alert.alert('Error', 'Could not calculate route.'));
+                    },
+                  },
+                  { text: 'Cancel', style: 'cancel' },
+                ],
+              );
+            }}
+          />
+        )}
         {rallies.map((r) => (
           <Marker key={r.id} coordinate={{ latitude: r.lat, longitude: r.lng }} title="Rally Point" description={r.address ?? undefined} pinColor="#22c55e" />
         ))}

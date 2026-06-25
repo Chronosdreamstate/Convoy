@@ -91,4 +91,24 @@ export default async function placesRoutes(app: FastifyInstance) {
 
     return reply.send(results);
   });
+
+  // GET /places/reverse?lat=X&lng=Y — reverse-geocode for pin drop callout (Req 5.2)
+  app.get<{ Querystring: { lat?: string; lng?: string } }>('/places/reverse', { preHandler: [authenticate] }, async (req, reply) => {
+    const lat = parseFloat(req.query.lat ?? '');
+    const lng = parseFloat(req.query.lng ?? '');
+    if (isNaN(lat) || isNaN(lng)) return reply.status(400).send({ error: 'lat and lng are required' });
+
+    try {
+      const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&addressdetails=1`;
+      const res = await fetch(url, {
+        headers: { 'User-Agent': `ConvoyApp/1.0 (${env.NOMINATIM_CONTACT_EMAIL})` },
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!res.ok) return reply.send({ address: null });
+      const data = (await res.json()) as { display_name?: string };
+      return reply.send({ address: data.display_name ?? null });
+    } catch {
+      return reply.send({ address: null });
+    }
+  });
 }
