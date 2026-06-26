@@ -92,7 +92,7 @@ export default function CoachMarkOverlay({ visible, onComplete }: Props) {
         useNativeDriver: true,
       }).start(async () => {
         try {
-          await AsyncStorage.setItem(STORAGE_KEY, '1');
+          await SecureStore.setItemAsync(STORAGE_KEY, '1');
         } catch {}
         onComplete();
       });

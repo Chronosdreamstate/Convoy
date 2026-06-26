@@ -39,6 +39,11 @@ const browseGroupsSchema = z.object({
   offset: z.coerce.number().int().min(0).optional().default(0),
 });
 
+const leaderboardSchema = z.object({
+  metric: z.enum(['distance', 'convoys', 'time']).optional().default('distance'),
+  limit: z.coerce.number().int().min(1).max(50).optional().default(20),
+});
+
 // ---------------------------------------------------------------------------
 // Row types
 // ---------------------------------------------------------------------------

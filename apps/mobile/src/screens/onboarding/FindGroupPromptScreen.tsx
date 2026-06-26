@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useCallback } from 'react';
 import {
   View,
   Text,
@@ -7,9 +7,18 @@ import {
   SafeAreaView,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import * as SecureStore from 'expo-secure-store';
+import { useAuthStore } from '../../stores/authStore';
 
 export default function FindGroupPromptScreen() {
   const router = useRouter();
+  const setIsFirstLogin = useAuthStore((s) => s.setIsFirstLogin);
+
+  const completeOnboarding = useCallback(async (destination: string) => {
+    await SecureStore.setItemAsync('onboarding_complete', '1').catch(() => {});
+    setIsFirstLogin(false);
+    router.replace(destination as never);
+  }, [router, setIsFirstLogin]);
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -21,7 +30,7 @@ export default function FindGroupPromptScreen() {
         <View style={styles.cardRow}>
           <TouchableOpacity
             style={styles.card}
-            onPress={() => router.replace('/group-browse' as never)}
+            onPress={() => void completeOnboarding('/group-browse')}
             activeOpacity={0.8}
           >
             <Text style={styles.cardEmoji}>🔍</Text>
@@ -31,7 +40,7 @@ export default function FindGroupPromptScreen() {
 
           <TouchableOpacity
             style={styles.card}
-            onPress={() => router.replace('/join' as never)}
+            onPress={() => void completeOnboarding('/join')}
             activeOpacity={0.8}
           >
             <Text style={styles.cardEmoji}>🔑</Text>
@@ -41,7 +50,7 @@ export default function FindGroupPromptScreen() {
         </View>
 
         <TouchableOpacity
-          onPress={() => router.replace('/(tabs)/map' as never)}
+          onPress={() => void completeOnboarding('/(tabs)/map')}
           hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
           style={styles.skipBtn}
         >

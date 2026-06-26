@@ -13,6 +13,7 @@ import {
   RefreshControl,
 } from 'react-native';
 import { apiClient } from '../../services/apiClient';
+import { HapticService } from '../../services/HapticService';
 import SkeletonCard from '../../components/SkeletonLoader';
 
 const COLOR_MAP: Record<string, string> = {
@@ -223,10 +224,7 @@ export default function GarageScreen() {
   const handleActivate = async (v: Vehicle) => {
     if (v.isActive || isActivating) return;
     setIsActivating(v.id);
-    try {
-      const Haptics = await import('expo-haptics').catch(() => null);
-      if (Haptics) void Haptics.impactAsync('medium' as never);
-    } catch { /* non-fatal */ }
+    HapticService.trigger('medium');
     try {
       const response = await apiClient.post<Vehicle>(`/api/v1/vehicles/${v.id}/activate`);
       setVehicles((prev) =>
