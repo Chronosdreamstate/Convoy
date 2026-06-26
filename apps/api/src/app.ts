@@ -112,6 +112,16 @@ export async function buildApp(): Promise<FastifyInstance> {
   // WebSocket server (socket.io, must be last so db/redis decorators are available)
   await app.register(socketioPlugin);
 
+  // Catch PostgreSQL "invalid input syntax for type uuid" (SQLSTATE 22P02) and return 400.
+  // Without this, malformed UUID path params produce a 500 instead of a clean client error.
+  app.setErrorHandler(async (error, _request, reply) => {
+    if ((error as { code?: string }).code === '22P02') {
+      return reply.status(400).send({ error: 'Invalid ID format — expected a UUID' });
+    }
+    // All other errors: re-throw so Fastify's default handler runs.
+    throw error;
+  });
+
   // Health check — probes DB and Redis so load balancers get a real liveness signal
   app.get('/health', async (_request, reply) => {
     const checks: Record<string, 'ok' | 'error'> = {};
