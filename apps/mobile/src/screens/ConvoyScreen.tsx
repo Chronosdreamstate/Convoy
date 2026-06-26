@@ -141,7 +141,10 @@ export default function ConvoyScreen({ userId }: Props) {
   const [discoverLoading, setDiscoverLoading] = useState(false);
   const [copyFeedback, setCopyFeedback] = useState(false);
   const [showQR, setShowQR] = useState(false);
+  const [showInvite, setShowInvite] = useState(false);
+  const [inviteCopyFeedback, setInviteCopyFeedback] = useState(false);
   const copyFeedbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const inviteCopyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [upcomingEvent, setUpcomingEvent] = useState<{ title: string; scheduledFor: string } | null>(null);
   const [eventCountdown, setEventCountdown] = useState('');
@@ -169,6 +172,7 @@ export default function ConvoyScreen({ userId }: Props) {
   useEffect(() => {
     return () => {
       if (copyFeedbackTimer.current) clearTimeout(copyFeedbackTimer.current);
+      if (inviteCopyTimer.current) clearTimeout(inviteCopyTimer.current);
     };
   }, []);
 
@@ -428,6 +432,25 @@ export default function ConvoyScreen({ userId }: Props) {
     }
   }, [group]);
 
+  const handleInviteCopy = useCallback(async () => {
+    if (!group) return;
+    try {
+      await Clipboard.setStringAsync(group.joinCode);
+      setInviteCopyFeedback(true);
+      if (inviteCopyTimer.current) clearTimeout(inviteCopyTimer.current);
+      inviteCopyTimer.current = setTimeout(() => setInviteCopyFeedback(false), 2000);
+    } catch { /* ignore */ }
+  }, [group]);
+
+  const handleInviteShare = useCallback(async () => {
+    if (!group) return;
+    try {
+      await Share.share({
+        message: `Join my CONVOY group "${group.name}" — use code: ${group.joinCode}\nhttps://convoy.app/join/${group.joinCode}`,
+      });
+    } catch { /* user cancelled */ }
+  }, [group]);
+
   // ── Leave group (Req 7.7) ─────────────────────────────────────────────────
   const handleLeave = useCallback(() => {
     const currentGroup = group;
@@ -468,7 +491,7 @@ export default function ConvoyScreen({ userId }: Props) {
             setMembers([]);
             setView('home');
             router.push({
-              pathname: '/convoy-end',
+              pathname: '/convoy-end' as never,
               params: {
                 groupName: currentGroup.name,
                 memberCount: String(memberCount),
@@ -772,7 +795,7 @@ export default function ConvoyScreen({ userId }: Props) {
           </View>
           {isAdmin && (
             <TouchableOpacity
-              onPress={() => router.push({ pathname: '/group-settings', params: { groupId: group.id, isAdmin: 'true' } })}
+              onPress={() => router.push({ pathname: '/group-settings' as never, params: { groupId: group.id, isAdmin: 'true' } })}
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               accessibilityRole="button"
               accessibilityLabel="Group settings"
@@ -929,7 +952,7 @@ export default function ConvoyScreen({ userId }: Props) {
       {isAdmin && (
         <TouchableOpacity
           style={styles.scheduleBtn}
-          onPress={() => router.push({ pathname: '/create-event', params: { groupId: group.id } })}
+          onPress={() => router.push({ pathname: '/create-event' as never, params: { groupId: group.id } })}
           accessibilityRole="button"
           accessibilityLabel="Schedule a convoy event"
         >

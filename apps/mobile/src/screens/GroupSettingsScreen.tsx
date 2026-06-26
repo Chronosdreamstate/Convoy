@@ -304,7 +304,7 @@ export default function GroupSettingsScreen() {
             <View style={styles.card}>
               <TouchableOpacity
                 style={styles.scheduleBtn}
-                onPress={() => router.push({ pathname: '/create-event', params: { groupId } })}
+                onPress={() => router.push({ pathname: '/create-event' as never, params: { groupId } })}
                 accessibilityRole="button"
                 accessibilityLabel="Schedule convoy event"
               >

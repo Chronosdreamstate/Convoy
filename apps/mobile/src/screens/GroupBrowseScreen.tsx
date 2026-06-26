@@ -34,6 +34,17 @@ interface PublicGroup {
   distanceM?: number; // populated in Nearby mode
 }
 
+interface GroupEvent {
+  id: string;
+  title: string;
+  scheduledAt: string; // ISO string
+}
+
+interface EventCountdown {
+  label: string;
+  urgent: boolean;
+}
+
 type FilterTab = 'All' | 'Nearby' | 'Active';
 
 // ---------------------------------------------------------------------------
@@ -50,6 +61,22 @@ function formatDistance(metres: number): string {
   return `${(metres / 1000).toFixed(1)} km`;
 }
 
+function formatCountdown(scheduledAt: string): EventCountdown | null {
+  const diff = new Date(scheduledAt).getTime() - Date.now();
+  if (diff <= 0) return null;
+  const days = diff / (1000 * 60 * 60 * 24);
+  if (days > 7) return null;
+  if (diff < 1000 * 60 * 60 * 24) {
+    const hours = Math.floor(diff / (1000 * 60 * 60));
+    const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+    return { label: `⏱ Starting in ${hours}h ${minutes}m`, urgent: true };
+  }
+  const date = new Date(scheduledAt);
+  const dayName = date.toLocaleDateString('en-US', { weekday: 'short' });
+  const time = date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  return { label: `📅 ${dayName} ${time}`, urgent: false };
+}
+
 // ---------------------------------------------------------------------------
 // GroupCard
 // ---------------------------------------------------------------------------
@@ -60,9 +87,10 @@ interface GroupCardProps {
   onView: (id: string) => void;
   joining: boolean;
   showDistance: boolean;
+  eventCountdown?: EventCountdown | null;
 }
 
-function GroupCard({ group, onJoin, onView, joining, showDistance }: GroupCardProps) {
+function GroupCard({ group, onJoin, onView, joining, showDistance, eventCountdown }: GroupCardProps) {
   return (
     <TouchableOpacity style={styles.card} onPress={() => onView(group.id)} activeOpacity={0.8}>
       <View style={styles.cardHeader}>
@@ -93,6 +121,14 @@ function GroupCard({ group, onJoin, onView, joining, showDistance }: GroupCardPr
           </>
         )}
       </View>
+
+      {eventCountdown && (
+        <View style={[styles.eventPill, eventCountdown.urgent && styles.eventPillUrgent]}>
+          <Text style={[styles.eventPillText, eventCountdown.urgent && styles.eventPillTextUrgent]}>
+            {eventCountdown.label}
+          </Text>
+        </View>
+      )}
 
       <View style={styles.cardActions}>
         <TouchableOpacity
@@ -135,6 +171,7 @@ export default function GroupBrowseScreen() {
   const [joiningId, setJoiningId] = useState<string | null>(null);
   const [locating, setLocating] = useState(false);
   const [locationError, setLocationError] = useState<string | null>(null);
+  const [eventCountdowns, setEventCountdowns] = useState<Record<string, EventCountdown | null>>({});
   const userCoordsRef = useRef<{ lat: number; lng: number } | null>(null);
 
   const FILTER_TABS: FilterTab[] = ['All', 'Nearby', 'Active'];
@@ -179,6 +216,36 @@ export default function GroupBrowseScreen() {
   useEffect(() => {
     void fetchGroups();
   }, [fetchGroups]);
+
+  // Fetch upcoming events for the first 5 visible groups
+  useEffect(() => {
+    if (groups.length === 0) return;
+    let cancelled = false;
+    const first5 = groups.slice(0, 5).map((g) => g.id);
+
+    (async () => {
+      const results = await Promise.all(
+        first5.map(async (id) => {
+          try {
+            const res = await apiClient.get<{ events: GroupEvent[] }>(`/groups/${id}/events`);
+            const events = res.data.events ?? [];
+            const upcoming = events
+              .map((e) => ({ id: e.id, countdown: formatCountdown(e.scheduledAt) }))
+              .find((e) => e.countdown !== null);
+            return { id, countdown: upcoming?.countdown ?? null };
+          } catch {
+            return { id, countdown: null };
+          }
+        }),
+      );
+      if (cancelled) return;
+      const map: Record<string, EventCountdown | null> = {};
+      results.forEach((r) => { map[r.id] = r.countdown; });
+      setEventCountdowns(map);
+    })();
+
+    return () => { cancelled = true; };
+  }, [groups]);
 
   // Handle Nearby filter activation
   useEffect(() => {
@@ -350,6 +417,7 @@ export default function GroupBrowseScreen() {
               onView={(id) => router.push(`/group/${id}` as never)}
               joining={joiningId === item.id}
               showDistance={isNearby}
+              eventCountdown={eventCountdowns[item.id]}
             />
           )}
           contentContainerStyle={filtered.length === 0 ? styles.emptyContainer : styles.listContent}
@@ -594,6 +662,28 @@ const styles = StyleSheet.create({
     color: '#DC143C',
     fontSize: 13,
     fontWeight: '600',
+  },
+  eventPill: {
+    alignSelf: 'flex-start',
+    backgroundColor: 'rgba(245, 158, 11, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(245, 158, 11, 0.35)',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    marginTop: 8,
+  },
+  eventPillUrgent: {
+    backgroundColor: 'rgba(245, 158, 11, 0.22)',
+    borderColor: '#F59E0B',
+  },
+  eventPillText: {
+    color: '#F59E0B',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  eventPillTextUrgent: {
+    color: '#F59E0B',
   },
   cardActions: {
     flexDirection: 'row',

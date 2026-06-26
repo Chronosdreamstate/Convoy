@@ -346,7 +346,7 @@ describe('Property 56: PATCH /users/me updates only specified fields', () => {
     await app.close();
   });
 
-  it('empty PATCH returns current profile unchanged', async () => {
+  it('empty PATCH returns 400 requiring at least one field', async () => {
     const app = buildTestApp();
     const u = makeUser('u1', { display_name: 'Road Warrior', privacy: 'invite_only' });
     resetStore([u]);
@@ -358,10 +358,9 @@ describe('Property 56: PATCH /users/me updates only specified fields', () => {
       headers: { Authorization: `Bearer ${token}` },
       payload: {},
     });
-    expect(res.statusCode).toBe(200);
-    const body = JSON.parse(res.body) as { displayName: string; privacy: string };
-    expect(body.displayName).toBe('Road Warrior');
-    expect(body.privacy).toBe('invite_only');
+    expect(res.statusCode).toBe(400);
+    const body = JSON.parse(res.body) as { message: string };
+    expect(body.message).toMatch(/field/i);
 
     await app.close();
   });

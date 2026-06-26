@@ -98,7 +98,7 @@ export default function IdleMapScreen() {
       const res = await apiClient.get<{ groups: unknown[]; total: number }>(
         `/api/v1/groups?accessType=open&lat=${lat}&lng=${lng}&limit=10`,
       );
-      setNearbyCount(res.groups?.length ?? 0);
+      setNearbyCount(res.data.groups?.length ?? 0);
     } catch {
       // non-fatal
     }
@@ -160,7 +160,7 @@ export default function IdleMapScreen() {
 
   const handleBrowseGroups = () => {
     clearIdleTimer();
-    router.push('/group-browse');
+    router.push('/group-browse' as never);
   };
 
   const cardHeight = 260 + insets.bottom;
@@ -259,7 +259,7 @@ export default function IdleMapScreen() {
 
         <TouchableOpacity
           style={styles.outlineBtn}
-          onPress={() => { clearIdleTimer(); router.push('/join'); }}
+          onPress={() => { clearIdleTimer(); router.push('/join' as never); }}
           accessibilityRole="button"
           accessibilityLabel="Join a group with a code"
         >

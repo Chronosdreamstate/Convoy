@@ -734,7 +734,7 @@ export default function DriveHistoryScreen() {
                     {(drive.routeTrace?.coordinates?.length ?? 0) > 1 && (
                       <TouchableOpacity
                         style={[styles.expandShareBtn, { flex: 1, backgroundColor: '#1C1C1C', borderColor: '#DC143C', borderWidth: 1 }]}
-                        onPress={() => router.push(`/replay?driveId=${drive.id}`)}
+                        onPress={() => router.push(`/replay?driveId=${drive.id}` as never)}
                         accessibilityRole="button"
                         accessibilityLabel="Replay drive"
                       >

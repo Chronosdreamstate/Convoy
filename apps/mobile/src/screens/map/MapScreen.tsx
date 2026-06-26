@@ -306,9 +306,10 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
 
   // Sync CarPlay + AndroidAuto with current convoy state
   useEffect(() => {
+    const memberCount = Object.keys(memberLocations).length;
     const state = {
       groupId: groupId ?? null,
-      memberCount: members.length,
+      memberCount,
       routeActive: routeCoords.length > 0,
       pttChannelId: pttChannelId ?? null,
       myCallsign: user?.pttCallsign ?? '',
@@ -321,7 +322,7 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
     };
     if (Platform.OS === 'ios') carPlayService.syncStateIfChanged(state);
     else if (Platform.OS === 'android') androidAutoService.syncStateIfChanged(state);
-  }, [groupId, members.length, routeCoords.length, pttChannelId, user, groupName, transmittingCallsign]);
+  }, [groupId, memberLocations, routeCoords.length, pttChannelId, user, groupName, transmittingCallsign]);
 
   // Pulsing ring animation when actively transmitting PTT
   useEffect(() => {

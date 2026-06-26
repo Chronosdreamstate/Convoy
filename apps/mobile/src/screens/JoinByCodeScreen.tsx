@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Clipboard,
@@ -11,18 +11,26 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { apiClient } from '../services/apiClient';
 
 const CODE_LENGTH = 6;
 
 export default function JoinByCodeScreen() {
   const router = useRouter();
+  const { prefillCode } = useLocalSearchParams<{ prefillCode?: string }>();
   const inputRef = useRef<TextInput>(null);
   const [code, setCode] = useState('');
   const [focused, setFocused] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Pre-fill from deep link: convoy://join?code=XXXXXX
+  useEffect(() => {
+    if (prefillCode) {
+      setCode(prefillCode.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, CODE_LENGTH));
+    }
+  }, [prefillCode]);
 
   const handleChangeText = (text: string) => {
     setError(null);

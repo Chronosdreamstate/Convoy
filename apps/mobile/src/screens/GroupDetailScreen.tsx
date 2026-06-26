@@ -62,8 +62,12 @@ function formatDate(iso: string): string {
 function DetailSkeleton() {
   return (
     <View style={styles.skeletonContainer}>
-      <SkeletonBox height={28} width="60%" style={{ marginBottom: 8 }} />
-      <SkeletonBox height={16} width="40%" style={{ marginBottom: 24 }} />
+      <View style={{ marginBottom: 8 }}>
+        <SkeletonBox height={28} width="60%" />
+      </View>
+      <View style={{ marginBottom: 24 }}>
+        <SkeletonBox height={16} width="40%" />
+      </View>
       <SkeletonRow />
       <SkeletonRow />
       <SkeletonRow />

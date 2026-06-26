@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import apiClient from '../services/apiClient';
+import { apiClient } from '../services/apiClient';
 
 export default function CreateEventScreen() {
   const { groupId } = useLocalSearchParams<{ groupId: string }>();

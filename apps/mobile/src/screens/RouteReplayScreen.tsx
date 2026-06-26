@@ -101,9 +101,9 @@ export default function RouteReplayScreen() {
     setLoading(true);
     apiClient
       .get<DriveDetail>(`/api/v1/drives/${driveId}`)
-      .then((data) => {
-        setDrive(data);
-        const c = geojsonToCoords(data.routeTrace?.coordinates ?? []);
+      .then((res) => {
+        setDrive(res.data);
+        const c = geojsonToCoords(res.data.routeTrace?.coordinates ?? []);
         setCoords(c);
       })
       .catch(() => setError('Could not load drive data.'))
@@ -242,7 +242,6 @@ export default function RouteReplayScreen() {
         ref={mapRef}
         style={styles.map}
         initialRegion={region}
-        userInteractionEnabled
         scrollEnabled
         zoomEnabled
         mapType="standard"

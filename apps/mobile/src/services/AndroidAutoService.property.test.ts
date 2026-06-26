@@ -85,6 +85,9 @@ const fcState = fc.record<AndroidAutoState>({
   activeGroupName: fc.oneof(fc.constant(null as string | null), fc.string({ minLength: 1, maxLength: 40 })),
   nearbyGroupCount: fc.integer({ min: 0, max: 50 }),
   convoyStatus: fc.oneof(fc.constant('idle' as const), fc.constant('active' as const), fc.constant('ending' as const)),
+  transmittingMemberCallsign: fc.oneof(fc.constant(null as string | null), fc.string({ minLength: 1, maxLength: 20 })),
+  nextWaypointName: fc.oneof(fc.constant(null as string | null), fc.string({ minLength: 1, maxLength: 40 })),
+  nextWaypointEtaMinutes: fc.oneof(fc.constant(null as number | null), fc.integer({ min: 1, max: 120 })),
 });
 
 beforeEach(() => {

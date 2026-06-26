@@ -1,5 +1,5 @@
 ﻿import { useEffect, useRef, useState } from 'react';
-import { Alert, Animated, AppState, Platform, StyleSheet, Text, View } from 'react-native';
+import { Alert, Animated, AppState, Linking, Platform, StyleSheet, Text, View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Stack, useRouter } from 'expo-router';
 import ErrorBoundary from '../src/components/ErrorBoundary';
@@ -93,6 +93,24 @@ function handleNotificationNavigation(
       break;
     default:
       break;
+  }
+}
+
+/** Route a convoy:// deep link to the appropriate screen. */
+function handleDeepLink(router: Router, url: string): void {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== 'convoy:') return;
+    const host = parsed.hostname;
+    if (host === 'join') {
+      const code = parsed.searchParams.get('code');
+      if (code) router.push(`/join?prefillCode=${encodeURIComponent(code)}`);
+    } else if (host === 'invite') {
+      const userId = parsed.searchParams.get('userId');
+      if (userId) router.push(`/group/${encodeURIComponent(userId)}`);
+    }
+  } catch {
+    // malformed URL — ignore
   }
 }
 
@@ -251,6 +269,21 @@ export default function RootLayout() {
     }).catch(() => {
       // Non-fatal — silently ignore if getLastNotificationResponseAsync fails
     });
+  }, []);
+
+  // Cold-start deep link: app was closed and opened via convoy:// URL
+  useEffect(() => {
+    Linking.getInitialURL().then((url) => {
+      if (url) handleDeepLink(router, url);
+    }).catch(() => {});
+  }, []);
+
+  // Warm-start deep link: app already running, convoy:// URL received
+  useEffect(() => {
+    const sub = Linking.addEventListener('url', ({ url }) => {
+      handleDeepLink(router, url);
+    });
+    return () => sub.remove();
   }, []);
 
   // Navigation guard: redirect unauthenticated users to welcome, first-time users to onboarding
