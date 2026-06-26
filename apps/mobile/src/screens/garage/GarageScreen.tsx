@@ -79,6 +79,22 @@ function vehicleSubtitle(v: Vehicle): string {
   return [v.year ? String(v.year) : null, v.color].filter(Boolean).join(' · ');
 }
 
+const CURRENT_YEAR = new Date().getFullYear();
+const YEAR_OPTIONS = Array.from({ length: CURRENT_YEAR - 1949 + 2 }, (_, i) => CURRENT_YEAR + 1 - i);
+
+const SWATCH_COLORS: Array<{ name: string; hex: string }> = [
+  { name: 'Black', hex: '#1a1a1a' }, { name: 'White', hex: '#f5f5f5' },
+  { name: 'Silver', hex: '#c0c0c0' }, { name: 'Gray', hex: '#808080' },
+  { name: 'Charcoal', hex: '#36454f' }, { name: 'Red', hex: '#DC143C' },
+  { name: 'Maroon', hex: '#7f1d1d' }, { name: 'Blue', hex: '#1d4ed8' },
+  { name: 'Navy', hex: '#1e3a5f' }, { name: 'Teal', hex: '#0d9488' },
+  { name: 'Green', hex: '#15803d' }, { name: 'Yellow', hex: '#eab308' },
+  { name: 'Orange', hex: '#ea580c' }, { name: 'Brown', hex: '#92400e' },
+  { name: 'Gold', hex: '#d97706' }, { name: 'Bronze', hex: '#b45309' },
+  { name: 'Copper', hex: '#b87333' }, { name: 'Purple', hex: '#7c3aed' },
+  { name: 'Pink', hex: '#ec4899' }, { name: 'Pearl', hex: '#f0ede0' },
+];
+
 export default function GarageScreen() {
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -93,6 +109,11 @@ export default function GarageScreen() {
   const [form, setForm] = useState<VehicleForm>(EMPTY_FORM);
   const [isSaving, setIsSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+
+  // Picker modals
+  const [showYearPicker, setShowYearPicker] = useState(false);
+  const [showColorPicker, setShowColorPicker] = useState(false);
+  const [customColorMode, setCustomColorMode] = useState(false);
 
   useEffect(() => {
     void loadVehicles();
@@ -377,26 +398,69 @@ export default function GarageScreen() {
               </TouchableOpacity>
             </View>
 
-            <ScrollView showsVerticalScrollIndicator={false}>
-              {[
-                { label: 'Year', key: 'year' as const, placeholder: 'e.g. 2022', keyboardType: 'numeric' as const },
-                { label: 'Make', key: 'make' as const, placeholder: 'e.g. Ford' },
-                { label: 'Model', key: 'model' as const, placeholder: 'e.g. Bronco' },
-                { label: 'Colour', key: 'color' as const, placeholder: 'e.g. Agate Black' },
-              ].map((field) => (
-                <View key={field.key} style={styles.formField}>
-                  <Text style={styles.formLabel}>{field.label}</Text>
-                  <TextInput
-                    style={styles.formInput}
-                    value={form[field.key]}
-                    onChangeText={(val) => setForm((prev) => ({ ...prev, [field.key]: val }))}
-                    placeholder={field.placeholder}
-                    placeholderTextColor="#555555"
-                    keyboardType={field.keyboardType}
-                    accessibilityLabel={`${field.label} input`}
-                  />
-                </View>
-              ))}
+            <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+              {/* Year — tap to open scroll picker */}
+              <View style={styles.formField}>
+                <Text style={styles.formLabel}>Year</Text>
+                <TouchableOpacity
+                  style={styles.pickerPill}
+                  onPress={() => setShowYearPicker(true)}
+                  accessibilityRole="button"
+                  accessibilityLabel={form.year ? `Year: ${form.year}` : 'Select year'}
+                >
+                  <Text style={form.year ? styles.pickerPillText : styles.pickerPillPlaceholder}>
+                    {form.year || 'Year (optional)'}
+                  </Text>
+                  <Text style={styles.pickerChevron}>›</Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* Make */}
+              <View style={styles.formField}>
+                <Text style={styles.formLabel}>Make</Text>
+                <TextInput
+                  style={styles.formInput}
+                  value={form.make}
+                  onChangeText={(val) => setForm((prev) => ({ ...prev, make: val }))}
+                  placeholder="e.g. Ford"
+                  placeholderTextColor="#555555"
+                  accessibilityLabel="Make input"
+                />
+              </View>
+
+              {/* Model */}
+              <View style={styles.formField}>
+                <Text style={styles.formLabel}>Model</Text>
+                <TextInput
+                  style={styles.formInput}
+                  value={form.model}
+                  onChangeText={(val) => setForm((prev) => ({ ...prev, model: val }))}
+                  placeholder="e.g. Bronco"
+                  placeholderTextColor="#555555"
+                  accessibilityLabel="Model input"
+                />
+              </View>
+
+              {/* Color — tap to open swatch picker */}
+              <View style={styles.formField}>
+                <Text style={styles.formLabel}>Color</Text>
+                <TouchableOpacity
+                  style={styles.pickerPill}
+                  onPress={() => { setCustomColorMode(false); setShowColorPicker(true); }}
+                  accessibilityRole="button"
+                  accessibilityLabel={form.color ? `Color: ${form.color}` : 'Select color'}
+                >
+                  {form.color ? (
+                    <View style={styles.pillSwatchRow}>
+                      <View style={[styles.pillSwatch, { backgroundColor: colorSwatch(form.color) ?? '#888888' }]} />
+                      <Text style={styles.pickerPillText}>{form.color}</Text>
+                    </View>
+                  ) : (
+                    <Text style={styles.pickerPillPlaceholder}>Color (optional)</Text>
+                  )}
+                  <Text style={styles.pickerChevron}>›</Text>
+                </TouchableOpacity>
+              </View>
 
               {formError ? <Text style={styles.errorText}>{formError}</Text> : null}
 
@@ -417,6 +481,106 @@ export default function GarageScreen() {
                 )}
               </TouchableOpacity>
             </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Year picker modal */}
+      <Modal visible={showYearPicker} animationType="slide" transparent onRequestClose={() => setShowYearPicker(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalSheet, { maxHeight: 420 }]}>
+            <View style={styles.modalHandle} />
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Select Year</Text>
+              <TouchableOpacity onPress={() => setShowYearPicker(false)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                <Text style={styles.modalClose}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <TouchableOpacity
+                style={styles.yearRow}
+                onPress={() => { setForm((p) => ({ ...p, year: '' })); setShowYearPicker(false); }}
+              >
+                <Text style={[styles.yearRowText, !form.year && styles.yearRowActive]}>Not specified</Text>
+                {!form.year && <Text style={styles.yearCheck}>✓</Text>}
+              </TouchableOpacity>
+              {YEAR_OPTIONS.map((y) => (
+                <TouchableOpacity
+                  key={y}
+                  style={styles.yearRow}
+                  onPress={() => { setForm((p) => ({ ...p, year: String(y) })); setShowYearPicker(false); }}
+                >
+                  <Text style={[styles.yearRowText, form.year === String(y) && styles.yearRowActive]}>{y}</Text>
+                  {form.year === String(y) && <Text style={styles.yearCheck}>✓</Text>}
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Color picker modal */}
+      <Modal visible={showColorPicker} animationType="slide" transparent onRequestClose={() => setShowColorPicker(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalSheet, { maxHeight: 500 }]}>
+            <View style={styles.modalHandle} />
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Select Color</Text>
+              <TouchableOpacity onPress={() => setShowColorPicker(false)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                <Text style={styles.modalClose}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            {customColorMode ? (
+              <View style={{ paddingHorizontal: 16, paddingBottom: 24 }}>
+                <TextInput
+                  style={[styles.formInput, { marginTop: 8 }]}
+                  value={form.color}
+                  onChangeText={(val) => setForm((p) => ({ ...p, color: val }))}
+                  placeholder="e.g. Agate Black"
+                  placeholderTextColor="#555555"
+                  autoFocus
+                  returnKeyType="done"
+                  onSubmitEditing={() => setShowColorPicker(false)}
+                  accessibilityLabel="Custom color input"
+                />
+                <TouchableOpacity
+                  style={[styles.saveButton, { marginTop: 12 }]}
+                  onPress={() => setShowColorPicker(false)}
+                >
+                  <Text style={styles.saveButtonText}>Done</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.swatchGrid}>
+                {SWATCH_COLORS.map((c) => (
+                  <TouchableOpacity
+                    key={c.name}
+                    style={styles.swatchItem}
+                    onPress={() => { setForm((p) => ({ ...p, color: c.name })); setShowColorPicker(false); }}
+                    accessibilityRole="button"
+                    accessibilityLabel={c.name}
+                  >
+                    <View style={[
+                      styles.swatchCircle,
+                      { backgroundColor: c.hex },
+                      form.color?.toLowerCase() === c.name.toLowerCase() && styles.swatchCircleSelected,
+                    ]} />
+                    <Text style={styles.swatchLabel}>{c.name}</Text>
+                  </TouchableOpacity>
+                ))}
+                <TouchableOpacity
+                  style={styles.swatchItem}
+                  onPress={() => setCustomColorMode(true)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Custom color"
+                >
+                  <View style={[styles.swatchCircle, styles.swatchCustom]}>
+                    <Text style={{ fontSize: 18 }}>✏️</Text>
+                  </View>
+                  <Text style={styles.swatchLabel}>Custom</Text>
+                </TouchableOpacity>
+              </ScrollView>
+            )}
           </View>
         </View>
       </Modal>
@@ -607,4 +771,71 @@ const styles = StyleSheet.create({
   },
   saveButtonDisabled: { opacity: 0.5 },
   saveButtonText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
+
+  // Picker pill
+  pickerPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#0A0A0A',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#2A2A2A',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    minHeight: 50,
+  },
+  pickerPillText: { color: '#F0F0F0', fontSize: 16 },
+  pickerPillPlaceholder: { color: '#555555', fontSize: 16 },
+  pickerChevron: { color: '#555555', fontSize: 18 },
+  pillSwatchRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  pillSwatch: { width: 20, height: 20, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.15)' },
+
+  // Year picker
+  yearRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#1A1A1A',
+  },
+  yearRowText: { fontSize: 16, color: '#888888' },
+  yearRowActive: { color: '#DC143C', fontWeight: '700' },
+  yearCheck: { color: '#DC143C', fontSize: 16, fontWeight: '700' },
+
+  // Color swatch grid
+  swatchGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    paddingHorizontal: 12,
+    paddingBottom: 24,
+    gap: 12,
+    justifyContent: 'flex-start',
+  },
+  swatchItem: {
+    width: 72,
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 8,
+  },
+  swatchCircle: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.1)',
+  },
+  swatchCircleSelected: {
+    borderColor: '#DC143C',
+    borderWidth: 3,
+  },
+  swatchCustom: {
+    backgroundColor: '#1C1C1C',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderColor: '#2A2A2A',
+  },
+  swatchLabel: { fontSize: 11, color: '#888888', textAlign: 'center' },
 });

@@ -1,6 +1,7 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import {
   Animated,
+  Dimensions,
   SafeAreaView,
   Share,
   StyleSheet,
@@ -9,6 +10,96 @@ import {
   View,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+
+// ---------------------------------------------------------------------------
+// Confetti burst — 24 particles, pure RN Animated, no third-party lib
+// ---------------------------------------------------------------------------
+
+const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
+const CONFETTI_COLORS = ['#DC143C', '#FFFFFF', '#F59E0B', '#22C55E', '#60A5FA', '#A78BFA'];
+const PARTICLE_COUNT = 24;
+
+interface Particle {
+  x: number;
+  color: string;
+  translateY: Animated.Value;
+  translateX: Animated.Value;
+  opacity: Animated.Value;
+  rotate: Animated.Value;
+}
+
+function useConfetti(): Particle[] {
+  return useMemo(
+    () =>
+      Array.from({ length: PARTICLE_COUNT }, (_, i) => ({
+        x: (SCREEN_W / PARTICLE_COUNT) * i + Math.random() * 30 - 15,
+        color: CONFETTI_COLORS[i % CONFETTI_COLORS.length],
+        translateY: new Animated.Value(-20),
+        translateX: new Animated.Value(0),
+        opacity: new Animated.Value(1),
+        rotate: new Animated.Value(0),
+      })),
+    [],
+  );
+}
+
+function Confetti() {
+  const particles = useConfetti();
+
+  useEffect(() => {
+    const anims = particles.map((p, i) =>
+      Animated.parallel([
+        Animated.timing(p.translateY, {
+          toValue: SCREEN_H * 0.7,
+          duration: 2000 + Math.random() * 1000,
+          delay: i * 60,
+          useNativeDriver: true,
+        }),
+        Animated.timing(p.translateX, {
+          toValue: (Math.random() - 0.5) * 80,
+          duration: 2000 + Math.random() * 1000,
+          delay: i * 60,
+          useNativeDriver: true,
+        }),
+        Animated.timing(p.opacity, {
+          toValue: 0,
+          duration: 600,
+          delay: i * 60 + 1400,
+          useNativeDriver: true,
+        }),
+        Animated.timing(p.rotate, {
+          toValue: 4 + Math.random() * 4,
+          duration: 2000 + Math.random() * 1000,
+          delay: i * 60,
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+    Animated.stagger(40, anims).start();
+  }, [particles]);
+
+  return (
+    <View style={StyleSheet.absoluteFillObject} pointerEvents="none">
+      {particles.map((p, i) => {
+        const spin = p.rotate.interpolate({ inputRange: [0, 8], outputRange: ['0deg', '720deg'] });
+        return (
+          <Animated.View
+            key={i}
+            style={[
+              styles.particle,
+              {
+                left: p.x,
+                backgroundColor: p.color,
+                opacity: p.opacity,
+                transform: [{ translateY: p.translateY }, { translateX: p.translateX }, { rotate: spin }],
+              },
+            ]}
+          />
+        );
+      })}
+    </View>
+  );
+}
 
 function formatDuration(minutes: number): string {
   if (minutes < 60) return `${minutes}m`;
@@ -82,6 +173,7 @@ export default function ConvoyEndScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
+      <Confetti />
       <View style={styles.inner}>
         {/* Celebration emoji */}
         <Animated.Text style={[styles.flagEmoji, { transform: [{ scale }], opacity }]}>
@@ -226,5 +318,12 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 17,
     fontWeight: '700',
+  },
+  particle: {
+    position: 'absolute',
+    top: 0,
+    width: 8,
+    height: 8,
+    borderRadius: 2,
   },
 });
