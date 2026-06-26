@@ -159,12 +159,12 @@ const fuelRoutes: FastifyPluginAsync = async (fastify) => {
       let startedAtMs: number | null = rawStartedAt ? parseInt(rawStartedAt, 10) : null;
       if (startedAtMs === null) {
         // Redis TTL may have expired — fall back to DB for active groups
-        const groupRow = await fastify.db.query<{ started_at: Date }>(
-          `SELECT started_at FROM convoy_groups WHERE id = $1 AND status = 'active'`,
+        const groupRow = await fastify.db.query<{ created_at: Date }>(
+          `SELECT created_at FROM convoy_groups WHERE id = $1 AND status = 'active'`,
           [groupId],
         );
         if (groupRow.rows[0]) {
-          startedAtMs = groupRow.rows[0].started_at.getTime();
+          startedAtMs = groupRow.rows[0].created_at.getTime();
         }
       }
       const durationS = startedAtMs !== null
