@@ -155,6 +155,12 @@ export default function SettingsScreen() {
   const [saveSuccess, setSaveSuccess] = useState(false);
   const saveSuccessTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  useEffect(() => {
+    return () => {
+      if (saveSuccessTimer.current) clearTimeout(saveSuccessTimer.current);
+    };
+  }, []);
+
   // Local editable copies
   const [mapStyle, setMapStyle] = useState<Settings['mapStyle']>('standard');
   const [hazardDistM, setHazardDistM] = useState(805);
@@ -166,7 +172,6 @@ export default function SettingsScreen() {
   const [notifGroupEvents, setNotifGroupEvents] = useState(true);
   const [notifFriendRequests, setNotifFriendRequests] = useState(true);
   const [notifNavigation, setNotifNavigation] = useState(true);
-  const [friendPrivacy, setFriendPrivacy] = useState<'open' | 'friends_only'>('open');
 
   useEffect(() => {
     loadSettings();
@@ -485,26 +490,6 @@ export default function SettingsScreen() {
             icon="🚗"
             label="CarPlay / Android Auto"
             subtitle="Connect to your vehicle to configure head unit settings"
-            last
-          />
-        </View>
-
-        {/* ── PRIVACY ─────────────────────────────────────────────────────── */}
-        <SectionHeader title="PRIVACY" />
-        <View style={styles.sectionCard}>
-          <SettingRow
-            icon="🔒"
-            label="Friend Requests"
-            subtitle={friendPrivacy === 'open' ? 'Anyone can send you a friend request' : 'Only friends-of-friends can send requests'}
-            rightSlot={
-              <Switch
-                value={friendPrivacy === 'friends_only'}
-                onValueChange={(v) => { setFriendPrivacy(v ? 'friends_only' : 'open'); mark(); }}
-                trackColor={{ false: '#2A2A2A', true: '#DC143C' }}
-                thumbColor="#FFFFFF"
-                accessibilityLabel="Restrict friend requests to friends of friends"
-              />
-            }
             last
           />
         </View>
