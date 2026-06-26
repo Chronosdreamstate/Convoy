@@ -138,6 +138,10 @@ const tokenBodySchema = z.object({
   channelId: z.string().uuid(),
 });
 
+const channelNameSchema = z.object({
+  name: z.string().min(1, 'Channel name is required').max(100, 'Channel name cannot exceed 100 characters').transform((s) => s.trim()),
+});
+
 // ---------------------------------------------------------------------------
 // Routes
 // ---------------------------------------------------------------------------
@@ -220,10 +224,9 @@ export default async function pttRoutes(fastify: FastifyInstance): Promise<void>
   fastify.post('/groups/:id/channels', { preHandler: [authenticate, generalLimiter(fastify.redis)] }, async (request, reply) => {
     const userId = (request.user as { sub: string }).sub;
     const { id } = request.params as { id: string };
-    const { name } = request.body as { name: string };
-
-    if (!name?.trim()) return reply.badRequest('Channel name is required');
-    if (name.trim().length > 100) return reply.badRequest('Channel name cannot exceed 100 characters');
+    const parsedName = channelNameSchema.safeParse(request.body);
+    if (!parsedName.success) return reply.badRequest(parsedName.error.errors[0].message);
+    const { name } = parsedName.data;
 
     const group = await pool.query<{ admin_id: string }>(
       'SELECT admin_id FROM convoy_groups WHERE id = $1 AND status = $2',
@@ -235,7 +238,7 @@ export default async function pttRoutes(fastify: FastifyInstance): Promise<void>
     const result = await pool.query<{ id: string; name: string; is_all: boolean }>(
       `INSERT INTO ptt_channels (group_id, name, is_all) VALUES ($1, $2, false)
        RETURNING id, name, is_all`,
-      [id, name.trim()],
+      [id, name],
     );
 
     return reply.code(201).send({
@@ -255,10 +258,9 @@ export default async function pttRoutes(fastify: FastifyInstance): Promise<void>
     async (request, reply) => {
       const userId = (request.user as { sub: string }).sub;
       const { id, channelId } = request.params as { id: string; channelId: string };
-      const { name } = request.body as { name: string };
-
-      if (!name?.trim()) return reply.badRequest('Channel name is required');
-      if (name.trim().length > 100) return reply.badRequest('Channel name cannot exceed 100 characters');
+      const parsedRename = channelNameSchema.safeParse(request.body);
+      if (!parsedRename.success) return reply.badRequest(parsedRename.error.errors[0].message);
+      const { name } = parsedRename.data;
 
       const group = await pool.query<{ admin_id: string; status: string }>(
         'SELECT admin_id, status FROM convoy_groups WHERE id = $1',
@@ -278,7 +280,7 @@ export default async function pttRoutes(fastify: FastifyInstance): Promise<void>
       const result = await pool.query<{ id: string; name: string; is_all: boolean }>(
         `UPDATE ptt_channels SET name = $1 WHERE id = $2 AND group_id = $3
          RETURNING id, name, is_all`,
-        [name.trim(), channelId, id],
+        [name, channelId, id],
       );
       if ((result.rowCount ?? 0) === 0) return reply.notFound('Channel not found');
 
