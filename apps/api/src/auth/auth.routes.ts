@@ -310,14 +310,18 @@ async function authRoutes(fastify: FastifyInstance, _opts: FastifyPluginOptions)
       return reply.unauthorized('Invalid token payload');
     }
 
+    // All tokens issued by issueTokens() include a JTI. Tokens without one are either
+    // legacy (pre-JTI) or tampered — reject them to enforce replay protection.
+    if (!presentedJti) {
+      return reply.unauthorized('Invalid refresh token format');
+    }
+
     // Verify the jti matches the last-issued token — rejects replayed or rotated-out tokens
-    if (presentedJti) {
-      const storedJti = await fastify.redis.get(`rtk:${userId}`);
-      if (storedJti !== presentedJti) {
-        // Possible token reuse attack — invalidate all refresh tokens for this user
-        await fastify.redis.del(`rtk:${userId}`);
-        return reply.unauthorized('Refresh token has already been used or revoked');
-      }
+    const storedJti = await fastify.redis.get(`rtk:${userId}`);
+    if (storedJti !== presentedJti) {
+      // Possible token reuse attack — invalidate all refresh tokens for this user
+      await fastify.redis.del(`rtk:${userId}`);
+      return reply.unauthorized('Refresh token has already been used or revoked');
     }
 
     // Verify the user still exists in the database
