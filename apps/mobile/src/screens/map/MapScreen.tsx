@@ -499,19 +499,19 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
     socketRef.current = socket;
     useSocketStore.getState().setSocket(socket);
 
-    // Track who's transmitting PTT for CarPlay/AndroidAuto waveform display
-    socket.on('ptt:started', (data: { userId: string; callsign?: string | null }) => {
-      setTransmittingCallsign(data.callsign ?? null);
-    });
-    socket.on('ptt:ended', () => { setTransmittingCallsign(null); });
-
-    // Forward our own logId to PTTService; keep fabPttLogIdRef for socket-only fallback
+    // Forward own logId to PTTService; also track transmitter for CarPlay/AndroidAuto waveform
     socket.on('ptt:transmit', (data: { logId: string; userId: string }) => {
       if (data.userId === user?.id) {
         fabPttLogIdRef.current = data.logId;
         pttServiceRef.current?.setCurrentLogId(data.logId);
       }
+      // Show transmitting member's display name in CarPlay waveform banner
+      const name = memberNamesRef.current[data.userId] ?? null;
+      setTransmittingCallsign(name);
     });
+
+    // Clear waveform when transmission ends
+    socket.on('ptt:ended', () => { setTransmittingCallsign(null); });
 
     socket.on('connect', () => {
       setIsConnected(true);
