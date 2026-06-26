@@ -70,7 +70,44 @@ const accountRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.delete('/account', { preHandler: [authenticate] }, async (request, reply) => {
     const userId = (request.user as { sub: string }).sub;
 
-    // Cascade deletes handle all linked records (users has ON DELETE CASCADE)
+    // convoy_groups.admin_id has no ON DELETE CASCADE, so we must resolve admin
+    // groups before deleting the user or the DELETE will fail with FK violation.
+    const adminGroupsResult = await fastify.db.query<{ id: string }>(
+      `SELECT id FROM convoy_groups WHERE admin_id = $1 AND status = 'active'`,
+      [userId],
+    );
+
+    for (const { id: groupId } of adminGroupsResult.rows) {
+      // Find the earliest-joined remaining active member to inherit admin role
+      const nextAdmin = await fastify.db.query<{ user_id: string }>(
+        `SELECT user_id FROM convoy_members
+         WHERE group_id = $1 AND user_id != $2 AND left_at IS NULL
+         ORDER BY joined_at ASC LIMIT 1`,
+        [groupId, userId],
+      );
+
+      if (nextAdmin.rows[0]) {
+        // Transfer admin to the next member
+        await fastify.db.query(
+          `UPDATE convoy_groups SET admin_id = $1 WHERE id = $2`,
+          [nextAdmin.rows[0].user_id, groupId],
+        );
+      } else {
+        // User is the sole member — end the group
+        await fastify.db.query(
+          `UPDATE convoy_groups SET status = 'ended', ended_at = now() WHERE id = $1`,
+          [groupId],
+        );
+        // Notify any open socket connections
+        fastify.io.to(`group:${groupId}`).emit('group:ended', { endedBy: userId, groupId });
+        // Clean up fuel-tracking Redis keys
+        fastify.redis.del(`group:${groupId}:started_at`, `group:${groupId}:distance_m`)
+          .catch(() => {});
+      }
+    }
+
+    // Now safe to delete — cascade handles auth_providers, devices, vehicles,
+    // convoy_members, ptt_channel_members, drive_history, user_settings
     await fastify.db.query('DELETE FROM users WHERE id = $1', [userId]);
 
     // Invalidate refresh token jti and clear cookie
