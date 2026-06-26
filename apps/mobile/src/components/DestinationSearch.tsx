@@ -155,6 +155,7 @@ export default function DestinationSearch({
             <TouchableOpacity
               onPress={() => void runSearch(query)}
               style={styles.errorRow}
+              accessibilityRole="button"
               accessibilityLabel="Retry search"
             >
               <Text style={styles.errorText}>{error}</Text>
