@@ -1,5 +1,6 @@
 ﻿import { useEffect, useRef, useState } from 'react';
-import { Animated, AppState, Platform, StyleSheet, Text, View } from 'react-native';
+import { Alert, Animated, AppState, Platform, StyleSheet, Text, View } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Stack, useRouter } from 'expo-router';
 import ErrorBoundary from '../src/components/ErrorBoundary';
 import type { Router } from 'expo-router';
@@ -138,6 +139,7 @@ const splashStyles = StyleSheet.create({
 export default function RootLayout() {
   const { isAuthenticated, isLoading, isFirstLogin, setUser, setLoading, setIsFirstLogin, signOut: storeSignOut } = useAuthStore();
   const setActiveGroupId = useGroupStore((s) => s.setActiveGroupId);
+  const activeGroupId = useGroupStore((s) => s.activeGroupId);
   const socketConnected = useSocketStore((s) => s.isConnected);
   const [hasEverConnected, setHasEverConnected] = useState(false);
   const router = useRouter();
@@ -186,24 +188,50 @@ export default function RootLayout() {
     return () => syncService.stop();
   }, [isAuthenticated, isLoading]);
 
-  // Push registration: run once after the user is confirmed authenticated.
-  // The useRef guard prevents re-registration on re-renders or StrictMode double-invocations.
-  // Wrapped in try/catch so permission denial is always silent.
+  // Push registration: deferred until the user joins their first group.
+  // Showing the system permission dialog in context ("convoy is starting")
+  // yields significantly higher grant rates than asking at app launch.
+  const prevActiveGroupIdRef = useRef<string | null>(null);
   useEffect(() => {
     if (!isAuthenticated || isLoading) return;
+    if (!activeGroupId || prevActiveGroupIdRef.current === activeGroupId) return;
+    const wasInGroup = prevActiveGroupIdRef.current !== null;
+    prevActiveGroupIdRef.current = activeGroupId;
+    // Only prompt on the very first group join, not on every subsequent group switch
+    if (wasInGroup) return;
     if (pushRegisteredRef.current) return;
-    pushRegisteredRef.current = true;
-    registerForPushNotificationsAsync()
-      .then((pushToken) => {
-        if (pushToken) {
-          return apiClient.post('/api/v1/devices', {
-            pushToken,
-            platform: Platform.OS === 'ios' ? 'ios' : 'android',
-          });
-        }
-      })
-      .catch(() => {});
-  }, [isAuthenticated, isLoading]);
+
+    void AsyncStorage.getItem('push_permission_asked').then((asked) => {
+      if (asked) return;
+      setTimeout(() => {
+        Alert.alert(
+          "Stay in the loop 🚗",
+          "Get notified when your convoy starts moving and road hazards are reported.",
+          [
+            { text: "Not now", style: "cancel" },
+            {
+              text: "Enable",
+              onPress: () => {
+                void AsyncStorage.setItem('push_permission_asked', '1');
+                if (pushRegisteredRef.current) return;
+                pushRegisteredRef.current = true;
+                registerForPushNotificationsAsync()
+                  .then((pushToken) => {
+                    if (pushToken) {
+                      return apiClient.post('/api/v1/devices', {
+                        pushToken,
+                        platform: Platform.OS === 'ios' ? 'ios' : 'android',
+                      });
+                    }
+                  })
+                  .catch(() => {});
+              },
+            },
+          ],
+        );
+      }, 3000);
+    });
+  }, [isAuthenticated, isLoading, activeGroupId]);
 
   // Handle notification taps while app is in background (live listener)
   useEffect(() => {
@@ -260,6 +288,9 @@ export default function RootLayout() {
           <Stack.Screen name="convoy-end" />
           <Stack.Screen name="notifications" />
           <Stack.Screen name="(onboarding)" />
+          <Stack.Screen name="create-event" />
+          <Stack.Screen name="replay" />
+          <Stack.Screen name="group/[id]" />
         </Stack>
       </ErrorBoundary>
       <OfflineIndicator isOffline={isOffline} />

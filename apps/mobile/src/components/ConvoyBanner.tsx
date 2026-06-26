@@ -16,7 +16,7 @@ interface Props {
   onEndConvoy?: () => void;
 }
 
-export default function ConvoyBanner({
+function ConvoyBanner({
   groupName,
   memberCount,
   isAdmin,
@@ -74,6 +74,10 @@ export default function ConvoyBanner({
     </Animated.View>
   );
 }
+
+const MemoConvoyBanner = React.memo(ConvoyBanner);
+MemoConvoyBanner.displayName = 'ConvoyBanner';
+export default MemoConvoyBanner;
 
 const styles = StyleSheet.create({
   wrapper: {

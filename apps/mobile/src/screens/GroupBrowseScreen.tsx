@@ -57,13 +57,14 @@ function formatDistance(metres: number): string {
 interface GroupCardProps {
   group: PublicGroup;
   onJoin: (id: string) => void;
+  onView: (id: string) => void;
   joining: boolean;
   showDistance: boolean;
 }
 
-function GroupCard({ group, onJoin, joining, showDistance }: GroupCardProps) {
+function GroupCard({ group, onJoin, onView, joining, showDistance }: GroupCardProps) {
   return (
-    <View style={styles.card}>
+    <TouchableOpacity style={styles.card} onPress={() => onView(group.id)} activeOpacity={0.8}>
       <View style={styles.cardHeader}>
         <Text style={styles.groupName} numberOfLines={1}>{group.name}</Text>
         <View style={styles.openBadge}>
@@ -93,20 +94,30 @@ function GroupCard({ group, onJoin, joining, showDistance }: GroupCardProps) {
         )}
       </View>
 
-      <TouchableOpacity
-        style={[styles.joinButton, joining && styles.joinButtonDisabled]}
-        onPress={() => onJoin(group.id)}
-        disabled={joining}
-        accessibilityRole="button"
-        accessibilityLabel={`Join ${group.name}`}
-      >
-        {joining ? (
-          <ActivityIndicator size="small" color="#FFFFFF" />
-        ) : (
-          <Text style={styles.joinButtonText}>Join Group</Text>
-        )}
-      </TouchableOpacity>
-    </View>
+      <View style={styles.cardActions}>
+        <TouchableOpacity
+          style={[styles.joinButton, joining && styles.joinButtonDisabled]}
+          onPress={(e) => { e.stopPropagation?.(); onJoin(group.id); }}
+          disabled={joining}
+          accessibilityRole="button"
+          accessibilityLabel={`Join ${group.name}`}
+        >
+          {joining ? (
+            <ActivityIndicator size="small" color="#FFFFFF" />
+          ) : (
+            <Text style={styles.joinButtonText}>Join</Text>
+          )}
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.viewButton}
+          onPress={() => onView(group.id)}
+          accessibilityRole="button"
+          accessibilityLabel={`View ${group.name} details`}
+        >
+          <Text style={styles.viewButtonText}>Details ›</Text>
+        </TouchableOpacity>
+      </View>
+    </TouchableOpacity>
   );
 }
 
@@ -336,6 +347,7 @@ export default function GroupBrowseScreen() {
             <GroupCard
               group={item}
               onJoin={handleJoin}
+              onView={(id) => router.push(`/group/${id}` as never)}
               joining={joiningId === item.id}
               showDistance={isNearby}
             />
@@ -583,13 +595,18 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
   },
+  cardActions: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 12,
+  },
   joinButton: {
+    flex: 1,
     backgroundColor: '#DC143C',
     borderRadius: 10,
     paddingVertical: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 12,
     minHeight: 44,
   },
   joinButtonDisabled: {
@@ -600,5 +617,21 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
     letterSpacing: 0.3,
+  },
+  viewButton: {
+    flex: 1,
+    backgroundColor: 'transparent',
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 44,
+    borderWidth: 1,
+    borderColor: '#2A2A2A',
+  },
+  viewButtonText: {
+    color: '#888888',
+    fontSize: 15,
+    fontWeight: '600',
   },
 });

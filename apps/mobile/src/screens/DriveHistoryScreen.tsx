@@ -142,10 +142,63 @@ function buildListData(drives: DriveRecord[]): ListItem[] {
 }
 
 // ---------------------------------------------------------------------------
+// Streak / weekly helpers
+// ---------------------------------------------------------------------------
+
+function getISOWeekBounds(): { start: Date; end: Date } {
+  const now = new Date();
+  const day = now.getDay(); // 0=Sun
+  const diffToMon = (day === 0 ? -6 : 1 - day);
+  const mon = new Date(now);
+  mon.setDate(now.getDate() + diffToMon);
+  mon.setHours(0, 0, 0, 0);
+  const sun = new Date(mon);
+  sun.setDate(mon.getDate() + 6);
+  sun.setHours(23, 59, 59, 999);
+  return { start: mon, end: sun };
+}
+
+function computeStreak(drives: DriveRecord[]): { current: number; best: number; weekDays: boolean[] } {
+  const driveDays = new Set(drives.map((d) => dateKey(d.endedAt)));
+  // week dots (Mon-Sun)
+  const { start } = getISOWeekBounds();
+  const weekDays = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(start);
+    d.setDate(start.getDate() + i);
+    return driveDays.has(dateKey(d.toISOString()));
+  });
+  // current streak (consecutive days ending today/yesterday)
+  const sorted = Array.from(driveDays).sort().reverse();
+  let current = 0;
+  let best = 0;
+  let tempBest = 0;
+  const today = dateKey(new Date().toISOString());
+  let cursor = today;
+  for (const day of sorted) {
+    if (day === cursor) {
+      current++;
+      cursor = dateKey(new Date(new Date(day).getTime() - 86400000).toISOString());
+    } else break;
+  }
+  // best streak
+  let run = 0;
+  for (let i = 0; i < sorted.length; i++) {
+    if (i === 0) { run = 1; tempBest = 1; continue; }
+    const prev = new Date(sorted[i - 1]);
+    const curr = new Date(sorted[i]);
+    const diff = Math.round((prev.getTime() - curr.getTime()) / 86400000);
+    if (diff === 1) { run++; tempBest = Math.max(tempBest, run); }
+    else run = 1;
+  }
+  best = tempBest;
+  return { current, best, weekDays };
+}
+
+// ---------------------------------------------------------------------------
 // Total stats header
 // ---------------------------------------------------------------------------
 
-function TotalStatsHeader({ drives }: { drives: DriveRecord[] }) {
+function TotalStatsHeader({ drives, onExport }: { drives: DriveRecord[]; onExport: () => void }) {
   const totalDistanceM = drives.reduce((sum, d) => sum + d.distanceM, 0);
   return (
     <View style={styles.statsHeader}>
@@ -158,6 +211,60 @@ function TotalStatsHeader({ drives }: { drives: DriveRecord[] }) {
         <Text style={styles.statPillValue}>{drives.length}</Text>
         <Text style={styles.statPillLabel}>Total Drives</Text>
       </View>
+      <TouchableOpacity
+        style={styles.exportBtn}
+        onPress={onExport}
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        accessibilityRole="button"
+        accessibilityLabel="Export drive history"
+      >
+        <Text style={styles.exportBtnText}>⬆</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Weekly streak card
+// ---------------------------------------------------------------------------
+
+const DAY_LABELS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+
+function WeeklyStreakCard({ drives }: { drives: DriveRecord[] }) {
+  const { current, best, weekDays } = useMemo(() => computeStreak(drives), [drives]);
+  const { start } = getISOWeekBounds();
+  const weekDrives = drives.filter((d) => {
+    const t = new Date(d.endedAt).getTime();
+    return t >= start.getTime();
+  });
+  const weekDistM = weekDrives.reduce((s, d) => s + d.distanceM, 0);
+  const weekDurS = weekDrives.reduce((s, d) => s + d.durationS, 0);
+
+  return (
+    <View style={styles.streakCard}>
+      <View style={styles.streakRow}>
+        <View style={styles.streakDots}>
+          {weekDays.map((active, i) => (
+            <View key={i} style={styles.streakDotCol}>
+              <View style={[styles.streakDot, active && styles.streakDotActive]} />
+              <Text style={styles.streakDayLabel}>{DAY_LABELS[i]}</Text>
+            </View>
+          ))}
+        </View>
+        <View style={styles.streakMeta}>
+          {current >= 2 ? (
+            <Text style={styles.streakFire}>🔥 {current}-day streak</Text>
+          ) : (
+            <Text style={styles.streakFire}>{current === 1 ? '🚗 Active today' : '—'}</Text>
+          )}
+          <Text style={styles.streakBest}>Best: {best} day{best !== 1 ? 's' : ''}</Text>
+        </View>
+      </View>
+      {weekDrives.length > 0 && (
+        <Text style={styles.weekSummary}>
+          This week: {weekDrives.length} drive{weekDrives.length !== 1 ? 's' : ''} · {formatDistance(weekDistM)} · {formatDuration(weekDurS)}
+        </Text>
+      )}
     </View>
   );
 }
@@ -418,6 +525,18 @@ export default function DriveHistoryScreen() {
     );
   }, []);
 
+  const handleExport = useCallback(async () => {
+    const header = 'CONVOY Drive History\nDate,Distance,Duration,Group\n';
+    const rows = drives
+      .map((d) =>
+        `${formatDate(d.endedAt)},${formatDistance(d.distanceM)},${formatDuration(d.durationS)},${d.groupId ? 'Group Drive' : 'Solo'}`,
+      )
+      .join('\n');
+    try {
+      await Share.share({ message: header + rows, title: 'CONVOY Drive History' });
+    } catch { /* cancelled */ }
+  }, [drives]);
+
   const listData = useMemo(() => buildListData(drives), [drives]);
 
   const longestDriveId = useMemo(() => {
@@ -472,15 +591,30 @@ export default function DriveHistoryScreen() {
             colors={['#DC143C']}
           />
         }
-        ListHeaderComponent={drives.length > 0 ? <TotalStatsHeader drives={drives} /> : null}
+        ListHeaderComponent={
+          drives.length > 0 ? (
+            <View>
+              <TotalStatsHeader drives={drives} onExport={handleExport} />
+              <WeeklyStreakCard drives={drives} />
+            </View>
+          ) : null
+        }
         ListFooterComponent={loadingMore ? <ActivityIndicator color="#DC143C" style={styles.footerSpinner} /> : null}
         ListEmptyComponent={
           <View style={styles.emptyState}>
-            <Text style={styles.emptyEmoji}>🛣️</Text>
-            <Text style={styles.emptyTitle}>No drives recorded yet</Text>
+            <Text style={styles.emptyEmoji}>🗺️</Text>
+            <Text style={styles.emptyTitle}>No drives yet</Text>
             <Text style={styles.emptySubtitle}>
               Your drive history will appear here after your first convoy.
             </Text>
+            <TouchableOpacity
+              style={styles.emptyCtaBtn}
+              onPress={() => router.push('/(tabs)/convoy')}
+              accessibilityRole="button"
+              accessibilityLabel="Start your first convoy"
+            >
+              <Text style={styles.emptyCtaText}>Start your first convoy</Text>
+            </TouchableOpacity>
           </View>
         }
         renderItem={({ item }) => {
@@ -690,10 +824,58 @@ const styles = StyleSheet.create({
   footerSpinner: { paddingVertical: 20 },
 
   // Empty state
-  emptyState: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 80 },
+  emptyState: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 80, paddingHorizontal: 32 },
   emptyEmoji: { fontSize: 64, marginBottom: 16 },
   emptyTitle: { color: '#F0F0F0', fontSize: 20, fontWeight: '700', marginBottom: 8 },
-  emptySubtitle: { color: '#888888', fontSize: 14, textAlign: 'center', lineHeight: 22 },
+  emptySubtitle: { color: '#888888', fontSize: 14, textAlign: 'center', lineHeight: 22, marginBottom: 24 },
+  emptyCtaBtn: {
+    backgroundColor: '#DC143C',
+    paddingVertical: 14,
+    paddingHorizontal: 32,
+    borderRadius: 28,
+    minHeight: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyCtaText: { color: '#fff', fontSize: 15, fontWeight: '700' },
+
+  // Export button (inside stats header)
+  exportBtn: {
+    marginLeft: 12,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#2A2A2A',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  exportBtnText: { color: '#888888', fontSize: 14 },
+
+  // Streak card
+  streakCard: {
+    backgroundColor: '#1C1C1C',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#2A2A2A',
+    padding: 14,
+    marginBottom: 16,
+    gap: 10,
+  },
+  streakRow: { flexDirection: 'row', alignItems: 'center', gap: 16 },
+  streakDots: { flexDirection: 'row', gap: 8 },
+  streakDotCol: { alignItems: 'center', gap: 4 },
+  streakDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: '#2A2A2A',
+  },
+  streakDotActive: { backgroundColor: '#DC143C' },
+  streakDayLabel: { color: '#555555', fontSize: 10, fontWeight: '500' },
+  streakMeta: { flex: 1 },
+  streakFire: { color: '#F59E0B', fontSize: 13, fontWeight: '600', marginBottom: 2 },
+  streakBest: { color: '#555555', fontSize: 11 },
+  weekSummary: { color: '#888888', fontSize: 12, borderTopWidth: 1, borderTopColor: '#2A2A2A', paddingTop: 8 },
 
   // Drive card — new expandable structure
   driveCardOuter: {

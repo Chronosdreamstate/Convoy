@@ -13,6 +13,7 @@ import {
   Linking,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import Constants from 'expo-constants';
 import { apiClient } from '../../services/apiClient';
 import { authService } from '../../services/AuthService';
 import { useSettingsStore } from '../../stores/settingsStore';
@@ -31,7 +32,17 @@ interface Settings {
   notifGroupEvents: boolean;
   notifFriendRequests: boolean;
   notifNavigation: boolean;
+  privacy: 'public' | 'friends' | 'private';
 }
+
+const PRIVACY_OPTIONS: Array<{ label: string; value: Settings['privacy'] }> = [
+  { label: '🌐 Public', value: 'public' },
+  { label: '👥 Friends', value: 'friends' },
+  { label: '🔒 Private', value: 'private' },
+];
+
+const APP_VERSION = Constants.expoConfig?.version ?? '1.0.0';
+const APP_STORE_URL = 'https://apps.apple.com/app/convoy/id0000000000';
 
 const MILES_PER_METRE = 0.000621371;
 const MAP_STYLES: Array<{ label: string; value: Settings['mapStyle'] }> = [
@@ -173,6 +184,7 @@ export default function SettingsScreen() {
   const [notifGroupEvents, setNotifGroupEvents] = useState(true);
   const [notifFriendRequests, setNotifFriendRequests] = useState(true);
   const [notifNavigation, setNotifNavigation] = useState(true);
+  const [privacy, setPrivacy] = useState<Settings['privacy']>('public');
 
   useEffect(() => {
     loadSettings();
@@ -205,6 +217,7 @@ export default function SettingsScreen() {
     setNotifGroupEvents(s.notifGroupEvents);
     setNotifFriendRequests(s.notifFriendRequests);
     setNotifNavigation(s.notifNavigation);
+    if (s.privacy) setPrivacy(s.privacy);
   };
 
   const handleSave = async () => {
@@ -222,6 +235,7 @@ export default function SettingsScreen() {
         notifGroupEvents,
         notifFriendRequests,
         notifNavigation,
+        privacy,
       });
       setSettings(response.data);
       setGlobalSettings({
@@ -513,6 +527,52 @@ export default function SettingsScreen() {
           />
         </View>
 
+        {/* ── PRIVACY ─────────────────────────────────────────────────────── */}
+        <SectionHeader title="PRIVACY" />
+        <View style={styles.sectionCard}>
+          <SettingRow
+            icon="👁"
+            label="Profile Visibility"
+            subtitle={`Who can see your profile: ${privacy.charAt(0).toUpperCase() + privacy.slice(1)}`}
+          />
+          <View style={styles.chipContainer}>
+            <ChipSelector
+              options={PRIVACY_OPTIONS}
+              selected={privacy}
+              onSelect={(v) => { setPrivacy(v); mark(); }}
+            />
+          </View>
+        </View>
+
+        {/* ── ABOUT ───────────────────────────────────────────────────────── */}
+        <SectionHeader title="ABOUT" />
+        <View style={styles.sectionCard}>
+          <SettingRow
+            icon="⭐"
+            label="Rate CONVOY"
+            subtitle="Love the app? Leave us a review"
+            onPress={() => Linking.openURL(APP_STORE_URL).catch(() => {})}
+          />
+          <SettingRow
+            icon="📧"
+            label="Send Feedback"
+            subtitle="hello@convoy.app"
+            onPress={() => Linking.openURL('mailto:hello@convoy.app?subject=Feedback').catch(() => {})}
+          />
+          <SettingRow
+            icon="🔒"
+            label="Privacy Policy"
+            onPress={() => Linking.openURL(PRIVACY_POLICY_URL).catch(() => {})}
+          />
+          <SettingRow
+            icon="ℹ️"
+            label="Version"
+            subtitle={`CONVOY v${APP_VERSION}`}
+            rightSlot={<Text style={styles.versionText}>v{APP_VERSION}</Text>}
+            last
+          />
+        </View>
+
         {/* ── DANGER ZONE ─────────────────────────────────────────────────── */}
         <SectionHeader title="DANGER ZONE" />
         <View style={styles.sectionCard}>
@@ -714,6 +774,12 @@ const styles = StyleSheet.create({
     color: theme.colors.accent,
     fontSize: 16,
     fontWeight: '600',
+  },
+
+  versionText: {
+    fontSize: 13,
+    color: theme.colors.textMuted,
+    fontWeight: '500',
   },
 
   // Save button

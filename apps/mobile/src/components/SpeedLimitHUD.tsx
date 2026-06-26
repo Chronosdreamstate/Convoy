@@ -13,7 +13,7 @@ interface Props {
   currentSpeedKph: number;
 }
 
-export default function SpeedLimitHUD({ postedLimitKph, currentSpeedKph }: Props) {
+function SpeedLimitHUD({ postedLimitKph, currentSpeedKph }: Props) {
   const exceeded =
     postedLimitKph !== null &&
     RouteService.isSpeedLimitExceeded(currentSpeedKph, postedLimitKph);
@@ -85,6 +85,10 @@ export default function SpeedLimitHUD({ postedLimitKph, currentSpeedKph }: Props
     </View>
   );
 }
+
+const MemoSpeedLimitHUD = React.memo(SpeedLimitHUD);
+MemoSpeedLimitHUD.displayName = 'SpeedLimitHUD';
+export default MemoSpeedLimitHUD;
 
 const styles = StyleSheet.create({
   wrapper: {

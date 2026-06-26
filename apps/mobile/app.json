@@ -2,40 +2,44 @@
   "expo": {
     "name": "CONVOY",
     "slug": "convoy",
+    "description": "Real-time group navigation and push-to-talk for car enthusiasts. Drive together.",
     "version": "1.0.0",
     "sdkVersion": "54.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "automatic",
+    "userInterfaceStyle": "dark",
     "scheme": "convoy",
     "splash": {
       "image": "./assets/splash.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#0A0A0A"
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.convoy.app",
+      "bundleIdentifier": "app.convoy.mobile",
       "buildNumber": "1",
       "usesAppleSignIn": true,
       "infoPlist": {
-        "NSCameraUsageDescription": "CONVOY uses the camera for profile photos.",
-        "NSMicrophoneUsageDescription": "CONVOY uses the microphone for push-to-talk."
+        "NSLocationWhenInUseUsageDescription": "CONVOY uses your location to keep your convoy in sync and find nearby groups.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "CONVOY uses background location to update your position in the convoy.",
+        "NSMicrophoneUsageDescription": "CONVOY needs microphone access for push-to-talk radio between convoy members.",
+        "NSCameraUsageDescription": "CONVOY uses your camera for profile and vehicle photos."
       }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "backgroundColor": "#0A0A0A"
       },
-      "package": "com.convoy.app",
+      "package": "app.convoy.mobile",
       "versionCode": 1,
       "permissions": [
-        "android.permission.RECORD_AUDIO",
-        "android.permission.CAMERA",
-        "android.permission.ACCESS_COARSE_LOCATION",
-        "android.permission.ACCESS_FINE_LOCATION",
-        "android.permission.ACCESS_BACKGROUND_LOCATION"
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "RECORD_AUDIO",
+        "CAMERA",
+        "VIBRATE"
       ]
     },
     "web": {
@@ -46,11 +50,12 @@
       "expo-router",
       "expo-secure-store",
       "expo-apple-authentication",
+      "expo-camera",
       [
         "expo-location",
         {
-          "locationAlwaysAndWhenInUsePermission": "CONVOY needs your location to share it with your convoy group.",
-          "locationWhenInUsePermission": "CONVOY needs your location while you're using the app."
+          "locationAlwaysAndWhenInUsePermission": "CONVOY uses background location to update your position in the convoy.",
+          "locationWhenInUsePermission": "CONVOY uses your location to keep your convoy in sync and find nearby groups."
         }
       ],
       [

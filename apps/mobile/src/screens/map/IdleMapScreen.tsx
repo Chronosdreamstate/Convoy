@@ -12,6 +12,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ExpoLocation from 'expo-location';
 import { useRouter } from 'expo-router';
 import LocationPermissionPrescreen from '../../components/LocationPermissionPrescreen';
+import { apiClient } from '../../services/apiClient';
 
 const DEFAULT_REGION = {
   latitude: 37.7749,
@@ -27,27 +28,40 @@ export default function IdleMapScreen() {
   const [initialRegion, setInitialRegion] = useState(DEFAULT_REGION);
   const [locating, setLocating] = useState(true);
   const [showPrescreen, setShowPrescreen] = useState(false);
+  const [nearbyCount, setNearbyCount] = useState(0);
+  const [showSuggestion, setShowSuggestion] = useState(false);
+  const isSuggestionShown = useRef(false);
+  const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Pulse animation for location loading state
-  const pulseAnim = useRef(new Animated.Value(0.3)).current;
-  // Toast fade animation
+  // Pulse animation: opacity + scale
+  const pulseOpacity = useRef(new Animated.Value(1)).current;
+  const pulseScale = useRef(new Animated.Value(1)).current;
+  // Welcome toast
   const toastAnim = useRef(new Animated.Value(0)).current;
   const [showToast, setShowToast] = useState(true);
+  // Idle suggestion toast
+  const suggestionAnim = useRef(new Animated.Value(0)).current;
 
-  // Pulse loop while locating
+  // GPS pulse: opacity 1→0.3, scale 1→1.4
   useEffect(() => {
     if (!locating) return;
     const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulseAnim, { toValue: 0.8, duration: 800, useNativeDriver: true }),
-        Animated.timing(pulseAnim, { toValue: 0.3, duration: 800, useNativeDriver: true }),
+      Animated.parallel([
+        Animated.sequence([
+          Animated.timing(pulseOpacity, { toValue: 0.3, duration: 900, useNativeDriver: true }),
+          Animated.timing(pulseOpacity, { toValue: 1, duration: 900, useNativeDriver: true }),
+        ]),
+        Animated.sequence([
+          Animated.timing(pulseScale, { toValue: 1.4, duration: 900, useNativeDriver: true }),
+          Animated.timing(pulseScale, { toValue: 1, duration: 900, useNativeDriver: true }),
+        ]),
       ]),
     );
     loop.start();
     return () => loop.stop();
-  }, [locating, pulseAnim]);
+  }, [locating, pulseOpacity, pulseScale]);
 
-  // Toast: fade in then fade out after 3s
+  // Welcome toast: fade in, hold, fade out
   useEffect(() => {
     Animated.sequence([
       Animated.timing(toastAnim, { toValue: 1, duration: 400, useNativeDriver: true }),
@@ -55,6 +69,40 @@ export default function IdleMapScreen() {
       Animated.timing(toastAnim, { toValue: 0, duration: 400, useNativeDriver: true }),
     ]).start(() => setShowToast(false));
   }, [toastAnim]);
+
+  // Idle engagement: show after 30s if not interacted
+  useEffect(() => {
+    idleTimerRef.current = setTimeout(() => {
+      if (!isSuggestionShown.current) {
+        isSuggestionShown.current = true;
+        setShowSuggestion(true);
+        Animated.sequence([
+          Animated.timing(suggestionAnim, { toValue: 1, duration: 350, useNativeDriver: true }),
+          Animated.delay(5000),
+          Animated.timing(suggestionAnim, { toValue: 0, duration: 350, useNativeDriver: true }),
+        ]).start(() => setShowSuggestion(false));
+      }
+    }, 30000);
+    return () => { if (idleTimerRef.current) clearTimeout(idleTimerRef.current); };
+  }, [suggestionAnim]);
+
+  const clearIdleTimer = () => {
+    if (idleTimerRef.current) {
+      clearTimeout(idleTimerRef.current);
+      idleTimerRef.current = null;
+    }
+  };
+
+  const fetchNearbyGroups = async (lat: number, lng: number) => {
+    try {
+      const res = await apiClient.get<{ groups: unknown[]; total: number }>(
+        `/api/v1/groups?accessType=open&lat=${lat}&lng=${lng}&limit=10`,
+      );
+      setNearbyCount(res.groups?.length ?? 0);
+    } catch {
+      // non-fatal
+    }
+  };
 
   const requestLocationAndCenter = async (mounted: { current: boolean }) => {
     const { status } = await ExpoLocation.requestForegroundPermissionsAsync();
@@ -66,26 +114,21 @@ export default function IdleMapScreen() {
       accuracy: ExpoLocation.Accuracy.Balanced,
     });
     if (!mounted.current) return;
-    const region = {
-      latitude: loc.coords.latitude,
-      longitude: loc.coords.longitude,
-      latitudeDelta: 0.05,
-      longitudeDelta: 0.05,
-    };
+    const { latitude, longitude } = loc.coords;
+    const region = { latitude, longitude, latitudeDelta: 0.05, longitudeDelta: 0.05 };
     setInitialRegion(region);
     mapRef.current?.animateToRegion(region, 500);
     setLocating(false);
+    fetchNearbyGroups(latitude, longitude);
   };
 
   useEffect(() => {
     const mounted = { current: true };
     (async () => {
-      // Check if permission already granted — skip prescreen if so
       const { status } = await ExpoLocation.getForegroundPermissionsAsync();
       if (status === 'granted') {
         await requestLocationAndCenter(mounted);
       } else {
-        // Show the pre-permission explanation screen first
         setLocating(false);
         setShowPrescreen(true);
       }
@@ -102,6 +145,7 @@ export default function IdleMapScreen() {
   };
 
   const recenter = () => {
+    clearIdleTimer();
     ExpoLocation.getCurrentPositionAsync({ accuracy: ExpoLocation.Accuracy.Balanced })
       .then((loc) => {
         mapRef.current?.animateToRegion({
@@ -114,7 +158,12 @@ export default function IdleMapScreen() {
       .catch(() => Alert.alert('Location unavailable', 'Enable location in Settings.'));
   };
 
-  const cardHeight = 220 + insets.bottom;
+  const handleBrowseGroups = () => {
+    clearIdleTimer();
+    router.push('/group-browse');
+  };
+
+  const cardHeight = 260 + insets.bottom;
 
   return (
     <View style={styles.container}>
@@ -131,18 +180,34 @@ export default function IdleMapScreen() {
         showsUserLocation
       />
 
-      {/* Dim overlay while no group is active */}
       <View style={styles.dimOverlay} pointerEvents="none" />
 
-      {/* Loading pulse when waiting for GPS */}
+      {/* GPS pulse while locating */}
       {locating && (
         <View style={styles.pulseWrapper} pointerEvents="none">
-          <Animated.View style={[styles.pulseDot, { opacity: pulseAnim }]} />
+          <Animated.View
+            style={[
+              styles.pulseDot,
+              { opacity: pulseOpacity, transform: [{ scale: pulseScale }] },
+            ]}
+          />
         </View>
       )}
 
-      {/* Welcome toast */}
-      {showToast && (
+      {/* Nearby convoy count pill */}
+      {nearbyCount > 0 && (
+        <TouchableOpacity
+          style={[styles.nearbyPill, { top: insets.top + 12 }]}
+          onPress={handleBrowseGroups}
+          accessibilityRole="button"
+          accessibilityLabel={`${nearbyCount} convoys near you, tap to browse`}
+        >
+          <Text style={styles.nearbyPillText}>🚗 {nearbyCount} convoy{nearbyCount !== 1 ? 's' : ''} near you</Text>
+        </TouchableOpacity>
+      )}
+
+      {/* Welcome toast (only when no nearby pill) */}
+      {showToast && nearbyCount === 0 && (
         <Animated.View
           style={[styles.toast, { top: insets.top + 12, opacity: toastAnim }]}
           pointerEvents="none"
@@ -161,6 +226,22 @@ export default function IdleMapScreen() {
         <Text style={styles.recenterText}>⊕</Text>
       </TouchableOpacity>
 
+      {/* Idle engagement suggestion toast */}
+      {showSuggestion && (
+        <Animated.View
+          style={[styles.suggestionToast, { bottom: cardHeight + 12, opacity: suggestionAnim }]}
+        >
+          <View style={styles.suggestionStrip} />
+          <TouchableOpacity
+            style={styles.suggestionContent}
+            onPress={() => { setShowSuggestion(false); handleBrowseGroups(); }}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.suggestionText}>🚗 Ready to roll? Find a convoy near you</Text>
+          </TouchableOpacity>
+        </Animated.View>
+      )}
+
       {/* Bottom CTA sheet */}
       <View style={[styles.bottomSheet, { height: cardHeight }]}>
         <View style={styles.sheetHandle} />
@@ -168,20 +249,31 @@ export default function IdleMapScreen() {
 
         <TouchableOpacity
           style={styles.primaryBtn}
-          onPress={() => router.push('/(tabs)/convoy')}
+          onPress={() => { clearIdleTimer(); router.push('/(tabs)/convoy'); }}
           accessibilityRole="button"
           accessibilityLabel="Create a new group"
         >
           <Text style={styles.primaryBtnText}>Create Group</Text>
+          <Text style={styles.btnSubtitle}>Lead your own convoy</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
           style={styles.outlineBtn}
-          onPress={() => router.push('/(tabs)/convoy')}
+          onPress={() => { clearIdleTimer(); router.push('/join'); }}
           accessibilityRole="button"
           accessibilityLabel="Join a group with a code"
         >
           <Text style={styles.outlineBtnText}>Join with Code</Text>
+          <Text style={styles.outlineBtnSubtitle}>Enter 8-digit code</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.ghostBtn}
+          onPress={handleBrowseGroups}
+          accessibilityRole="button"
+          accessibilityLabel="Browse nearby groups"
+        >
+          <Text style={styles.ghostBtnText}>🔍 Browse Groups →</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -202,10 +294,33 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   pulseDot: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: 'rgba(220,20,60,0.3)',
+  },
+
+  nearbyPill: {
+    position: 'absolute',
+    alignSelf: 'center',
     backgroundColor: '#1C1C1C',
+    borderRadius: 20,
+    paddingVertical: 8,
+    paddingHorizontal: 18,
+    borderWidth: 1,
+    borderColor: '#2A2A2A',
+    zIndex: 20,
+    shadowColor: '#000',
+    shadowOpacity: 0.4,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 5,
+  },
+  nearbyPillText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '600',
+    letterSpacing: 0.2,
   },
 
   toast: {
@@ -245,6 +360,38 @@ const styles = StyleSheet.create({
   },
   recenterText: { fontSize: 22, color: '#FFFFFF' },
 
+  suggestionToast: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    flexDirection: 'row',
+    backgroundColor: '#1C1C1C',
+    borderRadius: 12,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#2A2A2A',
+    shadowColor: '#000',
+    shadowOpacity: 0.4,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 8,
+    zIndex: 30,
+  },
+  suggestionStrip: {
+    width: 4,
+    backgroundColor: '#DC143C',
+  },
+  suggestionContent: {
+    flex: 1,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+  },
+  suggestionText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+
   bottomSheet: {
     position: 'absolute',
     bottom: 0,
@@ -278,13 +425,13 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '800',
     letterSpacing: 0.3,
-    marginBottom: 16,
+    marginBottom: 14,
     textAlign: 'center',
   },
   primaryBtn: {
     backgroundColor: '#DC143C',
     borderRadius: 14,
-    paddingVertical: 16,
+    paddingVertical: 14,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 10,
@@ -300,18 +447,40 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     letterSpacing: 0.3,
   },
+  btnSubtitle: {
+    color: 'rgba(255,255,255,0.65)',
+    fontSize: 12,
+    fontWeight: '400',
+    marginTop: 2,
+  },
   outlineBtn: {
     borderRadius: 14,
-    paddingVertical: 16,
+    paddingVertical: 14,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1.5,
     borderColor: '#DC143C',
+    marginBottom: 10,
   },
   outlineBtnText: {
     color: '#DC143C',
     fontSize: 16,
     fontWeight: '600',
     letterSpacing: 0.3,
+  },
+  outlineBtnSubtitle: {
+    color: '#888888',
+    fontSize: 12,
+    fontWeight: '400',
+    marginTop: 2,
+  },
+  ghostBtn: {
+    alignItems: 'center',
+    paddingVertical: 10,
+  },
+  ghostBtnText: {
+    color: '#888888',
+    fontSize: 14,
+    fontWeight: '500',
   },
 });

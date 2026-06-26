@@ -121,7 +121,7 @@ function AnimatedLogRow({
 // PTTLogPanel
 // ---------------------------------------------------------------------------
 
-export default function PTTLogPanel({ socket, initialEntries = [] }: Props) {
+function PTTLogPanel({ socket, initialEntries = [] }: Props) {
   const [entries, setEntries] = useState<PttLogEntry[]>(initialEntries);
   const [activeUserId, setActiveUserId] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
@@ -191,6 +191,10 @@ export default function PTTLogPanel({ socket, initialEntries = [] }: Props) {
     </View>
   );
 }
+
+const MemoPTTLogPanel = React.memo(PTTLogPanel);
+MemoPTTLogPanel.displayName = 'PTTLogPanel';
+export default MemoPTTLogPanel;
 
 // ---------------------------------------------------------------------------
 // Styles

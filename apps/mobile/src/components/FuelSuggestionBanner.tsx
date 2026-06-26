@@ -38,7 +38,7 @@ function formatDist(m: number): string {
   return m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${m} m`;
 }
 
-export default function FuelSuggestionBanner({
+function FuelSuggestionBanner({
   myLat, myLng, isAdmin, onSelectStation, onDismiss,
 }: Props) {
   const [stations, setStations] = useState<FuelStation[] | null>(null);
@@ -221,6 +221,10 @@ export default function FuelSuggestionBanner({
     </Animated.View>
   );
 }
+
+const MemoFuelSuggestionBanner = React.memo(FuelSuggestionBanner);
+MemoFuelSuggestionBanner.displayName = 'FuelSuggestionBanner';
+export default MemoFuelSuggestionBanner;
 
 const styles = StyleSheet.create({
   wrapper: {

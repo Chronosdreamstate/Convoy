@@ -3,9 +3,9 @@ import { useAuthStore } from '../../src/stores/authStore';
 import { useGroupStore } from '../../src/stores/groupStore';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
-import ErrorBoundary from '../../src/components/ErrorBoundary';
+import { withErrorBoundary } from '../../src/components/ErrorBoundary';
 
-export default function ConvoyTab() {
+function ConvoyTab() {
   const { user } = useAuthStore();
   const router = useRouter();
   const activeGroupId = useGroupStore((s) => s.activeGroupId);
@@ -19,25 +19,25 @@ export default function ConvoyTab() {
   }
 
   return (
-    <ErrorBoundary>
-      <View style={styles.root}>
-        {/* Browse public groups — only useful when not already in a group */}
-        {!activeGroupId && (
-          <TouchableOpacity
-            style={styles.browseBanner}
-            onPress={() => router.push('/group-browse')}
-            accessibilityRole="button"
-            accessibilityLabel="Browse public groups"
-          >
-            <Text style={styles.browseText}>🔍  Browse public groups</Text>
-            <Text style={styles.browseChevron}>›</Text>
-          </TouchableOpacity>
-        )}
-        <ConvoyScreen userId={user.id} />
-      </View>
-    </ErrorBoundary>
+    <View style={styles.root}>
+      {/* Browse public groups — only useful when not already in a group */}
+      {!activeGroupId && (
+        <TouchableOpacity
+          style={styles.browseBanner}
+          onPress={() => router.push('/group-browse')}
+          accessibilityRole="button"
+          accessibilityLabel="Browse public groups"
+        >
+          <Text style={styles.browseText}>🔍  Browse public groups</Text>
+          <Text style={styles.browseChevron}>›</Text>
+        </TouchableOpacity>
+      )}
+      <ConvoyScreen userId={user.id} />
+    </View>
   );
 }
+
+export default withErrorBoundary(ConvoyTab);
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#0A0A0A' },

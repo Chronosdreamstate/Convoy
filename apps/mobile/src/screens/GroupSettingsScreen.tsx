@@ -297,6 +297,23 @@ export default function GroupSettingsScreen() {
           </TouchableOpacity>
         )}
 
+        {/* Schedule event (admin only) */}
+        {isAdmin && (
+          <>
+            <Text style={[styles.sectionHeader, { marginTop: 32 }]}>EVENTS</Text>
+            <View style={styles.card}>
+              <TouchableOpacity
+                style={styles.scheduleBtn}
+                onPress={() => router.push({ pathname: '/create-event', params: { groupId } })}
+                accessibilityRole="button"
+                accessibilityLabel="Schedule convoy event"
+              >
+                <Text style={styles.scheduleBtnText}>📅 Schedule a Convoy</Text>
+              </TouchableOpacity>
+            </View>
+          </>
+        )}
+
         {/* Danger zone */}
         <Text style={[styles.sectionHeader, { marginTop: 32 }]}>DANGER ZONE</Text>
         <View style={styles.card}>
@@ -412,6 +429,16 @@ const styles = StyleSheet.create({
   },
   saveBtnDisabled: { opacity: 0.6 },
   saveBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
+
+  scheduleBtn: {
+    backgroundColor: '#1C1C1C',
+    borderWidth: 1,
+    borderColor: '#DC143C',
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  scheduleBtnText: { color: '#DC143C', fontSize: 15, fontWeight: '700' },
 
   dangerBtn: {
     borderRadius: 12,

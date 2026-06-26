@@ -13,7 +13,7 @@ function formatDist(m: number): string {
   return m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${Math.round(m)} m`;
 }
 
-export default function GapAlertBanner({ memberName, distanceM, thresholdM, onDismiss, onSlowDown }: Props) {
+function GapAlertBanner({ memberName, distanceM, thresholdM, onDismiss, onSlowDown }: Props) {
   const slideY = useRef(new Animated.Value(-80)).current;
   const progress = useRef(new Animated.Value(1)).current;
   const dismissTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -80,6 +80,10 @@ export default function GapAlertBanner({ memberName, distanceM, thresholdM, onDi
     </Animated.View>
   );
 }
+
+const MemoGapAlertBanner = React.memo(GapAlertBanner);
+MemoGapAlertBanner.displayName = 'GapAlertBanner';
+export default MemoGapAlertBanner;
 
 const styles = StyleSheet.create({
   container: {

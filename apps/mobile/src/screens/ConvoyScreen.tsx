@@ -22,6 +22,7 @@ import {
 } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import * as ExpoLocation from 'expo-location';
+import { router } from 'expo-router';
 import { apiClient } from '../services/apiClient';
 import { haversineDistanceM } from '../services/DriveService';
 import { useGroupStore } from '../stores/groupStore';
@@ -142,6 +143,9 @@ export default function ConvoyScreen({ userId }: Props) {
   const [showQR, setShowQR] = useState(false);
   const copyFeedbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const [upcomingEvent, setUpcomingEvent] = useState<{ title: string; scheduledFor: string } | null>(null);
+  const [eventCountdown, setEventCountdown] = useState('');
+
   const { socket } = useSocketStore();
   const { memberLocations } = useLocationStore();
   const isInMotion = useMotionStore((s) => s.isInMotion);
@@ -209,6 +213,29 @@ export default function ConvoyScreen({ userId }: Props) {
     }
     void fetchChannels(group.id);
   }, [group?.id, fetchChannels]);
+
+  // Fetch upcoming event for the group
+  useEffect(() => {
+    if (!group) { setUpcomingEvent(null); return; }
+    apiClient.get<{ events: Array<{ title: string; scheduledFor: string }> }>(`/api/v1/groups/${group.id}/events`)
+      .then((res) => setUpcomingEvent(res.data.events[0] ?? null))
+      .catch(() => {});
+  }, [group?.id]);
+
+  // Update countdown every minute
+  useEffect(() => {
+    if (!upcomingEvent) { setEventCountdown(''); return; }
+    const update = () => {
+      const diffMs = new Date(upcomingEvent.scheduledFor).getTime() - Date.now();
+      if (diffMs <= 0) { setEventCountdown('Starting now'); return; }
+      const h = Math.floor(diffMs / 3600000);
+      const m = Math.floor((diffMs % 3600000) / 60000);
+      setEventCountdown(h > 0 ? `${h}h ${m}m away` : `${m}m away`);
+    };
+    update();
+    const id = setInterval(update, 60000);
+    return () => clearInterval(id);
+  }, [upcomingEvent]);
 
   const handleJoinChannel = useCallback(async (channelId: string) => {
     if (!group || channelId === activePttChannelId) return;
@@ -436,9 +463,20 @@ export default function ConvoyScreen({ userId }: Props) {
         onPress: async () => {
           try {
             await apiClient.post(`/api/v1/groups/${currentGroup.id}/end`);
+            const memberCount = members.length;
             setGroup(null);
             setMembers([]);
             setView('home');
+            router.push({
+              pathname: '/convoy-end',
+              params: {
+                groupName: currentGroup.name,
+                memberCount: String(memberCount),
+                durationMinutes: '0',
+                distanceM: '0',
+                adminName: 'You',
+              },
+            });
           } catch {
             Alert.alert('Error', 'Could not end convoy.');
           }
@@ -728,8 +766,20 @@ export default function ConvoyScreen({ userId }: Props) {
       {/* Header bar */}
       <View style={styles.headerBar}>
         <Text style={styles.headerTitle}>CONVOY</Text>
-        <View style={styles.memberCountBadge}>
-          <Text style={styles.memberCountText}>{members.length} members</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <View style={styles.memberCountBadge}>
+            <Text style={styles.memberCountText}>{members.length} RIDERS</Text>
+          </View>
+          {isAdmin && (
+            <TouchableOpacity
+              onPress={() => router.push({ pathname: '/group-settings', params: { groupId: group.id, isAdmin: 'true' } })}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              accessibilityRole="button"
+              accessibilityLabel="Group settings"
+            >
+              <Text style={{ fontSize: 20 }}>⚙️</Text>
+            </TouchableOpacity>
+          )}
         </View>
       </View>
 
@@ -863,6 +913,29 @@ export default function ConvoyScreen({ userId }: Props) {
           </View>
         )}
       </View>
+
+      {/* Upcoming event card */}
+      {upcomingEvent && (
+        <View style={styles.eventCard}>
+          <View style={styles.eventStrip} />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.eventTitle}>📅 {upcomingEvent.title}</Text>
+            <Text style={styles.eventCountdown}>Starting {eventCountdown}</Text>
+          </View>
+        </View>
+      )}
+
+      {/* Schedule event — admin only */}
+      {isAdmin && (
+        <TouchableOpacity
+          style={styles.scheduleBtn}
+          onPress={() => router.push({ pathname: '/create-event', params: { groupId: group.id } })}
+          accessibilityRole="button"
+          accessibilityLabel="Schedule a convoy event"
+        >
+          <Text style={styles.scheduleBtnText}>📅  Schedule Event</Text>
+        </TouchableOpacity>
+      )}
 
       <Text style={styles.sectionLabel}>MEMBERS ({members.length})</Text>
 
@@ -1437,4 +1510,31 @@ const styles = StyleSheet.create({
   channelRadioDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#DC143C' },
   channelAddRow: { paddingVertical: 10, paddingLeft: 14, marginTop: 2 },
   channelAddText: { color: '#555555', fontSize: 13, fontWeight: '600' },
+
+  // Upcoming event
+  eventCard: {
+    flexDirection: 'row',
+    backgroundColor: '#1C1C1C',
+    borderRadius: 12,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#2A2A2A',
+    overflow: 'hidden',
+  },
+  eventStrip: { width: 4, backgroundColor: '#F59E0B' },
+  eventTitle: { color: '#F0F0F0', fontSize: 14, fontWeight: '700', padding: 12, paddingBottom: 4 },
+  eventCountdown: { color: '#F59E0B', fontSize: 12, paddingHorizontal: 12, paddingBottom: 12 },
+
+  // Schedule event button
+  scheduleBtn: {
+    backgroundColor: '#1C1C1C',
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#2A2A2A',
+    alignSelf: 'flex-start',
+  },
+  scheduleBtnText: { color: '#888888', fontSize: 13, fontWeight: '600' },
 });

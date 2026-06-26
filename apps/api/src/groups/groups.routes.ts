@@ -506,6 +506,71 @@ async function groupsRoutes(
   );
 
   // -------------------------------------------------------------------------
+  // POST /groups/:id/members — join an open group directly (no code required)
+  // Used by GroupDetailScreen when browsing open groups.
+  // -------------------------------------------------------------------------
+  fastify.post(
+    '/groups/:id/members',
+    { preHandler: [authenticate, generalLimiter(fastify.redis)] },
+    async (request, reply) => {
+      const userId = (request.user as { sub: string }).sub;
+      const { id } = request.params as { id: string };
+
+      const groupResult = await fastify.db.query<GroupRow>(
+        `SELECT id, name, join_code, admin_id, access_type, status,
+                gap_threshold_m, ptt_max_seconds, created_at, ended_at
+         FROM convoy_groups WHERE id = $1`,
+        [id],
+      );
+      const group = groupResult.rows[0];
+      if (!group) return reply.notFound('Group not found');
+      if (group.status !== 'active') return reply.gone('This group has ended');
+      if (group.access_type === 'invite_only') {
+        return reply.forbidden('This group is invite-only — use a join code');
+      }
+
+      const existing = await getActiveMember(id, userId, fastify.db);
+      if (existing) return reply.conflict('Already a member of this group');
+
+      const client = await fastify.db.connect();
+      try {
+        await client.query('BEGIN');
+
+        await client.query(
+          `INSERT INTO convoy_members (group_id, user_id)
+           VALUES ($1, $2)
+           ON CONFLICT (group_id, user_id) DO UPDATE SET left_at = NULL, joined_at = now()`,
+          [id, userId],
+        );
+
+        await client.query(
+          `INSERT INTO ptt_channel_members (channel_id, user_id)
+           SELECT c.id, $2 FROM ptt_channels c
+           WHERE c.group_id = $1 AND c.is_all = true
+           ON CONFLICT DO NOTHING`,
+          [id, userId],
+        );
+
+        await client.query('COMMIT');
+      } catch (err) {
+        await client.query('ROLLBACK');
+        throw err;
+      } finally {
+        client.release();
+      }
+
+      const countResult = await fastify.db.query<{ member_count: string }>(
+        `SELECT COUNT(*) FILTER (WHERE left_at IS NULL) AS member_count
+         FROM convoy_members WHERE group_id = $1`,
+        [id],
+      );
+      const memberCount = parseInt(countResult.rows[0]?.member_count ?? '0', 10);
+
+      return reply.status(200).send({ success: true, groupId: id, userId, memberCount, group: groupToResponse(group, memberCount) });
+    },
+  );
+
+  // -------------------------------------------------------------------------
   // POST /groups/:id/leave — leave group (Req 7.7, 7.8)
   // -------------------------------------------------------------------------
   fastify.post('/groups/:id/leave', { preHandler: [authenticate, generalLimiter(fastify.redis)] }, async (request, reply) => {
@@ -832,6 +897,130 @@ async function groupsRoutes(
       return reply.status(200).send({
         message: parsed.data.muted ? 'Member muted' : 'Member unmuted',
       });
+    },
+  );
+
+  // -------------------------------------------------------------------------
+  // POST /groups/:id/events — create scheduled event (admin only)
+  // -------------------------------------------------------------------------
+  fastify.post(
+    '/groups/:id/events',
+    { preHandler: [authenticate, generalLimiter(fastify.redis)] },
+    async (request, reply) => {
+      const userId = (request.user as { sub: string }).sub;
+      const { id } = request.params as { id: string };
+
+      const { title, scheduledFor, description } = request.body as {
+        title?: string;
+        scheduledFor?: string;
+        description?: string;
+      };
+
+      if (!title || title.trim().length === 0) return reply.badRequest('title is required');
+      if (title.length > 100) return reply.badRequest('title must be 100 characters or fewer');
+      if (!scheduledFor) return reply.badRequest('scheduledFor is required');
+
+      const scheduledDate = new Date(scheduledFor);
+      if (isNaN(scheduledDate.getTime())) return reply.badRequest('scheduledFor must be a valid ISO date');
+      if (scheduledDate <= new Date()) return reply.badRequest('scheduledFor must be a future date');
+
+      const groupResult = await fastify.db.query<{ admin_id: string; status: string }>(
+        'SELECT admin_id, status FROM convoy_groups WHERE id = $1',
+        [id],
+      );
+      const group = groupResult.rows[0];
+      if (!group) return reply.notFound('Group not found');
+      if (group.admin_id !== userId) return reply.forbidden('Only the Admin can create events');
+      if (group.status === 'ended') return reply.gone('Group has ended');
+
+      const result = await fastify.db.query<{
+        id: string; group_id: string; title: string; description: string | null;
+        scheduled_for: string; status: string; created_at: string;
+      }>(
+        `INSERT INTO group_events (group_id, created_by, title, description, scheduled_for)
+         VALUES ($1, $2, $3, $4, $5)
+         RETURNING id, group_id, title, description, scheduled_for, status, created_at`,
+        [id, userId, title.trim(), description ?? null, scheduledDate.toISOString()],
+      );
+
+      const event = result.rows[0];
+      fastify.io.to(`group:${id}`).emit('group:event_created', { groupId: id, event });
+      return reply.status(201).send({ event });
+    },
+  );
+
+  // -------------------------------------------------------------------------
+  // GET /groups/:id/events — upcoming events for a group
+  // -------------------------------------------------------------------------
+  fastify.get(
+    '/groups/:id/events',
+    { preHandler: [authenticate, generalLimiter(fastify.redis)] },
+    async (request, reply) => {
+      const { id } = request.params as { id: string };
+
+      const groupResult = await fastify.db.query<{ access_type: string; status: string }>(
+        'SELECT access_type, status FROM convoy_groups WHERE id = $1',
+        [id],
+      );
+      const group = groupResult.rows[0];
+      if (!group) return reply.notFound('Group not found');
+
+      const result = await fastify.db.query<{
+        id: string; title: string; description: string | null;
+        scheduled_for: string; status: string; created_by: string;
+      }>(
+        `SELECT ge.id, ge.title, ge.description, ge.scheduled_for, ge.status, ge.created_by
+         FROM group_events ge
+         WHERE ge.group_id = $1
+           AND ge.scheduled_for > NOW()
+           AND ge.status = 'upcoming'
+         ORDER BY ge.scheduled_for ASC
+         LIMIT 10`,
+        [id],
+      );
+
+      return reply.send({
+        events: result.rows.map((e) => ({
+          id: e.id,
+          title: e.title,
+          description: e.description,
+          scheduledFor: e.scheduled_for,
+          status: e.status,
+          createdBy: e.created_by,
+        })),
+      });
+    },
+  );
+
+  // -------------------------------------------------------------------------
+  // DELETE /groups/:id/events/:eventId — cancel event (admin only)
+  // -------------------------------------------------------------------------
+  fastify.delete(
+    '/groups/:id/events/:eventId',
+    { preHandler: [authenticate, generalLimiter(fastify.redis)] },
+    async (request, reply) => {
+      const userId = (request.user as { sub: string }).sub;
+      const { id, eventId } = request.params as { id: string; eventId: string };
+
+      const groupResult = await fastify.db.query<{ admin_id: string }>(
+        'SELECT admin_id FROM convoy_groups WHERE id = $1',
+        [id],
+      );
+      const group = groupResult.rows[0];
+      if (!group) return reply.notFound('Group not found');
+      if (group.admin_id !== userId) return reply.forbidden('Only the Admin can cancel events');
+
+      const result = await fastify.db.query(
+        `UPDATE group_events SET status = 'cancelled'
+         WHERE id = $1 AND group_id = $2 AND status = 'upcoming'
+         RETURNING id`,
+        [eventId, id],
+      );
+
+      if ((result.rowCount ?? 0) === 0) return reply.notFound('Event not found or already cancelled');
+
+      fastify.io.to(`group:${id}`).emit('group:event_cancelled', { groupId: id, eventId });
+      return reply.status(204).send();
     },
   );
 }

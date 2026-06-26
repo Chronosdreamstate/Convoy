@@ -31,6 +31,10 @@ import DestinationSearch, { SearchResult } from '../../components/DestinationSea
 import HazardPicker from '../../components/HazardPicker';
 import SpeedLimitHUD from '../../components/SpeedLimitHUD';
 import FuelSuggestionBanner from '../../components/FuelSuggestionBanner';
+import GapAlertBanner from '../../components/GapAlertBanner';
+import SosAlertModal from '../../components/SosAlertModal';
+import ConvoyBanner from '../../components/ConvoyBanner';
+import { useGroupStore } from '../../stores/groupStore';
 import { SQLiteOfflineDB } from '../../services/OfflineCacheService';
 import { MotionStateService } from '../../services/MotionStateService';
 import { PTTService } from '../../services/PTTService';
@@ -182,6 +186,8 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
   const { user, token } = useAuthStore();
   const { memberLocations, stalePositions, updateMemberLocation, clearGroup, evictStale, setStalePositions, clearStalePositions } = useLocationStore();
   const setIsInMotion = useMotionStore((s) => s.setIsInMotion);
+  const groupName = useGroupStore((s) => s.name);
+  const groupMemberCount = useGroupStore((s) => s.memberCount);
   const insets = useSafeAreaInsets();
 
   const [gapAlerts, setGapAlerts]     = useState<GapAlert[]>([]);
@@ -250,15 +256,47 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
   const memberCountRef  = useRef(0);
   const lastEmitRef     = useRef<number>(-3000); // throttle own-location emits to 1/3 s
 
-  // Auto-center: fit map to all convoy members; user tap disables for 30s
-  const [autoCenterAll, setAutoCenterAll] = useState(false);
+  // Auto-center: fit map to all convoy members; user tap disables
+  const [autoCenterAll, setAutoCenterAll] = useState(true);
   const autoCenterTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Bottom sheet collapse/expand
+  const [sheetExpanded, setSheetExpanded] = useState(false);
+  const sheetHeight = useRef(new Animated.Value(80)).current;
 
   const pttRingScale   = useRef(new Animated.Value(1)).current;
   const pttRingOpacity = useRef(new Animated.Value(0)).current;
 
   // Keep mySosIdRef in sync so the socket handler closure always sees the current value
   useEffect(() => { mySosIdRef.current = mySosId; }, [mySosId]);
+
+  // Animate bottom sheet height between collapsed (80) and expanded (300)
+  useEffect(() => {
+    Animated.spring(sheetHeight, {
+      toValue: sheetExpanded ? 300 : 80,
+      useNativeDriver: false,
+      damping: 20,
+      stiffness: 150,
+    }).start();
+  }, [sheetExpanded, sheetHeight]);
+
+  // Fit map bounds to all convoy members when autoCenterAll is active
+  useEffect(() => {
+    if (!autoCenterAll || !groupId) return;
+    const memberCoords = Object.values(memberLocations).map((m) => ({
+      latitude: m.lat,
+      longitude: m.lng,
+    }));
+    const allCoords = [
+      ...(myLocation ? [{ latitude: myLocation.lat, longitude: myLocation.lng }] : []),
+      ...memberCoords,
+    ];
+    if (allCoords.length < 2 || !mapRef.current) return;
+    mapRef.current.fitToCoordinates(allCoords, {
+      edgePadding: { top: 80, right: 40, bottom: 200, left: 40 },
+      animated: true,
+    });
+  }, [memberLocations, myLocation, autoCenterAll, groupId]);
 
   // Pulsing ring animation when actively transmitting PTT
   useEffect(() => {
@@ -819,6 +857,7 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
         followsUserLocation
         initialRegion={{ latitude: 37.7749, longitude: -122.4194, latitudeDelta: 0.1, longitudeDelta: 0.1 }}
         onLongPress={handleLongPress}
+        onPress={() => { if (autoCenterAll) setAutoCenterAll(false); }}
       >
         {members.map((m: MemberLocation) => {
           const isStale = Date.now() - m.receivedAt > staleMs;
@@ -931,14 +970,26 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
         <Text style={styles.recenterText}>⊕</Text>
       </TouchableOpacity>
 
+      {/* Auto-center on all convoy members — appears when disabled */}
+      {groupId && !autoCenterAll && (
+        <TouchableOpacity
+          style={[styles.recenterBtn, { top: topBase + 52 }]}
+          onPress={() => setAutoCenterAll(true)}
+          accessibilityRole="button"
+          accessibilityLabel="Auto-center on all convoy members"
+        >
+          <Text style={styles.recenterText}>🎯</Text>
+        </TouchableOpacity>
+      )}
+
       {/* Speed limit HUD — bottom-left, above member panel (Req 23) */}
-      <View style={[styles.speedHudContainer, { bottom: insets.bottom + 236 }]}>
+      <View style={[styles.speedHudContainer, { bottom: insets.bottom + 96 }]}>
         <SpeedLimitHUD postedLimitKph={postedSpeedLimitKph} currentSpeedKph={mySpeedKph} />
       </View>
 
       {/* Floating action button — hidden in driving mode (Req 28) */}
       {!drivingModeActive && user && groupId && (
-        <View style={[styles.fabContainer, { bottom: insets.bottom + 228 }]}>
+        <View style={[styles.fabContainer, { bottom: insets.bottom + 88 }]}>
           {fabOpen && (
             <>
               <TouchableOpacity
@@ -1039,7 +1090,7 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
 
       {/* Standalone PTT button — always accessible without opening FAB */}
       {pttChannelId && !drivingModeActive && (
-        <View style={[styles.pttStandaloneWrap, { bottom: insets.bottom + 236 }]}>
+        <View style={[styles.pttStandaloneWrap, { bottom: insets.bottom + 96 }]}>
           {isPttTransmitting && (
             <Animated.View
               style={[
@@ -1087,28 +1138,14 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
         </View>
       )}
 
-      {/* Gap alerts */}
+      {/* Gap alerts — use GapAlertBanner for the most recent alert */}
       {gapAlerts.length > 0 && (
-        <View style={styles.alertBanner}>
-          <View style={styles.alertBannerStrip} />
-          <View style={styles.alertBannerContent}>
-            <View style={styles.alertBannerTexts}>
-              {gapAlerts.map((a) => (
-                <Text key={a.memberId} style={styles.alertText}>
-                  ⚠ {memberNamesRef.current[a.memberId] ?? `Member ${a.memberId.slice(0, 6)}`} is {(a.distanceM / 1000).toFixed(1)} km behind
-                </Text>
-              ))}
-            </View>
-            <TouchableOpacity
-              onPress={() => setGapAlerts([])}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              accessibilityRole="button"
-              accessibilityLabel="Dismiss gap alerts"
-            >
-              <Text style={styles.alertDismiss}>✕</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
+        <GapAlertBanner
+          memberName={memberNamesRef.current[gapAlerts[0].memberId] ?? `Member ${gapAlerts[0].memberId.slice(0, 6)}`}
+          distanceM={gapAlerts[0].distanceM}
+          thresholdM={2000}
+          onDismiss={() => setGapAlerts((p) => p.slice(1))}
+        />
       )}
 
       {/* Hazard proximity alerts */}
@@ -1150,77 +1187,128 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
         </TouchableOpacity>
       )}
 
-      {/* SOS alerts */}
-      {sosAlerts.length > 0 && (
-        <View style={[styles.sosBanner, { top: topBase + 60 }]}>
-          {sosAlerts.map((a) => <Text key={a.pin.id} style={styles.sosBannerText}>🆘 EMERGENCY — {a.memberName} needs help!</Text>)}
-          <TouchableOpacity onPress={() => setSosAlerts([])} accessibilityRole="button" accessibilityLabel="Dismiss SOS alerts"><Text style={styles.sosBannerDismiss}>Dismiss</Text></TouchableOpacity>
-        </View>
-      )}
+      {/* SOS alerts — modal for the first active alert */}
+      <SosAlertModal
+        visible={sosAlerts.length > 0}
+        memberName={sosAlerts[0]?.memberName ?? ''}
+        locationLat={sosAlerts[0]?.pin.lat ?? 0}
+        locationLng={sosAlerts[0]?.pin.lng ?? 0}
+        onNavigate={() => {
+          if (sosAlerts[0]) {
+            mapRef.current?.animateToRegion({
+              latitude: sosAlerts[0].pin.lat,
+              longitude: sosAlerts[0].pin.lng,
+              latitudeDelta: 0.01,
+              longitudeDelta: 0.01,
+            }, 800);
+          }
+          setSosAlerts((p) => p.slice(1));
+        }}
+        onDismiss={() => setSosAlerts((p) => p.slice(1))}
+        onAcknowledge={() => {
+          if (socketRef.current && sosAlerts[0]) {
+            socketRef.current.emit('sos:acknowledge', { sosId: sosAlerts[0].pin.id, memberName: sosAlerts[0].memberName });
+          }
+          setSosAlerts((p) => p.slice(1));
+        }}
+      />
 
       {/* Member panel — hidden in driving mode (Req 28) */}
-      {!drivingModeActive && <View style={[styles.memberPanel, { paddingBottom: Math.max(insets.bottom, 8) }]}>
-        <View style={styles.panelHandle} />
-        {/* Tab bar */}
-        <View style={styles.panelTabRow}>
+      {!drivingModeActive && (
+        <Animated.View style={[styles.memberPanel, { height: sheetHeight, paddingBottom: Math.max(insets.bottom, 8), overflow: 'hidden' }]}>
           <TouchableOpacity
-            style={[styles.panelTab, panelTab === 'members' && styles.panelTabActive]}
-            onPress={() => setPanelTab('members')}
-            accessibilityRole="tab"
-            accessibilityState={{ selected: panelTab === 'members' }}
-            accessibilityLabel={`Members tab, ${members.length} members`}
+            onPress={() => setSheetExpanded((v) => !v)}
+            style={{ alignItems: 'center', paddingTop: 4, paddingBottom: 2 }}
+            accessibilityRole="button"
+            accessibilityLabel={sheetExpanded ? 'Collapse member panel' : 'Expand member panel'}
           >
-            <Text style={[styles.panelTabText, panelTab === 'members' && styles.panelTabTextActive]}>
-              Members ({members.length})
-            </Text>
+            <View style={styles.panelHandle} />
           </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.panelTab, panelTab === 'pttlog' && styles.panelTabActive]}
-            onPress={() => setPanelTab('pttlog')}
-            accessibilityRole="tab"
-            accessibilityState={{ selected: panelTab === 'pttlog' }}
-            accessibilityLabel="PTT Log tab"
-          >
-            <Text style={[styles.panelTabText, panelTab === 'pttlog' && styles.panelTabTextActive]}>
-              PTT Log
-            </Text>
-          </TouchableOpacity>
-        </View>
 
-        {panelTab === 'pttlog' ? (
-          socket
-            ? <PTTLogPanel socket={socket} />
-            : <View style={styles.panelConnecting}><Text style={styles.emptyText}>Connecting…</Text></View>
-        ) : (
-        <FlatList
-          data={mySpeedKph > 5 ? members.slice(0, 4) : members}
-          keyExtractor={(m) => m.userId}
-          renderItem={({ item: m }) => {
-            const isStale = Date.now() - m.receivedAt > staleMs;
-            const memberName = m.displayName ?? `Member ${m.userId.slice(0, 6)}`;
-            return (
-              <View style={styles.memberRow}>
-                <View style={[styles.dot, isStale ? styles.dotOffline : styles.dotOnline]} />
-                <Text style={styles.memberText}>{memberName}</Text>
-                <Text style={styles.memberDetail}>{isStale ? formatElapsed(m.receivedAt) : `${m.speedKph.toFixed(0)} km/h`}</Text>
-                {groupId && (
-                  <TouchableOpacity
-                    style={styles.rowSosBtn}
-                    onPress={() => handlePickSosTarget(memberName, m.lat, m.lng)}
-                    accessibilityRole="button"
-                    accessibilityLabel={`SOS for ${memberName}`}
-                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                  >
-                    <Text style={styles.rowSosText}>🆘</Text>
-                  </TouchableOpacity>
-                )}
+          {!sheetExpanded ? (
+            /* Collapsed peek: member count + mini PTT */
+            <View style={styles.panelCollapsed}>
+              <Text style={styles.panelCollapsedText}>
+                🚗 {members.length} {members.length === 1 ? 'rider' : 'riders'}
+              </Text>
+              {pttChannelId ? (
+                <Pressable
+                  style={[styles.miniPttBtn, isPttTransmitting && styles.miniPttBtnActive]}
+                  onPressIn={() => { if (pttVoiceAvailable) handlePttStart(); }}
+                  onPressOut={handlePttEnd}
+                  accessibilityLabel="Hold to push to talk"
+                  accessibilityRole="button"
+                >
+                  <Text style={{ fontSize: 16 }}>{isPttTransmitting ? '📡' : '🎙'}</Text>
+                </Pressable>
+              ) : null}
+              <Text style={styles.panelCollapsedChevron}>∧</Text>
+            </View>
+          ) : (
+            <>
+              {/* Tab bar */}
+              <View style={styles.panelTabRow}>
+                <TouchableOpacity
+                  style={[styles.panelTab, panelTab === 'members' && styles.panelTabActive]}
+                  onPress={() => setPanelTab('members')}
+                  accessibilityRole="tab"
+                  accessibilityState={{ selected: panelTab === 'members' }}
+                  accessibilityLabel={`Members tab, ${members.length} members`}
+                >
+                  <Text style={[styles.panelTabText, panelTab === 'members' && styles.panelTabTextActive]}>
+                    Members ({members.length})
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.panelTab, panelTab === 'pttlog' && styles.panelTabActive]}
+                  onPress={() => setPanelTab('pttlog')}
+                  accessibilityRole="tab"
+                  accessibilityState={{ selected: panelTab === 'pttlog' }}
+                  accessibilityLabel="PTT Log tab"
+                >
+                  <Text style={[styles.panelTabText, panelTab === 'pttlog' && styles.panelTabTextActive]}>
+                    PTT Log
+                  </Text>
+                </TouchableOpacity>
               </View>
-            );
-          }}
-          ListEmptyComponent={<Text style={styles.emptyText}>No members yet</Text>}
-        />
-        )}
-      </View>}
+
+              {panelTab === 'pttlog' ? (
+                socket
+                  ? <PTTLogPanel socket={socket} />
+                  : <View style={styles.panelConnecting}><Text style={styles.emptyText}>Connecting…</Text></View>
+              ) : (
+                <FlatList
+                  data={mySpeedKph > 5 ? members.slice(0, 4) : members}
+                  keyExtractor={(m) => m.userId}
+                  renderItem={({ item: m }) => {
+                    const isStale = Date.now() - m.receivedAt > staleMs;
+                    const memberName = m.displayName ?? `Member ${m.userId.slice(0, 6)}`;
+                    return (
+                      <View style={styles.memberRow}>
+                        <View style={[styles.dot, isStale ? styles.dotOffline : styles.dotOnline]} />
+                        <Text style={styles.memberText}>{memberName}</Text>
+                        <Text style={styles.memberDetail}>{isStale ? formatElapsed(m.receivedAt) : `${m.speedKph.toFixed(0)} km/h`}</Text>
+                        {groupId && (
+                          <TouchableOpacity
+                            style={styles.rowSosBtn}
+                            onPress={() => handlePickSosTarget(memberName, m.lat, m.lng)}
+                            accessibilityRole="button"
+                            accessibilityLabel={`SOS for ${memberName}`}
+                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                          >
+                            <Text style={styles.rowSosText}>🆘</Text>
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                    );
+                  }}
+                  ListEmptyComponent={<Text style={styles.emptyText}>No members yet</Text>}
+                />
+              )}
+            </>
+          )}
+        </Animated.View>
+      )}
 
       {/* SOS person picker modal */}
       <Modal transparent visible={showSosPicker} animationType="slide">
@@ -1434,6 +1522,14 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
           </TouchableOpacity>
         </View>
       )}
+
+      {/* Convoy banner — floating pill showing active group */}
+      <ConvoyBanner
+        groupName={groupName ?? 'Convoy'}
+        memberCount={groupMemberCount}
+        isAdmin={isAdmin}
+        onPress={() => { /* navigation handled by parent tab */ }}
+      />
     </View>
   );
 }
@@ -1687,8 +1783,8 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     backgroundColor: 'rgba(10, 10, 10, 0.92)',
-    maxHeight: 220,
-    paddingTop: 8,
+    overflow: 'hidden',
+    paddingTop: 4,
     paddingHorizontal: 16,
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
@@ -1700,6 +1796,38 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: -4 },
     elevation: 12,
     zIndex: 5,
+  },
+  panelCollapsed: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 4,
+    paddingVertical: 8,
+    gap: 12,
+  },
+  panelCollapsedText: {
+    flex: 1,
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  panelCollapsedChevron: {
+    color: '#888888',
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  miniPttBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#1C1C1C',
+    borderWidth: 1,
+    borderColor: '#2A2A2A',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  miniPttBtnActive: {
+    backgroundColor: 'rgba(220, 20, 60, 0.25)',
+    borderColor: '#DC143C',
   },
   panelTabRow: {
     flexDirection: 'row',
@@ -1915,12 +2043,12 @@ const styles = StyleSheet.create({
   drivingTitle: { color: '#DC143C', fontSize: 12, fontWeight: '800', letterSpacing: 2 },
   drivingConnected: { color: '#555555', fontSize: 12, marginTop: 4 },
   drivingExitBtn: {
-    backgroundColor: '#1C1C1C',
+    backgroundColor: 'rgba(28, 28, 28, 0.94)',
     borderRadius: 10,
     paddingHorizontal: 16,
     paddingVertical: 10,
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: 'rgba(255,255,255,0.07)',
     minHeight: 40,
     justifyContent: 'center',
   },
