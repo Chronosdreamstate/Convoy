@@ -21,6 +21,7 @@ import {
   View,
 } from 'react-native';
 import MapView, { Polyline, PROVIDER_DEFAULT } from 'react-native-maps';
+import { useRouter } from 'expo-router';
 import { apiClient } from '../services/apiClient';
 
 const MAPBOX_TOKEN = process.env.EXPO_PUBLIC_MAPBOX_TOKEN ?? '';
@@ -322,6 +323,7 @@ export default function DriveHistoryScreen() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const expandAnim = useRef(new Animated.Value(0)).current;
+  const router = useRouter();
 
   const toggleExpand = useCallback((id: string) => {
     if (expandedId === id) {
@@ -581,19 +583,31 @@ export default function DriveHistoryScreen() {
                     </Text>
                   </View>
 
-                  {/* Share button */}
-                  <TouchableOpacity
-                    style={styles.expandShareBtn}
-                    onPress={() => void handleShare(drive.id)}
-                    disabled={sharingId === drive.id}
-                    accessibilityRole="button"
-                    accessibilityLabel="Share drive"
-                  >
-                    {sharingId === drive.id
-                      ? <ActivityIndicator color="#DC143C" size="small" />
-                      : <Text style={styles.expandShareBtnText}>📤 Share</Text>
-                    }
-                  </TouchableOpacity>
+                  {/* Action row: Share + Replay */}
+                  <View style={{ flexDirection: 'row', gap: 8 }}>
+                    <TouchableOpacity
+                      style={[styles.expandShareBtn, { flex: 1 }]}
+                      onPress={() => void handleShare(drive.id)}
+                      disabled={sharingId === drive.id}
+                      accessibilityRole="button"
+                      accessibilityLabel="Share drive"
+                    >
+                      {sharingId === drive.id
+                        ? <ActivityIndicator color="#DC143C" size="small" />
+                        : <Text style={styles.expandShareBtnText}>📤 Share</Text>
+                      }
+                    </TouchableOpacity>
+                    {(drive.routeTrace?.coordinates?.length ?? 0) > 1 && (
+                      <TouchableOpacity
+                        style={[styles.expandShareBtn, { flex: 1, backgroundColor: '#1C1C1C', borderColor: '#DC143C', borderWidth: 1 }]}
+                        onPress={() => router.push(`/replay?driveId=${drive.id}`)}
+                        accessibilityRole="button"
+                        accessibilityLabel="Replay drive"
+                      >
+                        <Text style={[styles.expandShareBtnText, { color: '#DC143C' }]}>▶ Replay</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
                 </Animated.View>
               )}
             </View>

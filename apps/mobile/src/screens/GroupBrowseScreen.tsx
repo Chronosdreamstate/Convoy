@@ -17,6 +17,7 @@ import { useRouter } from 'expo-router';
 import * as ExpoLocation from 'expo-location';
 import { apiClient } from '../services/apiClient';
 import { haversineDistanceM } from '../services/DriveService';
+import SkeletonCard, { SkeletonRow } from '../components/SkeletonLoader';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -324,8 +325,8 @@ export default function GroupBrowseScreen() {
 
       {/* Content */}
       {loading && !refreshing ? (
-        <View style={styles.centered}>
-          <ActivityIndicator size="large" color="#DC143C" />
+        <View style={styles.skeletonList}>
+          {[0, 1, 2, 3].map((i) => <SkeletonCard key={i} />)}
         </View>
       ) : (
         <FlatList
@@ -492,6 +493,11 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  skeletonList: {
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    gap: 12,
   },
   emptyState: {
     flex: 1,

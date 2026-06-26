@@ -18,11 +18,14 @@ interface AuthState {
   token: string | null;
   isLoading: boolean;
   isAuthenticated: boolean;
+  /** True when the user has signed up but not yet completed the onboarding flow. */
+  isFirstLogin: boolean;
   setUser: (user: User | null) => void;
   setAccessToken: (token: string | null) => void;
   /** Alias for setAccessToken */
   setToken: (token: string | null) => void;
   setLoading: (loading: boolean) => void;
+  setIsFirstLogin: (value: boolean) => void;
   /** Sign out and clear all auth state (alias: clear) */
   signOut: () => void;
   /** Alias for signOut */
@@ -35,6 +38,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   token: null,
   isLoading: true,
   isAuthenticated: false,
+  isFirstLogin: false,
 
   setUser: (user) => set({ user, isAuthenticated: user !== null }),
 
@@ -44,9 +48,11 @@ export const useAuthStore = create<AuthState>((set) => ({
 
   setLoading: (isLoading) => set({ isLoading }),
 
+  setIsFirstLogin: (isFirstLogin) => set({ isFirstLogin }),
+
   signOut: () =>
-    set({ user: null, accessToken: null, token: null, isAuthenticated: false }),
+    set({ user: null, accessToken: null, token: null, isAuthenticated: false, isFirstLogin: false }),
 
   clear: () =>
-    set({ user: null, accessToken: null, token: null, isAuthenticated: false }),
+    set({ user: null, accessToken: null, token: null, isAuthenticated: false, isFirstLogin: false }),
 }));

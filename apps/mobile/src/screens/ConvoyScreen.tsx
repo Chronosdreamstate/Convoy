@@ -294,15 +294,33 @@ export default function ConvoyScreen({ userId }: Props) {
     const handleMemberJoined = () => { fetchMembers(group.id); };
     const handleMemberLeft = () => { fetchMembers(group.id); };
     const handleKicked = () => { setGroup(null); setMembers([]); setView('home'); };
+    const handleSettingsUpdated = (data: { gapThresholdM?: number; pttMaxSeconds?: number }) => {
+      setGroup((prev) => prev ? { ...prev, ...data } : null);
+    };
+    const handlePttMuted = () => {
+      Alert.alert('Muted', 'The group admin has muted your PTT microphone.');
+    };
+    const handlePttUnmuted = () => {
+      Alert.alert('Unmuted', 'The group admin has unmuted your PTT microphone.');
+    };
+    const handleMemberMuteChanged = () => { fetchMembers(group.id); };
     socket.on('group:ended', handleGroupEnded);
     socket.on('member:joined', handleMemberJoined);
     socket.on('member:left', handleMemberLeft);
     socket.on('member:kicked', handleKicked);
+    socket.on('group:settings_updated', handleSettingsUpdated);
+    socket.on('ptt:muted', handlePttMuted);
+    socket.on('ptt:unmuted', handlePttUnmuted);
+    socket.on('member:mute_changed', handleMemberMuteChanged);
     return () => {
       socket.off('group:ended', handleGroupEnded);
       socket.off('member:joined', handleMemberJoined);
       socket.off('member:left', handleMemberLeft);
       socket.off('member:kicked', handleKicked);
+      socket.off('group:settings_updated', handleSettingsUpdated);
+      socket.off('ptt:muted', handlePttMuted);
+      socket.off('ptt:unmuted', handlePttUnmuted);
+      socket.off('member:mute_changed', handleMemberMuteChanged);
     };
   }, [socket, group, fetchMembers]);
 

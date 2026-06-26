@@ -423,6 +423,33 @@ export function registerSocketHandlers(
       }).catch((err: unknown) => fastify.log.error({ err }, 'ptt end error'));
     });
 
+    // Admin mute/unmute a member's PTT (Req 10.11)
+    socket.on('ptt:admin_mute', (data: unknown) => {
+      const { targetUserId, muted } = (data as { targetUserId?: string; muted?: boolean }) ?? {};
+      if (!targetUserId || typeof muted !== 'boolean') return;
+
+      (async () => {
+        // Verify emitter is the group admin
+        const adminCheck = await fastify.db.query<{ admin_id: string }>(
+          'SELECT admin_id FROM convoy_groups WHERE id = $1 AND status = \'active\'',
+          [groupId],
+        );
+        if (adminCheck.rows[0]?.admin_id !== userId) return;
+
+        await fastify.db.query(
+          `UPDATE convoy_members SET is_muted = $1
+           WHERE group_id = $2 AND user_id = $3 AND left_at IS NULL`,
+          [muted, groupId, targetUserId],
+        );
+
+        // Notify the target member
+        const event = muted ? 'ptt:muted' : 'ptt:unmuted';
+        io.to(`user:${targetUserId}`).emit(event, { groupId, mutedBy: userId, muted });
+        // Also notify the group so other members see the updated state
+        io.to(`group:${groupId}`).emit('member:mute_changed', { userId: targetUserId, muted });
+      })().catch((err: unknown) => fastify.log.error({ err }, 'ptt admin mute error'));
+    });
+
     // Notify group on disconnect and clean up Redis presence (Req 8.3)
     socket.on('disconnect', () => {
       lastLocUpdate.delete(socket.id);

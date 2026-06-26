@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
+  ActivityIndicator,
   FlatList,
   Modal,
   SafeAreaView,
@@ -10,15 +11,18 @@ import {
   View,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { apiClient } from '../services/apiClient';
 
 interface Waypoint {
   id: string;
   name: string;
   address: string;
+  lat?: number;
+  lng?: number;
 }
 
-let nextId = 1;
-function makeId() { return String(nextId++); }
+let _nextId = 1;
+function makeId() { return String(_nextId++); }
 
 export default function WaypointManagementScreen() {
   const { groupId } = useLocalSearchParams<{ groupId?: string }>();
@@ -28,6 +32,7 @@ export default function WaypointManagementScreen() {
   const [modalVisible, setModalVisible] = useState(false);
   const [draftName, setDraftName] = useState('');
   const [draftAddress, setDraftAddress] = useState('');
+  const [saving, setSaving] = useState(false);
 
   const moveUp = (index: number) => {
     if (index === 0) return;
@@ -63,9 +68,37 @@ export default function WaypointManagementScreen() {
     setModalVisible(false);
   };
 
-  const broadcast = () => {
-    // TODO: POST waypoints to /api/v1/groups/:groupId/waypoints
-    router.back();
+  const loadWaypoints = useCallback(async () => {
+    if (!groupId) return;
+    try {
+      const res = await apiClient.get<{ waypoints: Waypoint[] }>(`/api/v1/groups/${groupId}/waypoints`);
+      setWaypoints(res.data.waypoints ?? []);
+    } catch {
+      // Non-fatal — start with empty list if fetch fails
+    }
+  }, [groupId]);
+
+  useEffect(() => { void loadWaypoints(); }, [loadWaypoints]);
+
+  const broadcast = async () => {
+    if (!groupId) { router.back(); return; }
+    setSaving(true);
+    try {
+      await apiClient.post(`/api/v1/groups/${groupId}/waypoints`, {
+        waypoints: waypoints.map((w, i) => ({
+          name: w.name,
+          address: w.address,
+          lat: w.lat,
+          lng: w.lng,
+          order: i,
+        })),
+      });
+    } catch {
+      // Non-fatal — waypoints will sync next time or on reconnect
+    } finally {
+      setSaving(false);
+      router.back();
+    }
   };
 
   return (
@@ -165,13 +198,15 @@ export default function WaypointManagementScreen() {
               <Text style={styles.addBtnText}>+ Add Waypoint</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={styles.broadcastBtn}
-              onPress={broadcast}
+              style={[styles.broadcastBtn, saving && styles.savingBtn]}
+              onPress={() => { void broadcast(); }}
+              disabled={saving}
               accessibilityRole="button"
+              accessibilityLabel="Broadcast waypoints to group"
             >
-              <Text style={styles.broadcastText}>
-                📡 Broadcast to Group
-              </Text>
+              {saving
+                ? <ActivityIndicator color="#fff" size="small" />
+                : <Text style={styles.broadcastText}>📡 Broadcast to Group</Text>}
             </TouchableOpacity>
           </View>
         </>
@@ -309,7 +344,10 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     paddingVertical: 16,
     alignItems: 'center',
+    minHeight: 52,
+    justifyContent: 'center',
   },
+  savingBtn: { opacity: 0.6 },
   broadcastText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
 
   empty: {

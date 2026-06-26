@@ -145,6 +145,45 @@ const driveBodySchema = z.object({
 // ---------------------------------------------------------------------------
 
 const drivesRoutes: FastifyPluginAsync = async (fastify) => {
+  // ── GET /drives/stats ─────────────────────────────────────────────────────
+  fastify.get('/drives/stats', { preHandler: [authenticate, generalLimiter(fastify.redis)] }, async (request, reply) => {
+    const userId = (request.user as { sub: string }).sub;
+
+    const result = await fastify.db.query<{
+      total_drives: string;
+      total_distance_m: string;
+      total_duration_s: string;
+      avg_speed_kph: string | null;
+      top_speed_kph: string | null;
+      longest_drive_m: string | null;
+      longest_drive_id: string | null;
+    }>(
+      `SELECT
+         COUNT(*)                     AS total_drives,
+         COALESCE(SUM(distance_m), 0) AS total_distance_m,
+         COALESCE(SUM(duration_s), 0) AS total_duration_s,
+         AVG(avg_speed_kph)           AS avg_speed_kph,
+         MAX(top_speed_kph)           AS top_speed_kph,
+         MAX(distance_m)              AS longest_drive_m,
+         (SELECT id FROM drive_history WHERE user_id = $1
+          ORDER BY distance_m DESC LIMIT 1) AS longest_drive_id
+       FROM drive_history
+       WHERE user_id = $1`,
+      [userId],
+    );
+
+    const row = result.rows[0];
+    return reply.send({
+      totalDrives: parseInt(row.total_drives, 10),
+      totalDistanceM: parseInt(row.total_distance_m, 10),
+      totalDurationS: parseInt(row.total_duration_s, 10),
+      avgSpeedKph: row.avg_speed_kph ? parseFloat(row.avg_speed_kph) : null,
+      topSpeedKph: row.top_speed_kph ? parseFloat(row.top_speed_kph) : null,
+      longestDriveM: row.longest_drive_m ? parseInt(row.longest_drive_m, 10) : null,
+      longestDriveId: row.longest_drive_id,
+    });
+  });
+
   // ── GET /drives ───────────────────────────────────────────────────────────
   fastify.get('/drives', { preHandler: [authenticate, generalLimiter(fastify.redis)] }, async (request, reply) => {
     const userId = (request.user as { sub: string }).sub;

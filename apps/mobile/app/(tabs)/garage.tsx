@@ -1,2 +1,3 @@
 import GarageScreen from '../../src/screens/garage/GarageScreen';
-export default GarageScreen;
+import { withErrorBoundary } from '../../src/components/ErrorBoundary';
+export default withErrorBoundary(GarageScreen);

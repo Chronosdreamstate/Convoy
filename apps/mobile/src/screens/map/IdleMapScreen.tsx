@@ -11,6 +11,7 @@ import MapView, { PROVIDER_DEFAULT } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ExpoLocation from 'expo-location';
 import { useRouter } from 'expo-router';
+import LocationPermissionPrescreen from '../../components/LocationPermissionPrescreen';
 
 const DEFAULT_REGION = {
   latitude: 37.7749,
@@ -25,6 +26,7 @@ export default function IdleMapScreen() {
   const mapRef = useRef<MapView>(null);
   const [initialRegion, setInitialRegion] = useState(DEFAULT_REGION);
   const [locating, setLocating] = useState(true);
+  const [showPrescreen, setShowPrescreen] = useState(false);
 
   // Pulse animation for location loading state
   const pulseAnim = useRef(new Animated.Value(0.3)).current;
@@ -54,30 +56,50 @@ export default function IdleMapScreen() {
     ]).start(() => setShowToast(false));
   }, [toastAnim]);
 
+  const requestLocationAndCenter = async (mounted: { current: boolean }) => {
+    const { status } = await ExpoLocation.requestForegroundPermissionsAsync();
+    if (!mounted.current || status !== 'granted') {
+      if (mounted.current) setLocating(false);
+      return;
+    }
+    const loc = await ExpoLocation.getCurrentPositionAsync({
+      accuracy: ExpoLocation.Accuracy.Balanced,
+    });
+    if (!mounted.current) return;
+    const region = {
+      latitude: loc.coords.latitude,
+      longitude: loc.coords.longitude,
+      latitudeDelta: 0.05,
+      longitudeDelta: 0.05,
+    };
+    setInitialRegion(region);
+    mapRef.current?.animateToRegion(region, 500);
+    setLocating(false);
+  };
+
   useEffect(() => {
-    let mounted = true;
+    const mounted = { current: true };
     (async () => {
-      const { status } = await ExpoLocation.requestForegroundPermissionsAsync();
-      if (!mounted || status !== 'granted') {
-        if (mounted) setLocating(false);
-        return;
+      // Check if permission already granted — skip prescreen if so
+      const { status } = await ExpoLocation.getForegroundPermissionsAsync();
+      if (status === 'granted') {
+        await requestLocationAndCenter(mounted);
+      } else {
+        // Show the pre-permission explanation screen first
+        setLocating(false);
+        setShowPrescreen(true);
       }
-      const loc = await ExpoLocation.getCurrentPositionAsync({
-        accuracy: ExpoLocation.Accuracy.Balanced,
-      });
-      if (!mounted) return;
-      const region = {
-        latitude: loc.coords.latitude,
-        longitude: loc.coords.longitude,
-        latitudeDelta: 0.05,
-        longitudeDelta: 0.05,
-      };
-      setInitialRegion(region);
-      mapRef.current?.animateToRegion(region, 500);
-      setLocating(false);
     })();
-    return () => { mounted = false; };
+    return () => { mounted.current = false; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const handlePrescreenAllow = async () => {
+    setShowPrescreen(false);
+    setLocating(true);
+    const mounted = { current: true };
+    await requestLocationAndCenter(mounted);
+  };
 
   const recenter = () => {
     ExpoLocation.getCurrentPositionAsync({ accuracy: ExpoLocation.Accuracy.Balanced })
@@ -96,6 +118,11 @@ export default function IdleMapScreen() {
 
   return (
     <View style={styles.container}>
+      <LocationPermissionPrescreen
+        visible={showPrescreen}
+        onAllow={handlePrescreenAllow}
+        onSkip={() => { setShowPrescreen(false); setLocating(false); }}
+      />
       <MapView
         ref={mapRef}
         provider={PROVIDER_DEFAULT}

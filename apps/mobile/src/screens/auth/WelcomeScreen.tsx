@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Animated,
   View,
@@ -9,7 +9,32 @@ import {
   Linking,
   Platform,
   Alert,
+  ScrollView,
+  Dimensions,
 } from 'react-native';
+
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+
+const SLIDES = [
+  {
+    emoji: '🚗🚙🚕',
+    emojiSize: 48,
+    title: 'Drive Together',
+    body: 'Keep your crew in sync with real-time convoy tracking',
+  },
+  {
+    emoji: '🎙️',
+    emojiSize: 64,
+    title: 'Built-in Radio',
+    body: 'Crystal-clear push-to-talk between all convoy members',
+  },
+  {
+    emoji: '🏁',
+    emojiSize: 64,
+    title: 'Find Your Crew',
+    body: 'Browse car meets and convoys happening near you',
+  },
+];
 import { useRouter } from 'expo-router';
 import { authService } from '../../services/AuthService';
 import { useAuthStore } from '../../stores/authStore';
@@ -35,6 +60,12 @@ export default function WelcomeScreen() {
 
   // Accent pulse loop
   const accentScale = useRef(new Animated.Value(1)).current;
+
+  // Carousel state
+  const [activeSlide, setActiveSlide] = useState(0);
+  const carouselRef = useRef<ScrollView>(null);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const activeSlideRef = useRef(0);
 
   useEffect(() => {
     Animated.parallel([
@@ -65,8 +96,35 @@ export default function WelcomeScreen() {
       ]),
     );
     pulse.start();
-    return () => pulse.stop();
+
+    intervalRef.current = setInterval(() => {
+      const next = (activeSlideRef.current + 1) % SLIDES.length;
+      activeSlideRef.current = next;
+      setActiveSlide(next);
+      carouselRef.current?.scrollTo({ x: next * SCREEN_WIDTH, animated: true });
+    }, 4000);
+
+    return () => {
+      pulse.stop();
+      if (intervalRef.current) clearInterval(intervalRef.current);
+    };
   }, [heroOpacity, heroTranslate, accentScale]);
+
+  const handleCarouselScroll = (e: { nativeEvent: { contentOffset: { x: number } } }) => {
+    const idx = Math.round(e.nativeEvent.contentOffset.x / SCREEN_WIDTH);
+    if (idx !== activeSlideRef.current) {
+      activeSlideRef.current = idx;
+      setActiveSlide(idx);
+      // Reset timer when user swipes manually
+      if (intervalRef.current) clearInterval(intervalRef.current);
+      intervalRef.current = setInterval(() => {
+        const next = (activeSlideRef.current + 1) % SLIDES.length;
+        activeSlideRef.current = next;
+        setActiveSlide(next);
+        carouselRef.current?.scrollTo({ x: next * SCREEN_WIDTH, animated: true });
+      }, 4000);
+    }
+  };
 
   const handleOpenUrl = (url: string) => {
     Linking.openURL(url).catch(() => {});
@@ -127,12 +185,37 @@ export default function WelcomeScreen() {
         accessibilityLabel="CONVOY app logo"
         accessibilityRole="image"
       >
-        {/* Decorative convoy of cars */}
-        <Text style={styles.convoyEmojis}>🚗🚙🚕</Text>
         <Text style={styles.appName}>CONVOY</Text>
-        {/* Pulsing crimson underline */}
         <Animated.View style={[styles.logoAccent, { transform: [{ scaleX: accentScale }] }]} />
-        <Text style={styles.tagline}>Drive together. Stay connected.</Text>
+      </Animated.View>
+
+      {/* Value-prop carousel */}
+      <Animated.View style={[styles.carouselWrapper, { opacity: heroOpacity }]}>
+        <ScrollView
+          ref={carouselRef}
+          horizontal
+          pagingEnabled
+          showsHorizontalScrollIndicator={false}
+          onMomentumScrollEnd={handleCarouselScroll}
+          scrollEventThrottle={16}
+          style={styles.carousel}
+        >
+          {SLIDES.map((slide, i) => (
+            <View key={i} style={styles.slide}>
+              <Text style={{ fontSize: slide.emojiSize, textAlign: 'center' }}>{slide.emoji}</Text>
+              <Text style={styles.slideTitle}>{slide.title}</Text>
+              <Text style={styles.slideBody}>{slide.body}</Text>
+            </View>
+          ))}
+        </ScrollView>
+        <View style={styles.dotsRow}>
+          {SLIDES.map((_, i) => (
+            <View
+              key={i}
+              style={[styles.dot, i === activeSlide ? styles.dotActive : styles.dotInactive]}
+            />
+          ))}
+        </View>
       </Animated.View>
 
       <View style={styles.buttonSection}>
@@ -221,18 +304,12 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: theme.colors.bg,
     justifyContent: 'space-between',
-    paddingHorizontal: theme.spacing.lg,
     paddingVertical: theme.spacing.xl,
   },
   heroSection: {
-    flex: 1,
-    justifyContent: 'center',
     alignItems: 'center',
-  },
-  convoyEmojis: {
-    fontSize: 32,
-    letterSpacing: 8,
-    marginBottom: theme.spacing.md,
+    paddingTop: theme.spacing.md,
+    paddingHorizontal: theme.spacing.lg,
   },
   appName: {
     ...theme.typography.hero,
@@ -244,16 +321,57 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.accent,
     borderRadius: 2,
     marginTop: theme.spacing.sm,
-    marginBottom: theme.spacing.md,
   },
-  tagline: {
-    fontSize: 16,
-    color: theme.colors.textMuted,
-    letterSpacing: 0.5,
+  carouselWrapper: {
+    flex: 1,
+    justifyContent: 'center',
+    marginTop: theme.spacing.lg,
+  },
+  carousel: {
+    flexGrow: 0,
+  },
+  slide: {
+    width: SCREEN_WIDTH,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: theme.spacing.xl,
+    gap: theme.spacing.md,
+  },
+  slideTitle: {
+    fontSize: 28,
+    fontWeight: '800',
+    color: theme.colors.text,
     textAlign: 'center',
+    letterSpacing: 0.5,
+    marginTop: theme.spacing.sm,
+  },
+  slideBody: {
+    fontSize: 15,
+    color: theme.colors.textMuted,
+    textAlign: 'center',
+    lineHeight: 22,
+  },
+  dotsRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: theme.spacing.lg,
+  },
+  dot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  dotActive: {
+    backgroundColor: theme.colors.accent,
+    width: 24,
+  },
+  dotInactive: {
+    backgroundColor: theme.colors.border,
   },
   buttonSection: {
     paddingBottom: theme.spacing.sm,
+    paddingHorizontal: theme.spacing.lg,
   },
   primaryButton: {
     backgroundColor: theme.colors.accent,
@@ -341,6 +459,7 @@ const styles = StyleSheet.create({
   legalSection: {
     alignItems: 'center',
     paddingTop: theme.spacing.lg,
+    paddingHorizontal: theme.spacing.lg,
   },
   legalLinks: {
     flexDirection: 'row',

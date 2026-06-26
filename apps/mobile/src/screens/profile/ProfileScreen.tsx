@@ -11,6 +11,7 @@ import {
   View,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import ProfileCompletionBar from '../../components/ProfileCompletionBar';
 import { apiClient } from '../../services/apiClient';
 import { authService } from '../../services/AuthService';
 import { useAuthStore } from '../../stores/authStore';
@@ -75,6 +76,8 @@ export default function ProfileScreen() {
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [vehicleCount, setVehicleCount] = useState(0);
+  const [friendCount, setFriendCount] = useState(0);
 
   // Inline-edit state
   const [displayName, setDisplayName] = useState('');
@@ -109,6 +112,15 @@ export default function ProfileScreen() {
       setPttCallsign(p.pttCallsign ?? '');
       setPrivacy(p.privacy);
       setIsDirty(false);
+      // Fetch vehicle + friend counts for profile completion bar
+      try {
+        const [vRes, fRes] = await Promise.allSettled([
+          apiClient.get<{ vehicles: unknown[] }>('/api/v1/vehicles'),
+          apiClient.get<{ friends: unknown[] }>('/api/v1/friends'),
+        ]);
+        if (vRes.status === 'fulfilled') setVehicleCount(vRes.value.data.vehicles?.length ?? 0);
+        if (fRes.status === 'fulfilled') setFriendCount(fRes.value.data.friends?.length ?? 0);
+      } catch { /* non-fatal */ }
     } catch {
       if (!isMounted.current) return;
       setError('Failed to load profile. Please try again.');

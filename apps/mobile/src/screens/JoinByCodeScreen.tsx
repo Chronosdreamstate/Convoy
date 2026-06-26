@@ -14,7 +14,7 @@ import {
 import { useRouter } from 'expo-router';
 import { apiClient } from '../services/apiClient';
 
-const CODE_LENGTH = 8;
+const CODE_LENGTH = 6;
 
 export default function JoinByCodeScreen() {
   const router = useRouter();
@@ -43,7 +43,7 @@ export default function JoinByCodeScreen() {
     setLoading(true);
     setError(null);
     try {
-      await apiClient.post('/api/v1/groups/join-by-code', { code });
+      await apiClient.post('/api/v1/groups/join', { code });
       router.replace('/(tabs)/map');
     } catch (err: unknown) {
       const status =

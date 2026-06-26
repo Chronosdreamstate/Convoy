@@ -35,6 +35,9 @@ interface FriendRequest {
 interface SearchUser {
   id: string;
   displayName: string;
+  avatarUrl?: string | null;
+  pttCallsign?: string | null;
+  friendshipStatus?: string | null;
 }
 
 type TabId = 'friends' | 'requests' | 'find';
@@ -327,7 +330,7 @@ function FindPeopleTab() {
     setError(null);
     try {
       const res = await apiClient.get<{ users: SearchUser[] }>(
-        `/api/v1/users/search?q=${encodeURIComponent(q.trim())}`,
+        `/api/v1/friends/search?q=${encodeURIComponent(q.trim())}`,
       );
       setResults(res.data.users);
     } catch {
@@ -408,8 +411,15 @@ function FindPeopleTab() {
               <Text style={styles.rowName} numberOfLines={1}>
                 {user.displayName}
               </Text>
+              {user.pttCallsign ? (
+                <Text style={styles.rowSub} numberOfLines={1}>📻 {user.pttCallsign}</Text>
+              ) : null}
             </View>
-            {sent.has(user.id) ? (
+            {user.friendshipStatus === 'accepted' ? (
+              <View style={[styles.actionBtn, styles.sentBtn]}>
+                <Text style={styles.sentBtnText}>Friends ✓</Text>
+              </View>
+            ) : user.friendshipStatus === 'pending' || sent.has(user.id) ? (
               <View style={[styles.actionBtn, styles.sentBtn]}>
                 <Text style={styles.sentBtnText}>Sent ✓</Text>
               </View>
@@ -820,6 +830,11 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
     color: '#F0F0F0',
+  },
+  rowSub: {
+    fontSize: 12,
+    color: '#888888',
+    marginTop: 2,
   },
   rowStatus: {
     fontSize: 12,

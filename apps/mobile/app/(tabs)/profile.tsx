@@ -1,2 +1,3 @@
 import ProfileScreen from '../../src/screens/profile/ProfileScreen';
-export default ProfileScreen;
+import { withErrorBoundary } from '../../src/components/ErrorBoundary';
+export default withErrorBoundary(ProfileScreen);

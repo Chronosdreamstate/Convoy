@@ -10,6 +10,7 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  Vibration,
   View,
 } from 'react-native';
 import MapView, { Marker, Polyline, LongPressEvent, PROVIDER_DEFAULT } from 'react-native-maps';
@@ -79,7 +80,17 @@ function memberInitials(name: string): string {
     .join('');
 }
 
-function MemberMarkerView({ member, isStale }: { member: MemberLocation; isStale: boolean }) {
+function haversineDistanceM(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371000;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLng = ((lng2 - lng1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function MemberMarkerView({ member, isStale, distanceM }: { member: MemberLocation; isStale: boolean; distanceM?: number }) {
   const name = member.displayName ?? `M${member.userId.slice(0, 4)}`;
   const initials = memberInitials(name).slice(0, 2);
   const ringScale = useRef(new Animated.Value(1)).current;
@@ -141,6 +152,11 @@ function MemberMarkerView({ member, isStale }: { member: MemberLocation; isStale
         <Text style={{ color: '#FFFFFF', fontSize: 9, fontWeight: '600' }} numberOfLines={1}>
           {name.split(' ')[0]}
         </Text>
+        {distanceM != null && (
+          <Text style={{ color: '#DC143C', fontSize: 8, fontWeight: '700' }} numberOfLines={1}>
+            📏 {distanceM >= 1000 ? `${(distanceM / 1000).toFixed(1)}km` : `${Math.round(distanceM)}m`}
+          </Text>
+        )}
       </View>
     </View>
   );
@@ -234,6 +250,10 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
   const memberCountRef  = useRef(0);
   const lastEmitRef     = useRef<number>(-3000); // throttle own-location emits to 1/3 s
 
+  // Auto-center: fit map to all convoy members; user tap disables for 30s
+  const [autoCenterAll, setAutoCenterAll] = useState(false);
+  const autoCenterTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const pttRingScale   = useRef(new Animated.Value(1)).current;
   const pttRingOpacity = useRef(new Animated.Value(0)).current;
 
@@ -248,11 +268,11 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
       const anim = Animated.loop(
         Animated.parallel([
           Animated.sequence([
-            Animated.timing(pttRingScale, { toValue: 1.7, duration: 700, useNativeDriver: true }),
+            Animated.timing(pttRingScale, { toValue: 1.7, duration: 500, useNativeDriver: true }),
             Animated.timing(pttRingScale, { toValue: 1, duration: 0, useNativeDriver: true }),
           ]),
           Animated.sequence([
-            Animated.timing(pttRingOpacity, { toValue: 0, duration: 700, useNativeDriver: true }),
+            Animated.timing(pttRingOpacity, { toValue: 0, duration: 500, useNativeDriver: true }),
             Animated.timing(pttRingOpacity, { toValue: 0.6, duration: 0, useNativeDriver: true }),
           ]),
         ]),
@@ -651,6 +671,7 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
   }, []);
 
   const handlePttStart = useCallback(() => {
+    Vibration.vibrate(30);
     // Request mic permission lazily on first PTT attempt (Req 36.6)
     if (!micPermGrantedRef.current) {
       void requestMicPermissionForPTT().then((granted) => {
@@ -674,6 +695,7 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
   }, [pttChannelId]);
 
   const handlePttEnd = useCallback(() => {
+    Vibration.vibrate([0, 20]);
     setIsPttTransmitting(false);
     if (pttServiceRef.current) {
       // PTTService handles socket emit + Agora mic close
@@ -1658,25 +1680,25 @@ const styles = StyleSheet.create({
   sosBannerText: { color: '#FF8080', fontSize: 14, fontWeight: '700', marginBottom: 4 },
   sosBannerDismiss: { color: '#FF8080', fontSize: 12, textDecorationLine: 'underline' },
 
-  // Member panel — dark card at bottom
+  // Member panel — glass-morphism bottom sheet
   memberPanel: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: '#0A0A0Aee',
+    backgroundColor: 'rgba(10, 10, 10, 0.92)',
     maxHeight: 220,
     paddingTop: 8,
     paddingHorizontal: 16,
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
     borderTopWidth: 1,
-    borderTopColor: '#2A2A2A',
+    borderTopColor: 'rgba(255, 255, 255, 0.08)',
     shadowColor: '#000',
-    shadowOpacity: 0.5,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: -2 },
-    elevation: 8,
+    shadowOpacity: 0.6,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: -4 },
+    elevation: 12,
     zIndex: 5,
   },
   panelTabRow: {

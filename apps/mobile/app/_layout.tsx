@@ -1,13 +1,17 @@
-﻿import { useEffect, useRef } from 'react';
+﻿import { useEffect, useRef, useState } from 'react';
 import { Animated, AppState, Platform, StyleSheet, Text, View } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
+import ErrorBoundary from '../src/components/ErrorBoundary';
 import type { Router } from 'expo-router';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import * as Notifications from 'expo-notifications';
+import * as SecureStore from 'expo-secure-store';
 import { useAuthStore } from '../src/stores/authStore';
 import { authService } from '../src/services/AuthService';
 import { apiClient } from '../src/services/apiClient';
 import { useGroupStore } from '../src/stores/groupStore';
+import { useSocketStore } from '../src/stores/socketStore';
+import OfflineIndicator from '../src/components/OfflineIndicator';
 import {
   registerForPushNotificationsAsync,
   setupNotificationHandler,
@@ -132,9 +136,16 @@ const splashStyles = StyleSheet.create({
 });
 
 export default function RootLayout() {
-  const { isAuthenticated, isLoading, setUser, setLoading, signOut: storeSignOut } = useAuthStore();
+  const { isAuthenticated, isLoading, isFirstLogin, setUser, setLoading, setIsFirstLogin, signOut: storeSignOut } = useAuthStore();
   const setActiveGroupId = useGroupStore((s) => s.setActiveGroupId);
+  const socketConnected = useSocketStore((s) => s.isConnected);
+  const [hasEverConnected, setHasEverConnected] = useState(false);
   const router = useRouter();
+  // Track whether socket has ever connected so we don't show offline banner before first connect
+  useEffect(() => {
+    if (socketConnected) setHasEverConnected(true);
+  }, [socketConnected]);
+
   // Guard: push registration must only run once per session, after auth confirms
   const pushRegisteredRef = useRef(false);
 
@@ -155,6 +166,8 @@ export default function RootLayout() {
         if (!cancelled) {
           setUser(meRes.data);
           setActiveGroupId(activeRes.data.group?.id ?? null);
+          const onboardingDone = await SecureStore.getItemAsync('onboarding_complete').catch(() => '1');
+          if (!onboardingDone) setIsFirstLogin(true);
         }
       } catch {
         if (!cancelled) storeSignOut();
@@ -212,13 +225,15 @@ export default function RootLayout() {
     });
   }, []);
 
-  // Navigation guard: redirect unauthenticated users to welcome screen
+  // Navigation guard: redirect unauthenticated users to welcome, first-time users to onboarding
   useEffect(() => {
     if (isLoading) return;
     if (!isAuthenticated) {
       router.replace('/(auth)/welcome');
+    } else if (isFirstLogin) {
+      router.replace('/(onboarding)/vehicle');
     }
-  }, [isAuthenticated, isLoading]);
+  }, [isAuthenticated, isLoading, isFirstLogin]);
 
   if (isLoading) {
     return (
@@ -228,19 +243,26 @@ export default function RootLayout() {
     );
   }
 
+  const isOffline = isAuthenticated && hasEverConnected && !socketConnected;
+
   return (
     <SafeAreaProvider>
-      <Stack screenOptions={{ headerShown: false }}>
-        <Stack.Screen name="(auth)" />
-        <Stack.Screen name="(tabs)" />
-        <Stack.Screen name="friends" />
-        <Stack.Screen name="invite" />
-        <Stack.Screen name="group-browse" />
-        <Stack.Screen name="group-settings" />
-        <Stack.Screen name="waypoints" />
-        <Stack.Screen name="join" />
-        <Stack.Screen name="convoy-end" />
-      </Stack>
+      <ErrorBoundary>
+        <Stack screenOptions={{ headerShown: false }}>
+          <Stack.Screen name="(auth)" />
+          <Stack.Screen name="(tabs)" />
+          <Stack.Screen name="friends" />
+          <Stack.Screen name="invite" />
+          <Stack.Screen name="group-browse" />
+          <Stack.Screen name="group-settings" />
+          <Stack.Screen name="waypoints" />
+          <Stack.Screen name="join" />
+          <Stack.Screen name="convoy-end" />
+          <Stack.Screen name="notifications" />
+          <Stack.Screen name="(onboarding)" />
+        </Stack>
+      </ErrorBoundary>
+      <OfflineIndicator isOffline={isOffline} />
     </SafeAreaProvider>
   );
 }

@@ -202,6 +202,10 @@ export default function GarageScreen() {
     if (v.isActive || isActivating) return;
     setIsActivating(v.id);
     try {
+      const Haptics = await import('expo-haptics').catch(() => null);
+      if (Haptics) void Haptics.impactAsync('medium' as never);
+    } catch { /* non-fatal */ }
+    try {
       const response = await apiClient.post<Vehicle>(`/api/v1/vehicles/${v.id}/activate`);
       setVehicles((prev) =>
         prev.map((veh) => ({

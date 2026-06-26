@@ -1,2 +1,3 @@
 import DriveHistoryScreen from '../../src/screens/DriveHistoryScreen';
-export default DriveHistoryScreen;
+import { withErrorBoundary } from '../../src/components/ErrorBoundary';
+export default withErrorBoundary(DriveHistoryScreen);

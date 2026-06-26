@@ -59,6 +59,51 @@ async function friendsRoutes(
   });
 
   // -------------------------------------------------------------------------
+  // GET /friends/search?q= — search users by display name (Req 17.2)
+  // Returns users who are not blocked by/blocking the requester, max 20.
+  // -------------------------------------------------------------------------
+  fastify.get('/friends/search', { preHandler: [authenticate, generalLimiter(fastify.redis)] }, async (request, reply) => {
+    const userId = (request.user as { sub: string }).sub;
+    const { q } = request.query as { q?: string };
+
+    if (!q || q.trim().length < 2) {
+      return reply.badRequest('Search query must be at least 2 characters');
+    }
+
+    const term = `%${q.trim()}%`;
+
+    const result = await fastify.db.query<UserPublic & { friendship_status: string | null }>(
+      `SELECT u.id, u.display_name, u.avatar_url, u.ptt_callsign, u.privacy,
+              f.status AS friendship_status
+       FROM users u
+       LEFT JOIN friendships f
+         ON (f.requester_id = $1 AND f.addressee_id = u.id)
+         OR (f.requester_id = u.id AND f.addressee_id = $1)
+       WHERE u.id != $1
+         AND u.display_name ILIKE $2
+         AND NOT EXISTS (
+           SELECT 1 FROM friendships b
+           WHERE b.status = 'blocked'
+             AND ((b.requester_id = $1 AND b.addressee_id = u.id)
+               OR (b.requester_id = u.id AND b.addressee_id = $1))
+         )
+       ORDER BY u.display_name ASC
+       LIMIT 20`,
+      [userId, term],
+    );
+
+    return reply.send({
+      users: result.rows.map((r) => ({
+        id: r.id,
+        displayName: r.display_name,
+        avatarUrl: r.avatar_url,
+        pttCallsign: r.ptt_callsign,
+        friendshipStatus: r.friendship_status ?? null,
+      })),
+    });
+  });
+
+  // -------------------------------------------------------------------------
   // POST /friends/requests — send a friend request (Req 17.3–17.7)
   // -------------------------------------------------------------------------
   fastify.post('/friends/requests', { preHandler: [authenticate, generalLimiter(fastify.redis)] }, async (request, reply) => {
@@ -335,6 +380,56 @@ async function friendsRoutes(
     }
 
     return reply.status(200).send({ message: 'User blocked' });
+  });
+
+  // -------------------------------------------------------------------------
+  // GET /friends/requests/sent — outgoing pending requests the current user sent
+  // -------------------------------------------------------------------------
+  fastify.get('/friends/requests/sent', { preHandler: [authenticate, generalLimiter(fastify.redis)] }, async (request, reply) => {
+    const userId = (request.user as { sub: string }).sub;
+
+    const result = await fastify.db.query<
+      FriendshipRow & { display_name: string; avatar_url: string | null }
+    >(
+      `SELECT f.id, f.requester_id, f.addressee_id, f.status, f.created_at,
+              u.display_name, u.avatar_url
+       FROM friendships f
+       JOIN users u ON u.id = f.addressee_id
+       WHERE f.requester_id = $1 AND f.status = 'pending'
+       ORDER BY f.created_at DESC`,
+      [userId],
+    );
+
+    return reply.send({
+      requests: result.rows.map((r) => ({
+        id: r.id,
+        addresseeId: r.addressee_id,
+        displayName: r.display_name,
+        avatarUrl: r.avatar_url,
+        createdAt: r.created_at,
+      })),
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // DELETE /friends/requests/:id — cancel a pending outgoing request
+  // -------------------------------------------------------------------------
+  fastify.delete('/friends/requests/:id', { preHandler: [authenticate, generalLimiter(fastify.redis)] }, async (request, reply) => {
+    const userId = (request.user as { sub: string }).sub;
+    const { id } = request.params as { id: string };
+
+    const result = await fastify.db.query(
+      `DELETE FROM friendships
+       WHERE id = $1 AND requester_id = $2 AND status = 'pending'
+       RETURNING id`,
+      [id, userId],
+    );
+
+    if ((result.rowCount ?? 0) === 0) {
+      return reply.notFound('Pending request not found');
+    }
+
+    return reply.status(204).send();
   });
 }
 
