@@ -43,39 +43,11 @@ export function rateLimiter(redis: Redis, config: RateLimitConfig) {
 }
 
 // ---------------------------------------------------------------------------
-// Pre-built limiters (re-used across route files)
+// Pre-built limiters
 // ---------------------------------------------------------------------------
 
 export function getUserId(request: FastifyRequest): string {
   return ((request.user as { sub?: string }) ?? {}).sub ?? '';
-}
-
-/** OTP: 5 per phone per 10 min (Req 37.2) */
-export function otpLimiter(redis: Redis) {
-  return rateLimiter(redis, {
-    max: 5,
-    windowS: 600,
-    prefix: 'otp',
-    getKey: (req) => {
-      const body = req.body as { phoneNumber?: string } | undefined;
-      return body?.phoneNumber ?? '';
-    },
-  });
-}
-
-/** Hazard submit: 10 per user per hour (Req 37.1) */
-export function hazardLimiter(redis: Redis) {
-  return rateLimiter(redis, { max: 10, windowS: 3600, prefix: 'hazard', getKey: getUserId });
-}
-
-/** Friend request: 20 per user per hour (Req 37.3) */
-export function friendRequestLimiter(redis: Redis) {
-  return rateLimiter(redis, { max: 20, windowS: 3600, prefix: 'friend_req', getKey: getUserId });
-}
-
-/** Group join: 10 per user per hour (Req 37.4) */
-export function groupJoinLimiter(redis: Redis) {
-  return rateLimiter(redis, { max: 10, windowS: 3600, prefix: 'group_join', getKey: getUserId });
 }
 
 /** General API: 100 per user per minute. No-ops in test to avoid throttling property tests. */
