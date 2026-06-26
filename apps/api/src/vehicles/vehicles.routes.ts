@@ -1,6 +1,7 @@
-import { FastifyInstance, FastifyPluginOptions } from 'fastify';
+﻿import { FastifyInstance, FastifyPluginOptions } from 'fastify';
 import { z } from 'zod';
 import { authenticate } from '../middleware/authenticate';
+import { generalLimiter } from '../middleware/rateLimiter';
 
 const vehicleBodySchema = z.object({
   year: z.number().int().min(1886).max(2100).nullable().optional(),
@@ -42,7 +43,7 @@ async function vehiclesRoutes(
   // -------------------------------------------------------------------------
   // GET /vehicles — list all vehicles for the authenticated user
   // -------------------------------------------------------------------------
-  fastify.get('/vehicles', { preHandler: [authenticate] }, async (request, reply) => {
+  fastify.get('/vehicles', { preHandler: [authenticate, generalLimiter(fastify.redis)] }, async (request, reply) => {
     const userId = (request.user as { sub: string }).sub;
 
     const result = await fastify.db.query<VehicleRow>(
@@ -57,7 +58,7 @@ async function vehiclesRoutes(
   // -------------------------------------------------------------------------
   // POST /vehicles — create a new vehicle
   // -------------------------------------------------------------------------
-  fastify.post('/vehicles', { preHandler: [authenticate] }, async (request, reply) => {
+  fastify.post('/vehicles', { preHandler: [authenticate, generalLimiter(fastify.redis)] }, async (request, reply) => {
     const userId = (request.user as { sub: string }).sub;
 
     const parsed = vehicleBodySchema.safeParse(request.body);
@@ -80,7 +81,7 @@ async function vehiclesRoutes(
   // -------------------------------------------------------------------------
   // PATCH /vehicles/:id — update a vehicle
   // -------------------------------------------------------------------------
-  fastify.patch('/vehicles/:id', { preHandler: [authenticate] }, async (request, reply) => {
+  fastify.patch('/vehicles/:id', { preHandler: [authenticate, generalLimiter(fastify.redis)] }, async (request, reply) => {
     const userId = (request.user as { sub: string }).sub;
     const { id } = request.params as { id: string };
 
@@ -127,7 +128,7 @@ async function vehiclesRoutes(
   // -------------------------------------------------------------------------
   // DELETE /vehicles/:id
   // -------------------------------------------------------------------------
-  fastify.delete('/vehicles/:id', { preHandler: [authenticate] }, async (request, reply) => {
+  fastify.delete('/vehicles/:id', { preHandler: [authenticate, generalLimiter(fastify.redis)] }, async (request, reply) => {
     const userId = (request.user as { sub: string }).sub;
     const { id } = request.params as { id: string };
 
@@ -148,7 +149,7 @@ async function vehiclesRoutes(
   // POST /vehicles/:id/activate — set one vehicle active, clear all others
   // Uses a single transaction to enforce the one-active invariant (Req 29.2)
   // -------------------------------------------------------------------------
-  fastify.post('/vehicles/:id/activate', { preHandler: [authenticate] }, async (request, reply) => {
+  fastify.post('/vehicles/:id/activate', { preHandler: [authenticate, generalLimiter(fastify.redis)] }, async (request, reply) => {
     const userId = (request.user as { sub: string }).sub;
     const { id } = request.params as { id: string };
 
@@ -189,3 +190,4 @@ async function vehiclesRoutes(
 }
 
 export default vehiclesRoutes;
+

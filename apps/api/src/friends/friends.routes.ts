@@ -1,6 +1,7 @@
-import { FastifyInstance, FastifyPluginOptions } from 'fastify';
+﻿import { FastifyInstance, FastifyPluginOptions } from 'fastify';
 import { z } from 'zod';
 import { authenticate } from '../middleware/authenticate';
+import { generalLimiter } from '../middleware/rateLimiter';
 
 const RATE_LIMIT_MAX = 20;
 const RATE_LIMIT_WINDOW = 3600; // 1 hour in seconds
@@ -51,7 +52,7 @@ async function friendsRoutes(
   // -------------------------------------------------------------------------
   // GET /friends/invite-link — generate a deep-link invite (Req 17.1, 17.2)
   // -------------------------------------------------------------------------
-  fastify.get('/friends/invite-link', { preHandler: [authenticate] }, async (request, reply) => {
+  fastify.get('/friends/invite-link', { preHandler: [authenticate, generalLimiter(fastify.redis)] }, async (request, reply) => {
     const userId = (request.user as { sub: string }).sub;
     const link = `convoy://invite?userId=${encodeURIComponent(userId)}`;
     return reply.send({ inviteLink: link, qrData: link });
@@ -60,7 +61,7 @@ async function friendsRoutes(
   // -------------------------------------------------------------------------
   // POST /friends/requests — send a friend request (Req 17.3–17.7)
   // -------------------------------------------------------------------------
-  fastify.post('/friends/requests', { preHandler: [authenticate] }, async (request, reply) => {
+  fastify.post('/friends/requests', { preHandler: [authenticate, generalLimiter(fastify.redis)] }, async (request, reply) => {
     const requesterId = (request.user as { sub: string }).sub;
 
     const parsed = requestBodySchema.safeParse(request.body);
@@ -142,7 +143,7 @@ async function friendsRoutes(
   // -------------------------------------------------------------------------
   // GET /friends/requests — incoming pending requests (Req 17.7)
   // -------------------------------------------------------------------------
-  fastify.get('/friends/requests', { preHandler: [authenticate] }, async (request, reply) => {
+  fastify.get('/friends/requests', { preHandler: [authenticate, generalLimiter(fastify.redis)] }, async (request, reply) => {
     const userId = (request.user as { sub: string }).sub;
 
     const result = await fastify.db.query<
@@ -173,7 +174,7 @@ async function friendsRoutes(
   // -------------------------------------------------------------------------
   fastify.post(
     '/friends/requests/:id/accept',
-    { preHandler: [authenticate] },
+    { preHandler: [authenticate, generalLimiter(fastify.redis)] },
     async (request, reply) => {
       const userId = (request.user as { sub: string }).sub;
       const { id } = request.params as { id: string };
@@ -207,7 +208,7 @@ async function friendsRoutes(
   // -------------------------------------------------------------------------
   fastify.post(
     '/friends/requests/:id/decline',
-    { preHandler: [authenticate] },
+    { preHandler: [authenticate, generalLimiter(fastify.redis)] },
     async (request, reply) => {
       const userId = (request.user as { sub: string }).sub;
       const { id } = request.params as { id: string };
@@ -230,7 +231,7 @@ async function friendsRoutes(
   // -------------------------------------------------------------------------
   // GET /friends — list accepted friends (both directions) (Req 17.1)
   // -------------------------------------------------------------------------
-  fastify.get('/friends', { preHandler: [authenticate] }, async (request, reply) => {
+  fastify.get('/friends', { preHandler: [authenticate, generalLimiter(fastify.redis)] }, async (request, reply) => {
     const userId = (request.user as { sub: string }).sub;
 
     const result = await fastify.db.query<
@@ -267,7 +268,7 @@ async function friendsRoutes(
   // DELETE /friends/:id — remove a friend by friendship ID (Req 17.10)
   // Bidirectional: deleting the row removes it from both users' lists.
   // -------------------------------------------------------------------------
-  fastify.delete('/friends/:id', { preHandler: [authenticate] }, async (request, reply) => {
+  fastify.delete('/friends/:id', { preHandler: [authenticate, generalLimiter(fastify.redis)] }, async (request, reply) => {
     const userId = (request.user as { sub: string }).sub;
     const { id } = request.params as { id: string };
 
@@ -291,7 +292,7 @@ async function friendsRoutes(
   // POST /friends/block — block a user (Req 17.11)
   // Removes any existing friendship/request then writes blocked row.
   // -------------------------------------------------------------------------
-  fastify.post('/friends/block', { preHandler: [authenticate] }, async (request, reply) => {
+  fastify.post('/friends/block', { preHandler: [authenticate, generalLimiter(fastify.redis)] }, async (request, reply) => {
     const blockerId = (request.user as { sub: string }).sub;
 
     const parsed = blockBodySchema.safeParse(request.body);
@@ -338,3 +339,4 @@ async function friendsRoutes(
 }
 
 export default friendsRoutes;
+

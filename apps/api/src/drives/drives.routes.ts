@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Drive history API
  * Requirements: 19.2–19.6, 42.3
  */
@@ -6,6 +6,7 @@
 import { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { authenticate } from '../middleware/authenticate';
+import { generalLimiter } from '../middleware/rateLimiter';
 import { env } from '../config/env';
 
 // ---------------------------------------------------------------------------
@@ -145,7 +146,7 @@ const driveBodySchema = z.object({
 
 const drivesRoutes: FastifyPluginAsync = async (fastify) => {
   // ── GET /drives ───────────────────────────────────────────────────────────
-  fastify.get('/drives', { preHandler: [authenticate] }, async (request, reply) => {
+  fastify.get('/drives', { preHandler: [authenticate, generalLimiter(fastify.redis)] }, async (request, reply) => {
     const userId = (request.user as { sub: string }).sub;
 
     const query = (request.query as { page?: string; limit?: string });
@@ -180,7 +181,7 @@ const drivesRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // ── GET /drives/:id ───────────────────────────────────────────────────────
-  fastify.get<{ Params: { id: string } }>('/drives/:id', { preHandler: [authenticate] }, async (request, reply) => {
+  fastify.get<{ Params: { id: string } }>('/drives/:id', { preHandler: [authenticate, generalLimiter(fastify.redis)] }, async (request, reply) => {
     const userId = (request.user as { sub: string }).sub;
     const { id } = request.params;
 
@@ -200,7 +201,7 @@ const drivesRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // ── POST /drives ──────────────────────────────────────────────────────────
-  fastify.post('/drives', { preHandler: [authenticate] }, async (request, reply) => {
+  fastify.post('/drives', { preHandler: [authenticate, generalLimiter(fastify.redis)] }, async (request, reply) => {
     const userId = (request.user as { sub: string }).sub;
 
     const parsed = driveBodySchema.safeParse(request.body);
@@ -262,7 +263,7 @@ const drivesRoutes: FastifyPluginAsync = async (fastify) => {
   // ── POST /drives/:id/summary-card ─────────────────────────────────────────
   fastify.post<{ Params: { id: string } }>(
     '/drives/:id/summary-card',
-    { preHandler: [authenticate] },
+    { preHandler: [authenticate, generalLimiter(fastify.redis)] },
     async (request, reply) => {
       const userId = (request.user as { sub: string }).sub;
       const { id } = request.params;
@@ -293,7 +294,7 @@ const drivesRoutes: FastifyPluginAsync = async (fastify) => {
   );
 
   // ── DELETE /drives/:id ────────────────────────────────────────────────────
-  fastify.delete<{ Params: { id: string } }>('/drives/:id', { preHandler: [authenticate] }, async (request, reply) => {
+  fastify.delete<{ Params: { id: string } }>('/drives/:id', { preHandler: [authenticate, generalLimiter(fastify.redis)] }, async (request, reply) => {
     const userId = (request.user as { sub: string }).sub;
     const { id } = request.params;
 
@@ -307,3 +308,4 @@ const drivesRoutes: FastifyPluginAsync = async (fastify) => {
 };
 
 export default drivesRoutes;
+

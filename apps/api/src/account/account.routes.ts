@@ -1,15 +1,16 @@
-/**
+﻿/**
  * Account management, data privacy and compliance.
  * Requirements: 36.2, 36.3, 42.1–42.4
  */
 
 import { FastifyPluginAsync } from 'fastify';
 import { authenticate } from '../middleware/authenticate';
+import { generalLimiter } from '../middleware/rateLimiter';
 
 const accountRoutes: FastifyPluginAsync = async (fastify) => {
   // ── GET /account/export ───────────────────────────────────────────────────
   // GDPR Article 20 data export (Req 42.4)
-  fastify.get('/account/export', { preHandler: [authenticate] }, async (request, reply) => {
+  fastify.get('/account/export', { preHandler: [authenticate, generalLimiter(fastify.redis)] }, async (request, reply) => {
     const userId = (request.user as { sub: string }).sub;
 
     const [userResult, drivesResult, friendsResult] = await Promise.all([
@@ -67,7 +68,7 @@ const accountRoutes: FastifyPluginAsync = async (fastify) => {
 
   // ── DELETE /account ───────────────────────────────────────────────────────
   // Hard-delete all user data within 30 days — executes immediately (Req 36.3)
-  fastify.delete('/account', { preHandler: [authenticate] }, async (request, reply) => {
+  fastify.delete('/account', { preHandler: [authenticate, generalLimiter(fastify.redis)] }, async (request, reply) => {
     const userId = (request.user as { sub: string }).sub;
 
     // convoy_groups.admin_id has no ON DELETE CASCADE, so we must resolve admin
@@ -130,3 +131,4 @@ const accountRoutes: FastifyPluginAsync = async (fastify) => {
 };
 
 export default accountRoutes;
+

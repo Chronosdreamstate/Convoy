@@ -1,5 +1,6 @@
-import { FastifyInstance } from 'fastify';
+﻿import { FastifyInstance } from 'fastify';
 import { authenticate } from '../middleware/authenticate';
+import { generalLimiter } from '../middleware/rateLimiter';
 import { env } from '../config/env';
 
 interface NominatimResult {
@@ -20,7 +21,7 @@ interface NominatimResult {
 }
 
 export default async function placesRoutes(app: FastifyInstance) {
-  app.get<{ Querystring: { q?: string; lat?: string; lng?: string } }>('/places/search', { preHandler: [authenticate] }, async (req, reply) => {
+  app.get<{ Querystring: { q?: string; lat?: string; lng?: string } }>('/places/search', { preHandler: [authenticate, generalLimiter(app.redis)] }, async (req, reply) => {
     const q = req.query.q?.trim() ?? '';
     const lat = req.query.lat !== undefined ? parseFloat(req.query.lat) : null;
     const lng = req.query.lng !== undefined ? parseFloat(req.query.lng) : null;
@@ -90,7 +91,7 @@ export default async function placesRoutes(app: FastifyInstance) {
   });
 
   // GET /places/reverse?lat=X&lng=Y — reverse-geocode for pin drop callout (Req 5.2)
-  app.get<{ Querystring: { lat?: string; lng?: string } }>('/places/reverse', { preHandler: [authenticate] }, async (req, reply) => {
+  app.get<{ Querystring: { lat?: string; lng?: string } }>('/places/reverse', { preHandler: [authenticate, generalLimiter(app.redis)] }, async (req, reply) => {
     const lat = parseFloat(req.query.lat ?? '');
     const lng = parseFloat(req.query.lng ?? '');
     if (isNaN(lat) || isNaN(lng)) return reply.status(400).send({ error: 'lat and lng are required' });
@@ -109,3 +110,4 @@ export default async function placesRoutes(app: FastifyInstance) {
     }
   });
 }
+

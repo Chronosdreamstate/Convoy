@@ -1,6 +1,7 @@
-import { FastifyInstance, FastifyPluginOptions } from 'fastify';
+﻿import { FastifyInstance, FastifyPluginOptions } from 'fastify';
 import { z } from 'zod';
 import { authenticate } from '../middleware/authenticate';
+import { generalLimiter } from '../middleware/rateLimiter';
 
 const patchMeSchema = z.object({
   displayName: z.string().min(1).max(100).optional(),
@@ -32,7 +33,7 @@ async function usersRoutes(
   // -------------------------------------------------------------------------
   // GET /users/me
   // -------------------------------------------------------------------------
-  fastify.get('/users/me', { preHandler: [authenticate] }, async (request, reply) => {
+  fastify.get('/users/me', { preHandler: [authenticate, generalLimiter(fastify.redis)] }, async (request, reply) => {
     const userId = (request.user as { sub: string }).sub;
 
     const result = await fastify.db.query<UserRow>(
@@ -61,7 +62,7 @@ async function usersRoutes(
   // -------------------------------------------------------------------------
   // PATCH /users/me
   // -------------------------------------------------------------------------
-  fastify.patch('/users/me', { preHandler: [authenticate] }, async (request, reply) => {
+  fastify.patch('/users/me', { preHandler: [authenticate, generalLimiter(fastify.redis)] }, async (request, reply) => {
     const userId = (request.user as { sub: string }).sub;
 
     const parsed = patchMeSchema.safeParse(request.body);
@@ -138,7 +139,7 @@ async function usersRoutes(
   // Returns only non-sensitive public fields regardless of privacy setting,
   // because the viewer already has the UUID (they received an invite link).
   // -------------------------------------------------------------------------
-  fastify.get('/users/:id', { preHandler: [authenticate] }, async (request, reply) => {
+  fastify.get('/users/:id', { preHandler: [authenticate, generalLimiter(fastify.redis)] }, async (request, reply) => {
     const { id } = request.params as { id: string };
 
     const result = await fastify.db.query<
@@ -166,7 +167,7 @@ async function usersRoutes(
   // GET /users/search?phone=<e164>  — exact phone lookup (single result)
   // GET /users/search?q=<name>      — display-name search  (array result)
   // -------------------------------------------------------------------------
-  fastify.get('/users/search', { preHandler: [authenticate] }, async (request, reply) => {
+  fastify.get('/users/search', { preHandler: [authenticate, generalLimiter(fastify.redis)] }, async (request, reply) => {
     const userId = (request.user as { sub: string }).sub;
     const query = request.query as Record<string, string | undefined>;
     const phone = query.phone;
@@ -235,7 +236,7 @@ async function usersRoutes(
   // -------------------------------------------------------------------------
   // POST /devices — register / upsert FCM or APNs push token
   // -------------------------------------------------------------------------
-  fastify.post('/devices', { preHandler: [authenticate] }, async (request, reply) => {
+  fastify.post('/devices', { preHandler: [authenticate, generalLimiter(fastify.redis)] }, async (request, reply) => {
     const userId = (request.user as { sub: string }).sub;
 
     const parsed = deviceSchema.safeParse(request.body);
@@ -264,3 +265,4 @@ async function usersRoutes(
 }
 
 export default usersRoutes;
+

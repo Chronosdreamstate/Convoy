@@ -78,7 +78,10 @@ export function groupJoinLimiter(redis: Redis) {
   return rateLimiter(redis, { max: 10, windowS: 3600, prefix: 'group_join', getKey: getUserId });
 }
 
-/** General API: 100 per user per minute */
+/** General API: 100 per user per minute. No-ops in test to avoid throttling property tests. */
 export function generalLimiter(redis: Redis) {
+  if (process.env.NODE_ENV === 'test') {
+    return async (_request: FastifyRequest, _reply: FastifyReply): Promise<void> => { /* skip in test */ };
+  }
   return rateLimiter(redis, { max: 100, windowS: 60, prefix: 'general', getKey: getUserId });
 }

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * PTT channel management and Agora token endpoint.
  * Requirements: 10.1, 26.1–26.7, 38.2
  */
@@ -9,6 +9,7 @@ import { createHash } from 'node:crypto';
 import { RtcTokenBuilder, RtcRole } from 'agora-token';
 import { z } from 'zod';
 import { authenticate } from '../middleware/authenticate';
+import { generalLimiter } from '../middleware/rateLimiter';
 import { env } from '../config/env';
 
 // ---------------------------------------------------------------------------
@@ -147,7 +148,7 @@ export default async function pttRoutes(fastify: FastifyInstance): Promise<void>
   // -------------------------------------------------------------------------
   // POST /ptt/token — generate short-lived Agora RTC token (Req 38.2)
   // -------------------------------------------------------------------------
-  fastify.post('/ptt/token', { preHandler: [authenticate] }, async (request, reply) => {
+  fastify.post('/ptt/token', { preHandler: [authenticate, generalLimiter(fastify.redis)] }, async (request, reply) => {
     const userId = (request.user as { sub: string }).sub;
     const parsed = tokenBodySchema.safeParse(request.body);
     if (!parsed.success) return reply.badRequest('groupId and channelId must be valid UUIDs');
@@ -183,7 +184,7 @@ export default async function pttRoutes(fastify: FastifyInstance): Promise<void>
   // -------------------------------------------------------------------------
   // GET /groups/:id/channels — list PTT channels (Req 26.1)
   // -------------------------------------------------------------------------
-  fastify.get('/groups/:id/channels', { preHandler: [authenticate] }, async (request, reply) => {
+  fastify.get('/groups/:id/channels', { preHandler: [authenticate, generalLimiter(fastify.redis)] }, async (request, reply) => {
     const userId = (request.user as { sub: string }).sub;
     const { id } = request.params as { id: string };
 
@@ -216,7 +217,7 @@ export default async function pttRoutes(fastify: FastifyInstance): Promise<void>
   // -------------------------------------------------------------------------
   // POST /groups/:id/channels — create a PTT channel (Req 26.1, admin only)
   // -------------------------------------------------------------------------
-  fastify.post('/groups/:id/channels', { preHandler: [authenticate] }, async (request, reply) => {
+  fastify.post('/groups/:id/channels', { preHandler: [authenticate, generalLimiter(fastify.redis)] }, async (request, reply) => {
     const userId = (request.user as { sub: string }).sub;
     const { id } = request.params as { id: string };
     const { name } = request.body as { name: string };
@@ -250,7 +251,7 @@ export default async function pttRoutes(fastify: FastifyInstance): Promise<void>
   // -------------------------------------------------------------------------
   fastify.patch(
     '/groups/:id/channels/:channelId',
-    { preHandler: [authenticate] },
+    { preHandler: [authenticate, generalLimiter(fastify.redis)] },
     async (request, reply) => {
       const userId = (request.user as { sub: string }).sub;
       const { id, channelId } = request.params as { id: string; channelId: string };
@@ -290,7 +291,7 @@ export default async function pttRoutes(fastify: FastifyInstance): Promise<void>
   // -------------------------------------------------------------------------
   fastify.delete(
     '/groups/:id/channels/:channelId',
-    { preHandler: [authenticate] },
+    { preHandler: [authenticate, generalLimiter(fastify.redis)] },
     async (request, reply) => {
       const userId = (request.user as { sub: string }).sub;
       const { id, channelId } = request.params as { id: string; channelId: string };
@@ -346,7 +347,7 @@ export default async function pttRoutes(fastify: FastifyInstance): Promise<void>
   // -------------------------------------------------------------------------
   fastify.post(
     '/groups/:id/channels/:channelId/join',
-    { preHandler: [authenticate] },
+    { preHandler: [authenticate, generalLimiter(fastify.redis)] },
     async (request, reply) => {
       const userId = (request.user as { sub: string }).sub;
       const { id, channelId } = request.params as { id: string; channelId: string };
@@ -397,7 +398,7 @@ export default async function pttRoutes(fastify: FastifyInstance): Promise<void>
   // -------------------------------------------------------------------------
   // GET /groups/:id/ptt-log — PTT log for this session (Req 27.1–27.5)
   // -------------------------------------------------------------------------
-  fastify.get('/groups/:id/ptt-log', { preHandler: [authenticate] }, async (request, reply) => {
+  fastify.get('/groups/:id/ptt-log', { preHandler: [authenticate, generalLimiter(fastify.redis)] }, async (request, reply) => {
     const userId = (request.user as { sub: string }).sub;
     const { id } = request.params as { id: string };
 
@@ -432,3 +433,4 @@ export default async function pttRoutes(fastify: FastifyInstance): Promise<void>
     }));
   });
 }
+

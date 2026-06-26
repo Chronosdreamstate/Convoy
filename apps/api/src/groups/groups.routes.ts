@@ -1,7 +1,8 @@
-import { FastifyInstance, FastifyPluginOptions } from 'fastify';
+﻿import { FastifyInstance, FastifyPluginOptions } from 'fastify';
 import { Pool } from 'pg';
 import { z } from 'zod';
 import { authenticate } from '../middleware/authenticate';
+import { generalLimiter } from '../middleware/rateLimiter';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -126,7 +127,7 @@ async function groupsRoutes(
   // -------------------------------------------------------------------------
   // POST /groups — create group (Req 7.1, 7.2)
   // -------------------------------------------------------------------------
-  fastify.post('/groups', { preHandler: [authenticate] }, async (request, reply) => {
+  fastify.post('/groups', { preHandler: [authenticate, generalLimiter(fastify.redis)] }, async (request, reply) => {
     const adminId = (request.user as { sub: string }).sub;
 
     const parsed = createGroupSchema.safeParse(request.body);
@@ -192,7 +193,7 @@ async function groupsRoutes(
   // Used by mobile to restore group state after an app restart.
   // Must be registered before /:id to avoid the UUID param matching "active".
   // -------------------------------------------------------------------------
-  fastify.get('/groups/active', { preHandler: [authenticate] }, async (request, reply) => {
+  fastify.get('/groups/active', { preHandler: [authenticate, generalLimiter(fastify.redis)] }, async (request, reply) => {
     const userId = (request.user as { sub: string }).sub;
 
     const result = await fastify.db.query<GroupRow & { member_count: string }>(
@@ -221,7 +222,7 @@ async function groupsRoutes(
   // -------------------------------------------------------------------------
   // GET /groups/public — list open groups for discovery (must be before /:id)
   // -------------------------------------------------------------------------
-  fastify.get('/groups/public', { preHandler: [authenticate] }, async (request, reply) => {
+  fastify.get('/groups/public', { preHandler: [authenticate, generalLimiter(fastify.redis)] }, async (request, reply) => {
     const result = await fastify.db.query<GroupRow & { member_count: string }>(
       `SELECT g.id, g.name, g.join_code, g.admin_id, g.access_type, g.status,
               g.gap_threshold_m, g.ptt_max_seconds, g.created_at, g.ended_at,
@@ -243,7 +244,7 @@ async function groupsRoutes(
   // -------------------------------------------------------------------------
   // GET /groups/:id — get group details
   // -------------------------------------------------------------------------
-  fastify.get('/groups/:id', { preHandler: [authenticate] }, async (request, reply) => {
+  fastify.get('/groups/:id', { preHandler: [authenticate, generalLimiter(fastify.redis)] }, async (request, reply) => {
     const userId = (request.user as { sub: string }).sub;
     const { id } = request.params as { id: string };
 
@@ -270,7 +271,7 @@ async function groupsRoutes(
   // -------------------------------------------------------------------------
   // POST /groups/join — join by code (Req 7.4, 7.5, 37.4, 38.1)
   // -------------------------------------------------------------------------
-  fastify.post('/groups/join', { preHandler: [authenticate] }, async (request, reply) => {
+  fastify.post('/groups/join', { preHandler: [authenticate, generalLimiter(fastify.redis)] }, async (request, reply) => {
     const userId = (request.user as { sub: string }).sub;
 
     const parsed = joinGroupSchema.safeParse(request.body);
@@ -376,7 +377,7 @@ async function groupsRoutes(
   // -------------------------------------------------------------------------
   fastify.get(
     '/groups/:id/members',
-    { preHandler: [authenticate] },
+    { preHandler: [authenticate, generalLimiter(fastify.redis)] },
     async (request, reply) => {
       const userId = (request.user as { sub: string }).sub;
       const { id } = request.params as { id: string };
@@ -429,7 +430,7 @@ async function groupsRoutes(
   // -------------------------------------------------------------------------
   // POST /groups/:id/leave — leave group (Req 7.7, 7.8)
   // -------------------------------------------------------------------------
-  fastify.post('/groups/:id/leave', { preHandler: [authenticate] }, async (request, reply) => {
+  fastify.post('/groups/:id/leave', { preHandler: [authenticate, generalLimiter(fastify.redis)] }, async (request, reply) => {
     const userId = (request.user as { sub: string }).sub;
     const { id } = request.params as { id: string };
 
@@ -519,7 +520,7 @@ async function groupsRoutes(
   // -------------------------------------------------------------------------
   // POST /groups/:id/end — end group (admin only, Req 7.9)
   // -------------------------------------------------------------------------
-  fastify.post('/groups/:id/end', { preHandler: [authenticate] }, async (request, reply) => {
+  fastify.post('/groups/:id/end', { preHandler: [authenticate, generalLimiter(fastify.redis)] }, async (request, reply) => {
     const userId = (request.user as { sub: string }).sub;
     const { id } = request.params as { id: string };
 
@@ -575,7 +576,7 @@ async function groupsRoutes(
   // -------------------------------------------------------------------------
   fastify.delete(
     '/groups/:id/members/:targetUserId',
-    { preHandler: [authenticate] },
+    { preHandler: [authenticate, generalLimiter(fastify.redis)] },
     async (request, reply) => {
       const adminUserId = (request.user as { sub: string }).sub;
       const { id, targetUserId } = request.params as { id: string; targetUserId: string };
@@ -634,7 +635,7 @@ async function groupsRoutes(
   // -------------------------------------------------------------------------
   fastify.patch(
     '/groups/:id/settings',
-    { preHandler: [authenticate] },
+    { preHandler: [authenticate, generalLimiter(fastify.redis)] },
     async (request, reply) => {
       const userId = (request.user as { sub: string }).sub;
       const { id } = request.params as { id: string };
@@ -685,7 +686,7 @@ async function groupsRoutes(
   // -------------------------------------------------------------------------
   fastify.post(
     '/groups/:id/members/mute-all',
-    { preHandler: [authenticate] },
+    { preHandler: [authenticate, generalLimiter(fastify.redis)] },
     async (request, reply) => {
       const userId = (request.user as { sub: string }).sub;
       const { id } = request.params as { id: string };
@@ -716,7 +717,7 @@ async function groupsRoutes(
   // -------------------------------------------------------------------------
   fastify.post(
     '/groups/:id/members/:targetUserId/mute',
-    { preHandler: [authenticate] },
+    { preHandler: [authenticate, generalLimiter(fastify.redis)] },
     async (request, reply) => {
       const adminUserId = (request.user as { sub: string }).sub;
       const { id, targetUserId } = request.params as { id: string; targetUserId: string };
@@ -758,3 +759,4 @@ export async function cleanupGroupPttLog(
 ): Promise<void> {
   await client.query('DELETE FROM ptt_log WHERE group_id = $1', [groupId]);
 }
+

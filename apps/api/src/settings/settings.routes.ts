@@ -1,6 +1,7 @@
-import { FastifyInstance, FastifyPluginOptions } from 'fastify';
+﻿import { FastifyInstance, FastifyPluginOptions } from 'fastify';
 import { z } from 'zod';
 import { authenticate } from '../middleware/authenticate';
+import { generalLimiter } from '../middleware/rateLimiter';
 
 const patchSettingsSchema = z.object({
   hazardAlertDistanceM: z.number().int().min(100).max(80000).optional(),
@@ -48,7 +49,7 @@ async function settingsRoutes(
   // -------------------------------------------------------------------------
   // GET /settings
   // -------------------------------------------------------------------------
-  fastify.get('/settings', { preHandler: [authenticate] }, async (request, reply) => {
+  fastify.get('/settings', { preHandler: [authenticate, generalLimiter(fastify.redis)] }, async (request, reply) => {
     const userId = (request.user as { sub: string }).sub;
 
     // Ensure a settings row exists (idempotent seed)
@@ -68,7 +69,7 @@ async function settingsRoutes(
   // -------------------------------------------------------------------------
   // PATCH /settings
   // -------------------------------------------------------------------------
-  fastify.patch('/settings', { preHandler: [authenticate] }, async (request, reply) => {
+  fastify.patch('/settings', { preHandler: [authenticate, generalLimiter(fastify.redis)] }, async (request, reply) => {
     const userId = (request.user as { sub: string }).sub;
 
     const parsed = patchSettingsSchema.safeParse(request.body);
@@ -147,3 +148,4 @@ async function settingsRoutes(
 }
 
 export default settingsRoutes;
+

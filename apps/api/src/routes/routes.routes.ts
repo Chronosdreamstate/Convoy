@@ -1,6 +1,7 @@
-import { FastifyInstance, FastifyPluginOptions } from 'fastify';
+﻿import { FastifyInstance, FastifyPluginOptions } from 'fastify';
 import { z } from 'zod';
 import { authenticate } from '../middleware/authenticate';
+import { generalLimiter } from '../middleware/rateLimiter';
 import { env } from '../config/env';
 
 // ---------------------------------------------------------------------------
@@ -143,7 +144,7 @@ async function routesRoutes(
   // -------------------------------------------------------------------------
   // POST /routes/calculate — proxy to Mapbox Directions API (Req 6.1)
   // -------------------------------------------------------------------------
-  fastify.post('/routes/calculate', { preHandler: [authenticate] }, async (request, reply) => {
+  fastify.post('/routes/calculate', { preHandler: [authenticate, generalLimiter(fastify.redis)] }, async (request, reply) => {
     const parsed = calculateRouteSchema.safeParse(request.body);
     if (!parsed.success) return reply.badRequest(parsed.error.errors[0].message);
 
@@ -192,7 +193,7 @@ async function routesRoutes(
   // -------------------------------------------------------------------------
   // POST /groups/:id/route — Admin pushes selected route to group (Req 9.1–9.3)
   // -------------------------------------------------------------------------
-  fastify.post('/groups/:id/route', { preHandler: [authenticate] }, async (request, reply) => {
+  fastify.post('/groups/:id/route', { preHandler: [authenticate, generalLimiter(fastify.redis)] }, async (request, reply) => {
     const userId = (request.user as { sub: string }).sub;
     const { id: groupId } = request.params as { id: string };
 
@@ -245,3 +246,4 @@ async function routesRoutes(
 }
 
 export default routesRoutes;
+

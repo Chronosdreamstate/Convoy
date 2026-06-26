@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Fuel stop suggestions API
  * Requirements: 21.1–21.5
  */
@@ -6,6 +6,7 @@
 import { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { authenticate } from '../middleware/authenticate';
+import { generalLimiter } from '../middleware/rateLimiter';
 import { env } from '../config/env';
 
 // ---------------------------------------------------------------------------
@@ -104,7 +105,7 @@ async function searchFuelStations(
 const fuelRoutes: FastifyPluginAsync = async (fastify) => {
   // ── GET /places/fuel ─────────────────────────────────────────────────────
   // Property 36: accessible to all Members (Req 21.4)
-  fastify.get('/places/fuel', { preHandler: [authenticate] }, async (request, reply) => {
+  fastify.get('/places/fuel', { preHandler: [authenticate, generalLimiter(fastify.redis)] }, async (request, reply) => {
 
     const q = request.query as { lat?: string; lng?: string };
     const lat = parseFloat(q.lat ?? '');
@@ -130,7 +131,7 @@ const fuelRoutes: FastifyPluginAsync = async (fastify) => {
   // Returns whether the group has reached a fuel suggestion threshold (Req 21.1)
   fastify.get<{ Params: { id: string } }>(
     '/groups/:id/fuel/status',
-    { preHandler: [authenticate] },
+    { preHandler: [authenticate, generalLimiter(fastify.redis)] },
     async (request, reply) => {
       const userId = (request.user as { sub: string }).sub;
       const groupId = request.params.id;
@@ -178,3 +179,4 @@ const fuelRoutes: FastifyPluginAsync = async (fastify) => {
 };
 
 export default fuelRoutes;
+
