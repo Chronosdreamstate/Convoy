@@ -425,6 +425,32 @@ async function groupsRoutes(
   });
 
   // -------------------------------------------------------------------------
+  // GET /groups/:id/invite-link — get shareable invite link (admin only)
+  // -------------------------------------------------------------------------
+  fastify.get(
+    '/groups/:id/invite-link',
+    { preHandler: [authenticate, generalLimiter(fastify.redis)] },
+    async (request, reply) => {
+      const userId = (request.user as { sub: string }).sub;
+      const { id } = request.params as { id: string };
+
+      const groupResult = await fastify.db.query<{ admin_id: string; join_code: string; status: string }>(
+        'SELECT admin_id, join_code, status FROM convoy_groups WHERE id = $1',
+        [id],
+      );
+      const group = groupResult.rows[0];
+      if (!group) return reply.notFound('Group not found');
+      if (group.admin_id !== userId) return reply.forbidden('Only the Admin can get the invite link');
+      if (group.status !== 'active') return reply.gone('Group has ended');
+
+      return reply.send({
+        code: group.join_code,
+        link: `https://convoy.app/join?code=${group.join_code}`,
+      });
+    },
+  );
+
+  // -------------------------------------------------------------------------
   // GET /groups/:id/members — list active members
   // -------------------------------------------------------------------------
   fastify.get(

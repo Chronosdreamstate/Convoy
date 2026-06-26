@@ -3,10 +3,11 @@
  * Requirements: 19.3–19.6
  */
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Animated,
   FlatList,
   Image,
   Platform,
@@ -108,6 +109,21 @@ function dateLabel(iso: string): string {
   return new Date(iso).toLocaleDateString(undefined, {
     weekday: 'short', month: 'short', day: 'numeric',
   });
+}
+
+function computeRegion(coords: { latitude: number; longitude: number }[]) {
+  if (coords.length === 0) return null;
+  const lats = coords.map((c) => c.latitude);
+  const lngs = coords.map((c) => c.longitude);
+  const minLat = Math.min(...lats), maxLat = Math.max(...lats);
+  const minLng = Math.min(...lngs), maxLng = Math.max(...lngs);
+  const pad = 1.4;
+  return {
+    latitude: (minLat + maxLat) / 2,
+    longitude: (minLng + maxLng) / 2,
+    latitudeDelta: Math.max((maxLat - minLat) * pad, 0.01),
+    longitudeDelta: Math.max((maxLng - minLng) * pad, 0.01),
+  };
 }
 
 function buildListData(drives: DriveRecord[]): ListItem[] {
@@ -304,6 +320,20 @@ export default function DriveHistoryScreen() {
   const [selected, setSelected] = useState<DriveRecord | null>(null);
   const [sharingId, setSharingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const expandAnim = useRef(new Animated.Value(0)).current;
+
+  const toggleExpand = useCallback((id: string) => {
+    if (expandedId === id) {
+      Animated.timing(expandAnim, { toValue: 0, duration: 200, useNativeDriver: false }).start(() => {
+        setExpandedId(null);
+      });
+    } else {
+      expandAnim.setValue(0);
+      setExpandedId(id);
+      Animated.timing(expandAnim, { toValue: 204, duration: 220, useNativeDriver: false }).start();
+    }
+  }, [expandedId, expandAnim]);
 
   const fetchDrives = useCallback(async (pageNum: number, replace: boolean) => {
     try {
@@ -462,62 +492,110 @@ export default function DriveHistoryScreen() {
 
           const { drive } = item;
           const isLongest = drive.id === longestDriveId;
+          const isExpanded = drive.id === expandedId;
+          const routeCoords = drive.routeTrace?.coordinates.map(([lng, lat]) => ({
+            latitude: lat, longitude: lng,
+          })) ?? [];
+          const region = computeRegion(routeCoords);
 
           return (
-            <View style={styles.driveCardRow}>
-              <TouchableOpacity
-                style={[styles.driveCard, isLongest && styles.driveCardLongest]}
-                onPress={() => setSelected(drive)}
-                accessibilityRole="button"
-                accessibilityLabel={`Drive on ${formatDate(drive.endedAt)}, ${formatDistance(drive.distanceM)}`}
-              >
-                {/* Left: map thumbnail with optional trophy */}
-                <View style={styles.thumbWrapper}>
-                  <MapThumb routeTrace={drive.routeTrace} />
-                  {isLongest && (
-                    <View style={styles.trophyBadge}>
-                      <Text style={styles.trophyText}>🏆</Text>
+            <View style={[styles.driveCardOuter, isLongest && styles.driveCardOuterLongest]}>
+              {/* ── Main summary row ── */}
+              <View style={styles.driveCardMainRow}>
+                <TouchableOpacity
+                  style={styles.driveCardTouchable}
+                  onPress={() => setSelected(drive)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Drive on ${formatDate(drive.endedAt)}, ${formatDistance(drive.distanceM)}`}
+                >
+                  <View style={styles.thumbWrapper}>
+                    <MapThumb routeTrace={drive.routeTrace} />
+                    {isLongest && (
+                      <View style={styles.trophyBadge}>
+                        <Text style={styles.trophyText}>🏆</Text>
+                      </View>
+                    )}
+                  </View>
+                  <View style={styles.driveCardContent}>
+                    <Text style={styles.driveTimeRange}>
+                      {formatTime(drive.startedAt)} → {formatTime(drive.endedAt)}
+                    </Text>
+                    <Text style={styles.driveDistDur}>
+                      {formatDistance(drive.distanceM)} · {formatDuration(drive.durationS)}
+                      {drive.avgSpeedKph != null ? `  · ${drive.avgSpeedKph.toFixed(0)} km/h avg` : ''}
+                    </Text>
+                    <Text style={styles.driveMembers}>
+                      {drive.groupId
+                        ? `👥 Group Drive${drive.memberCount > 1 ? ` · ${drive.memberCount} members` : ''}`
+                        : '🚗 Solo Drive'}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+
+                {/* Chevron — toggles inline expansion */}
+                <TouchableOpacity
+                  style={styles.chevronBtn}
+                  onPress={() => toggleExpand(drive.id)}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  accessibilityRole="button"
+                  accessibilityLabel={isExpanded ? 'Collapse details' : 'Expand details'}
+                >
+                  <Text style={[styles.chevronText, isExpanded && styles.chevronExpanded]}>›</Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* ── Expandable inline detail ── */}
+              {isExpanded && (
+                <Animated.View style={[styles.expandPanel, { height: expandAnim }]}>
+                  {/* Mini map */}
+                  {routeCoords.length > 1 && region ? (
+                    <View style={styles.expandMapContainer}>
+                      <MapView
+                        provider={PROVIDER_DEFAULT}
+                        style={StyleSheet.absoluteFillObject}
+                        initialRegion={region}
+                        scrollEnabled={false}
+                        zoomEnabled={false}
+                        rotateEnabled={false}
+                        pitchEnabled={false}
+                      >
+                        <Polyline coordinates={routeCoords} strokeColor="#DC143C" strokeWidth={3} />
+                      </MapView>
+                    </View>
+                  ) : (
+                    <View style={[styles.expandMapContainer, styles.expandMapPlaceholder]}>
+                      <Text style={{ fontSize: 28 }}>🗺</Text>
                     </View>
                   )}
-                </View>
 
-                {/* Right: info */}
-                <View style={styles.driveCardContent}>
-                  {/* Time range "route line" */}
-                  <Text style={styles.driveTimeRange}>
-                    {formatTime(drive.startedAt)} → {formatTime(drive.endedAt)}
-                  </Text>
+                  {/* Quick stats row */}
+                  <View style={styles.expandStatsRow}>
+                    {drive.topSpeedKph != null && (
+                      <Text style={styles.expandStat}>⚡ {drive.topSpeedKph.toFixed(0)} km/h top</Text>
+                    )}
+                    {drive.avgSpeedKph != null && (
+                      <Text style={styles.expandStat}>📊 {drive.avgSpeedKph.toFixed(0)} km/h avg</Text>
+                    )}
+                    <Text style={styles.expandStat}>
+                      {drive.groupId ? `👥 Group · ${drive.memberCount} members` : '🚗 Solo'}
+                    </Text>
+                  </View>
 
-                  {/* Distance · Duration combined */}
-                  <Text style={styles.driveDistDur}>
-                    {formatDistance(drive.distanceM)} · {formatDuration(drive.durationS)}
-                    {drive.avgSpeedKph != null ? `  · ${drive.avgSpeedKph.toFixed(0)} km/h avg` : ''}
-                  </Text>
-
-                  {/* Group indicator */}
-                  <Text style={styles.driveMembers}>
-                    {drive.groupId
-                      ? `👥 Group Drive${drive.memberCount > 1 ? ` · ${drive.memberCount} members` : ''}`
-                      : '🚗 Solo Drive'}
-                  </Text>
-                </View>
-              </TouchableOpacity>
-
-              {/* Share button — outside card touch area to prevent propagation */}
-              <TouchableOpacity
-                style={styles.shareIcon}
-                onPress={() => void handleShare(drive.id)}
-                disabled={sharingId === drive.id}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                accessibilityRole="button"
-                accessibilityLabel="Share drive"
-                accessibilityState={{ disabled: sharingId === drive.id }}
-              >
-                {sharingId === drive.id
-                  ? <ActivityIndicator color="#fff" size="small" />
-                  : <Text style={styles.shareIconText}>↑</Text>
-                }
-              </TouchableOpacity>
+                  {/* Share button */}
+                  <TouchableOpacity
+                    style={styles.expandShareBtn}
+                    onPress={() => void handleShare(drive.id)}
+                    disabled={sharingId === drive.id}
+                    accessibilityRole="button"
+                    accessibilityLabel="Share drive"
+                  >
+                    {sharingId === drive.id
+                      ? <ActivityIndicator color="#DC143C" size="small" />
+                      : <Text style={styles.expandShareBtnText}>📤 Share</Text>
+                    }
+                  </TouchableOpacity>
+                </Animated.View>
+              )}
             </View>
           );
         }}
@@ -603,28 +681,92 @@ const styles = StyleSheet.create({
   emptyTitle: { color: '#F0F0F0', fontSize: 20, fontWeight: '700', marginBottom: 8 },
   emptySubtitle: { color: '#888888', fontSize: 14, textAlign: 'center', lineHeight: 22 },
 
-  // Drive card row + card
-  driveCardRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 10,
-  },
-  driveCard: {
-    flex: 1,
+  // Drive card — new expandable structure
+  driveCardOuter: {
     backgroundColor: '#1C1C1C',
     borderRadius: 12,
-    padding: 16,
     borderWidth: 1,
     borderColor: '#2A2A2A',
+    marginBottom: 10,
+    overflow: 'hidden',
+  },
+  driveCardOuterLongest: {
+    borderColor: '#DC143C',
+    borderWidth: 1.5,
+  },
+  driveCardMainRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  driveCardTouchable: {
+    flex: 1,
+    padding: 16,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
     minHeight: 80,
   },
-  driveCardLongest: {
+  chevronBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'stretch',
+    borderLeftWidth: 1,
+    borderLeftColor: '#2A2A2A',
+  },
+  chevronText: {
+    color: '#555555',
+    fontSize: 22,
+    fontWeight: '300',
+  },
+  chevronExpanded: {
+    color: '#DC143C',
+    transform: [{ rotate: '90deg' }],
+  },
+  expandPanel: {
+    overflow: 'hidden',
+    borderTopWidth: 1,
+    borderTopColor: '#2A2A2A',
+  },
+  expandMapContainer: {
+    height: 120,
+    width: '100%',
+    overflow: 'hidden',
+  },
+  expandMapPlaceholder: {
+    backgroundColor: '#0A0A0A',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  expandStatsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingTop: 10,
+    paddingBottom: 6,
+  },
+  expandStat: {
+    color: '#888888',
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  expandShareBtn: {
+    marginHorizontal: 14,
+    marginBottom: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
     borderColor: '#DC143C',
-    borderWidth: 1.5,
+    alignItems: 'center',
+    minHeight: 36,
+    justifyContent: 'center',
+  },
+  expandShareBtnText: {
+    color: '#DC143C',
+    fontSize: 13,
+    fontWeight: '600',
   },
 
   // Thumbnail + trophy overlay
@@ -672,17 +814,6 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   driveMembers: { color: '#555555', fontSize: 12 },
-
-  shareIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 8,
-    backgroundColor: '#DC143C',
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexShrink: 0,
-  },
-  shareIconText: { color: '#fff', fontSize: 16, fontWeight: '700' },
 
   // Detail
   detail: { flex: 1, backgroundColor: '#0A0A0A', padding: 16 },

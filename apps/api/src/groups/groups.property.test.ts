@@ -129,6 +129,34 @@ async function poolQuery(sql: string, values?: unknown[]): Promise<{ rows: unkno
     return { rows: [g], rowCount: 1 };
   }
 
+  // GET /groups — browse open+active groups with search + pagination (Properties 113-118)
+  // Discriminated by TOTAL_COUNT (window function), which /public never uses.
+  if (norm.includes('TOTAL_COUNT') && norm.includes('CONVOY_GROUPS')) {
+    const [q, rawLimit, rawOffset] = values as [string, number, number];
+    const limit = Number(rawLimit);
+    const offset = Number(rawOffset);
+    const filtered = groups.filter(
+      (g) =>
+        g.access_type === 'open' &&
+        g.status === 'active' &&
+        (q === '' || g.name.toUpperCase().includes(q.toUpperCase())),
+    );
+    const total = filtered.length;
+    const page = filtered.slice(offset, offset + limit);
+    const rows = page.map((g) => {
+      const memberCount = members.filter(
+        (m) => m.group_id === g.id && m.left_at === null,
+      ).length;
+      return {
+        ...g,
+        member_count: String(memberCount),
+        admin_display_name: null,
+        total_count: String(total),
+      };
+    });
+    return { rows, rowCount: rows.length };
+  }
+
   // GET /groups/public — returns open+active groups with member counts (Property 99)
   if (norm.includes("ACCESS_TYPE = 'OPEN' AND G.STATUS = 'ACTIVE'")) {
     const publicGroups = groups.filter(
@@ -1329,5 +1357,389 @@ describe('Property 107: PATCH /groups/:id/settings performs partial updates only
     expect(body.pttMaxSeconds).toBe(15);   // set by second patch
 
     await app.close();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Properties 113-118: GET /groups browse endpoint (search + pagination)
+// ---------------------------------------------------------------------------
+describe('Properties 113–118: GET /groups browse endpoint', () => {
+  /** Push a group directly into the in-memory store without HTTP round-trip. */
+  function seedGroup(overrides: Partial<InMemoryGroup> = {}): InMemoryGroup {
+    const id = nextId();
+    const g: InMemoryGroup = {
+      id,
+      name: 'Test Group',
+      join_code: `T${String(seqId).padStart(5, '0')}`,
+      admin_id: '00000000-0000-0000-0000-000000000001',
+      access_type: 'open',
+      status: 'active',
+      gap_threshold_m: 3219,
+      ptt_max_seconds: 30,
+      created_at: new Date(),
+      ended_at: null,
+      ...overrides,
+    };
+    groups.push(g);
+    return g;
+  }
+
+  beforeEach(() => { resetStore(); });
+
+  // -------------------------------------------------------------------------
+  // Property 113: Only open+active groups are returned
+  // -------------------------------------------------------------------------
+  describe('Property 113: Only open+active groups are returned', () => {
+    it('invite_only groups are never present in browse results', async () => {
+      await fc.assert(
+        fc.asyncProperty(
+          fc.integer({ min: 1, max: 6 }),
+          fc.integer({ min: 1, max: 6 }),
+          async (openCount, closedCount) => {
+            resetStore();
+            const app = buildTestApp();
+            await app.ready();
+
+            for (let i = 0; i < openCount; i++) seedGroup({ name: `Open ${i}`, access_type: 'open' });
+            for (let i = 0; i < closedCount; i++) seedGroup({ name: `Closed ${i}`, access_type: 'invite_only' });
+
+            const token = signToken(app, '00000000-0000-0000-0000-000000000001');
+            const res = await app.inject({
+              method: 'GET',
+              url: '/api/v1/groups?q=&limit=50&offset=0',
+              headers: authHeader(token),
+            });
+
+            expect(res.statusCode).toBe(200);
+            const body = JSON.parse(res.body) as { groups: { accessType: string }[]; total: number };
+            expect(body.total).toBe(openCount);
+            for (const g of body.groups) expect(g.accessType).toBe('open');
+
+            await app.close();
+          },
+        ),
+        { numRuns: 25 },
+      );
+    });
+
+    it('ended groups are excluded regardless of access_type', async () => {
+      await fc.assert(
+        fc.asyncProperty(
+          fc.integer({ min: 1, max: 5 }),
+          async (endedCount) => {
+            resetStore();
+            const app = buildTestApp();
+            await app.ready();
+
+            seedGroup({ name: 'Active', access_type: 'open', status: 'active' });
+            for (let i = 0; i < endedCount; i++) seedGroup({ name: `Ended ${i}`, access_type: 'open', status: 'ended' });
+
+            const token = signToken(app, '00000000-0000-0000-0000-000000000001');
+            const res = await app.inject({
+              method: 'GET',
+              url: '/api/v1/groups?limit=50',
+              headers: authHeader(token),
+            });
+
+            expect(res.statusCode).toBe(200);
+            const body = JSON.parse(res.body) as { groups: { status: string }[]; total: number };
+            expect(body.total).toBe(1);
+            expect(body.groups).toHaveLength(1);
+            expect(body.groups[0].status).toBe('active');
+
+            await app.close();
+          },
+        ),
+        { numRuns: 20 },
+      );
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Property 114: Pagination — limit and offset are respected
+  // -------------------------------------------------------------------------
+  describe('Property 114: Pagination limit and offset are respected', () => {
+    it('groups.length ≤ limit for any total+limit combination', async () => {
+      await fc.assert(
+        fc.asyncProperty(
+          fc.integer({ min: 1, max: 10 }),
+          fc.integer({ min: 1, max: 10 }),
+          async (total, limit) => {
+            resetStore();
+            const app = buildTestApp();
+            await app.ready();
+
+            for (let i = 0; i < total; i++) seedGroup({ name: `G${i}` });
+
+            const token = signToken(app, '00000000-0000-0000-0000-000000000001');
+            const res = await app.inject({
+              method: 'GET',
+              url: `/api/v1/groups?limit=${limit}&offset=0`,
+              headers: authHeader(token),
+            });
+
+            expect(res.statusCode).toBe(200);
+            const body = JSON.parse(res.body) as { groups: unknown[]; total: number };
+            expect(body.groups.length).toBe(Math.min(total, limit));
+
+            await app.close();
+          },
+        ),
+        { numRuns: 30 },
+      );
+    });
+
+    it('offset skips the correct number of groups', async () => {
+      await fc.assert(
+        fc.asyncProperty(
+          fc.integer({ min: 3, max: 8 }),
+          fc.integer({ min: 1, max: 2 }),
+          async (total, offset) => {
+            fc.pre(offset < total);
+            resetStore();
+            const app = buildTestApp();
+            await app.ready();
+
+            for (let i = 0; i < total; i++) seedGroup({ name: `G${i}` });
+
+            const token = signToken(app, '00000000-0000-0000-0000-000000000001');
+            const res = await app.inject({
+              method: 'GET',
+              url: `/api/v1/groups?limit=50&offset=${offset}`,
+              headers: authHeader(token),
+            });
+
+            expect(res.statusCode).toBe(200);
+            const body = JSON.parse(res.body) as { groups: unknown[]; total: number };
+            expect(body.groups).toHaveLength(total - offset);
+            expect(body.total).toBe(total);
+
+            await app.close();
+          },
+        ),
+        { numRuns: 25 },
+      );
+    });
+
+    it('offset past total returns empty array (no rows → total = 0 from COUNT OVER)', async () => {
+      const app = buildTestApp();
+      await app.ready();
+
+      seedGroup({ name: 'Solo Group' });
+
+      const token = signToken(app, '00000000-0000-0000-0000-000000000001');
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/v1/groups?limit=10&offset=100',
+        headers: authHeader(token),
+      });
+
+      expect(res.statusCode).toBe(200);
+      const body = JSON.parse(res.body) as { groups: unknown[]; total: number };
+      expect(body.groups).toHaveLength(0);
+      // COUNT(*) OVER() returns no rows when OFFSET exceeds results, so total = 0
+      expect(body.total).toBe(0);
+
+      await app.close();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Property 115: ILIKE search filters by name (case-insensitive substring)
+  // -------------------------------------------------------------------------
+  describe('Property 115: ILIKE search filters by name case-insensitively', () => {
+    it('q matches as a substring regardless of case', async () => {
+      await fc.assert(
+        fc.asyncProperty(
+          fc.string({ minLength: 2, maxLength: 6 }).filter((s) => /^[a-z]+$/.test(s)),
+          async (query) => {
+            resetStore();
+            const app = buildTestApp();
+            await app.ready();
+
+            seedGroup({ name: `PREFIX_${query}_SUFFIX` });
+            seedGroup({ name: `PREFIX_${query.toUpperCase()}_SUFFIX` });
+
+            const token = signToken(app, '00000000-0000-0000-0000-000000000001');
+            const res = await app.inject({
+              method: 'GET',
+              url: `/api/v1/groups?q=${encodeURIComponent(query)}&limit=50`,
+              headers: authHeader(token),
+            });
+
+            expect(res.statusCode).toBe(200);
+            const body = JSON.parse(res.body) as { groups: { name: string }[]; total: number };
+            expect(body.total).toBeGreaterThanOrEqual(2);
+            for (const g of body.groups) {
+              expect(g.name.toLowerCase()).toContain(query.toLowerCase());
+            }
+
+            await app.close();
+          },
+        ),
+        { numRuns: 25 },
+      );
+    });
+
+    it('non-matching groups are excluded from results', async () => {
+      const app = buildTestApp();
+      await app.ready();
+
+      seedGroup({ name: 'Mountain Runners' });
+      seedGroup({ name: 'Desert Blazers' });
+      seedGroup({ name: 'Mountain Lions' });
+
+      const token = signToken(app, '00000000-0000-0000-0000-000000000001');
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/v1/groups?q=mountain&limit=50',
+        headers: authHeader(token),
+      });
+
+      expect(res.statusCode).toBe(200);
+      const body = JSON.parse(res.body) as { groups: { name: string }[]; total: number };
+      expect(body.total).toBe(2);
+      expect(body.groups.every((g) => g.name.toLowerCase().includes('mountain'))).toBe(true);
+
+      await app.close();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Property 116: total reflects full filtered count, independent of page size
+  // -------------------------------------------------------------------------
+  describe('Property 116: total reflects full filtered count regardless of limit', () => {
+    it('total equals all open+active groups for any limit < total', async () => {
+      await fc.assert(
+        fc.asyncProperty(
+          fc.integer({ min: 4, max: 12 }),
+          fc.integer({ min: 1, max: 3 }),
+          async (totalGroups, limit) => {
+            resetStore();
+            const app = buildTestApp();
+            await app.ready();
+
+            for (let i = 0; i < totalGroups; i++) seedGroup({ name: `G${i}` });
+
+            const token = signToken(app, '00000000-0000-0000-0000-000000000001');
+            const res = await app.inject({
+              method: 'GET',
+              url: `/api/v1/groups?limit=${limit}&offset=0`,
+              headers: authHeader(token),
+            });
+
+            expect(res.statusCode).toBe(200);
+            const body = JSON.parse(res.body) as { groups: unknown[]; total: number; limit: number };
+            expect(body.total).toBe(totalGroups);
+            expect(body.groups.length).toBeLessThanOrEqual(body.limit);
+
+            await app.close();
+          },
+        ),
+        { numRuns: 25 },
+      );
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Property 117: Unauthenticated requests return 401
+  // -------------------------------------------------------------------------
+  describe('Property 117: Unauthenticated requests return 401', () => {
+    it('missing Authorization header returns 401', async () => {
+      const app = buildTestApp();
+      await app.ready();
+
+      seedGroup({ name: 'Some Group' });
+
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/v1/groups?limit=10',
+      });
+
+      expect(res.statusCode).toBe(401);
+      await app.close();
+    });
+
+    it('any malformed token string returns 401', async () => {
+      await fc.assert(
+        fc.asyncProperty(
+          fc.string({ minLength: 1, maxLength: 30 }).filter((s) => !s.includes('.')),
+          async (badToken) => {
+            const app = buildTestApp();
+            await app.ready();
+
+            const res = await app.inject({
+              method: 'GET',
+              url: '/api/v1/groups',
+              headers: { Authorization: `Bearer ${badToken}` },
+            });
+
+            expect(res.statusCode).toBe(401);
+            await app.close();
+          },
+        ),
+        { numRuns: 15 },
+      );
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Property 118: Empty q returns all open+active groups
+  // -------------------------------------------------------------------------
+  describe('Property 118: Empty q returns all open+active groups', () => {
+    it('q= returns every open+active group regardless of name', async () => {
+      await fc.assert(
+        fc.asyncProperty(
+          fc.array(
+            fc.string({ minLength: 1, maxLength: 20 }).filter((s) => s.trim().length > 0),
+            { minLength: 1, maxLength: 6 },
+          ),
+          async (names) => {
+            resetStore();
+            const app = buildTestApp();
+            await app.ready();
+
+            for (const name of names) seedGroup({ name });
+
+            const token = signToken(app, '00000000-0000-0000-0000-000000000001');
+            const res = await app.inject({
+              method: 'GET',
+              url: '/api/v1/groups?q=&limit=50&offset=0',
+              headers: authHeader(token),
+            });
+
+            expect(res.statusCode).toBe(200);
+            const body = JSON.parse(res.body) as { groups: unknown[]; total: number };
+            expect(body.total).toBe(names.length);
+            expect(body.groups).toHaveLength(names.length);
+
+            await app.close();
+          },
+        ),
+        { numRuns: 25 },
+      );
+    });
+
+    it('limit=50 is a valid boundary value', async () => {
+      const app = buildTestApp();
+      await app.ready();
+
+      const token = signToken(app, '00000000-0000-0000-0000-000000000001');
+      const res = await app.inject({ method: 'GET', url: '/api/v1/groups?limit=50', headers: authHeader(token) });
+
+      expect(res.statusCode).toBe(200);
+      await app.close();
+    });
+
+    it('limit=51 exceeds max and is rejected with 400', async () => {
+      const app = buildTestApp();
+      await app.ready();
+
+      const token = signToken(app, '00000000-0000-0000-0000-000000000001');
+      const res = await app.inject({ method: 'GET', url: '/api/v1/groups?limit=51', headers: authHeader(token) });
+
+      expect(res.statusCode).toBe(400);
+      await app.close();
+    });
   });
 });

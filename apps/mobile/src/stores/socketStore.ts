@@ -8,9 +8,15 @@ interface SocketState {
   setConnected: (connected: boolean) => void;
 }
 
-export const useSocketStore = create<SocketState>((set) => ({
+export const useSocketStore = create<SocketState>((set, get) => ({
   socket: null,
   isConnected: false,
-  setSocket: (socket) => set({ socket }),
+  setSocket: (socket) => {
+    const prev = get().socket;
+    if (prev && prev !== socket) {
+      prev.disconnect();
+    }
+    set({ socket, isConnected: socket?.connected ?? false });
+  },
   setConnected: (isConnected) => set({ isConnected }),
 }));

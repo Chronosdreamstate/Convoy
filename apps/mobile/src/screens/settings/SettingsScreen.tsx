@@ -16,6 +16,7 @@ import { useRouter } from 'expo-router';
 import { apiClient } from '../../services/apiClient';
 import { authService } from '../../services/AuthService';
 import { useSettingsStore } from '../../stores/settingsStore';
+import { theme } from '../../theme';
 
 const PRIVACY_POLICY_URL = 'https://convoy.app/privacy';
 const TERMS_URL = 'https://convoy.app/terms';
@@ -297,7 +298,7 @@ export default function SettingsScreen() {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.centered}>
-          <ActivityIndicator color="#DC143C" size="large" />
+          <ActivityIndicator color={theme.colors.accent} size="large" />
         </View>
       </SafeAreaView>
     );
@@ -352,8 +353,8 @@ export default function SettingsScreen() {
               <Switch
                 value={notifHazard}
                 onValueChange={(v) => { setNotifHazard(v); mark(); }}
-                trackColor={{ false: '#2A2A2A', true: '#DC143C' }}
-                thumbColor="#FFFFFF"
+                trackColor={{ false: theme.colors.border, true: theme.colors.accent }}
+                thumbColor={theme.colors.text}
                 accessibilityLabel="Hazard notifications toggle"
               />
             }
@@ -366,8 +367,8 @@ export default function SettingsScreen() {
               <Switch
                 value={notifGroupEvents}
                 onValueChange={(v) => { setNotifGroupEvents(v); mark(); }}
-                trackColor={{ false: '#2A2A2A', true: '#DC143C' }}
-                thumbColor="#FFFFFF"
+                trackColor={{ false: theme.colors.border, true: theme.colors.accent }}
+                thumbColor={theme.colors.text}
                 accessibilityLabel="Group events notifications toggle"
               />
             }
@@ -380,8 +381,8 @@ export default function SettingsScreen() {
               <Switch
                 value={notifFriendRequests}
                 onValueChange={(v) => { setNotifFriendRequests(v); mark(); }}
-                trackColor={{ false: '#2A2A2A', true: '#DC143C' }}
-                thumbColor="#FFFFFF"
+                trackColor={{ false: theme.colors.border, true: theme.colors.accent }}
+                thumbColor={theme.colors.text}
                 accessibilityLabel="Friend requests notifications toggle"
               />
             }
@@ -394,8 +395,8 @@ export default function SettingsScreen() {
               <Switch
                 value={notifNavigation}
                 onValueChange={(v) => { setNotifNavigation(v); mark(); }}
-                trackColor={{ false: '#2A2A2A', true: '#DC143C' }}
-                thumbColor="#FFFFFF"
+                trackColor={{ false: theme.colors.border, true: theme.colors.accent }}
+                thumbColor={theme.colors.text}
                 accessibilityLabel="Navigation notifications toggle"
               />
             }
@@ -426,8 +427,8 @@ export default function SettingsScreen() {
               <Switch
                 value={scenicRouting}
                 onValueChange={(v) => { setScenicRouting(v); mark(); }}
-                trackColor={{ false: '#2A2A2A', true: '#DC143C' }}
-                thumbColor="#FFFFFF"
+                trackColor={{ false: theme.colors.border, true: theme.colors.accent }}
+                thumbColor={theme.colors.text}
                 accessibilityLabel="Scenic routing toggle"
               />
             }
@@ -535,7 +536,7 @@ export default function SettingsScreen() {
           accessibilityState={{ disabled: !isDirty || isSaving }}
         >
           {isSaving ? (
-            <ActivityIndicator color="#FFFFFF" />
+            <ActivityIndicator color={theme.colors.text} />
           ) : (
             <Text style={styles.saveButtonText}>Save Settings</Text>
           )}
@@ -559,7 +560,7 @@ export default function SettingsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0A0A0A',
+    backgroundColor: theme.colors.bg,
   },
   centered: {
     flex: 1,
@@ -568,45 +569,45 @@ const styles = StyleSheet.create({
   },
   scroll: {
     paddingHorizontal: 20,
-    paddingTop: 24,
-    paddingBottom: 48,
+    paddingTop: theme.spacing.lg,
+    paddingBottom: theme.spacing.xxl,
   },
   title: {
     fontSize: 28,
     fontWeight: '700',
-    color: '#F0F0F0',
-    marginBottom: 24,
+    color: theme.colors.text,
+    marginBottom: theme.spacing.lg,
   },
   errorText: {
-    color: '#DC143C',
+    color: theme.colors.accent,
     fontSize: 13,
-    marginBottom: 16,
+    marginBottom: theme.spacing.md,
   },
   successText: {
-    color: '#4ade80',
+    color: theme.colors.success,
     fontSize: 13,
-    marginBottom: 16,
+    marginBottom: theme.spacing.md,
   },
 
   // Section header
   sectionHeader: {
     fontSize: 11,
     fontWeight: '700',
-    color: '#888888',
+    color: theme.colors.textMuted,
     letterSpacing: 1.5,
     textTransform: 'uppercase',
-    marginBottom: 8,
-    marginTop: 16,
-    paddingHorizontal: 4,
+    marginBottom: theme.spacing.sm,
+    marginTop: theme.spacing.md,
+    paddingHorizontal: theme.spacing.xs,
   },
 
   // Section card wrapping rows
   sectionCard: {
-    backgroundColor: '#1C1C1C',
+    backgroundColor: theme.colors.card,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: '#2A2A2A',
-    marginBottom: 24,
+    borderColor: theme.colors.border,
+    marginBottom: theme.spacing.lg,
     overflow: 'hidden',
   },
 
@@ -614,10 +615,10 @@ const styles = StyleSheet.create({
   settingRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
+    paddingHorizontal: theme.spacing.md,
     paddingVertical: 14,
     borderBottomWidth: 1,
-    borderBottomColor: '#2A2A2A',
+    borderBottomColor: theme.colors.border,
     minHeight: 56,
   },
   settingRowLast: {
@@ -626,26 +627,26 @@ const styles = StyleSheet.create({
   settingIcon: {
     width: 32,
     height: 32,
-    borderRadius: 8,
-    backgroundColor: '#0A0A0A',
+    borderRadius: theme.radius.sm,
+    backgroundColor: theme.colors.bg,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,
     flexShrink: 0,
   },
   settingIconText: { fontSize: 16 },
-  settingLabelGroup: { flex: 1, paddingRight: 8 },
+  settingLabelGroup: { flex: 1, paddingRight: theme.spacing.sm },
   settingLabel: {
     fontSize: 15,
-    color: '#F0F0F0',
+    color: theme.colors.text,
     fontWeight: '500',
   },
   settingLabelDanger: {
-    color: '#DC143C',
+    color: theme.colors.accent,
   },
   settingSubtitle: {
     fontSize: 12,
-    color: '#888888',
+    color: theme.colors.textMuted,
     marginTop: 2,
   },
   settingRight: {
@@ -656,42 +657,42 @@ const styles = StyleSheet.create({
     minHeight: 44,
   },
   chevron: {
-    color: '#555555',
+    color: theme.colors.textSubtle,
     fontSize: 20,
     fontWeight: '300',
   },
 
   // Chip selector (inside a section card, below its row)
   chipContainer: {
-    paddingHorizontal: 16,
+    paddingHorizontal: theme.spacing.md,
     paddingBottom: 14,
   },
   chipRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
+    gap: theme.spacing.sm,
   },
   chip: {
     paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 20,
-    backgroundColor: '#0A0A0A',
+    paddingVertical: theme.spacing.sm,
+    borderRadius: theme.radius.pill,
+    backgroundColor: theme.colors.bg,
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: theme.colors.border,
     minWidth: 44,
     alignItems: 'center',
   },
   chipActive: {
-    backgroundColor: '#DC143C',
-    borderColor: '#DC143C',
+    backgroundColor: theme.colors.accent,
+    borderColor: theme.colors.accent,
   },
   chipText: {
-    color: '#888888',
+    color: theme.colors.textMuted,
     fontSize: 13,
     fontWeight: '500',
   },
   chipTextActive: {
-    color: '#FFFFFF',
+    color: theme.colors.text,
     fontWeight: '700',
   },
 
@@ -701,27 +702,27 @@ const styles = StyleSheet.create({
   },
   signOutButton: {
     borderRadius: 14,
-    paddingVertical: 16,
+    paddingVertical: theme.spacing.md,
     alignItems: 'center',
     minHeight: 52,
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: '#DC143C',
-    marginBottom: 8,
+    borderColor: theme.colors.accent,
+    marginBottom: theme.spacing.sm,
   },
   signOutButtonText: {
-    color: '#DC143C',
+    color: theme.colors.accent,
     fontSize: 16,
     fontWeight: '600',
   },
 
   // Save button
   saveButton: {
-    backgroundColor: '#DC143C',
+    backgroundColor: theme.colors.accent,
     borderRadius: 14,
-    paddingVertical: 16,
+    paddingVertical: theme.spacing.md,
     alignItems: 'center',
-    marginTop: 8,
+    marginTop: theme.spacing.sm,
     minHeight: 52,
     justifyContent: 'center',
   },
@@ -729,7 +730,7 @@ const styles = StyleSheet.create({
     opacity: 0.4,
   },
   saveButtonText: {
-    color: '#FFFFFF',
+    color: theme.colors.text,
     fontSize: 16,
     fontWeight: '700',
   },

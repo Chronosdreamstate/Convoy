@@ -1,5 +1,6 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  Animated,
   ActivityIndicator,
   SafeAreaView,
   StyleSheet,
@@ -43,15 +44,27 @@ function initials(name: string): string {
 
 function Avatar({ name, size = 80 }: { name: string; size?: number }) {
   return (
-    <View
-      style={[
-        styles.avatar,
-        { width: size, height: size, borderRadius: size / 2 },
-      ]}
-    >
-      <Text style={[styles.avatarText, { fontSize: size * 0.32 }]}>
-        {initials(name)}
-      </Text>
+    <View style={[styles.avatarRing, { width: size + 8, height: size + 8, borderRadius: (size + 8) / 2 }]}>
+      <View style={[styles.avatar, { width: size, height: size, borderRadius: size / 2 }]}>
+        <Text style={[styles.avatarText, { fontSize: size * 0.32 }]}>
+          {initials(name)}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
+function CallsignBadge({ callsign }: { callsign: string | null }) {
+  if (callsign) {
+    return (
+      <View style={styles.callsignBadge}>
+        <Text style={styles.callsignBadgeText}>📻 {callsign}</Text>
+      </View>
+    );
+  }
+  return (
+    <View style={[styles.callsignBadge, styles.callsignBadgeMuted]}>
+      <Text style={styles.callsignBadgeTextMuted}>No callsign</Text>
     </View>
   );
 }
@@ -66,7 +79,16 @@ export default function InviteScreen() {
   const [state, setState] = useState<ScreenState>({ kind: 'loading' });
   const [sending, setSending] = useState(false);
 
-  // Load the inviter's public profile
+  const cardAnim = useRef(new Animated.Value(0)).current;
+  const cardTranslate = useRef(new Animated.Value(60)).current;
+
+  const animateIn = useCallback(() => {
+    Animated.parallel([
+      Animated.timing(cardAnim, { toValue: 1, duration: 500, useNativeDriver: true }),
+      Animated.timing(cardTranslate, { toValue: 0, duration: 500, useNativeDriver: true }),
+    ]).start();
+  }, [cardAnim, cardTranslate]);
+
   const loadProfile = useCallback(async () => {
     if (!userId) {
       setState({ kind: 'error', message: 'Invalid invite link — no user ID found.' });
@@ -77,6 +99,7 @@ export default function InviteScreen() {
     try {
       const res = await apiClient.get<UserProfile>(`/api/v1/users/${userId}`);
       setState({ kind: 'ready', profile: res.data });
+      animateIn();
     } catch (err: unknown) {
       const status =
         err != null &&
@@ -93,8 +116,9 @@ export default function InviteScreen() {
       } else {
         setState({ kind: 'error', message: 'Could not load profile. Please try again.' });
       }
+      animateIn();
     }
-  }, [userId]);
+  }, [userId, animateIn]);
 
   useEffect(() => {
     void loadProfile();
@@ -118,7 +142,6 @@ export default function InviteScreen() {
           : 0;
 
       if (status === 409) {
-        // Already friends or request already exists
         setState({ kind: 'already_friends' });
       } else if (state.kind === 'ready') {
         setState({ kind: 'error', message: 'Failed to send friend request. Please try again.' });
@@ -136,6 +159,7 @@ export default function InviteScreen() {
         <View style={styles.centered}>
           <ActivityIndicator color="#DC143C" size="large" />
         </View>
+        <Text style={styles.watermark}>CONVOY</Text>
       </SafeAreaView>
     );
   }
@@ -143,8 +167,10 @@ export default function InviteScreen() {
   if (state.kind === 'error') {
     return (
       <SafeAreaView style={styles.container}>
-        <View style={styles.centered}>
-          <Text style={styles.errorIcon}>!</Text>
+        <Animated.View style={[styles.centered, { opacity: cardAnim, transform: [{ translateY: cardTranslate }] }]}>
+          <View style={[styles.stateIconCircle, styles.stateIconError]}>
+            <Text style={styles.stateIconEmoji}>❌</Text>
+          </View>
           <Text style={styles.errorTitle}>Invite Unavailable</Text>
           <Text style={styles.errorSubtitle}>{state.message}</Text>
           <TouchableOpacity
@@ -155,7 +181,8 @@ export default function InviteScreen() {
           >
             <Text style={styles.secondaryBtnText}>Go to CONVOY</Text>
           </TouchableOpacity>
-        </View>
+        </Animated.View>
+        <Text style={styles.watermark}>CONVOY</Text>
       </SafeAreaView>
     );
   }
@@ -163,8 +190,10 @@ export default function InviteScreen() {
   if (state.kind === 'sent') {
     return (
       <SafeAreaView style={styles.container}>
-        <View style={styles.centered}>
-          <Text style={styles.successIcon}>✓</Text>
+        <Animated.View style={[styles.centered, { opacity: cardAnim, transform: [{ translateY: cardTranslate }] }]}>
+          <View style={[styles.stateIconCircle, styles.stateIconSuccess]}>
+            <Text style={styles.stateIconEmoji}>✅</Text>
+          </View>
           <Text style={styles.successTitle}>Request Sent!</Text>
           <Text style={styles.successSubtitle}>
             Your friend request is on its way.
@@ -177,7 +206,8 @@ export default function InviteScreen() {
           >
             <Text style={styles.primaryBtnText}>View Friends</Text>
           </TouchableOpacity>
-        </View>
+        </Animated.View>
+        <Text style={styles.watermark}>CONVOY</Text>
       </SafeAreaView>
     );
   }
@@ -185,8 +215,10 @@ export default function InviteScreen() {
   if (state.kind === 'already_friends') {
     return (
       <SafeAreaView style={styles.container}>
-        <View style={styles.centered}>
-          <Text style={styles.successIcon}>✓</Text>
+        <Animated.View style={[styles.centered, { opacity: cardAnim, transform: [{ translateY: cardTranslate }] }]}>
+          <View style={[styles.stateIconCircle, styles.stateIconSuccess]}>
+            <Text style={styles.stateIconEmoji}>✅</Text>
+          </View>
           <Text style={styles.successTitle}>Already Connected</Text>
           <Text style={styles.successSubtitle}>
             You're already friends or a request is pending.
@@ -199,7 +231,8 @@ export default function InviteScreen() {
           >
             <Text style={styles.primaryBtnText}>View Friends</Text>
           </TouchableOpacity>
-        </View>
+        </Animated.View>
+        <Text style={styles.watermark}>CONVOY</Text>
       </SafeAreaView>
     );
   }
@@ -221,22 +254,23 @@ export default function InviteScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Profile card */}
-      <View style={styles.card}>
+      {/* Animated profile card */}
+      <Animated.View
+        style={[
+          styles.card,
+          { opacity: cardAnim, transform: [{ translateY: cardTranslate }] },
+        ]}
+      >
         <Avatar name={profile.displayName} size={80} />
 
         <Text style={styles.displayName} numberOfLines={1}>
           {profile.displayName}
         </Text>
 
-        {profile.pttCallsign ? (
-          <Text style={styles.callsign} numberOfLines={1}>
-            Callsign: {profile.pttCallsign}
-          </Text>
-        ) : null}
+        <CallsignBadge callsign={profile.pttCallsign} />
 
         <Text style={styles.inviteHint}>
-          wants to connect with you on CONVOY
+          🚗 {profile.displayName} wants to ride with you on CONVOY
         </Text>
 
         <TouchableOpacity
@@ -261,7 +295,9 @@ export default function InviteScreen() {
         >
           <Text style={styles.secondaryBtnText}>Not Now</Text>
         </TouchableOpacity>
-      </View>
+      </Animated.View>
+
+      <Text style={styles.watermark}>CONVOY</Text>
     </SafeAreaView>
   );
 }
@@ -309,35 +345,82 @@ const styles = StyleSheet.create({
     paddingHorizontal: 32,
     paddingBottom: 48,
   },
+
+  // Avatar with crimson ring
+  avatarRing: {
+    borderWidth: 2,
+    borderColor: '#DC143C',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 20,
+  },
   avatar: {
     backgroundColor: '#DC143C',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 20,
   },
   avatarText: {
     color: '#fff',
     fontWeight: '700',
   },
+
   displayName: {
     fontSize: 24,
     fontWeight: '700',
     color: '#F0F0F0',
-    marginBottom: 6,
+    marginBottom: 10,
     textAlign: 'center',
   },
-  callsign: {
-    fontSize: 14,
-    color: '#888888',
-    marginBottom: 6,
-    textAlign: 'center',
+
+  // Callsign badge
+  callsignBadge: {
+    backgroundColor: '#1C1C1C',
+    borderWidth: 1,
+    borderColor: '#DC143C',
+    borderRadius: 100,
+    paddingVertical: 4,
+    paddingHorizontal: 14,
+    marginBottom: 20,
   },
+  callsignBadgeText: {
+    color: '#DC143C',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  callsignBadgeMuted: {
+    borderColor: '#2A2A2A',
+  },
+  callsignBadgeTextMuted: {
+    color: '#555555',
+    fontSize: 13,
+    fontWeight: '500',
+  },
+
   inviteHint: {
     fontSize: 15,
     color: '#888888',
     textAlign: 'center',
     marginBottom: 32,
     lineHeight: 22,
+  },
+
+  // State icons (success / error)
+  stateIconCircle: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
+  stateIconSuccess: {
+    backgroundColor: '#003A10',
+  },
+  stateIconError: {
+    backgroundColor: '#3A0000',
+  },
+  stateIconEmoji: {
+    fontSize: 30,
   },
 
   // Buttons
@@ -378,20 +461,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 
-  // Error state
-  errorIcon: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: '#3A0000',
-    color: '#f87171',
-    fontSize: 32,
-    fontWeight: '700',
-    textAlign: 'center',
-    lineHeight: 64,
-    marginBottom: 16,
-    overflow: 'hidden',
-  },
+  // Titles
   errorTitle: {
     fontSize: 20,
     fontWeight: '700',
@@ -406,21 +476,6 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     marginBottom: 32,
   },
-
-  // Success state
-  successIcon: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: '#003A10',
-    color: '#22c55e',
-    fontSize: 32,
-    fontWeight: '700',
-    textAlign: 'center',
-    lineHeight: 64,
-    marginBottom: 16,
-    overflow: 'hidden',
-  },
   successTitle: {
     fontSize: 20,
     fontWeight: '700',
@@ -434,5 +489,15 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 20,
     marginBottom: 32,
+  },
+
+  // Watermark
+  watermark: {
+    textAlign: 'center',
+    color: '#1C1C1C',
+    fontSize: 11,
+    fontWeight: '900',
+    letterSpacing: 6,
+    paddingBottom: 16,
   },
 });

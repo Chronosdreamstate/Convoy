@@ -29,6 +29,12 @@ export interface CarPlayState {
   routeActive: boolean;
   pttChannelId: string | null;
   myCallsign: string;
+  /** Human-readable name of the active group shown on the CarPlay map template header. */
+  activeGroupName: string | null;
+  /** Number of open/nearby groups available to join — shown on the CarPlay list template. */
+  nearbyGroupCount: number;
+  /** Lifecycle phase of the convoy — used by native to switch between map/list/idle templates. */
+  convoyStatus: 'idle' | 'active' | 'ending';
 }
 
 // ---------------------------------------------------------------------------
@@ -43,7 +49,10 @@ function statesEqual(a: CarPlayState, b: CarPlayState): boolean {
     a.memberCount === b.memberCount &&
     a.routeActive === b.routeActive &&
     a.pttChannelId === b.pttChannelId &&
-    a.myCallsign === b.myCallsign
+    a.myCallsign === b.myCallsign &&
+    a.activeGroupName === b.activeGroupName &&
+    a.nearbyGroupCount === b.nearbyGroupCount &&
+    a.convoyStatus === b.convoyStatus
   );
 }
 

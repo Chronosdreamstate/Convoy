@@ -176,7 +176,7 @@ export default function EmailScreen() {
                   textContentType="emailAddress"
                   returnKeyType="next"
                   onSubmitEditing={() => passwordRef.current?.focus()}
-                  accessibilityLabel="Email input"
+                  accessibilityLabel="Email address, required"
                 />
                 {emailValid ? (
                   <Text style={styles.validIcon}>✓</Text>
@@ -198,7 +198,8 @@ export default function EmailScreen() {
                   textContentType={mode === 'signup' ? 'newPassword' : 'password'}
                   returnKeyType="done"
                   onSubmitEditing={handleSubmit}
-                  accessibilityLabel="Password input"
+                  accessibilityLabel="Password, required"
+                  accessibilityHint={mode === 'signup' ? 'Minimum 8 characters' : undefined}
                 />
                 <TouchableOpacity
                   style={styles.eyeBtn}

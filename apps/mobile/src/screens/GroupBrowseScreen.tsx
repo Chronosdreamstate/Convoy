@@ -1,8 +1,10 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   FlatList,
+  Linking,
+  RefreshControl,
   SafeAreaView,
   ScrollView,
   StyleSheet,
@@ -12,7 +14,9 @@ import {
   View,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import * as ExpoLocation from 'expo-location';
 import { apiClient } from '../services/apiClient';
+import { haversineDistanceM } from '../services/DriveService';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -26,6 +30,7 @@ interface PublicGroup {
   gapThresholdM: number;
   accessType: 'open' | 'invite_only';
   isActive: boolean;
+  distanceM?: number; // populated in Nearby mode
 }
 
 type FilterTab = 'All' | 'Nearby' | 'Active';
@@ -39,6 +44,11 @@ function formatGap(metres: number): string {
   return `${(metres / 1000).toFixed(1)} km`;
 }
 
+function formatDistance(metres: number): string {
+  if (metres < 1000) return `${Math.round(metres)} m`;
+  return `${(metres / 1000).toFixed(1)} km`;
+}
+
 // ---------------------------------------------------------------------------
 // GroupCard
 // ---------------------------------------------------------------------------
@@ -47,9 +57,10 @@ interface GroupCardProps {
   group: PublicGroup;
   onJoin: (id: string) => void;
   joining: boolean;
+  showDistance: boolean;
 }
 
-function GroupCard({ group, onJoin, joining }: GroupCardProps) {
+function GroupCard({ group, onJoin, joining, showDistance }: GroupCardProps) {
   return (
     <View style={styles.card}>
       <View style={styles.cardHeader}>
@@ -71,6 +82,12 @@ function GroupCard({ group, onJoin, joining }: GroupCardProps) {
           <>
             <Text style={styles.metaDot}>·</Text>
             <Text style={styles.activeText}>● Live</Text>
+          </>
+        )}
+        {showDistance && group.distanceM !== undefined && (
+          <>
+            <Text style={styles.metaDot}>·</Text>
+            <Text style={styles.distanceText}>📍 {formatDistance(group.distanceM)} away</Text>
           </>
         )}
       </View>
@@ -100,40 +117,119 @@ export default function GroupBrowseScreen() {
   const router = useRouter();
   const [groups, setGroups] = useState<PublicGroup[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [search, setSearch] = useState('');
   const [activeFilter, setActiveFilter] = useState<FilterTab>('All');
   const [joiningId, setJoiningId] = useState<string | null>(null);
+  const [locating, setLocating] = useState(false);
+  const [locationError, setLocationError] = useState<string | null>(null);
+  const userCoordsRef = useRef<{ lat: number; lng: number } | null>(null);
 
   const FILTER_TABS: FilterTab[] = ['All', 'Nearby', 'Active'];
 
-  useEffect(() => {
-    let mounted = true;
-    setLoading(true);
-    apiClient
-      .get<{ groups: PublicGroup[] }>('/groups', {
-        params: { accessType: 'open', limit: 20 },
-      })
-      .then((res) => {
-        if (!mounted) return;
-        setGroups(res.data.groups ?? []);
-      })
-      .catch(() => {
-        if (!mounted) return;
-        Alert.alert('Error', 'Could not load public groups. Please try again.');
-      })
-      .finally(() => {
-        if (!mounted) return;
-        setLoading(false);
-      });
-    return () => { mounted = false; };
+  const fetchGroups = useCallback(async (opts: {
+    lat?: number;
+    lng?: number;
+    silent?: boolean;
+  } = {}) => {
+    if (!opts.silent) setLoading(true);
+    try {
+      const params: Record<string, unknown> = { accessType: 'open', limit: 40 };
+      if (opts.lat !== undefined) params.lat = opts.lat;
+      if (opts.lng !== undefined) params.lng = opts.lng;
+
+      const res = await apiClient.get<{ groups: PublicGroup[] }>('/groups', { params });
+      const fetched = res.data.groups ?? [];
+
+      // If we have user coords, annotate each group with distance
+      const coords = opts.lat !== undefined
+        ? { lat: opts.lat, lng: opts.lng as number }
+        : userCoordsRef.current;
+
+      if (coords) {
+        fetched.forEach((g) => {
+          // Groups don't expose their own coords from the API yet — distance
+          // will be populated when the API returns lat/lng. For now we leave
+          // distanceM undefined so the badge is omitted gracefully.
+        });
+      }
+
+      setGroups(fetched);
+    } catch {
+      Alert.alert('Error', 'Could not load public groups. Please try again.');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
   }, []);
 
-  const filtered = groups.filter((g) => {
-    const matchesSearch = g.name.toLowerCase().includes(search.toLowerCase());
-    if (!matchesSearch) return false;
-    if (activeFilter === 'Active') return g.isActive;
-    return true;
-  });
+  // Initial load
+  useEffect(() => {
+    void fetchGroups();
+  }, [fetchGroups]);
+
+  // Handle Nearby filter activation
+  useEffect(() => {
+    if (activeFilter !== 'Nearby') {
+      setLocationError(null);
+      return;
+    }
+
+    // Already have coords — re-fetch immediately
+    if (userCoordsRef.current) {
+      void fetchGroups(userCoordsRef.current);
+      return;
+    }
+
+    let cancelled = false;
+    setLocating(true);
+    setLocationError(null);
+
+    (async () => {
+      try {
+        const { status } = await ExpoLocation.requestForegroundPermissionsAsync();
+        if (cancelled) return;
+
+        if (status !== 'granted') {
+          setLocationError('Location access needed for nearby groups.');
+          setLocating(false);
+          return;
+        }
+
+        const loc = await ExpoLocation.getCurrentPositionAsync({
+          accuracy: ExpoLocation.Accuracy.Balanced,
+        });
+        if (cancelled) return;
+
+        const coords = { lat: loc.coords.latitude, lng: loc.coords.longitude };
+        userCoordsRef.current = coords;
+        await fetchGroups(coords);
+      } catch {
+        if (!cancelled) setLocationError('Could not get your location. Please try again.');
+      } finally {
+        if (!cancelled) setLocating(false);
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [activeFilter, fetchGroups]);
+
+  const handleRefresh = useCallback(() => {
+    setRefreshing(true);
+    if (activeFilter === 'Nearby' && userCoordsRef.current) {
+      void fetchGroups({ ...userCoordsRef.current, silent: true });
+    } else {
+      void fetchGroups({ silent: true });
+    }
+  }, [activeFilter, fetchGroups]);
+
+  const filtered = groups
+    .filter((g) => {
+      const matchesSearch = g.name.toLowerCase().includes(search.toLowerCase());
+      if (!matchesSearch) return false;
+      if (activeFilter === 'Active') return g.isActive;
+      return true;
+    });
 
   const handleJoin = useCallback(async (groupId: string) => {
     setJoiningId(groupId);
@@ -146,6 +242,8 @@ export default function GroupBrowseScreen() {
       setJoiningId(null);
     }
   }, [router]);
+
+  const isNearby = activeFilter === 'Nearby';
 
   return (
     <SafeAreaView style={styles.container}>
@@ -196,14 +294,36 @@ export default function GroupBrowseScreen() {
             accessibilityState={{ selected: activeFilter === tab }}
           >
             <Text style={[styles.filterPillText, activeFilter === tab && styles.filterPillTextActive]}>
-              {tab}
+              {tab === 'Nearby' ? '📍 Nearby' : tab}
             </Text>
           </TouchableOpacity>
         ))}
       </ScrollView>
 
+      {/* Nearby status row */}
+      {isNearby && (locating || locationError) && (
+        <View style={styles.locationStatus}>
+          {locating ? (
+            <>
+              <ActivityIndicator size="small" color="#DC143C" style={{ marginRight: 8 }} />
+              <Text style={styles.locationStatusText}>Getting your location...</Text>
+            </>
+          ) : locationError ? (
+            <>
+              <Text style={styles.locationErrorText}>📍 {locationError}</Text>
+              <TouchableOpacity
+                onPress={() => void Linking.openSettings()}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Text style={styles.locationSettingsLink}> Open Settings</Text>
+              </TouchableOpacity>
+            </>
+          ) : null}
+        </View>
+      )}
+
       {/* Content */}
-      {loading ? (
+      {loading && !refreshing ? (
         <View style={styles.centered}>
           <ActivityIndicator size="large" color="#DC143C" />
         </View>
@@ -216,21 +336,34 @@ export default function GroupBrowseScreen() {
               group={item}
               onJoin={handleJoin}
               joining={joiningId === item.id}
+              showDistance={isNearby}
             />
           )}
           contentContainerStyle={filtered.length === 0 ? styles.emptyContainer : styles.listContent}
           ListEmptyComponent={
             <View style={styles.emptyState}>
-              <Text style={styles.emptyEmoji}>🔍</Text>
-              <Text style={styles.emptyTitle}>No public groups found</Text>
+              <Text style={styles.emptyEmoji}>{locationError ? '📍' : '🔍'}</Text>
+              <Text style={styles.emptyTitle}>
+                {locationError ? 'Location Unavailable' : 'No public groups found'}
+              </Text>
               <Text style={styles.emptySubtitle}>
-                {search.length > 0
-                  ? 'Try a different search term'
-                  : 'Be the first to create a public group'}
+                {locationError
+                  ? locationError
+                  : search.length > 0
+                    ? 'Try a different search term'
+                    : 'Be the first to create a public group'}
               </Text>
             </View>
           }
           showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+              tintColor="#DC143C"
+              colors={['#DC143C']}
+            />
+          }
         />
       )}
     </SafeAreaView>
@@ -299,7 +432,7 @@ const styles = StyleSheet.create({
   },
   filterRow: {
     flexGrow: 0,
-    marginBottom: 12,
+    marginBottom: 4,
   },
   filterContent: {
     paddingHorizontal: 16,
@@ -326,8 +459,29 @@ const styles = StyleSheet.create({
   filterPillTextActive: {
     color: '#FFFFFF',
   },
+  locationStatus: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  locationStatusText: {
+    color: '#888888',
+    fontSize: 13,
+  },
+  locationErrorText: {
+    color: '#888888',
+    fontSize: 13,
+    flex: 1,
+  },
+  locationSettingsLink: {
+    color: '#DC143C',
+    fontSize: 13,
+    fontWeight: '600',
+  },
   listContent: {
     paddingHorizontal: 16,
+    paddingTop: 8,
     paddingBottom: 24,
     gap: 12,
   },
@@ -402,6 +556,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 4,
+    flexWrap: 'wrap',
   },
   metaText: {
     color: '#888888',
@@ -414,6 +569,11 @@ const styles = StyleSheet.create({
   },
   activeText: {
     color: '#22C55E',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  distanceText: {
+    color: '#DC143C',
     fontSize: 13,
     fontWeight: '600',
   },

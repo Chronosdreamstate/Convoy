@@ -158,7 +158,8 @@ export default function OtpScreen() {
               textContentType="oneTimeCode"
               returnKeyType="done"
               onSubmitEditing={() => { void handleVerify(); }}
-              accessibilityLabel="OTP input"
+              accessibilityLabel="Verification code, 6 digits"
+              accessibilityHint="Enter the code sent to your phone"
             />
           </Animated.View>
 
@@ -186,7 +187,11 @@ export default function OtpScreen() {
               onPress={() => { void handleResend(); }}
               disabled={isResending || resendCooldown > 0}
               accessibilityRole="button"
-              accessibilityLabel="Resend OTP"
+              accessibilityLabel={
+                resendCooldown > 0
+                  ? `Resend code, available in ${resendCooldown} seconds`
+                  : 'Resend code'
+              }
               accessibilityState={{ disabled: isResending || resendCooldown > 0 }}
             >
               {isResending ? (

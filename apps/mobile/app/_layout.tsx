@@ -1,5 +1,5 @@
 ﻿import { useEffect, useRef } from 'react';
-import { AppState, Platform } from 'react-native';
+import { Animated, AppState, Platform, StyleSheet, Text, View } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import type { Router } from 'expo-router';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -74,6 +74,8 @@ function handleNotificationNavigation(
       router.push('/friends');
       break;
     case 'group_invite':
+      router.push('/join');
+      break;
     case 'group_event':
     case 'rally_point':
       router.push('/(tabs)/convoy');
@@ -88,6 +90,46 @@ function handleNotificationNavigation(
       break;
   }
 }
+
+function LoadingSplash() {
+  const pulse = useRef(new Animated.Value(0.3)).current;
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 1, duration: 700, useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 0.3, duration: 700, useNativeDriver: true }),
+      ]),
+    ).start();
+  }, [pulse]);
+  return (
+    <View style={splashStyles.container}>
+      <Text style={splashStyles.logo}>CONVOY</Text>
+      <Animated.View style={[splashStyles.bar, { opacity: pulse }]} />
+    </View>
+  );
+}
+
+const splashStyles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#0A0A0A',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 20,
+  },
+  logo: {
+    fontSize: 48,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    letterSpacing: 8,
+  },
+  bar: {
+    width: 80,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#DC143C',
+  },
+});
 
 export default function RootLayout() {
   const { isAuthenticated, isLoading, setUser, setLoading, signOut: storeSignOut } = useAuthStore();
@@ -178,6 +220,14 @@ export default function RootLayout() {
     }
   }, [isAuthenticated, isLoading]);
 
+  if (isLoading) {
+    return (
+      <SafeAreaProvider>
+        <LoadingSplash />
+      </SafeAreaProvider>
+    );
+  }
+
   return (
     <SafeAreaProvider>
       <Stack screenOptions={{ headerShown: false }}>
@@ -185,6 +235,11 @@ export default function RootLayout() {
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="friends" />
         <Stack.Screen name="invite" />
+        <Stack.Screen name="group-browse" />
+        <Stack.Screen name="group-settings" />
+        <Stack.Screen name="waypoints" />
+        <Stack.Screen name="join" />
+        <Stack.Screen name="convoy-end" />
       </Stack>
     </SafeAreaProvider>
   );

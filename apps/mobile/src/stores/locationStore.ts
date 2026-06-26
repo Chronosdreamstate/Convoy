@@ -53,7 +53,7 @@ export const useLocationStore = create<LocationState>((set) => ({
 
   updateMyLocation: (loc) => set({ myLocation: loc }),
 
-  clearGroup: () => set({ memberLocations: {}, stalePositions: {} }),
+  clearGroup: () => set({ memberLocations: {}, stalePositions: {}, myLocation: null }),
 
   evictStale: (staleMs) =>
     set((state) => {

@@ -13,6 +13,7 @@ interface GroupState extends GroupMeta {
   setPttChannelId: (id: string | null) => void;
   setGroupMeta: (meta: Partial<GroupMeta>) => void;
   clearGroupMeta: () => void;
+  leaveGroup: () => void;
 }
 
 export const useGroupStore = create<GroupState>((set) => ({
@@ -25,4 +26,7 @@ export const useGroupStore = create<GroupState>((set) => ({
   setPttChannelId: (pttChannelId) => set({ pttChannelId }),
   setGroupMeta: (meta) => set(meta),
   clearGroupMeta: () => set({ name: null, memberCount: 0, adminId: null }),
+  /** Atomically clears all group state — use this instead of calling setActiveGroupId/setPttChannelId/clearGroupMeta separately. */
+  leaveGroup: () =>
+    set({ activeGroupId: null, pttChannelId: null, name: null, memberCount: 0, adminId: null }),
 }));

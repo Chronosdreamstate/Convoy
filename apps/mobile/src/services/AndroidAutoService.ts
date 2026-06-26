@@ -28,6 +28,12 @@ export interface AndroidAutoState {
   routeActive: boolean;
   pttChannelId: string | null;
   myCallsign: string;
+  /** Human-readable name of the active group shown on the Auto navigation screen header. */
+  activeGroupName: string | null;
+  /** Number of open/nearby groups available to join — shown on the Auto list screen. */
+  nearbyGroupCount: number;
+  /** Lifecycle phase of the convoy — used by Kotlin screens to switch between idle/active/ending UI. */
+  convoyStatus: 'idle' | 'active' | 'ending';
 }
 
 // ---------------------------------------------------------------------------
@@ -92,7 +98,10 @@ export class AndroidAutoService {
       this.lastState.memberCount === state.memberCount &&
       this.lastState.routeActive === state.routeActive &&
       this.lastState.pttChannelId === state.pttChannelId &&
-      this.lastState.myCallsign === state.myCallsign
+      this.lastState.myCallsign === state.myCallsign &&
+      this.lastState.activeGroupName === state.activeGroupName &&
+      this.lastState.nearbyGroupCount === state.nearbyGroupCount &&
+      this.lastState.convoyStatus === state.convoyStatus
     ) {
       return;
     }
@@ -147,6 +156,7 @@ export class AndroidAutoService {
     this.disconnectSub = null;
     this.listeners.clear();
     this.lastState = null;
+    this.connected = false;
   }
 }
 

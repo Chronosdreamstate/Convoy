@@ -3,10 +3,13 @@ import { z } from 'zod';
 import { authenticate } from '../middleware/authenticate';
 import { generalLimiter } from '../middleware/rateLimiter';
 
+const PROFANITY = ['fuck', 'shit', 'ass'];
+const profanityFree = (s: string) => !PROFANITY.some((w) => s.toLowerCase().includes(w));
+
 const patchMeSchema = z.object({
-  displayName: z.string().min(1).max(100).optional(),
+  displayName: z.string().min(1).max(50).refine(profanityFree, { message: 'Display name contains disallowed words' }).optional(),
   avatarUrl: z.string().url().nullable().optional(),
-  pttCallsign: z.string().max(50).nullable().optional(),
+  pttCallsign: z.string().max(20).regex(/^[a-zA-Z0-9_-]+$/, 'Callsign must be alphanumeric, dash, or underscore').nullable().optional(),
   privacy: z.enum(['open', 'invite_only']).optional(),
 });
 
@@ -95,22 +98,7 @@ async function usersRoutes(
     }
 
     if (values.length === 0) {
-      // Nothing to update — return current profile unchanged
-      const current = await fastify.db.query<UserRow>(
-        `SELECT id, display_name, phone_number, email, avatar_url, ptt_callsign, privacy
-         FROM users WHERE id = $1`,
-        [userId],
-      );
-      const u = current.rows[0];
-      return reply.send({
-        id: u.id,
-        displayName: u.display_name,
-        phoneNumber: u.phone_number,
-        email: u.email,
-        avatarUrl: u.avatar_url,
-        pttCallsign: u.ptt_callsign,
-        privacy: u.privacy,
-      });
+      return reply.badRequest('At least one field must be provided');
     }
 
     values.push(userId);
@@ -118,7 +106,7 @@ async function usersRoutes(
     const result = await fastify.db.query<UserRow>(
       `UPDATE users SET ${setClauses.join(', ')}
        WHERE id = $${paramIdx}
-       RETURNING id, display_name, phone_number, email, avatar_url, ptt_callsign, privacy`,
+       RETURNING id, display_name, phone_number, email, avatar_url, ptt_callsign, privacy, created_at`,
       values,
     );
 
@@ -131,6 +119,7 @@ async function usersRoutes(
       avatarUrl: u.avatar_url,
       pttCallsign: u.ptt_callsign,
       privacy: u.privacy,
+      createdAt: u.created_at,
     });
   });
 
@@ -172,22 +161,30 @@ async function usersRoutes(
     const query = request.query as Record<string, string | undefined>;
     const phone = query.phone;
     const q = query.q?.trim() ?? '';
+    const limitRaw = parseInt(query.limit ?? '10', 10);
+    const limit = Number.isNaN(limitRaw) ? 10 : Math.min(20, Math.max(1, limitRaw));
 
     // ── Display-name search (used by FriendsScreen / Find People tab) ─────
     if (q) {
       if (q.length < 2) return reply.badRequest('q must be at least 2 characters');
-      const result = await fastify.db.query<Pick<UserRow, 'id' | 'display_name' | 'avatar_url'>>(
-        `SELECT id, display_name, avatar_url
+      if (q.length > 50) return reply.badRequest('q must be at most 50 characters');
+      const result = await fastify.db.query<Pick<UserRow, 'id' | 'display_name' | 'avatar_url' | 'ptt_callsign'>>(
+        `SELECT id, display_name, avatar_url, ptt_callsign
          FROM users
          WHERE id != $1
            AND privacy = 'open'
            AND display_name ILIKE $2
          ORDER BY display_name
-         LIMIT 20`,
-        [userId, `%${q}%`],
+         LIMIT $3`,
+        [userId, `%${q}%`, limit],
       );
       return reply.send({
-        users: result.rows.map((u) => ({ id: u.id, displayName: u.display_name, avatarUrl: u.avatar_url })),
+        users: result.rows.map((u) => ({
+          id: u.id,
+          displayName: u.display_name,
+          avatarUrl: u.avatar_url,
+          pttCallsign: u.ptt_callsign,
+        })),
       });
     }
 
@@ -261,6 +258,22 @@ async function usersRoutes(
     );
 
     return reply.status(200).send({ message: 'Device registered' });
+  });
+
+  // -------------------------------------------------------------------------
+  // DELETE /devices/:token — deregister a push token on sign-out
+  // -------------------------------------------------------------------------
+  fastify.delete('/devices/:token', { preHandler: [authenticate, generalLimiter(fastify.redis)] }, async (request, reply) => {
+    const userId = (request.user as { sub: string }).sub;
+    const { token } = request.params as { token: string };
+
+    // Only delete if the token belongs to the requesting user.
+    await fastify.db.query(
+      `DELETE FROM devices WHERE push_token = $1 AND user_id = $2`,
+      [token, userId],
+    );
+
+    return reply.status(204).send();
   });
 }
 

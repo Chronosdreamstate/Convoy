@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert,
+  Animated,
   FlatList,
   Modal,
   Pressable,
@@ -67,6 +68,82 @@ interface Props {
 function formatElapsed(receivedAt: number): string {
   const s = Math.floor((Date.now() - receivedAt) / 1000);
   return s < 60 ? `${s}s ago` : `${Math.floor(s / 60)}m ago`;
+}
+
+function memberInitials(name: string): string {
+  return name
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((w) => w[0]?.toUpperCase() ?? '')
+    .join('');
+}
+
+function MemberMarkerView({ member, isStale }: { member: MemberLocation; isStale: boolean }) {
+  const name = member.displayName ?? `M${member.userId.slice(0, 4)}`;
+  const initials = memberInitials(name).slice(0, 2);
+  const ringScale = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    if (!isStale) {
+      const anim = Animated.loop(
+        Animated.sequence([
+          Animated.timing(ringScale, { toValue: 1.45, duration: 900, useNativeDriver: true }),
+          Animated.timing(ringScale, { toValue: 1, duration: 900, useNativeDriver: true }),
+        ]),
+      );
+      anim.start();
+      return () => anim.stop();
+    }
+  }, [isStale, ringScale]);
+
+  return (
+    <View style={{ alignItems: 'center' }}>
+      {!isStale && (
+        <Animated.View
+          style={{
+            position: 'absolute',
+            width: 40,
+            height: 40,
+            borderRadius: 20,
+            borderWidth: 1.5,
+            borderColor: '#22C55E',
+            opacity: 0.5,
+            transform: [{ scale: ringScale }],
+          }}
+        />
+      )}
+      <View
+        style={{
+          width: 32,
+          height: 32,
+          borderRadius: 16,
+          backgroundColor: '#DC143C',
+          borderWidth: 1.5,
+          borderColor: isStale ? '#555555' : '#FFFFFF',
+          alignItems: 'center',
+          justifyContent: 'center',
+          opacity: isStale ? 0.45 : 1,
+        }}
+      >
+        <Text style={{ color: '#fff', fontSize: 11, fontWeight: '800' }}>{initials || '?'}</Text>
+      </View>
+      <View
+        style={{
+          marginTop: 3,
+          backgroundColor: 'rgba(10,10,10,0.85)',
+          borderRadius: 6,
+          paddingHorizontal: 5,
+          paddingVertical: 2,
+          maxWidth: 72,
+        }}
+      >
+        <Text style={{ color: '#FFFFFF', fontSize: 9, fontWeight: '600' }} numberOfLines={1}>
+          {name.split(' ')[0]}
+        </Text>
+      </View>
+    </View>
+  );
 }
 
 const motionStateService = new MotionStateService();
@@ -157,8 +234,34 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
   const memberCountRef  = useRef(0);
   const lastEmitRef     = useRef<number>(-3000); // throttle own-location emits to 1/3 s
 
+  const pttRingScale   = useRef(new Animated.Value(1)).current;
+  const pttRingOpacity = useRef(new Animated.Value(0)).current;
+
   // Keep mySosIdRef in sync so the socket handler closure always sees the current value
   useEffect(() => { mySosIdRef.current = mySosId; }, [mySosId]);
+
+  // Pulsing ring animation when actively transmitting PTT
+  useEffect(() => {
+    if (isPttTransmitting) {
+      pttRingScale.setValue(1);
+      pttRingOpacity.setValue(0.6);
+      const anim = Animated.loop(
+        Animated.parallel([
+          Animated.sequence([
+            Animated.timing(pttRingScale, { toValue: 1.7, duration: 700, useNativeDriver: true }),
+            Animated.timing(pttRingScale, { toValue: 1, duration: 0, useNativeDriver: true }),
+          ]),
+          Animated.sequence([
+            Animated.timing(pttRingOpacity, { toValue: 0, duration: 700, useNativeDriver: true }),
+            Animated.timing(pttRingOpacity, { toValue: 0.6, duration: 0, useNativeDriver: true }),
+          ]),
+        ]),
+      );
+      anim.start();
+      return () => anim.stop();
+    }
+    pttRingOpacity.setValue(0);
+  }, [isPttTransmitting, pttRingScale, pttRingOpacity]);
 
   // Fetch member display names once when group is active so markers and panels show real names
   useEffect(() => {
@@ -696,8 +799,9 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
         onLongPress={handleLongPress}
       >
         {members.map((m: MemberLocation) => {
+          const isStale = Date.now() - m.receivedAt > staleMs;
           const vehicle = memberVehiclesRef.current[m.userId];
-          const speedLine = m.isStale ? `Last seen ${formatElapsed(m.receivedAt)}` : `${m.speedKph.toFixed(0)} km/h`;
+          const speedLine = isStale ? `Last seen ${formatElapsed(m.receivedAt)}` : `${m.speedKph.toFixed(0)} km/h`;
           const description = vehicle ? `${speedLine} · ${vehicle}` : speedLine;
           return (
             <Marker
@@ -705,9 +809,10 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
               coordinate={{ latitude: m.lat, longitude: m.lng }}
               title={m.displayName ?? `Member ${m.userId.slice(0, 6)}`}
               description={description}
-              pinColor="#DC143C"
-              opacity={m.isStale ? 0.45 : 1}
-            />
+              anchor={{ x: 0.5, y: 1 }}
+            >
+              <MemberMarkerView member={m} isStale={isStale} />
+            </Marker>
           );
         })}
         {/* Dropped pin (Req 5.1–5.3) */}
@@ -910,6 +1015,42 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
         </View>
       )}
 
+      {/* Standalone PTT button — always accessible without opening FAB */}
+      {pttChannelId && !drivingModeActive && (
+        <View style={[styles.pttStandaloneWrap, { bottom: insets.bottom + 236 }]}>
+          {isPttTransmitting && (
+            <Animated.View
+              style={[
+                styles.pttStandaloneRing,
+                { transform: [{ scale: pttRingScale }], opacity: pttRingOpacity },
+              ]}
+            />
+          )}
+          <Pressable
+            style={[
+              styles.pttStandaloneBtn,
+              isPttTransmitting && styles.pttStandaloneBtnActive,
+              !pttVoiceAvailable && styles.pttStandaloneBtnUnavailable,
+            ]}
+            onPressIn={() => { if (pttVoiceAvailable) { setFabPttActive(true); handlePttStart(); } }}
+            onPressOut={() => { setFabPttActive(false); handlePttEnd(); }}
+            accessibilityLabel={
+              !pttVoiceAvailable
+                ? 'Voice unavailable'
+                : isPttTransmitting
+                  ? 'Transmitting — release to stop'
+                  : 'Hold to push to talk'
+            }
+            accessibilityRole="button"
+          >
+            <Text style={styles.pttStandaloneIcon}>{pttVoiceAvailable ? '🎙' : '🚫'}</Text>
+          </Pressable>
+          <Text style={[styles.pttStandaloneLabel, isPttTransmitting && styles.pttStandaloneLabelActive]}>
+            {!pttVoiceAvailable ? 'NO VOICE' : isPttTransmitting ? 'TRANSMITTING' : 'HOLD TO TALK'}
+          </Text>
+        </View>
+      )}
+
       {/* Fuel suggestion banner — above member panel */}
       {showFuelBanner && myLocation && (
         <View style={styles.fuelBannerWrapper}>
@@ -927,7 +1068,8 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
       {/* Gap alerts */}
       {gapAlerts.length > 0 && (
         <View style={styles.alertBanner}>
-          <View style={styles.alertBannerRow}>
+          <View style={styles.alertBannerStrip} />
+          <View style={styles.alertBannerContent}>
             <View style={styles.alertBannerTexts}>
               {gapAlerts.map((a) => (
                 <Text key={a.memberId} style={styles.alertText}>
@@ -950,7 +1092,8 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
       {/* Hazard proximity alerts */}
       {hazardAlerts.length > 0 && (
         <View style={styles.hazardBanner}>
-          <View style={styles.alertBannerRow}>
+          <View style={styles.hazardBannerStrip} />
+          <View style={styles.alertBannerContent}>
             <View style={styles.alertBannerTexts}>
               {hazardAlerts.map((h) => (
                 <Text key={h.id} style={styles.hazardAlertText}>
@@ -978,7 +1121,10 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
           accessibilityRole="button"
           accessibilityLabel={`Rally Point${rallyAlert.address ? `: ${rallyAlert.address}` : ''} — tap for details`}
         >
-          <Text style={styles.rallyBannerText}>🚩 Rally Point set{rallyAlert.address ? `: ${rallyAlert.address}` : ''} — Tap for directions</Text>
+          <View style={styles.rallyBannerStrip} />
+          <Text style={[styles.rallyBannerText, { flex: 1, padding: 10 }]}>
+            🚩 Rally Point set{rallyAlert.address ? `: ${rallyAlert.address}` : ''} — Tap for directions
+          </Text>
         </TouchableOpacity>
       )}
 
@@ -1293,7 +1439,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     zIndex: 10,
   },
-  badgeOnline: { backgroundColor: '#10b981' },
+  badgeOnline: { backgroundColor: '#22C55E' },
   badgeOffline: { backgroundColor: '#444444' },
   badgeText: { color: '#fff', fontSize: 11, fontWeight: '700' },
 
@@ -1441,37 +1587,63 @@ const styles = StyleSheet.create({
     bottom: 280,
     left: 12,
     right: 12,
-    backgroundColor: '#DC143Ccc',
-    borderRadius: 8,
-    padding: 10,
+    backgroundColor: '#1C1C1Cee',
+    borderRadius: 10,
+    flexDirection: 'row',
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#DC143C44',
     zIndex: 8,
+  },
+  alertBannerStrip: {
+    width: 4,
+    backgroundColor: '#DC143C',
+  },
+  alertBannerContent: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    padding: 10,
   },
   hazardBanner: {
     position: 'absolute',
     bottom: 320,
     left: 12,
     right: 12,
-    backgroundColor: '#92400ecc',
-    borderRadius: 8,
-    padding: 10,
+    backgroundColor: '#1C1C1Cee',
+    borderRadius: 10,
+    flexDirection: 'row',
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#F59E0B44',
     zIndex: 8,
   },
-  hazardAlertText: { color: '#fef3c7', fontSize: 13 },
-  alertBannerRow: { flexDirection: 'row', alignItems: 'flex-start' },
+  hazardBannerStrip: {
+    width: 4,
+    backgroundColor: '#F59E0B',
+  },
+  hazardAlertText: { color: '#FEF3C7', fontSize: 13 },
   alertBannerTexts: { flex: 1 },
-  alertText: { color: '#fff', fontSize: 13 },
-  alertDismiss: { color: '#fff', fontSize: 16, fontWeight: '700', marginLeft: 8, lineHeight: 20 },
+  alertText: { color: '#F0F0F0', fontSize: 13 },
+  alertDismiss: { color: '#888888', fontSize: 16, fontWeight: '700', marginLeft: 8, lineHeight: 20 },
   rallyBanner: {
     position: 'absolute',
     bottom: 330,
     left: 12,
     right: 12,
-    backgroundColor: '#0D4429dd',
-    borderRadius: 8,
-    padding: 12,
+    backgroundColor: '#1C1C1Cee',
+    borderRadius: 10,
+    flexDirection: 'row',
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#22C55E44',
     zIndex: 8,
   },
-  rallyBannerText: { color: '#fff', fontSize: 13, fontWeight: '600' },
+  rallyBannerStrip: {
+    width: 4,
+    backgroundColor: '#22C55E',
+  },
+  rallyBannerText: { color: '#F0F0F0', fontSize: 13, fontWeight: '600' },
   sosBanner: {
     position: 'absolute',
     left: 12,
@@ -1538,7 +1710,7 @@ const styles = StyleSheet.create({
   panelTitle: { color: '#F0F0F0', fontWeight: '700', marginBottom: 8, fontSize: 13 },
   memberRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6, minHeight: 36 },
   dot: { width: 8, height: 8, borderRadius: 4, marginRight: 8 },
-  dotOnline: { backgroundColor: '#10b981' },
+  dotOnline: { backgroundColor: '#22C55E' },
   dotOffline: { backgroundColor: '#444444' },
   memberText: { color: '#F0F0F0', flex: 1, fontSize: 13 },
   memberDetail: { color: '#888888', fontSize: 12 },
@@ -1638,8 +1810,8 @@ const styles = StyleSheet.create({
   fabItemActive: { borderColor: '#DC143C', backgroundColor: '#1A0505' },
   fabSosItem: { borderColor: '#DC143C' },
   fabSosCancelItem: { borderColor: '#555', backgroundColor: '#3a3a3a' },
-  fabPttItem: { borderColor: '#444' },
-  fabPttItemActive: { backgroundColor: '#10b981', borderColor: '#fff' },
+  fabPttItem: { borderColor: '#DC143C' },
+  fabPttItemActive: { backgroundColor: '#8B0000', borderColor: '#FF4040' },
   fabPttItemUnavailable: { backgroundColor: '#2A2A2A', borderColor: '#555', opacity: 0.6 },
   fabPttLabel: { color: '#fff', fontSize: 9, fontWeight: '800', letterSpacing: 0.5 },
 
@@ -1749,5 +1921,58 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     letterSpacing: 0.3,
+  },
+
+  // Standalone PTT button — bottom-center, always visible when voice is available
+  pttStandaloneWrap: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    zIndex: 10,
+  },
+  pttStandaloneRing: {
+    position: 'absolute',
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    borderWidth: 2.5,
+    borderColor: '#DC143C',
+  },
+  pttStandaloneBtn: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#1C1C1C',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 3,
+    borderColor: '#DC143C',
+    shadowColor: '#DC143C',
+    shadowOpacity: 0.45,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 10,
+  },
+  pttStandaloneBtnActive: {
+    backgroundColor: '#8B0000',
+    borderColor: '#FF4040',
+    shadowOpacity: 0.9,
+  },
+  pttStandaloneBtnUnavailable: {
+    borderColor: '#555555',
+    opacity: 0.5,
+    shadowOpacity: 0,
+  },
+  pttStandaloneIcon: { fontSize: 30 },
+  pttStandaloneLabel: {
+    color: '#555555',
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 1.5,
+    marginTop: 6,
+  },
+  pttStandaloneLabelActive: {
+    color: '#FF4040',
   },
 });

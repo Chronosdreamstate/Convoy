@@ -132,6 +132,10 @@ export default function ConvoyScreen({ userId }: Props) {
   const [showNewChannel, setShowNewChannel] = useState(false);
   const [newChannelName, setNewChannelName] = useState('');
 
+  const [createGapThreshold, setCreateGapThreshold] = useState(1000);
+  const [createAccessType, setCreateAccessType] = useState<'open' | 'invite_only'>('open');
+  const [createNameFocused, setCreateNameFocused] = useState(false);
+
   const [publicGroups, setPublicGroups] = useState<ConvoyGroup[]>([]);
   const [discoverLoading, setDiscoverLoading] = useState(false);
   const [copyFeedback, setCopyFeedback] = useState(false);
@@ -318,7 +322,7 @@ export default function ConvoyScreen({ userId }: Props) {
     if (!groupName.trim()) return Alert.alert('Error', 'Enter a group name.');
     setLoading(true);
     try {
-      const res = await apiClient.post<ConvoyGroup>('/api/v1/groups', { name: groupName.trim() });
+      const res = await apiClient.post<ConvoyGroup>('/api/v1/groups', { name: groupName.trim(), gapThresholdM: createGapThreshold, accessType: createAccessType });
       setGroup(res.data);
       setView('home');
       setGroupName('');
@@ -486,20 +490,77 @@ export default function ConvoyScreen({ userId }: Props) {
     if (view === 'create') {
       return (
         <SafeAreaView style={styles.container}>
-          <Text style={styles.title}>Create Convoy</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="Group name"
-            placeholderTextColor="#555555"
-            value={groupName}
-            onChangeText={setGroupName}
-            autoFocus
-          />
-          <TouchableOpacity style={styles.primaryBtn} onPress={handleCreate} disabled={loading} accessibilityRole="button" accessibilityLabel="Create convoy" accessibilityState={{ disabled: loading }}>
-            {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryBtnText}>Create</Text>}
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.secondaryBtn} onPress={() => setView('home')} accessibilityRole="button" accessibilityLabel="Cancel and go back">
-            <Text style={styles.secondaryBtnText}>Cancel</Text>
+          <View style={styles.headerBar}>
+            <Text style={styles.headerTitle}>CREATE CONVOY</Text>
+            <TouchableOpacity onPress={() => setView('home')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} accessibilityRole="button" accessibilityLabel="Cancel">
+              <Text style={styles.headerBack}>✕</Text>
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+            <Text style={styles.createFieldLabel}>GROUP NAME</Text>
+            <View>
+              <TextInput
+                style={[styles.input, createNameFocused && styles.inputFocused]}
+                placeholder="e.g. Sunday Rally"
+                placeholderTextColor="#555555"
+                value={groupName}
+                onChangeText={setGroupName}
+                onFocus={() => setCreateNameFocused(true)}
+                onBlur={() => setCreateNameFocused(false)}
+                autoFocus
+                maxLength={50}
+                accessibilityLabel="Group name"
+              />
+              <Text style={styles.charCounter}>{groupName.length}/50</Text>
+            </View>
+
+            <Text style={styles.createFieldLabel}>GAP ALERT DISTANCE</Text>
+            <View style={styles.pillRow}>
+              {GAP_OPTIONS.map((opt) => (
+                <TouchableOpacity
+                  key={opt.value}
+                  style={[styles.createPill, createGapThreshold === opt.value && styles.createPillActive]}
+                  onPress={() => setCreateGapThreshold(opt.value)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Gap threshold ${opt.label}`}
+                  accessibilityState={{ selected: createGapThreshold === opt.value }}
+                >
+                  <Text style={[styles.createPillText, createGapThreshold === opt.value && styles.createPillTextActive]}>
+                    {opt.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <Text style={styles.createFieldLabel}>ACCESS TYPE</Text>
+            <View style={[styles.pillRow, { marginBottom: 24 }]}>
+              {(['open', 'invite_only'] as const).map((type) => (
+                <TouchableOpacity
+                  key={type}
+                  style={[styles.createPill, { flex: 1 }, createAccessType === type && styles.createPillActive]}
+                  onPress={() => setCreateAccessType(type)}
+                  accessibilityRole="button"
+                  accessibilityLabel={type === 'open' ? 'Open access' : 'Invite only'}
+                  accessibilityState={{ selected: createAccessType === type }}
+                >
+                  <Text style={[styles.createPillText, createAccessType === type && styles.createPillTextActive]}>
+                    {type === 'open' ? '🌐  Open' : '🔒  Invite Only'}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </ScrollView>
+
+          <TouchableOpacity
+            style={[styles.primaryBtn, { minHeight: 56 }, (!groupName.trim() || loading) && { opacity: 0.4 }]}
+            onPress={handleCreate}
+            disabled={!groupName.trim() || loading}
+            accessibilityRole="button"
+            accessibilityLabel="Create convoy"
+            accessibilityState={{ disabled: !groupName.trim() || loading }}
+          >
+            {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryBtnText}>Create Convoy</Text>}
           </TouchableOpacity>
         </SafeAreaView>
       );
@@ -508,22 +569,55 @@ export default function ConvoyScreen({ userId }: Props) {
     if (view === 'join') {
       return (
         <SafeAreaView style={styles.container}>
-          <Text style={styles.title}>Join Convoy</Text>
-          <TextInput
-            style={[styles.input, styles.codeInput]}
-            placeholder="Enter 6-char code"
-            placeholderTextColor="#555555"
-            value={joinCode}
-            onChangeText={setJoinCode}
-            autoCapitalize="characters"
-            maxLength={6}
-            autoFocus
-          />
-          <TouchableOpacity style={styles.primaryBtn} onPress={handleJoin} disabled={loading} accessibilityRole="button" accessibilityLabel="Join convoy with code" accessibilityState={{ disabled: loading }}>
-            {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryBtnText}>Join</Text>}
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.secondaryBtn} onPress={() => setView('home')} accessibilityRole="button" accessibilityLabel="Cancel and go back">
-            <Text style={styles.secondaryBtnText}>Cancel</Text>
+          <View style={styles.headerBar}>
+            <Text style={styles.headerTitle}>JOIN CONVOY</Text>
+            <TouchableOpacity onPress={() => setView('home')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} accessibilityRole="button" accessibilityLabel="Cancel">
+              <Text style={styles.headerBack}>✕</Text>
+            </TouchableOpacity>
+          </View>
+
+          <Text style={styles.createFieldLabel}>ENTER INVITE CODE</Text>
+          <View style={styles.codeInputRow}>
+            <TextInput
+              style={[styles.input, styles.codeInput, { flex: 1, marginBottom: 0 }]}
+              placeholder="XXXXXX"
+              placeholderTextColor="#333333"
+              value={joinCode}
+              onChangeText={(t) => {
+                const upper = t.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6);
+                setJoinCode(upper);
+              }}
+              autoCapitalize="characters"
+              maxLength={6}
+              autoFocus
+              accessibilityLabel="6-character invite code"
+            />
+            <TouchableOpacity
+              style={styles.pasteBtn}
+              onPress={async () => {
+                const text = await Clipboard.getStringAsync();
+                const upper = text.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6);
+                setJoinCode(upper);
+              }}
+              accessibilityRole="button"
+              accessibilityLabel="Paste code from clipboard"
+            >
+              <Text style={styles.pasteBtnText}>📋 Paste</Text>
+            </TouchableOpacity>
+          </View>
+          {joinCode.length > 0 && (
+            <Text style={styles.codePreviewText}>Code: {joinCode}</Text>
+          )}
+
+          <TouchableOpacity
+            style={[styles.primaryBtn, { minHeight: 56, marginTop: 24 }, (joinCode.trim().length !== 6 || loading) && { opacity: 0.4 }]}
+            onPress={handleJoin}
+            disabled={joinCode.trim().length !== 6 || loading}
+            accessibilityRole="button"
+            accessibilityLabel="Join convoy"
+            accessibilityState={{ disabled: joinCode.trim().length !== 6 || loading }}
+          >
+            {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryBtnText}>Join Convoy</Text>}
           </TouchableOpacity>
         </SafeAreaView>
       );
@@ -684,31 +778,40 @@ export default function ConvoyScreen({ userId }: Props) {
         {pttChannels.length > 0 && (
           <View style={styles.channelSection}>
             <Text style={styles.gapLabel}>PTT CHANNEL</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.channelRow}>
-              {pttChannels.map((ch) => (
+            {pttChannels.map((ch) => {
+              const isActive = activePttChannelId === ch.id;
+              return (
                 <TouchableOpacity
                   key={ch.id}
-                  style={[styles.channelChip, activePttChannelId === ch.id && styles.channelChipActive]}
+                  style={[styles.channelListRow, isActive && styles.channelListRowActive]}
                   onPress={() => void handleJoinChannel(ch.id)}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Switch to channel ${ch.name}`}
+                  accessibilityRole="radio"
+                  accessibilityLabel={ch.isAll ? 'All members channel' : `Channel ${ch.name}`}
+                  accessibilityState={{ checked: isActive }}
                 >
-                  <Text style={[styles.channelChipText, activePttChannelId === ch.id && styles.channelChipTextActive]}>
-                    {ch.isAll ? '📢 All' : `# ${ch.name}`}
+                  <View style={[styles.channelListStrip, isActive && styles.channelListStripActive]} />
+                  <Text style={[styles.channelListName, isActive && styles.channelListNameActive]}>
+                    {ch.isAll ? '📢  All Members' : `# ${ch.name}`}
                   </Text>
+                  {typeof ch.memberCount === 'number' && (
+                    <Text style={styles.channelMemberCount}>{ch.memberCount} online</Text>
+                  )}
+                  <View style={[styles.channelRadio, isActive && styles.channelRadioActive]}>
+                    {isActive && <View style={styles.channelRadioDot} />}
+                  </View>
                 </TouchableOpacity>
-              ))}
-              {isAdmin && !showNewChannel && (
-                <TouchableOpacity
-                  style={styles.channelNewChip}
-                  onPress={() => { if (!guardInMotion()) setShowNewChannel(true); }}
-                  accessibilityRole="button"
-                  accessibilityLabel="Create new PTT channel"
-                >
-                  <Text style={styles.channelNewText}>+ Channel</Text>
-                </TouchableOpacity>
-              )}
-            </ScrollView>
+              );
+            })}
+            {isAdmin && !showNewChannel && (
+              <TouchableOpacity
+                style={styles.channelAddRow}
+                onPress={() => { if (!guardInMotion()) setShowNewChannel(true); }}
+                accessibilityRole="button"
+                accessibilityLabel="Create new PTT channel"
+              >
+                <Text style={styles.channelAddText}>+ Add Channel</Text>
+              </TouchableOpacity>
+            )}
             {isAdmin && showNewChannel && (
               <View style={styles.newChannelRow}>
                 <TextInput
@@ -1272,4 +1375,48 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   newChannelCancelText: { color: '#888888', fontWeight: '600', fontSize: 14 },
+
+  // Create form
+  createFieldLabel: { color: '#555555', fontSize: 10, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 8, marginTop: 20 },
+  inputFocused: { borderColor: '#DC143C' },
+  charCounter: { color: '#444444', fontSize: 11, textAlign: 'right', marginTop: 4, marginBottom: 4 },
+  pillRow: { flexDirection: 'row', gap: 8, marginBottom: 4 },
+  createPill: {
+    flex: 1, paddingVertical: 12, borderRadius: 10,
+    backgroundColor: '#1C1C1C', borderWidth: 1, borderColor: '#2A2A2A',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  createPillActive: { backgroundColor: '#1A0505', borderColor: '#DC143C' },
+  createPillText: { color: '#555555', fontSize: 13, fontWeight: '600', textAlign: 'center' },
+  createPillTextActive: { color: '#DC143C' },
+
+  // Join form
+  codeInputRow: { flexDirection: 'row', gap: 10, alignItems: 'center', marginBottom: 8 },
+  pasteBtn: {
+    paddingHorizontal: 16, paddingVertical: 14, backgroundColor: '#1C1C1C',
+    borderRadius: 10, borderWidth: 1, borderColor: '#2A2A2A', justifyContent: 'center',
+  },
+  pasteBtnText: { color: '#888888', fontSize: 13, fontWeight: '600' },
+  codePreviewText: { color: '#444444', fontSize: 13, textAlign: 'center', letterSpacing: 4, fontVariant: ['tabular-nums'] as any },
+
+  // PTT vertical channel list
+  channelListRow: {
+    flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingRight: 12,
+    borderLeftWidth: 4, borderLeftColor: 'transparent', marginBottom: 4, borderRadius: 0,
+  },
+  channelListRowActive: { backgroundColor: '#1A0505', borderLeftColor: '#DC143C' },
+  channelListStrip: { width: 0 },
+  channelListStripActive: { width: 0 },
+  channelListName: { flex: 1, color: '#888888', fontSize: 14, fontWeight: '600', paddingLeft: 10 },
+  channelListNameActive: { color: '#DC143C' },
+  channelMemberCount: { color: '#444444', fontSize: 12, marginRight: 10 },
+  channelRadio: {
+    width: 18, height: 18, borderRadius: 9,
+    borderWidth: 2, borderColor: '#2A2A2A',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  channelRadioActive: { borderColor: '#DC143C' },
+  channelRadioDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#DC143C' },
+  channelAddRow: { paddingVertical: 10, paddingLeft: 14, marginTop: 2 },
+  channelAddText: { color: '#555555', fontSize: 13, fontWeight: '600' },
 });

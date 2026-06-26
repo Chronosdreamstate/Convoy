@@ -13,6 +13,7 @@ import {
 import { useRouter } from 'expo-router';
 import { authService } from '../../services/AuthService';
 import { useAuthStore } from '../../stores/authStore';
+import { theme } from '../../theme';
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
 
 GoogleSignin.configure({
@@ -123,6 +124,8 @@ export default function WelcomeScreen() {
           styles.heroSection,
           { opacity: heroOpacity, transform: [{ translateY: heroTranslate }] },
         ]}
+        accessibilityLabel="CONVOY app logo"
+        accessibilityRole="image"
       >
         {/* Decorative convoy of cars */}
         <Text style={styles.convoyEmojis}>🚗🚙🚕</Text>
@@ -139,6 +142,7 @@ export default function WelcomeScreen() {
           onPress={() => router.push('/(auth)/phone')}
           accessibilityRole="button"
           accessibilityLabel="Sign in with Phone"
+          accessibilityHint="Opens phone number entry screen"
         >
           <Text style={styles.primaryButtonText}>📱  Sign in with Phone</Text>
         </TouchableOpacity>
@@ -155,6 +159,7 @@ export default function WelcomeScreen() {
           onPress={() => router.push('/(auth)/email')}
           accessibilityRole="button"
           accessibilityLabel="Sign in with Email"
+          accessibilityHint="Opens email and password entry screen"
         >
           <Text style={styles.secondaryButtonText}>✉️  Sign in with Email</Text>
         </TouchableOpacity>
@@ -166,6 +171,7 @@ export default function WelcomeScreen() {
             onPress={() => { void handleAppleSignIn(); }}
             accessibilityRole="button"
             accessibilityLabel="Sign in with Apple"
+            accessibilityHint="Signs you in with your Apple ID"
           >
             <Text style={styles.appleButtonText}> Sign in with Apple</Text>
           </TouchableOpacity>
@@ -177,6 +183,7 @@ export default function WelcomeScreen() {
           onPress={() => { void handleGoogleSignIn(); }}
           accessibilityRole="button"
           accessibilityLabel="Sign in with Google"
+          accessibilityHint="Signs you in with your Google account"
         >
           <Text style={styles.googleButtonText}>G  Sign in with Google</Text>
         </TouchableOpacity>
@@ -212,10 +219,10 @@ export default function WelcomeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0A0A0A',
+    backgroundColor: theme.colors.bg,
     justifyContent: 'space-between',
-    paddingHorizontal: 24,
-    paddingVertical: 32,
+    paddingHorizontal: theme.spacing.lg,
+    paddingVertical: theme.spacing.xl,
   },
   heroSection: {
     flex: 1,
@@ -225,42 +232,40 @@ const styles = StyleSheet.create({
   convoyEmojis: {
     fontSize: 32,
     letterSpacing: 8,
-    marginBottom: 16,
+    marginBottom: theme.spacing.md,
   },
   appName: {
-    fontSize: 72,
-    fontWeight: '900',
-    color: '#FFFFFF',
-    letterSpacing: 10,
+    ...theme.typography.hero,
+    color: theme.colors.text,
   },
   logoAccent: {
     width: 80,
     height: 3,
-    backgroundColor: '#DC143C',
+    backgroundColor: theme.colors.accent,
     borderRadius: 2,
-    marginTop: 8,
-    marginBottom: 16,
+    marginTop: theme.spacing.sm,
+    marginBottom: theme.spacing.md,
   },
   tagline: {
     fontSize: 16,
-    color: '#888888',
+    color: theme.colors.textMuted,
     letterSpacing: 0.5,
     textAlign: 'center',
   },
   buttonSection: {
-    paddingBottom: 8,
+    paddingBottom: theme.spacing.sm,
   },
   primaryButton: {
-    backgroundColor: '#DC143C',
+    backgroundColor: theme.colors.accent,
     borderRadius: 14,
     paddingVertical: 18,
-    paddingHorizontal: 24,
+    paddingHorizontal: theme.spacing.lg,
     alignItems: 'center',
     minHeight: 56,
     justifyContent: 'center',
   },
   primaryButtonText: {
-    color: '#FFFFFF',
+    color: theme.colors.text,
     fontSize: 16,
     fontWeight: '700',
     letterSpacing: 0.3,
@@ -273,26 +278,26 @@ const styles = StyleSheet.create({
   dividerLine: {
     flex: 1,
     height: 1,
-    backgroundColor: '#2A2A2A',
+    backgroundColor: theme.colors.border,
   },
   dividerText: {
-    color: '#555555',
+    color: theme.colors.textSubtle,
     fontSize: 13,
     marginHorizontal: 12,
   },
   secondaryButton: {
-    backgroundColor: '#1C1C1C',
+    backgroundColor: theme.colors.card,
     borderRadius: 14,
     paddingVertical: 18,
-    paddingHorizontal: 24,
+    paddingHorizontal: theme.spacing.lg,
     alignItems: 'center',
     minHeight: 56,
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: theme.colors.border,
   },
   secondaryButtonText: {
-    color: '#FFFFFF',
+    color: theme.colors.text,
     fontSize: 16,
     fontWeight: '600',
     letterSpacing: 0.3,
@@ -301,7 +306,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#000000',
     borderRadius: 14,
     paddingVertical: 18,
-    paddingHorizontal: 24,
+    paddingHorizontal: theme.spacing.lg,
     alignItems: 'center',
     minHeight: 56,
     justifyContent: 'center',
@@ -310,16 +315,16 @@ const styles = StyleSheet.create({
     borderColor: '#333333',
   },
   appleButtonText: {
-    color: '#FFFFFF',
+    color: theme.colors.text,
     fontSize: 16,
     fontWeight: '600',
     letterSpacing: 0.3,
   },
   googleButton: {
-    backgroundColor: '#1C1C1C',
+    backgroundColor: theme.colors.card,
     borderRadius: 14,
     paddingVertical: 18,
-    paddingHorizontal: 24,
+    paddingHorizontal: theme.spacing.lg,
     alignItems: 'center',
     minHeight: 56,
     justifyContent: 'center',
@@ -335,7 +340,7 @@ const styles = StyleSheet.create({
   },
   legalSection: {
     alignItems: 'center',
-    paddingTop: 24,
+    paddingTop: theme.spacing.lg,
   },
   legalLinks: {
     flexDirection: 'row',
@@ -343,12 +348,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   legalText: {
-    color: '#888888',
-    fontSize: 11,
+    color: theme.colors.textMuted,
+    ...theme.typography.tiny,
   },
   legalLink: {
-    color: '#DC143C',
-    fontSize: 11,
+    color: theme.colors.accent,
+    ...theme.typography.tiny,
     textDecorationLine: 'underline',
   },
 });

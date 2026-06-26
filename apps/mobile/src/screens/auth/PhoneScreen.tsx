@@ -92,7 +92,11 @@ export default function PhoneScreen() {
           <Text style={styles.label}>Phone Number</Text>
 
           <View style={[styles.inputRow, isFocused && styles.inputRowFocused]}>
-            <View style={styles.prefixChip}>
+            <View
+              style={styles.prefixChip}
+              accessibilityLabel="Country code: plus 1, United States"
+              accessible
+            >
               <Text style={styles.prefixText}>🇺🇸  +1</Text>
             </View>
             <View style={styles.inputDivider} />
@@ -110,7 +114,7 @@ export default function PhoneScreen() {
               onSubmitEditing={() => { void handleSendOtp(); }}
               onFocus={() => setIsFocused(true)}
               onBlur={() => setIsFocused(false)}
-              accessibilityLabel="Phone number input"
+              accessibilityLabel="Phone number, required"
             />
           </View>
 
@@ -122,6 +126,7 @@ export default function PhoneScreen() {
             disabled={isLoading || digits.length < 10}
             accessibilityRole="button"
             accessibilityLabel="Send OTP"
+            accessibilityHint="Sends a one-time code to your phone"
             accessibilityState={{ disabled: isLoading || digits.length < 10 }}
           >
             {isLoading ? (
