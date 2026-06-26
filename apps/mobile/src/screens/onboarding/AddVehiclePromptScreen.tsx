@@ -44,6 +44,7 @@ export default function AddVehiclePromptScreen() {
     try {
       await apiClient.post('/api/v1/vehicles', {
         model: vehicleName.trim(),
+        type: selectedType,
       });
     } catch {
       // non-blocking — proceed regardless
