@@ -350,6 +350,54 @@ export async function handleHazardProximity(params: {
 }
 
 // ---------------------------------------------------------------------------
+// Centroid gap alert — exported for unit testing
+// Emits gap:alert to the user's personal room when they are > 5 km from the
+// geometric centroid of all active group members (convoy mode only).
+// ---------------------------------------------------------------------------
+export async function handleCentroidGapAlert(params: {
+  groupId: string;
+  userId: string;
+  location: LatLng;
+  redis: Redis;
+  db: Pool;
+  io: IoBroadcaster;
+}): Promise<void> {
+  const { groupId, userId, location, redis, db, io } = params;
+
+  // Only run while the group is in convoy mode (status = 'active')
+  const groupResult = await db.query<{ status: string }>(
+    'SELECT status FROM convoy_groups WHERE id = $1',
+    [groupId],
+  );
+  if (groupResult.rows[0]?.status !== 'active') return;
+
+  // Gather every member's cached location from Redis
+  const locKeys = await redis.keys(`loc:${groupId}:*`);
+  if (locKeys.length < 2) return; // centroid needs at least 2 points
+
+  const locs: LatLng[] = [];
+  for (const key of locKeys) {
+    const raw = await redis.hgetall(key);
+    if (raw?.lat && raw?.lng) {
+      locs.push({ lat: Number(raw.lat), lng: Number(raw.lng) });
+    }
+  }
+  if (locs.length < 2) return;
+
+  // Arithmetic centroid of all member positions
+  const centroidLat = locs.reduce((sum, l) => sum + l.lat, 0) / locs.length;
+  const centroidLng = locs.reduce((sum, l) => sum + l.lng, 0) / locs.length;
+
+  const distKm = haversineKm(location.lat, location.lng, centroidLat, centroidLng);
+  if (distKm > 5) {
+    io.to(`user:${userId}`).emit('gap:alert', {
+      distanceKm: Math.round(distKm * 10) / 10,
+      groupId,
+    });
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Socket.io connection handler factory
 // ---------------------------------------------------------------------------
 export function registerSocketHandlers(
@@ -357,7 +405,7 @@ export function registerSocketHandlers(
   io: SocketIO,
 ): (socket: Socket) => void {
   const lastLocUpdate = new Map<string, number>();
-  const LOC_RATE_LIMIT_MS = 2_500; // server-side floor: 1 update per 2.5 s per socket
+  const LOC_RATE_LIMIT_MS = 500; // max 2 location updates per second per socket
 
   return async (socket: Socket) => {
     const userId = socket.data.userId as string;

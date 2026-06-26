@@ -138,9 +138,9 @@ function PTTButton({
         onPressOut={handlePressOut}
         disabled={disabled}
         accessibilityRole="button"
-        accessibilityLabel="Push to talk"
-        accessibilityHint={isMuted ? 'Microphone is muted' : 'Hold to transmit, release to stop'}
-        accessibilityState={{ disabled: disabled || isMuted }}
+        accessibilityLabel={isTransmitting ? 'Transmitting voice' : 'Push to Talk'}
+        accessibilityHint="Hold to speak to your convoy"
+        accessibilityState={{ busy: isTransmitting, disabled: disabled || isMuted }}
       >
         <Animated.View
           style={[

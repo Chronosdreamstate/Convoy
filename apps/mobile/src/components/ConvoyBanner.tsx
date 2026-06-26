@@ -42,13 +42,14 @@ function ConvoyBanner({
         { top: insets.top + 8, transform: [{ translateY: slideAnim }] },
       ]}
       pointerEvents="box-none"
+      accessibilityLiveRegion="polite"
     >
       <TouchableOpacity
         style={styles.pill}
         onPress={onPress}
         activeOpacity={0.85}
         accessibilityRole="button"
-        accessibilityLabel={`Active convoy: ${groupName}, ${memberCount} riders`}
+        accessibilityLabel={`Convoy active: ${groupName}, ${memberCount} riders`}
       >
         <Text style={styles.icon}>🚗</Text>
         <Text style={styles.groupName} numberOfLines={1}>

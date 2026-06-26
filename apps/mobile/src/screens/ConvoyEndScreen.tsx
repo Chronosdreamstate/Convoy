@@ -285,7 +285,7 @@ export default function ConvoyEndScreen() {
         {/* Back to Home — ghost */}
         <TouchableOpacity
           style={styles.ghostBtn}
-          onPress={() => router.replace('/(tabs)')}
+          onPress={() => router.replace('/(tabs)/map')}
           accessibilityRole="button"
           accessibilityLabel="Back to Home"
         >
