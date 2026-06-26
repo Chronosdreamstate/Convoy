@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { authService } from '../../services/AuthService';
+import { useAuthStore } from '../../stores/authStore';
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
 
 GoogleSignin.configure({
@@ -24,6 +25,7 @@ const TERMS_URL = 'https://convoy.app/terms';
 
 export default function WelcomeScreen() {
   const router = useRouter();
+  const { setUser, setAccessToken } = useAuthStore();
 
   const handleOpenUrl = (url: string) => {
     Linking.openURL(url).catch(() => {});
@@ -42,7 +44,9 @@ export default function WelcomeScreen() {
         ],
       });
       if (credential.identityToken) {
-        await authService.signInSocial('apple', credential.identityToken);
+        const result = await authService.signInSocial('apple', credential.identityToken);
+        setUser(result.user);
+        setAccessToken(result.accessToken);
         router.replace('/(tabs)/map');
       }
     } catch (err: unknown) {
@@ -62,7 +66,9 @@ export default function WelcomeScreen() {
       const userInfo = await GoogleSignin.signIn();
       const idToken = userInfo.data?.idToken ?? null;
       if (!idToken) { Alert.alert('Sign In Failed', 'No ID token returned from Google.'); return; }
-      await authService.signInSocial('google', idToken);
+      const result = await authService.signInSocial('google', idToken);
+      setUser(result.user);
+      setAccessToken(result.accessToken);
       router.replace('/(tabs)/map');
     } catch (err: unknown) {
       const code = (err as { code?: string })?.code;
