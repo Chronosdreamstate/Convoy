@@ -44,8 +44,20 @@ function initials(name: string): string {
 
 function AvatarCircle({ name }: { name: string }) {
   return (
-    <View style={styles.avatarCircle}>
-      <Text style={styles.avatarInitials}>{initials(name)}</Text>
+    <View style={styles.avatarRing}>
+      <View style={styles.avatarCircle}>
+        <Text style={styles.avatarInitials}>{initials(name)}</Text>
+      </View>
+    </View>
+  );
+}
+
+function CallsignBadge({ callsign }: { callsign: string | null }) {
+  return (
+    <View style={styles.callsignBadge}>
+      <Text style={[styles.callsignText, !callsign && styles.callsignMuted]}>
+        {callsign ? `📻 ${callsign}` : 'No callsign'}
+      </Text>
     </View>
   );
 }
@@ -69,6 +81,8 @@ export default function ProfileScreen() {
   const [pttCallsign, setPttCallsign] = useState('');
   const [privacy, setPrivacy] = useState<'open' | 'invite_only'>('open');
   const [isDirty, setIsDirty] = useState(false);
+  const [editingName, setEditingName] = useState(false);
+  const nameInputRef = useRef<import('react-native').TextInput>(null);
 
   // Mounted guard — prevents setState calls after the component unmounts
   const isMounted = useRef(true);
@@ -177,9 +191,40 @@ export default function ProfileScreen() {
         {error ? <Text style={styles.errorText}>{error}</Text> : null}
         {saveSuccess ? <Text style={styles.successText}>Profile saved successfully.</Text> : null}
 
-        {/* Avatar + name */}
+        {/* Avatar + callsign badge */}
         <View style={styles.avatarSection}>
           <AvatarCircle name={displayName || profile?.displayName || '?'} />
+          <TouchableOpacity
+            style={styles.displayNameRow}
+            onPress={() => {
+              setEditingName(true);
+              setTimeout(() => nameInputRef.current?.focus(), 50);
+            }}
+            accessibilityRole="button"
+            accessibilityLabel="Edit display name"
+          >
+            {editingName ? (
+              <TextInput
+                ref={nameInputRef}
+                style={styles.displayNameInput}
+                value={displayName}
+                onChangeText={(v) => { setDisplayName(v); setIsDirty(true); }}
+                onBlur={() => setEditingName(false)}
+                onSubmitEditing={() => setEditingName(false)}
+                placeholder="Your display name"
+                placeholderTextColor="#555555"
+                maxLength={100}
+                returnKeyType="done"
+                accessibilityLabel="Display name input"
+              />
+            ) : (
+              <Text style={styles.displayNameText} numberOfLines={1}>
+                {displayName || profile?.displayName || ''}
+                <Text style={styles.editPencil}>  ✏️</Text>
+              </Text>
+            )}
+          </TouchableOpacity>
+          <CallsignBadge callsign={pttCallsign || (profile?.pttCallsign ?? null)} />
           {profile?.email ? (
             <Text style={styles.accountMeta}>{profile.email}</Text>
           ) : profile?.phoneNumber ? (
@@ -187,23 +232,11 @@ export default function ProfileScreen() {
           ) : null}
         </View>
 
-        {/* Display name + callsign + privacy */}
+        {/* Callsign + privacy card */}
         <View style={styles.card}>
-          <Text style={styles.cardLabel}>Display Name</Text>
+          <Text style={styles.cardLabel}>PTT Callsign</Text>
           <TextInput
-            style={styles.nameInput}
-            value={displayName}
-            onChangeText={(v) => { setDisplayName(v); setIsDirty(true); }}
-            placeholder="Your display name"
-            placeholderTextColor="#555555"
-            maxLength={100}
-            returnKeyType="next"
-            accessibilityLabel="Display name input"
-          />
-
-          <Text style={[styles.cardLabel, { marginTop: 14 }]}>PTT Callsign</Text>
-          <TextInput
-            style={styles.nameInput}
+            style={[styles.nameInput, { marginBottom: 0 }]}
             value={pttCallsign}
             onChangeText={(v) => { setPttCallsign(v); setIsDirty(true); }}
             placeholder="e.g. Alpha-1 (optional)"
@@ -211,11 +244,14 @@ export default function ProfileScreen() {
             maxLength={32}
             autoCapitalize="none"
             returnKeyType="done"
-            onSubmitEditing={handleSaveProfile}
+            onSubmitEditing={() => { void handleSaveProfile(); }}
             accessibilityLabel="PTT callsign input"
           />
+        </View>
 
-          <Text style={[styles.cardLabel, { marginTop: 14 }]}>Group Privacy</Text>
+        {/* Privacy / visibility */}
+        <View style={styles.card}>
+          <Text style={styles.cardLabel}>Profile Visibility</Text>
           <View style={styles.privacyRow}>
             <TouchableOpacity
               style={[styles.privacyBtn, privacy === 'open' && styles.privacyBtnActive]}
@@ -250,6 +286,9 @@ export default function ProfileScreen() {
             )}
           </TouchableOpacity>
         </View>
+
+        {/* Section divider */}
+        <View style={styles.sectionDivider} />
 
         {/* Friends button */}
         <TouchableOpacity
@@ -336,23 +375,83 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 28,
   },
-  avatarCircle: {
-    width: 88,
-    height: 88,
-    borderRadius: 44,
-    backgroundColor: '#DC143C',
+  avatarRing: {
+    width: 104,
+    height: 104,
+    borderRadius: 52,
+    borderWidth: 2,
+    borderColor: '#DC143C',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 12,
+    padding: 3,
+  },
+  avatarCircle: {
+    width: 96,
+    height: 96,
+    borderRadius: 48,
+    backgroundColor: '#DC143C',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   avatarInitials: {
-    fontSize: 30,
+    fontSize: 34,
     fontWeight: '700',
     color: '#ffffff',
   },
-  accountMeta: {
+  displayNameRow: {
+    marginTop: 4,
+    marginBottom: 6,
+    alignItems: 'center',
+    minWidth: 160,
+  },
+  displayNameText: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#F0F0F0',
+    textAlign: 'center',
+  },
+  editPencil: {
     fontSize: 14,
+  },
+  displayNameInput: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#F0F0F0',
+    textAlign: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: '#DC143C',
+    minWidth: 160,
+    paddingVertical: 4,
+  },
+  callsignBadge: {
+    backgroundColor: '#1C1C1C',
+    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 5,
+    marginBottom: 8,
+    marginTop: 2,
+    borderWidth: 1,
+    borderColor: '#2A2A2A',
+  },
+  callsignText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#DC143C',
+    letterSpacing: 0.5,
+  },
+  callsignMuted: {
+    color: '#555555',
+  },
+  accountMeta: {
+    fontSize: 13,
     color: '#888888',
+  },
+  sectionDivider: {
+    height: 1,
+    backgroundColor: '#1C1C1C',
+    marginVertical: 8,
+    marginHorizontal: 4,
   },
 
   // Card
@@ -413,7 +512,7 @@ const styles = StyleSheet.create({
   },
   privacyBtnActive: {
     borderColor: '#DC143C',
-    backgroundColor: '#1A0505',
+    backgroundColor: '#DC143C',
   },
   privacyBtnText: {
     color: '#888888',
@@ -421,7 +520,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   privacyBtnTextActive: {
-    color: '#DC143C',
+    color: '#FFFFFF',
   },
 
   // Friends button

@@ -10,7 +10,7 @@
  *   3. Notifies DrivingModeService of connect/disconnect.
  */
 
-import { DeviceEventEmitter, NativeModules, Platform } from 'react-native';
+import { DeviceEventEmitter, EmitterSubscription, NativeModules, Platform } from 'react-native';
 
 // ---------------------------------------------------------------------------
 // Native module interface (implemented in Kotlin)
@@ -39,6 +39,10 @@ type AutoListener = (connected: boolean) => void;
 export class AndroidAutoService {
   private module: IConvoyAndroidAutoModule | null = null;
   private listeners: Set<AutoListener> = new Set();
+  private connectSub: EmitterSubscription | null = null;
+  private disconnectSub: EmitterSubscription | null = null;
+  private connected = false;
+  private lastState: AndroidAutoState | null = null;
 
   constructor() {
     if (Platform.OS === 'android' && NativeModules.ConvoyAndroidAuto) {
@@ -46,37 +50,103 @@ export class AndroidAutoService {
     }
   }
 
-  /** Wire lifecycle events — returns unsubscribe fn (Req 13.7, 28.1). */
+  /**
+   * Wire lifecycle events from the native CarAppService.
+   * Removes any previously registered subscriptions before re-registering to prevent
+   * accumulation if start() is called more than once (Req 13.7, 28.1).
+   * @returns An unsubscribe function that removes the event listeners.
+   */
   start(): () => void {
     if (Platform.OS !== 'android') return () => {};
 
-    const connectSub = DeviceEventEmitter.addListener('AndroidAutoDidConnect', () => {
+    // Remove stale subscriptions before re-registering
+    this.connectSub?.remove();
+    this.disconnectSub?.remove();
+
+    this.connectSub = DeviceEventEmitter.addListener('AndroidAutoDidConnect', () => {
+      this.connected = true;
       this.listeners.forEach((l) => l(true));
     });
-    const disconnectSub = DeviceEventEmitter.addListener('AndroidAutoDidDisconnect', () => {
+    this.disconnectSub = DeviceEventEmitter.addListener('AndroidAutoDidDisconnect', () => {
+      this.connected = false;
+      this.lastState = null; // reset cache so next sync always pushes fresh state
       this.listeners.forEach((l) => l(false));
     });
 
     return () => {
-      connectSub.remove();
-      disconnectSub.remove();
+      this.connectSub?.remove();
+      this.connectSub = null;
+      this.disconnectSub?.remove();
+      this.disconnectSub = null;
     };
   }
 
-  /** Push current app state to Android Auto screens (Req 13.6). */
-  syncState(state: AndroidAutoState): void {
+  /**
+   * Push current app state to Android Auto screens only if it has changed (Req 13.6).
+   * Avoids redundant native calls when the same state is broadcast repeatedly.
+   */
+  syncStateIfChanged(state: AndroidAutoState): void {
+    if (
+      this.lastState !== null &&
+      this.lastState.groupId === state.groupId &&
+      this.lastState.memberCount === state.memberCount &&
+      this.lastState.routeActive === state.routeActive &&
+      this.lastState.pttChannelId === state.pttChannelId &&
+      this.lastState.myCallsign === state.myCallsign
+    ) {
+      return;
+    }
+    this.lastState = state;
     this.module?.syncState(state);
   }
 
-  /** Subscribe to session changes — used by DrivingModeService. */
+  /**
+   * Push current app state unconditionally. Use syncStateIfChanged() in hot paths
+   * to avoid unnecessary bridge calls (Req 13.6).
+   */
+  syncState(state: AndroidAutoState): void {
+    this.lastState = state;
+    this.module?.syncState(state);
+  }
+
+  /**
+   * Subscribe to Android Auto session connect/disconnect events.
+   * Used by DrivingModeService to switch into driving mode.
+   * @returns An unsubscribe function.
+   */
   onCarPlaySessionChange(cb: AutoListener): () => void {
     this.listeners.add(cb);
     return () => this.listeners.delete(cb);
   }
 
+  /**
+   * Synchronous connection state — safe to call in render or guards without awaiting.
+   * Reflects the most recent connect/disconnect event received from the native layer.
+   */
+  isConnected(): boolean {
+    return this.connected;
+  }
+
+  /**
+   * Async session check via native module — source of truth for initial state before
+   * the first connect event fires (e.g., if the service was restarted mid-session).
+   */
   async isActive(): Promise<boolean> {
     if (!this.module) return false;
     return this.module.isSessionActive();
+  }
+
+  /**
+   * Remove all event subscriptions and clear listener set.
+   * Call when the RN bridge is being torn down (e.g., app backgrounded long-term).
+   */
+  destroy(): void {
+    this.connectSub?.remove();
+    this.connectSub = null;
+    this.disconnectSub?.remove();
+    this.disconnectSub = null;
+    this.listeners.clear();
+    this.lastState = null;
   }
 }
 

@@ -37,12 +37,25 @@ export interface CarPlayState {
 
 type CarPlayListener = (connected: boolean) => void;
 
+function statesEqual(a: CarPlayState, b: CarPlayState): boolean {
+  return (
+    a.groupId === b.groupId &&
+    a.memberCount === b.memberCount &&
+    a.routeActive === b.routeActive &&
+    a.pttChannelId === b.pttChannelId &&
+    a.myCallsign === b.myCallsign
+  );
+}
+
 export class CarPlayService {
   private module: IConvoyCarPlayModule | null = null;
   private emitter: NativeEventEmitter | null = null;
   private listeners: Set<CarPlayListener> = new Set();
   private connectSub: EmitterSubscription | null = null;
   private disconnectSub: EmitterSubscription | null = null;
+  private stateRequestSub: EmitterSubscription | null = null;
+  private currentState: CarPlayState | null = null;
+  private stopFn: (() => void) | null = null;
 
   constructor() {
     if (Platform.OS === 'ios' && NativeModules.ConvoyCarPlay) {
@@ -58,25 +71,52 @@ export class CarPlayService {
     // Remove previous subscriptions before re-registering to prevent accumulation
     this.connectSub?.remove();
     this.disconnectSub?.remove();
+    this.stateRequestSub?.remove();
 
-    this.connectSub = this.emitter.addListener('CarPlayDidConnect', () => {
-      this.listeners.forEach((l) => l(true));
-    });
-    this.disconnectSub = this.emitter.addListener('CarPlayDidDisconnect', () => {
-      this.listeners.forEach((l) => l(false));
-    });
+    try {
+      this.connectSub = this.emitter.addListener('CarPlayDidConnect', () => {
+        this.listeners.forEach((l) => l(true));
+      });
+      this.disconnectSub = this.emitter.addListener('CarPlayDidDisconnect', () => {
+        this.listeners.forEach((l) => l(false));
+      });
+      // Native layer requests a full resync (e.g. after memory pressure / template reload)
+      this.stateRequestSub = this.emitter.addListener('CarPlayStateRequest', () => {
+        if (this.currentState) {
+          this.module?.syncState(this.currentState);
+        }
+      });
+    } catch (err) {
+      console.warn('[CarPlayService] Failed to register native listeners:', err);
+    }
 
-    return () => {
+    const stop = () => {
       this.connectSub?.remove();
       this.connectSub = null;
       this.disconnectSub?.remove();
       this.disconnectSub = null;
+      this.stateRequestSub?.remove();
+      this.stateRequestSub = null;
     };
+    this.stopFn = stop;
+    return stop;
   }
 
   /** Push current app state to the CarPlay native UI (Req 13.1–13.5). */
   syncState(state: CarPlayState): void {
+    this.currentState = state;
     this.module?.syncState(state);
+  }
+
+  /** Only syncs to native if state has actually changed — avoids redundant IPC (Req 35.1). */
+  syncStateIfChanged(state: CarPlayState): void {
+    if (this.currentState && statesEqual(this.currentState, state)) return;
+    this.syncState(state);
+  }
+
+  /** Returns the last synced state, or null if syncState has never been called. */
+  getState(): CarPlayState | null {
+    return this.currentState;
   }
 
   /** Subscribe to session changes — used by DrivingModeService. */
@@ -88,6 +128,14 @@ export class CarPlayService {
   async isActive(): Promise<boolean> {
     if (!this.module) return false;
     return this.module.isSessionActive();
+  }
+
+  /** Tear down all subscriptions and reset state. Call on app logout or unmount. */
+  destroy(): void {
+    this.stopFn?.();
+    this.stopFn = null;
+    this.listeners.clear();
+    this.currentState = null;
   }
 }
 

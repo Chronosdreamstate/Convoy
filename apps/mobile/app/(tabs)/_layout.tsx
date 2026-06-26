@@ -12,17 +12,18 @@ export default function TabsLayout() {
     <Tabs
       screenOptions={{
         headerShown: false,
+        tabBarHideOnKeyboard: true,
         tabBarStyle: {
           backgroundColor: '#0A0A0A',
-          borderTopColor: '#1C1C1C',
+          borderTopColor: '#2A2A2A',
           borderTopWidth: 1,
           height: 64,
-          paddingBottom: 10,
+          paddingBottom: 8,
           paddingTop: 6,
         },
         tabBarActiveTintColor: '#DC143C',
         tabBarInactiveTintColor: '#555555',
-        tabBarLabelStyle: { fontSize: 10, fontWeight: '600' },
+        tabBarLabelStyle: { fontSize: 11, fontWeight: '600' },
       }}
     >
       <Tabs.Screen
@@ -43,7 +44,7 @@ export default function TabsLayout() {
         name="drives"
         options={{
           title: 'Drives',
-          tabBarIcon: ({ focused }) => <TabIcon emoji="🛣️" focused={focused} />,
+          tabBarIcon: ({ focused }) => <TabIcon emoji="📍" focused={focused} />,
         }}
       />
       <Tabs.Screen

@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
+  Animated,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { authService } from '../../services/AuthService';
@@ -23,18 +24,43 @@ export default function OtpScreen() {
   const [otp, setOtp] = useState('');
   const [isVerifying, setIsVerifying] = useState(false);
   const [isResending, setIsResending] = useState(false);
-  const [resendCooldown, setResendCooldown] = useState(0);
+  const [resendCooldown, setResendCooldown] = useState(60);
   const [error, setError] = useState<string | null>(null);
   const [resendMessage, setResendMessage] = useState<string | null>(null);
   const cooldownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const shakeAnim = useRef(new Animated.Value(0)).current;
 
+  // Start 60s initial countdown on mount so user knows when resend is available
   useEffect(() => {
+    cooldownRef.current = setInterval(() => {
+      setResendCooldown((s) => {
+        if (s <= 1) {
+          clearInterval(cooldownRef.current!);
+          cooldownRef.current = null;
+          return 0;
+        }
+        return s - 1;
+      });
+    }, 1000);
     return () => { if (cooldownRef.current) clearInterval(cooldownRef.current); };
   }, []);
+
+  const triggerShake = () => {
+    shakeAnim.setValue(0);
+    Animated.sequence([
+      Animated.timing(shakeAnim, { toValue: 10, duration: 50, useNativeDriver: true }),
+      Animated.timing(shakeAnim, { toValue: -10, duration: 50, useNativeDriver: true }),
+      Animated.timing(shakeAnim, { toValue: 8, duration: 50, useNativeDriver: true }),
+      Animated.timing(shakeAnim, { toValue: -8, duration: 50, useNativeDriver: true }),
+      Animated.timing(shakeAnim, { toValue: 4, duration: 50, useNativeDriver: true }),
+      Animated.timing(shakeAnim, { toValue: 0, duration: 50, useNativeDriver: true }),
+    ]).start();
+  };
 
   const handleVerify = async () => {
     if (otp.length !== 6) {
       setError('Please enter the 6-digit code.');
+      triggerShake();
       return;
     }
     if (!phone) {
@@ -49,11 +75,11 @@ export default function OtpScreen() {
       const result = await authService.verifyOtp(phone, otp);
       setUser(result.user);
       setAccessToken(result.accessToken);
-      // Navigate to the main app
       router.replace('/(tabs)/map');
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Verification failed. Please try again.';
       setError(message);
+      triggerShake();
     } finally {
       setIsVerifying(false);
     }
@@ -74,7 +100,7 @@ export default function OtpScreen() {
         setResendMessage('A new code has been sent.');
       }
       setOtp('');
-      setResendCooldown(30);
+      setResendCooldown(60);
       cooldownRef.current = setInterval(() => {
         setResendCooldown((s) => {
           if (s <= 1) {
@@ -118,28 +144,30 @@ export default function OtpScreen() {
         </View>
 
         <View style={styles.form}>
-          <TextInput
-            style={styles.otpInput}
-            value={otp}
-            onChangeText={(text) => {
-              setOtp(text.replace(/[^0-9]/g, '').slice(0, 6));
-              setError(null);
-            }}
-            placeholder="••••••"
-            placeholderTextColor="#555555"
-            keyboardType="number-pad"
-            textContentType="oneTimeCode"
-            returnKeyType="done"
-            onSubmitEditing={handleVerify}
-            accessibilityLabel="OTP input"
-          />
+          <Animated.View style={{ transform: [{ translateX: shakeAnim }] }}>
+            <TextInput
+              style={styles.otpInput}
+              value={otp}
+              onChangeText={(text) => {
+                setOtp(text.replace(/[^0-9]/g, '').slice(0, 6));
+                setError(null);
+              }}
+              placeholder="••••••"
+              placeholderTextColor="#555555"
+              keyboardType="number-pad"
+              textContentType="oneTimeCode"
+              returnKeyType="done"
+              onSubmitEditing={() => { void handleVerify(); }}
+              accessibilityLabel="OTP input"
+            />
+          </Animated.View>
 
           {error ? <Text style={styles.errorText}>{error}</Text> : null}
           {resendMessage ? <Text style={styles.successText}>{resendMessage}</Text> : null}
 
           <TouchableOpacity
             style={[styles.button, (isVerifying || otp.length !== 6) && styles.buttonDisabled]}
-            onPress={handleVerify}
+            onPress={() => { void handleVerify(); }}
             disabled={isVerifying || otp.length !== 6}
             accessibilityRole="button"
             accessibilityLabel="Verify OTP"
@@ -155,7 +183,7 @@ export default function OtpScreen() {
           <View style={styles.resendRow}>
             <Text style={styles.resendText}>Didn't get a code? </Text>
             <TouchableOpacity
-              onPress={handleResend}
+              onPress={() => { void handleResend(); }}
               disabled={isResending || resendCooldown > 0}
               accessibilityRole="button"
               accessibilityLabel="Resend OTP"
@@ -164,9 +192,11 @@ export default function OtpScreen() {
               {isResending ? (
                 <ActivityIndicator size="small" color="#DC143C" />
               ) : resendCooldown > 0 ? (
-                <Text style={[styles.resendLink, { color: '#555555' }]}>Resend in {resendCooldown}s</Text>
+                <Text style={[styles.resendLink, styles.resendDisabled]}>
+                  Resend code ({resendCooldown}s)
+                </Text>
               ) : (
-                <Text style={styles.resendLink}>Resend OTP</Text>
+                <Text style={styles.resendLink}>Resend code</Text>
               )}
             </TouchableOpacity>
           </View>
@@ -220,6 +250,7 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     letterSpacing: 12,
     textAlign: 'center',
+    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
   },
   errorText: {
     color: '#FF4444',
@@ -235,6 +266,8 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     alignItems: 'center',
     marginTop: 8,
+    minHeight: 56,
+    justifyContent: 'center',
   },
   buttonDisabled: {
     opacity: 0.5,
@@ -258,5 +291,8 @@ const styles = StyleSheet.create({
     color: '#DC143C',
     fontSize: 14,
     fontWeight: '600',
+  },
+  resendDisabled: {
+    color: '#555555',
   },
 });

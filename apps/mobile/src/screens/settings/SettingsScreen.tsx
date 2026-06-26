@@ -275,6 +275,24 @@ export default function SettingsScreen() {
 
   const mark = () => setIsDirty(true);
 
+  const handleSignOut = async () => {
+    Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Sign Out',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await authService.signOut();
+            router.replace('/(auth)/welcome');
+          } catch {
+            Alert.alert('Error', 'Failed to sign out. Please try again.');
+          }
+        },
+      },
+    ]);
+  };
+
   if (isLoading) {
     return (
       <SafeAreaView style={styles.container}>
@@ -522,6 +540,17 @@ export default function SettingsScreen() {
             <Text style={styles.saveButtonText}>Save Settings</Text>
           )}
         </TouchableOpacity>
+
+        {/* Sign out — separated from save by a spacer */}
+        <View style={styles.signOutSpacer} />
+        <TouchableOpacity
+          style={styles.signOutButton}
+          onPress={() => { void handleSignOut(); }}
+          accessibilityRole="button"
+          accessibilityLabel="Sign out"
+        >
+          <Text style={styles.signOutButtonText}>Sign Out</Text>
+        </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>
   );
@@ -563,11 +592,11 @@ const styles = StyleSheet.create({
   sectionHeader: {
     fontSize: 11,
     fontWeight: '700',
-    color: '#555555',
+    color: '#888888',
     letterSpacing: 1.5,
     textTransform: 'uppercase',
     marginBottom: 8,
-    marginTop: 8,
+    marginTop: 16,
     paddingHorizontal: 4,
   },
 
@@ -664,6 +693,26 @@ const styles = StyleSheet.create({
   chipTextActive: {
     color: '#FFFFFF',
     fontWeight: '700',
+  },
+
+  // Sign out
+  signOutSpacer: {
+    height: 20,
+  },
+  signOutButton: {
+    borderRadius: 14,
+    paddingVertical: 16,
+    alignItems: 'center',
+    minHeight: 52,
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#DC143C',
+    marginBottom: 8,
+  },
+  signOutButtonText: {
+    color: '#DC143C',
+    fontSize: 16,
+    fontWeight: '600',
   },
 
   // Save button

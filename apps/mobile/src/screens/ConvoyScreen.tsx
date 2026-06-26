@@ -7,6 +7,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Animated,
   FlatList,
   Image,
   Modal,
@@ -64,6 +65,38 @@ interface GroupMember {
   isOnline?: boolean;
   speedKph?: number;
   distanceM?: number;
+  callsign: string | null;
+  isGroupAdmin: boolean;
+}
+
+// Initials from a display name (up to 2 chars)
+function memberInitials(name: string): string {
+  return name.trim().split(/\s+/).slice(0, 2).map((w) => w[0] ?? '').join('').toUpperCase();
+}
+
+// Pulsing online indicator — uses Animated so it only runs for online members
+function PulsingDot({ online }: { online: boolean }) {
+  const anim = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    if (!online) { anim.setValue(1); return; }
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(anim, { toValue: 0.2, duration: 900, useNativeDriver: true }),
+        Animated.timing(anim, { toValue: 1, duration: 900, useNativeDriver: true }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [online, anim]);
+  return (
+    <Animated.View
+      style={[
+        memberStyles.onlineDot,
+        { backgroundColor: online ? '#22c55e' : '#444444' },
+        online ? { opacity: anim } : {},
+      ]}
+    />
+  );
 }
 
 interface Props {
@@ -235,6 +268,8 @@ export default function ConvoyScreen({ userId }: Props) {
           userId: m.userId,
           displayName: m.displayName ?? '',
           isMuted: m.isMuted,
+          callsign: m.pttCallsign ?? null,
+          isGroupAdmin: m.isAdmin,
         }));
         setMembers(normalised);
         setGroupMeta({ memberCount: res.data.members.length });
@@ -425,6 +460,26 @@ export default function ConvoyScreen({ userId }: Props) {
       },
     ]);
   }, [group]);
+
+  // ── Kebab menu for admin actions per member ──────────────────────────────
+  const handleMemberMenu = useCallback((m: GroupMember) => {
+    Alert.alert(
+      m.displayName,
+      m.callsign ? `Callsign: ${m.callsign}` : undefined,
+      [
+        {
+          text: m.isMuted ? '🔊 Unmute' : '🔇 Mute',
+          onPress: () => { void handleMute(m.userId); },
+        },
+        {
+          text: 'Remove from Convoy',
+          style: 'destructive',
+          onPress: () => { handleKick(m.userId); },
+        },
+        { text: 'Cancel', style: 'cancel' },
+      ],
+    );
+  }, [handleMute, handleKick]);
 
   // ── Home: no group ────────────────────────────────────────────────────────
   if (!group) {
@@ -691,7 +746,17 @@ export default function ConvoyScreen({ userId }: Props) {
       <Text style={styles.sectionLabel}>MEMBERS ({members.length})</Text>
 
       <FlatList
-        data={members}
+        data={[...members].sort((a, b) => {
+          // Admin always first
+          if (a.userId === group.adminId) return -1;
+          if (b.userId === group.adminId) return 1;
+          // Then online members
+          const aOnline = !!memberLocations[a.userId];
+          const bOnline = !!memberLocations[b.userId];
+          if (aOnline && !bOnline) return -1;
+          if (!aOnline && bOnline) return 1;
+          return 0;
+        })}
         keyExtractor={(m) => m.userId}
         style={styles.memberList}
         renderItem={({ item: m }) => {
@@ -701,44 +766,59 @@ export default function ConvoyScreen({ userId }: Props) {
             ? haversineDistanceM(adminLoc.lat, adminLoc.lng, mLoc.lat, mLoc.lng)
             : null;
           const isLive = !!memberLocations[m.userId];
+          const memberIsAdmin = m.userId === group.adminId;
+          const avatarBg = memberIsAdmin ? '#2A0A0A' : '#1C1C1C';
+          const avatarText = memberIsAdmin ? '#DC143C' : '#888888';
           return (
-          <View style={styles.memberRow}>
-            {/* Online/offline dot */}
-            <View style={[styles.statusDot, isLive ? styles.dotOnline : styles.dotOffline]} />
+            <View style={memberStyles.row}>
+              {/* Initials avatar */}
+              <View style={[memberStyles.avatar, { backgroundColor: avatarBg }]}>
+                <Text style={[memberStyles.avatarText, { color: avatarText }]}>
+                  {memberInitials(m.displayName)}
+                </Text>
+              </View>
 
-            <View style={styles.memberInfo}>
-              <Text style={styles.memberName}>{m.displayName}</Text>
-              <View style={styles.memberMetaRow}>
-                {mLoc && (
-                  <Text style={styles.memberMeta}>💨 {mLoc.speedKph.toFixed(0)} km/h</Text>
-                )}
+              {/* Name + callsign */}
+              <View style={memberStyles.info}>
+                <View style={memberStyles.nameRow}>
+                  <Text style={memberStyles.name}>{m.displayName}</Text>
+                  {memberIsAdmin && <Text style={memberStyles.adminBadge}>ADMIN</Text>}
+                  {m.isMuted && <Text style={memberStyles.mutedIcon}>🔇</Text>}
+                </View>
+                {m.callsign ? (
+                  <Text style={memberStyles.callsign}>{m.callsign}</Text>
+                ) : mLoc ? (
+                  <Text style={memberStyles.callsign}>💨 {mLoc.speedKph.toFixed(0)} km/h</Text>
+                ) : null}
+              </View>
+
+              {/* Right side: distance badge + online dot */}
+              <View style={memberStyles.right}>
                 {distFromLead != null && (
-                  <Text style={styles.memberMeta}>📍 {(distFromLead / 1000).toFixed(1)} km from lead</Text>
+                  <View style={memberStyles.distancePill}>
+                    <Text style={memberStyles.distanceText}>
+                      {distFromLead >= 1000
+                        ? `${(distFromLead / 1000).toFixed(1)} km`
+                        : `${Math.round(distFromLead)} m`}
+                    </Text>
+                  </View>
                 )}
+                <PulsingDot online={isLive} />
               </View>
-            </View>
 
-            {isAdmin && m.userId !== userId && (
-              <View style={styles.adminActions}>
+              {/* Admin kebab menu */}
+              {isAdmin && m.userId !== userId && (
                 <TouchableOpacity
-                  style={[styles.muteBtn, m.isMuted && styles.muteBtnActive]}
-                  onPress={() => void handleMute(m.userId)}
+                  style={memberStyles.kebab}
+                  onPress={() => handleMemberMenu(m)}
                   accessibilityRole="button"
-                  accessibilityLabel={`${m.isMuted ? 'Unmute' : 'Mute'} ${m.displayName}`}
+                  accessibilityLabel={`Options for ${m.displayName}`}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                 >
-                  <Text style={styles.muteBtnText}>{m.isMuted ? 'Unmute' : 'Mute'}</Text>
+                  <Text style={memberStyles.kebabText}>•••</Text>
                 </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.kickBtn}
-                  onPress={() => handleKick(m.userId)}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Kick ${m.displayName} from convoy`}
-                >
-                  <Text style={styles.kickBtnText}>Kick</Text>
-                </TouchableOpacity>
-              </View>
-            )}
-          </View>
+              )}
+            </View>
           );
         }}
         ListEmptyComponent={
@@ -796,6 +876,105 @@ export default function ConvoyScreen({ userId }: Props) {
     </SafeAreaView>
   );
 }
+
+// ---------------------------------------------------------------------------
+// Member row styles (separate sheet to avoid clashing with legacy styles)
+// ---------------------------------------------------------------------------
+
+const memberStyles = StyleSheet.create({
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#1C1C1C',
+    borderRadius: 12,
+    padding: 10,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#2A2A2A',
+    minHeight: 64,
+    gap: 10,
+  },
+  avatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  avatarText: {
+    fontSize: 15,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+  },
+  info: {
+    flex: 1,
+    justifyContent: 'center',
+  },
+  nameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flexWrap: 'wrap',
+  },
+  name: {
+    color: '#F0F0F0',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  adminBadge: {
+    color: '#DC143C',
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 1,
+    backgroundColor: '#1A0505',
+    borderRadius: 4,
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+    overflow: 'hidden',
+  },
+  mutedIcon: {
+    fontSize: 13,
+  },
+  callsign: {
+    color: '#555555',
+    fontSize: 13,
+    marginTop: 2,
+  },
+  right: {
+    alignItems: 'flex-end',
+    gap: 6,
+    flexShrink: 0,
+  },
+  distancePill: {
+    backgroundColor: '#0A0A0A',
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderWidth: 1,
+    borderColor: '#2A2A2A',
+  },
+  distanceText: {
+    color: '#888888',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  onlineDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  kebab: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    flexShrink: 0,
+  },
+  kebabText: {
+    color: '#555555',
+    fontSize: 16,
+    letterSpacing: -1,
+  },
+});
 
 // ---------------------------------------------------------------------------
 // Styles

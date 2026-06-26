@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import {
+  Animated,
   View,
   Text,
   TouchableOpacity,
@@ -27,6 +28,45 @@ export default function WelcomeScreen() {
   const router = useRouter();
   const { setUser, setAccessToken } = useAuthStore();
 
+  // Hero fade-in + slide-up on mount
+  const heroOpacity = useRef(new Animated.Value(0)).current;
+  const heroTranslate = useRef(new Animated.Value(30)).current;
+
+  // Accent pulse loop
+  const accentScale = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(heroOpacity, {
+        toValue: 1,
+        duration: 700,
+        useNativeDriver: true,
+      }),
+      Animated.timing(heroTranslate, {
+        toValue: 0,
+        duration: 700,
+        useNativeDriver: true,
+      }),
+    ]).start();
+
+    const pulse = Animated.loop(
+      Animated.sequence([
+        Animated.timing(accentScale, {
+          toValue: 1.15,
+          duration: 1000,
+          useNativeDriver: true,
+        }),
+        Animated.timing(accentScale, {
+          toValue: 1,
+          duration: 1000,
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+    pulse.start();
+    return () => pulse.stop();
+  }, [heroOpacity, heroTranslate, accentScale]);
+
   const handleOpenUrl = (url: string) => {
     Linking.openURL(url).catch(() => {});
   };
@@ -34,7 +74,6 @@ export default function WelcomeScreen() {
   const handleAppleSignIn = async () => {
     if (Platform.OS !== 'ios') return;
     try {
-      // expo-apple-authentication must be installed: npx expo install expo-apple-authentication
       // eslint-disable-next-line @typescript-eslint/no-var-requires
       const AppleAuth = require('expo-apple-authentication');
       const credential = await AppleAuth.signInAsync({
@@ -79,12 +118,19 @@ export default function WelcomeScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.heroSection}>
+      <Animated.View
+        style={[
+          styles.heroSection,
+          { opacity: heroOpacity, transform: [{ translateY: heroTranslate }] },
+        ]}
+      >
+        {/* Decorative convoy of cars */}
+        <Text style={styles.convoyEmojis}>🚗🚙🚕</Text>
         <Text style={styles.appName}>CONVOY</Text>
-        {/* Orange underline accent */}
-        <View style={styles.logoAccent} />
+        {/* Pulsing crimson underline */}
+        <Animated.View style={[styles.logoAccent, { transform: [{ scaleX: accentScale }] }]} />
         <Text style={styles.tagline}>Drive together. Stay connected.</Text>
-      </View>
+      </Animated.View>
 
       <View style={styles.buttonSection}>
         {/* Phone auth */}
@@ -113,7 +159,7 @@ export default function WelcomeScreen() {
           <Text style={styles.secondaryButtonText}>✉️  Sign in with Email</Text>
         </TouchableOpacity>
 
-        {/* Social sign-in — Apple (iOS App Store required), Google */}
+        {/* Apple sign-in — black with white text */}
         {Platform.OS === 'ios' && (
           <TouchableOpacity
             style={styles.appleButton}
@@ -121,21 +167,22 @@ export default function WelcomeScreen() {
             accessibilityRole="button"
             accessibilityLabel="Sign in with Apple"
           >
-            <Text style={styles.appleButtonText}>Sign in with Apple</Text>
+            <Text style={styles.appleButtonText}> Sign in with Apple</Text>
           </TouchableOpacity>
         )}
 
+        {/* Google sign-in */}
         <TouchableOpacity
           style={styles.googleButton}
           onPress={() => { void handleGoogleSignIn(); }}
           accessibilityRole="button"
           accessibilityLabel="Sign in with Google"
         >
-          <Text style={styles.googleButtonText}>Sign in with Google</Text>
+          <Text style={styles.googleButtonText}>G  Sign in with Google</Text>
         </TouchableOpacity>
       </View>
 
-      {/* Privacy Policy and Terms of Service links */}
+      {/* Legal */}
       <View style={styles.legalSection}>
         <Text style={styles.legalText}>By continuing, you agree to our </Text>
         <View style={styles.legalLinks}>
@@ -174,6 +221,11 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  convoyEmojis: {
+    fontSize: 32,
+    letterSpacing: 8,
+    marginBottom: 16,
   },
   appName: {
     fontSize: 72,
@@ -246,7 +298,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.3,
   },
   appleButton: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#000000',
     borderRadius: 14,
     paddingVertical: 18,
     paddingHorizontal: 24,
@@ -254,9 +306,11 @@ const styles = StyleSheet.create({
     minHeight: 56,
     justifyContent: 'center',
     marginTop: 10,
+    borderWidth: 1,
+    borderColor: '#333333',
   },
   appleButtonText: {
-    color: '#000000',
+    color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '600',
     letterSpacing: 0.3,

@@ -33,6 +33,12 @@ const muteSchema = z.object({
   muted: z.boolean(),
 });
 
+const browseGroupsSchema = z.object({
+  q: z.string().max(100).optional().default(''),
+  limit: z.coerce.number().int().min(1).max(50).optional().default(20),
+  offset: z.coerce.number().int().min(0).optional().default(0),
+});
+
 // ---------------------------------------------------------------------------
 // Row types
 // ---------------------------------------------------------------------------
@@ -238,6 +244,52 @@ async function groupsRoutes(
 
     return reply.send({
       groups: result.rows.map((g) => groupToResponse(g, parseInt(g.member_count, 10))),
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // GET /groups — browse public groups with search + pagination (Req 7.3)
+  // -------------------------------------------------------------------------
+  fastify.get('/groups', { preHandler: [authenticate, generalLimiter(fastify.redis)] }, async (request, reply) => {
+    const parsed = browseGroupsSchema.safeParse(request.query);
+    if (!parsed.success) return reply.badRequest(parsed.error.errors[0].message);
+
+    const { q, limit, offset } = parsed.data;
+
+    interface BrowseRow extends GroupRow {
+      member_count: string;
+      admin_display_name: string | null;
+      total_count: string;
+    }
+
+    const result = await fastify.db.query<BrowseRow>(
+      `SELECT g.id, g.name, g.join_code, g.admin_id, g.access_type, g.status,
+              g.gap_threshold_m, g.ptt_max_seconds, g.created_at, g.ended_at,
+              COUNT(m.id) FILTER (WHERE m.left_at IS NULL) AS member_count,
+              u.display_name AS admin_display_name,
+              COUNT(*) OVER() AS total_count
+       FROM convoy_groups g
+       LEFT JOIN convoy_members m ON m.group_id = g.id
+       LEFT JOIN users u ON u.id = g.admin_id
+       WHERE g.access_type = 'open'
+         AND g.status = 'active'
+         AND ($1 = '' OR g.name ILIKE '%' || $1 || '%')
+       GROUP BY g.id, u.display_name
+       ORDER BY COUNT(m.id) FILTER (WHERE m.left_at IS NULL) DESC, g.created_at DESC
+       LIMIT $2 OFFSET $3`,
+      [q, limit, offset],
+    );
+
+    const total = result.rows.length > 0 ? parseInt(result.rows[0].total_count, 10) : 0;
+
+    return reply.send({
+      groups: result.rows.map((g) => ({
+        ...groupToResponse(g, parseInt(g.member_count, 10)),
+        adminDisplayName: g.admin_display_name,
+      })),
+      total,
+      limit,
+      offset,
     });
   });
 

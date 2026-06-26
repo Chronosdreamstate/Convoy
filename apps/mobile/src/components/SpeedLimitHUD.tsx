@@ -1,9 +1,9 @@
 /**
  * Speed limit HUD overlay (Req 23.1–23.4)
- * Displays posted speed limit; highlights when current speed exceeds it.
+ * Displays posted speed limit sign + current speed; animates when significantly over limit.
  */
-import React from 'react';
-import { StyleSheet, View, Text } from 'react-native';
+import React, { useEffect, useRef } from 'react';
+import { Animated, StyleSheet, View, Text } from 'react-native';
 import { RouteService } from '../services/RouteService';
 
 interface Props {
@@ -18,62 +18,126 @@ export default function SpeedLimitHUD({ postedLimitKph, currentSpeedKph }: Props
     postedLimitKph !== null &&
     RouteService.isSpeedLimitExceeded(currentSpeedKph, postedLimitKph);
 
-  const label = postedLimitKph !== null
-    ? `Speed limit: ${postedLimitKph} km/h${exceeded ? ', exceeded' : ''}`
-    : 'Speed limit unavailable';
+  // Pulse when ≥10% over limit (belt-and-braces alert beyond the color change)
+  const significantlyOver =
+    postedLimitKph !== null && currentSpeedKph > postedLimitKph * 1.1;
+
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    if (significantlyOver) {
+      const pulse = Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulseAnim, {
+            toValue: 1.08,
+            duration: 400,
+            useNativeDriver: true,
+          }),
+          Animated.timing(pulseAnim, {
+            toValue: 1,
+            duration: 400,
+            useNativeDriver: true,
+          }),
+        ]),
+      );
+      pulse.start();
+      return () => pulse.stop();
+    } else {
+      pulseAnim.setValue(1);
+      return undefined;
+    }
+  }, [significantlyOver, pulseAnim]);
+
+  const speedLabel = Math.round(currentSpeedKph);
+
+  const a11yLabel =
+    postedLimitKph !== null
+      ? `Speed limit ${postedLimitKph} km/h. Current speed ${speedLabel} km/h${exceeded ? ', exceeded' : ''}`
+      : `Speed limit unavailable. Current speed ${speedLabel} km/h`;
 
   return (
-    <View
-      style={[styles.container, exceeded && styles.exceeded]}
-      accessibilityLabel={label}
-      accessibilityRole="text"
-    >
-      <Text style={styles.label} maxFontSizeMultiplier={1}>SPEED LIMIT</Text>
-      <Text style={[styles.value, exceeded && styles.valueExceeded]} maxFontSizeMultiplier={1.2}>
-        {postedLimitKph !== null ? postedLimitKph : '–'}
-      </Text>
-      <Text style={styles.unit} maxFontSizeMultiplier={1}>km/h</Text>
+    <View style={styles.wrapper} accessibilityLabel={a11yLabel} accessibilityRole="text">
+      {/* Current speed readout */}
+      <View style={styles.currentSpeedRow}>
+        <Text
+          style={[styles.currentSpeed, exceeded && styles.currentSpeedOver]}
+          maxFontSizeMultiplier={1}
+        >
+          {speedLabel}
+        </Text>
+        <Text
+          style={[styles.currentSpeedUnit, exceeded && styles.currentSpeedOver]}
+          maxFontSizeMultiplier={1}
+        >
+          km/h
+        </Text>
+      </View>
+
+      {/* Road sign */}
+      <Animated.View style={[styles.sign, { transform: [{ scale: pulseAnim }] }]}>
+        <Text style={styles.signLimit} maxFontSizeMultiplier={1}>
+          {postedLimitKph !== null ? String(postedLimitKph) : '–'}
+        </Text>
+        <Text style={styles.signUnit} maxFontSizeMultiplier={1}>
+          {postedLimitKph !== null ? 'KMH' : 'No data'}
+        </Text>
+      </Animated.View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  wrapper: {
+    alignItems: 'center',
+  },
+  currentSpeedRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    marginBottom: 4,
+  },
+  currentSpeed: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    lineHeight: 22,
+  },
+  currentSpeedUnit: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#AAAAAA',
+    marginLeft: 2,
+    marginBottom: 1,
+  },
+  currentSpeedOver: {
+    color: '#DC143C',
+  },
+  sign: {
     width: 64,
     height: 64,
     borderRadius: 32,
-    backgroundColor: '#ffffff',
-    borderWidth: 3,
-    borderColor: '#2A2A2A',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 4,
+    borderColor: '#DC143C',
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: '#000',
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 4,
+    shadowOpacity: 0.35,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 6,
+    elevation: 6,
   },
-  exceeded: {
-    borderColor: '#DC143C',
-    backgroundColor: '#fff0f0',
+  signLimit: {
+    fontSize: 24,
+    fontWeight: '900',
+    color: '#000000',
+    lineHeight: 26,
+    letterSpacing: -0.5,
   },
-  label: {
-    fontSize: 6,
+  signUnit: {
+    fontSize: 9,
     fontWeight: '700',
-    color: '#555555',
+    color: '#333333',
     letterSpacing: 0.5,
-  },
-  value: {
-    fontSize: 20,
-    fontWeight: '800',
-    color: '#0A0A0A',
-    lineHeight: 22,
-  },
-  valueExceeded: {
-    color: '#DC143C',
-  },
-  unit: {
-    fontSize: 7,
-    fontWeight: '600',
-    color: '#888888',
+    marginTop: -2,
   },
 });

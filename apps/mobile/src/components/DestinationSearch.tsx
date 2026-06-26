@@ -6,6 +6,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -42,6 +43,48 @@ interface Props {
   isInMotion?: boolean;
 }
 
+function SkeletonRows() {
+  return (
+    <>
+      {[0, 1, 2].map((i) => (
+        <View key={i} style={skeletonStyles.row}>
+          <View style={skeletonStyles.circle} />
+          <View style={skeletonStyles.lines}>
+            <View style={[skeletonStyles.bar, skeletonStyles.namebar]} />
+            <View style={[skeletonStyles.bar, skeletonStyles.addrbar]} />
+          </View>
+        </View>
+      ))}
+    </>
+  );
+}
+
+const skeletonStyles = StyleSheet.create({
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    height: 60,
+    paddingHorizontal: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#2A2A2A',
+  },
+  circle: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: '#2A2A2A',
+    marginRight: 10,
+  },
+  lines: { flex: 1 },
+  bar: {
+    borderRadius: 4,
+    backgroundColor: '#2A2A2A',
+    height: 10,
+  },
+  namebar: { width: '50%', marginBottom: 8 },
+  addrbar: { width: '75%' },
+});
+
 export default function DestinationSearch({
   isOnline,
   onSelect,
@@ -63,7 +106,6 @@ export default function DestinationSearch({
       if (!isOnline || isInMotion) { setResults([]); setError(null); return; }
       if (q.trim().length < 3) { setResults([]); return; }
 
-      // Cancel any in-flight request
       abortRef.current?.abort();
       abortRef.current = new AbortController();
 
@@ -86,7 +128,7 @@ export default function DestinationSearch({
           })),
         );
       } catch (err: unknown) {
-        if (err instanceof Error && err.name === 'CanceledError') return; // aborted — ignore
+        if (err instanceof Error && err.name === 'CanceledError') return;
         setError('Search failed. Tap to retry.');
         setResults([]);
       } finally {
@@ -124,12 +166,20 @@ export default function DestinationSearch({
     [onSelect],
   );
 
-  const showList = focused && (results.length > 0 || loading || !!error || (query.length >= 3 && isOnline));
+  const showRecentChips = focused && !isInMotion && query.length === 0 && recentDestinations.length > 0;
+  const showList = focused && (
+    results.length > 0 ||
+    loading ||
+    !!error ||
+    (query.length >= 3 && isOnline) ||
+    isInMotion ||
+    showRecentChips
+  );
 
   return (
     <View style={styles.wrapper}>
       {/* Input row */}
-      <View style={styles.card}>
+      <View style={[styles.card, focused && styles.cardFocused]}>
         <Text style={styles.searchIcon}>🔍</Text>
         <TextInput
           style={styles.input}
@@ -137,19 +187,60 @@ export default function DestinationSearch({
           onChangeText={setQuery}
           onFocus={() => setFocused(true)}
           onBlur={() => setTimeout(() => setFocused(false), 150)}
-          placeholder={isInMotion ? 'Park to type a destination' : (isOnline ? placeholder : 'Search unavailable offline')}
+          placeholder={
+            isInMotion
+              ? 'Park to type a destination'
+              : isOnline
+              ? placeholder
+              : 'Search unavailable offline'
+          }
           placeholderTextColor="#555555"
           editable={isOnline && !isInMotion}
           returnKeyType="search"
-          clearButtonMode="while-editing"
           accessibilityLabel="Destination search"
         />
         {loading && <ActivityIndicator style={styles.spinner} size="small" color="#DC143C" />}
+        {!loading && query.length > 0 && (
+          <TouchableOpacity
+            onPress={() => { setQuery(''); setResults([]); }}
+            style={styles.clearButton}
+            accessibilityLabel="Clear search"
+            accessibilityRole="button"
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Text style={styles.clearIcon}>✕</Text>
+          </TouchableOpacity>
+        )}
       </View>
 
-      {/* Dropdown results panel */}
       {showList && (
         <View style={styles.dropdown}>
+          {/* Recent destinations chips (idle, query empty) */}
+          {showRecentChips && (
+            <View style={styles.recentSection}>
+              <Text style={styles.recentLabel}>Recent</Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.chipsRow}
+                keyboardShouldPersistTaps="handled"
+              >
+                {recentDestinations.slice(0, 5).map((item) => (
+                  <TouchableOpacity
+                    key={item.id}
+                    style={styles.chip}
+                    onPress={() => handleRecentSelect(item)}
+                    accessibilityLabel={`Navigate to recent: ${item.name}`}
+                    accessibilityRole="button"
+                  >
+                    <Text style={styles.chipIcon}>🕐</Text>
+                    <Text style={styles.chipText} numberOfLines={1}>{item.name}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+          )}
+
           {/* Error / retry */}
           {error && (
             <TouchableOpacity
@@ -184,8 +275,8 @@ export default function DestinationSearch({
                     accessibilityLabel={`Navigate to recent destination: ${item.name}`}
                     accessibilityRole="button"
                   >
-                    <Text style={styles.recentIcon}>🕐</Text>
-                    <View style={styles.recentBody}>
+                    <Text style={styles.resultIcon}>🕐</Text>
+                    <View style={styles.resultBody}>
                       <Text style={styles.resultName} numberOfLines={1}>{item.name}</Text>
                       <Text style={styles.resultAddress} numberOfLines={1}>{item.address}</Text>
                     </View>
@@ -197,8 +288,11 @@ export default function DestinationSearch({
             </View>
           )}
 
-          {/* Results */}
-          {!isInMotion && results.length > 0 && (
+          {/* Skeleton loading rows */}
+          {!isInMotion && loading && <SkeletonRows />}
+
+          {/* Search results */}
+          {!isInMotion && !loading && results.length > 0 && (
             <FlatList
               data={results}
               keyExtractor={(r) => r.id}
@@ -211,19 +305,22 @@ export default function DestinationSearch({
                   accessibilityLabel={`Select destination: ${item.name}`}
                   accessibilityRole="button"
                 >
-                  <Text style={styles.resultName} numberOfLines={1}>{item.name}</Text>
-                  <Text style={styles.resultAddress} numberOfLines={1}>{item.address}</Text>
-                  {item.category && (
-                    <Text style={styles.resultCategory}>{item.category}</Text>
-                  )}
+                  <Text style={styles.resultIcon}>📍</Text>
+                  <View style={styles.resultBody}>
+                    <Text style={styles.resultName} numberOfLines={1}>{item.name}</Text>
+                    <Text style={styles.resultAddress} numberOfLines={1}>{item.address}</Text>
+                    {item.category && (
+                      <Text style={styles.resultCategory}>{item.category}</Text>
+                    )}
+                  </View>
                 </TouchableOpacity>
               )}
             />
           )}
 
-          {/* No results */}
+          {/* Empty state */}
           {!isInMotion && !loading && !error && isOnline && results.length === 0 && query.length >= 3 && (
-            <Text style={styles.noResults}>No results found</Text>
+            <Text style={styles.noResults}>No results for "{query}"</Text>
           )}
         </View>
       )}
@@ -232,9 +329,7 @@ export default function DestinationSearch({
 }
 
 const styles = StyleSheet.create({
-  wrapper: {
-    // Positioned by the parent (MapScreen floats this absolutely)
-  },
+  wrapper: {},
   card: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -250,6 +345,9 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     elevation: 5,
   },
+  cardFocused: {
+    borderColor: '#DC143C',
+  },
   searchIcon: { fontSize: 16, marginRight: 8 },
   input: {
     flex: 1,
@@ -258,6 +356,15 @@ const styles = StyleSheet.create({
     color: '#F0F0F0',
   },
   spinner: { marginLeft: 8 },
+  clearButton: {
+    marginLeft: 8,
+    padding: 4,
+  },
+  clearIcon: {
+    fontSize: 14,
+    color: '#888888',
+    fontWeight: '600',
+  },
 
   dropdown: {
     marginTop: 4,
@@ -273,6 +380,44 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
 
+  recentSection: {
+    paddingTop: 10,
+    paddingBottom: 8,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#2A2A2A',
+  },
+  recentLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#555555',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+    paddingHorizontal: 12,
+    marginBottom: 8,
+  },
+  chipsRow: {
+    paddingHorizontal: 10,
+    flexDirection: 'row',
+  },
+  chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#242424',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#2A2A2A',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    marginRight: 8,
+    maxWidth: 160,
+  },
+  chipIcon: { fontSize: 12, marginRight: 4 },
+  chipText: {
+    fontSize: 13,
+    color: '#F0F0F0',
+    fontWeight: '500',
+  },
+
   errorRow: { padding: 12, backgroundColor: 'rgba(220,20,60,0.10)' },
   errorText: { color: '#DC143C', fontSize: 13 },
 
@@ -285,15 +430,18 @@ const styles = StyleSheet.create({
   result: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 12,
-    minHeight: 44,
+    paddingHorizontal: 12,
+    height: 60,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: '#2A2A2A',
   },
-  recentIcon: { fontSize: 16, marginRight: 10 },
-  recentBody: { flex: 1 },
-  resultName: { fontSize: 14, fontWeight: '600', color: '#F0F0F0' },
-  resultAddress: { fontSize: 12, color: '#888888', marginTop: 2 },
+  resultIcon: {
+    fontSize: 18,
+    marginRight: 10,
+  },
+  resultBody: { flex: 1 },
+  resultName: { fontSize: 16, fontWeight: '700', color: '#FFFFFF' },
+  resultAddress: { fontSize: 13, color: '#888888', marginTop: 2 },
   resultCategory: {
     fontSize: 11,
     color: '#DC143C',

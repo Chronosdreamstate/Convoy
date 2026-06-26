@@ -23,6 +23,7 @@ interface Friend {
   id: string;
   displayName: string;
   avatarUrl?: string;
+  isOnline?: boolean;
 }
 
 interface FriendRequest {
@@ -125,7 +126,7 @@ function FriendsTab() {
           <Text style={styles.emptyIcon}>👥</Text>
           <Text style={styles.emptyTitle}>No friends yet</Text>
           <Text style={styles.emptySubtitle}>
-            Head over to "Find People" to connect with others.
+            Add someone by username in "Find People".
           </Text>
         </View>
       ) : null}
@@ -133,9 +134,14 @@ function FriendsTab() {
       {friends.map((friend) => (
         <View key={friend.id} style={styles.row}>
           <Avatar name={friend.displayName} />
-          <Text style={styles.rowName} numberOfLines={1}>
-            {friend.displayName}
-          </Text>
+          <View style={styles.rowInfo}>
+            <Text style={styles.rowName} numberOfLines={1}>
+              {friend.displayName}
+            </Text>
+            <Text style={[styles.rowStatus, friend.isOnline ? styles.statusOnline : styles.statusOffline]}>
+              {friend.isOnline ? '● Online' : '○ Offline'}
+            </Text>
+          </View>
           <TouchableOpacity
             style={[styles.actionBtn, styles.removeBtn]}
             onPress={() => handleRemove(friend.id)}
@@ -160,7 +166,7 @@ function FriendsTab() {
 // Requests tab
 // ---------------------------------------------------------------------------
 
-function RequestsTab() {
+function RequestsTab({ onCountChange }: { onCountChange?: (n: number) => void }) {
   const [requests, setRequests] = useState<FriendRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -184,6 +190,10 @@ function RequestsTab() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    onCountChange?.(requests.length);
+  }, [requests.length, onCountChange]);
 
   const handleAccept = async (id: string) => {
     setActing({ id, action: 'accept' });
@@ -233,6 +243,14 @@ function RequestsTab() {
     <ScrollView contentContainerStyle={styles.listContent} showsVerticalScrollIndicator={false}>
       {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
+      {requests.length > 0 && (
+        <View style={styles.sectionHeader}>
+          <View style={styles.sectionBadge}>
+            <Text style={styles.sectionBadgeText}>PENDING ({requests.length})</Text>
+          </View>
+        </View>
+      )}
+
       {requests.length === 0 && !error ? (
         <View style={styles.emptyState}>
           <Text style={styles.emptyIcon}>📬</Text>
@@ -244,9 +262,12 @@ function RequestsTab() {
       {requests.map((req) => (
         <View key={req.id} style={styles.row}>
           <Avatar name={req.displayName} />
-          <Text style={styles.rowName} numberOfLines={1}>
-            {req.displayName}
-          </Text>
+          <View style={styles.rowInfo}>
+            <Text style={styles.rowName} numberOfLines={1}>
+              {req.displayName}
+            </Text>
+            <Text style={styles.rowStatusMuted}>Wants to be friends</Text>
+          </View>
           <View style={styles.requestActions}>
             <TouchableOpacity
               style={[styles.actionBtn, styles.acceptBtn]}
@@ -259,7 +280,7 @@ function RequestsTab() {
               {acting?.id === req.id && acting.action === 'accept' ? (
                 <ActivityIndicator color="#fff" size="small" />
               ) : (
-                <Text style={styles.acceptBtnText}>Accept</Text>
+                <Text style={styles.acceptBtnText}>✓</Text>
               )}
             </TouchableOpacity>
             <TouchableOpacity
@@ -273,7 +294,7 @@ function RequestsTab() {
               {acting?.id === req.id && acting.action === 'decline' ? (
                 <ActivityIndicator color="#888" size="small" />
               ) : (
-                <Text style={styles.declineBtnText}>Decline</Text>
+                <Text style={styles.declineBtnText}>✗</Text>
               )}
             </TouchableOpacity>
           </View>
@@ -345,7 +366,6 @@ function FindPeopleTab() {
 
   return (
     <View style={styles.findContainer}>
-      {/* Search input */}
       <View style={styles.searchBox}>
         <Text style={styles.searchIcon}>🔍</Text>
         <TextInput
@@ -384,9 +404,11 @@ function FindPeopleTab() {
         {results.map((user) => (
           <View key={user.id} style={styles.row}>
             <Avatar name={user.displayName} />
-            <Text style={styles.rowName} numberOfLines={1}>
-              {user.displayName}
-            </Text>
+            <View style={styles.rowInfo}>
+              <Text style={styles.rowName} numberOfLines={1}>
+                {user.displayName}
+              </Text>
+            </View>
             {sent.has(user.id) ? (
               <View style={[styles.actionBtn, styles.sentBtn]}>
                 <Text style={styles.sentBtnText}>Sent ✓</Text>
@@ -403,7 +425,7 @@ function FindPeopleTab() {
                 {sending === user.id ? (
                   <ActivityIndicator color="#fff" size="small" />
                 ) : (
-                  <Text style={styles.addBtnText}>Add Friend</Text>
+                  <Text style={styles.addBtnText}>+ Add</Text>
                 )}
               </TouchableOpacity>
             )}
@@ -426,6 +448,7 @@ const TABS: { id: TabId; label: string }[] = [
 
 export default function FriendsScreen() {
   const [activeTab, setActiveTab] = useState<TabId>('friends');
+  const [pendingCount, setPendingCount] = useState(0);
   const [isInviting, setIsInviting] = useState(false);
   const [showInviteQR, setShowInviteQR] = useState(false);
   const [inviteLink, setInviteLink] = useState<string | null>(null);
@@ -446,7 +469,6 @@ export default function FriendsScreen() {
     }
   }, []);
 
-  // Req 17.2 — show QR code for friend invite link
   const handleShowQR = useCallback(async () => {
     setIsLoadingQR(true);
     try {
@@ -512,6 +534,11 @@ export default function FriendsScreen() {
             >
               {tab.label}
             </Text>
+            {tab.id === 'requests' && pendingCount > 0 && (
+              <View style={styles.tabBadge}>
+                <Text style={styles.tabBadgeText}>{pendingCount > 99 ? '99+' : pendingCount}</Text>
+              </View>
+            )}
           </TouchableOpacity>
         ))}
       </View>
@@ -519,7 +546,7 @@ export default function FriendsScreen() {
       {/* Tab content */}
       <View style={styles.content}>
         {activeTab === 'friends' && <FriendsTab />}
-        {activeTab === 'requests' && <RequestsTab />}
+        {activeTab === 'requests' && <RequestsTab onCountChange={setPendingCount} />}
         {activeTab === 'find' && <FindPeopleTab />}
       </View>
 
@@ -652,6 +679,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     minHeight: 44,
+    flexDirection: 'row',
+    gap: 6,
   },
   tabPillActive: {
     backgroundColor: '#DC143C',
@@ -663,6 +692,20 @@ const styles = StyleSheet.create({
   },
   tabLabelActive: {
     color: '#ffffff',
+  },
+  tabBadge: {
+    backgroundColor: '#DC143C',
+    borderRadius: 10,
+    minWidth: 20,
+    height: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 5,
+  },
+  tabBadgeText: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: '700',
   },
 
   // Content
@@ -691,9 +734,9 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   skeletonAvatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     backgroundColor: '#2A2A2A',
     flexShrink: 0,
   },
@@ -706,8 +749,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#2A2A2A',
   },
   skeletonBtn: {
-    width: 64,
-    height: 32,
+    width: 44,
+    height: 44,
     borderRadius: 8,
     backgroundColor: '#2A2A2A',
     flexShrink: 0,
@@ -717,6 +760,24 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingTop: 80,
+  },
+
+  // Section header for pending requests
+  sectionHeader: {
+    marginBottom: 12,
+  },
+  sectionBadge: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#DC143C',
+    borderRadius: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  sectionBadgeText: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.5,
   },
 
   // Row card
@@ -730,14 +791,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 12,
     marginBottom: 10,
-    minHeight: 64,
+    minHeight: 72,
   },
 
-  // Avatar
+  // Avatar — 48px
   avatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     backgroundColor: '#DC143C',
     alignItems: 'center',
     justifyContent: 'center',
@@ -746,16 +807,35 @@ const styles = StyleSheet.create({
   },
   avatarText: {
     color: '#fff',
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: '700',
   },
 
-  rowName: {
+  // Row info: name + status stacked
+  rowInfo: {
     flex: 1,
-    fontSize: 15,
-    fontWeight: '500',
-    color: '#F0F0F0',
     marginRight: 8,
+  },
+  rowName: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#F0F0F0',
+  },
+  rowStatus: {
+    fontSize: 12,
+    marginTop: 2,
+    fontWeight: '500',
+  },
+  rowStatusMuted: {
+    fontSize: 12,
+    color: '#888888',
+    marginTop: 2,
+  },
+  statusOnline: {
+    color: '#22C55E',
+  },
+  statusOffline: {
+    color: '#555555',
   },
 
   // Action buttons
@@ -783,22 +863,24 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   acceptBtn: {
-    backgroundColor: '#DC143C',
+    backgroundColor: '#22C55E',
+    minWidth: 44,
   },
   acceptBtnText: {
     color: '#fff',
-    fontSize: 13,
-    fontWeight: '600',
+    fontSize: 18,
+    fontWeight: '700',
   },
   declineBtn: {
     borderWidth: 1,
     borderColor: '#555555',
     backgroundColor: 'transparent',
+    minWidth: 44,
   },
   declineBtnText: {
     color: '#888888',
-    fontSize: 13,
-    fontWeight: '600',
+    fontSize: 18,
+    fontWeight: '700',
   },
   addBtn: {
     backgroundColor: '#DC143C',
@@ -806,15 +888,15 @@ const styles = StyleSheet.create({
   addBtnText: {
     color: '#fff',
     fontSize: 13,
-    fontWeight: '600',
+    fontWeight: '700',
   },
   sentBtn: {
     backgroundColor: '#1C1C1C',
     borderWidth: 1,
-    borderColor: '#22c55e',
+    borderColor: '#22C55E',
   },
   sentBtnText: {
-    color: '#22c55e',
+    color: '#22C55E',
     fontSize: 13,
     fontWeight: '600',
   },

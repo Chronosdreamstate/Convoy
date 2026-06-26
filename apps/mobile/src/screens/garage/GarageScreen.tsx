@@ -32,6 +32,19 @@ function colorSwatch(colorName: string | null): string | null {
   return null;
 }
 
+const SPORTY_MAKES = ['ferrari', 'lamborghini', 'porsche', 'mclaren', 'bugatti', 'pagani', 'koenigsegg', 'lotus', 'alfa romeo', 'aston'];
+const SPORTY_MODELS = ['corvette', 'mustang', 'camaro', 'challenger', 'charger', 'viper', 'supra', 'nsx', 'gtr', 'r8', 'cayman', 'boxster'];
+const TRUCK_MAKES = ['ram'];
+const TRUCK_MODELS = ['truck', 'pickup', 'f-150', 'f150', 'silverado', 'tundra', 'tacoma', 'frontier', 'colorado', 'ridgeline', 'maverick', 'ranger', 'canyon'];
+
+function vehicleEmoji(v: Vehicle): string {
+  const make = (v.make ?? '').toLowerCase();
+  const model = (v.model ?? '').toLowerCase();
+  if (SPORTY_MAKES.some((k) => make.includes(k)) || SPORTY_MODELS.some((k) => model.includes(k))) return '🏎️';
+  if (TRUCK_MAKES.some((k) => make.includes(k)) || TRUCK_MODELS.some((k) => model.includes(k))) return '🛻';
+  return '🚗';
+}
+
 interface Vehicle {
   id: string;
   year: number | null;
@@ -52,9 +65,18 @@ interface VehicleForm {
 
 const EMPTY_FORM: VehicleForm = { year: '', make: '', model: '', color: '' };
 
+function vehicleTitle(v: Vehicle): string {
+  const parts = [v.make, v.model].filter(Boolean);
+  return parts.length > 0 ? parts.join(' ') : 'Unnamed vehicle';
+}
+
 function vehicleLabel(v: Vehicle): string {
   const parts = [v.year, v.make, v.model].filter(Boolean);
   return parts.length > 0 ? parts.join(' ') : 'Unnamed vehicle';
+}
+
+function vehicleSubtitle(v: Vehicle): string {
+  return [v.year ? String(v.year) : null, v.color].filter(Boolean).join(' · ');
 }
 
 export default function GarageScreen() {
@@ -227,70 +249,88 @@ export default function GarageScreen() {
 
         {vehicles.length === 0 ? (
           <View style={styles.emptyState}>
-            <Text style={styles.emptyIcon}>🔧</Text>
+            <Text style={styles.emptyIcon}>🚗</Text>
             <Text style={styles.emptyTitle}>Add your first vehicle</Text>
             <Text style={styles.emptySubtitle}>
               Add your vehicles so convoy members can see what you're driving.
             </Text>
+            <TouchableOpacity
+              style={styles.emptyButton}
+              onPress={openAddModal}
+              accessibilityRole="button"
+              accessibilityLabel="Add vehicle"
+            >
+              <Text style={styles.emptyButtonText}>Add Vehicle</Text>
+            </TouchableOpacity>
           </View>
         ) : (
-          vehicles.map((v) => (
-            <TouchableOpacity
-              key={v.id}
-              style={[styles.vehicleCard, v.isActive && styles.vehicleCardActive]}
-              onPress={() => handleActivate(v)}
-              accessibilityRole="button"
-              accessibilityLabel={`${vehicleLabel(v)}${v.isActive ? ', active' : ', tap to activate'}`}
-            >
-              {/* Car emoji icon */}
-              <View style={styles.vehicleIconBox}>
-                <Text style={styles.vehicleIcon}>🚗</Text>
-              </View>
+          vehicles.map((v) => {
+            const subtitle = vehicleSubtitle(v);
+            const swatch = colorSwatch(v.color);
+            return (
+              <TouchableOpacity
+                key={v.id}
+                style={styles.vehicleCard}
+                onPress={() => handleActivate(v)}
+                activeOpacity={v.isActive ? 1 : 0.7}
+                accessibilityRole="button"
+                accessibilityLabel={`${vehicleLabel(v)}${v.isActive ? ', active' : ', tap to activate'}`}
+              >
+                {/* Left accent strip for active vehicle */}
+                {v.isActive && <View style={styles.activeStrip} />}
 
-              <View style={styles.vehicleInfo}>
-                <View style={styles.vehicleNameRow}>
-                  {v.isActive && (
-                    <View style={styles.activeBadge}>
-                      <Text style={styles.activeBadgeText}>ACTIVE</Text>
-                    </View>
-                  )}
-                  <Text style={styles.vehicleName}>{vehicleLabel(v)}</Text>
-                </View>
-                {v.color ? (
-                  <View style={styles.colorRow}>
-                    {colorSwatch(v.color) ? (
-                      <View style={[styles.colorSwatch, { backgroundColor: colorSwatch(v.color)! }]} />
-                    ) : null}
-                    <Text style={styles.vehicleDetail}>{v.color}</Text>
+                {/* ACTIVE badge — top right */}
+                {v.isActive && (
+                  <View style={styles.activeBadge}>
+                    <Text style={styles.activeBadgeText}>ACTIVE</Text>
                   </View>
-                ) : null}
-                {!v.isActive && (
-                  isActivating === v.id
-                    ? <ActivityIndicator color="#DC143C" size="small" style={{ marginTop: 3 }} />
-                    : <Text style={styles.tapToActivate}>Tap to set active</Text>
                 )}
-              </View>
 
-              <View style={styles.vehicleActions}>
-                <TouchableOpacity
-                  style={styles.actionButton}
-                  onPress={() => openEditModal(v)}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Edit ${vehicleLabel(v)}`}
-                >
-                  <Text style={styles.actionButtonText}>Edit</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.actionButton, styles.deleteButton]}
-                  onPress={() => handleDelete(v)}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Delete ${vehicleLabel(v)}`}
-                >
-                  <Text style={styles.deleteButtonText}>Delete</Text>
-                </TouchableOpacity>
-              </View>
-            </TouchableOpacity>
-          ))
+                {/* Vehicle icon */}
+                <View style={styles.vehicleIconBox}>
+                  <Text style={styles.vehicleIcon}>{vehicleEmoji(v)}</Text>
+                </View>
+
+                {/* Vehicle info */}
+                <View style={styles.vehicleInfo}>
+                  <Text style={styles.vehicleName} numberOfLines={1}>{vehicleTitle(v)}</Text>
+                  {subtitle ? (
+                    <View style={styles.subtitleRow}>
+                      {swatch ? (
+                        <View style={[styles.colorSwatch, { backgroundColor: swatch }]} />
+                      ) : null}
+                      <Text style={styles.vehicleSubtitle}>{subtitle}</Text>
+                    </View>
+                  ) : null}
+                  {!v.isActive && (
+                    isActivating === v.id
+                      ? <ActivityIndicator color="#DC143C" size="small" style={{ marginTop: 3 }} />
+                      : <Text style={styles.tapToActivate}>Tap to set active</Text>
+                  )}
+                </View>
+
+                {/* Edit + Delete buttons */}
+                <View style={styles.vehicleActions}>
+                  <TouchableOpacity
+                    style={styles.actionButton}
+                    onPress={() => openEditModal(v)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Edit ${vehicleLabel(v)}`}
+                  >
+                    <Text style={styles.actionButtonText}>✏️</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.actionButton, styles.deleteButton]}
+                    onPress={() => handleDelete(v)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Delete ${vehicleLabel(v)}`}
+                  >
+                    <Text style={styles.actionButtonText}>🗑️</Text>
+                  </TouchableOpacity>
+                </View>
+              </TouchableOpacity>
+            );
+          })
         )}
 
         {/* Bottom padding so FAB doesn't overlap last card */}
@@ -298,16 +338,18 @@ export default function GarageScreen() {
       </ScrollView>
 
       {/* FAB — Add Vehicle */}
-      <TouchableOpacity
-        style={styles.fab}
-        onPress={openAddModal}
-        accessibilityRole="button"
-        accessibilityLabel="Add vehicle"
-      >
-        <Text style={styles.fabIcon}>+</Text>
-      </TouchableOpacity>
+      {vehicles.length > 0 && (
+        <TouchableOpacity
+          style={styles.fab}
+          onPress={openAddModal}
+          accessibilityRole="button"
+          accessibilityLabel="Add vehicle"
+        >
+          <Text style={styles.fabIcon}>+</Text>
+        </TouchableOpacity>
+      )}
 
-      {/* Add / Edit Modal */}
+      {/* Add / Edit Modal (bottom sheet) */}
       <Modal
         visible={modalVisible}
         animationType="slide"
@@ -402,22 +444,60 @@ const styles = StyleSheet.create({
   },
   emptyIcon: { fontSize: 64, marginBottom: 16 },
   emptyTitle: { fontSize: 20, fontWeight: '700', color: '#F0F0F0', marginBottom: 8 },
-  emptySubtitle: { fontSize: 14, color: '#888888', textAlign: 'center', lineHeight: 22 },
+  emptySubtitle: { fontSize: 14, color: '#888888', textAlign: 'center', lineHeight: 22, marginBottom: 32 },
+  emptyButton: {
+    backgroundColor: '#DC143C',
+    borderRadius: 14,
+    paddingVertical: 16,
+    paddingHorizontal: 40,
+    alignItems: 'center',
+    minHeight: 52,
+    justifyContent: 'center',
+    shadowColor: '#DC143C',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.35,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  emptyButtonText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
 
   // Vehicle card
   vehicleCard: {
     backgroundColor: '#1C1C1C',
-    borderRadius: 16,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: '#2A2A2A',
     padding: 16,
+    paddingLeft: 20,
     marginBottom: 12,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
     minHeight: 72,
+    overflow: 'hidden',
   },
-  vehicleCardActive: { borderColor: '#DC143C', borderWidth: 2 },
+
+  // Left red accent strip for active vehicle
+  activeStrip: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: 4,
+    backgroundColor: '#DC143C',
+  },
+
+  // ACTIVE badge pinned to top-right
+  activeBadge: {
+    position: 'absolute',
+    top: 10,
+    right: 12,
+    backgroundColor: '#DC143C',
+    borderRadius: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+  },
+  activeBadgeText: { color: '#FFFFFF', fontSize: 9, fontWeight: '800', letterSpacing: 0.8 },
 
   vehicleIconBox: {
     width: 48,
@@ -431,34 +511,23 @@ const styles = StyleSheet.create({
   vehicleIcon: { fontSize: 26 },
 
   vehicleInfo: { flex: 1 },
-  vehicleNameRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
-  activeBadge: {
-    backgroundColor: '#DC143C',
-    borderRadius: 4,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-  },
-  activeBadgeText: { color: '#FFFFFF', fontSize: 10, fontWeight: '800', letterSpacing: 0.5 },
-  vehicleName: { fontSize: 16, fontWeight: '600', color: '#F0F0F0' },
-  vehicleDetail: { fontSize: 13, color: '#888888', marginTop: 2 },
+  vehicleName: { fontSize: 18, fontWeight: '700', color: '#F0F0F0' },
+  subtitleRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 3 },
+  colorSwatch: { width: 10, height: 10, borderRadius: 5, borderWidth: 1, borderColor: '#3A3A3A' },
+  vehicleSubtitle: { fontSize: 14, color: '#888888' },
   tapToActivate: { fontSize: 11, color: '#555555', marginTop: 3 },
 
   vehicleActions: { flexDirection: 'row', gap: 8, flexShrink: 0 },
   actionButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    width: 40,
+    height: 40,
     borderRadius: 8,
     backgroundColor: '#2A2A2A',
-    minWidth: 48,
     alignItems: 'center',
-    minHeight: 36,
     justifyContent: 'center',
   },
-  actionButtonText: { color: '#F0F0F0', fontSize: 13, fontWeight: '600' },
+  actionButtonText: { fontSize: 16 },
   deleteButton: { backgroundColor: '#1A0505' },
-  deleteButtonText: { color: '#DC143C', fontSize: 13, fontWeight: '600' },
-  colorRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 },
-  colorSwatch: { width: 10, height: 10, borderRadius: 5, borderWidth: 1, borderColor: '#3A3A3A' },
 
   // FAB
   fab: {
@@ -479,7 +548,7 @@ const styles = StyleSheet.create({
   },
   fabIcon: { color: '#fff', fontSize: 28, fontWeight: '300', lineHeight: 32 },
 
-  // Modal
+  // Modal (bottom sheet)
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.75)',
