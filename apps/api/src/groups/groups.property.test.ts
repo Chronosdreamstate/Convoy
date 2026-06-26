@@ -113,6 +113,27 @@ async function poolQuery(sql: string, values?: unknown[]): Promise<{ rows: unkno
     return { rows: m ? [m] : [], rowCount: m ? 1 : 0 };
   }
 
+  // GET /groups/public — returns open+active groups with member counts (Property 99)
+  if (norm.includes("ACCESS_TYPE = 'OPEN' AND G.STATUS = 'ACTIVE'")) {
+    const publicGroups = groups.filter(
+      (g) => g.access_type === 'open' && g.status === 'active',
+    );
+    const rows = publicGroups
+      .map((g) => {
+        const memberCount = members.filter(
+          (m) => m.group_id === g.id && m.left_at === null,
+        ).length;
+        return { ...g, member_count: String(memberCount) };
+      })
+      .sort((a, b) => {
+        const countDiff = parseInt(b.member_count, 10) - parseInt(a.member_count, 10);
+        if (countDiff !== 0) return countDiff;
+        return b.created_at.getTime() - a.created_at.getTime();
+      })
+      .slice(0, 50);
+    return { rows, rowCount: rows.length };
+  }
+
   return { rows: [], rowCount: 0 };
 }
 
@@ -229,6 +250,20 @@ async function clientQuery(sql: string, values?: unknown[]): Promise<{ rows: unk
     const m = members.find((m) => m.group_id === groupId && m.user_id === userId && m.left_at === null);
     if (m) m.left_at = new Date();
     return { rows: [], rowCount: m ? 1 : 0 };
+  }
+
+  // UPDATE convoy_members SET left_at = now() ... AND left_at IS NULL (bulk end — no user_id filter)
+  if (norm.includes('UPDATE CONVOY_MEMBERS') && norm.includes('LEFT_AT = NOW()') && !norm.includes('USER_ID = $2')) {
+    const groupId = values![0] as string;
+    members
+      .filter((m) => m.group_id === groupId && m.left_at === null)
+      .forEach((m) => { m.left_at = new Date(); });
+    return { rows: [], rowCount: 0 };
+  }
+
+  // DELETE FROM ptt_log (cleanupGroupPttLog — no-op in tests)
+  if (norm.startsWith('DELETE FROM PTT_LOG')) {
+    return { rows: [], rowCount: 0 };
   }
 
   // DELETE ptt_channel_members (on leave)
@@ -745,5 +780,95 @@ describe('Property 12: Admin role transfers on Admin departure', () => {
     expect(g.status).toBe('active');
 
     await app.close();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Property 99: GET /groups/public never returns invite_only or ended groups
+//   Validates: group discovery privacy invariant (Req 7.5, 38.1)
+// ---------------------------------------------------------------------------
+describe('Property 99: GET /groups/public only returns open+active groups', () => {
+  beforeEach(() => { resetStore(); });
+
+  it('invite_only and ended groups never appear in the public list', async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        fc.integer({ min: 0, max: 4 }), // open+active groups to create
+        fc.integer({ min: 0, max: 4 }), // invite_only groups to create
+        fc.integer({ min: 0, max: 4 }), // groups to create then end
+        fcUuid,
+        async (openCount, inviteCount, endCount, adminId) => {
+          resetStore();
+          const app = buildTestApp();
+          await app.ready();
+          const token = signToken(app, adminId);
+
+          // Create open+active groups
+          for (let i = 0; i < openCount; i++) {
+            const res = await app.inject({
+              method: 'POST',
+              url: '/api/v1/groups',
+              headers: authHeader(token),
+              payload: { name: `Open ${i}`, accessType: 'open' },
+            });
+            expect(res.statusCode).toBe(201);
+          }
+
+          // Create invite_only groups
+          for (let i = 0; i < inviteCount; i++) {
+            const res = await app.inject({
+              method: 'POST',
+              url: '/api/v1/groups',
+              headers: authHeader(token),
+              payload: { name: `Invite ${i}`, accessType: 'invite_only' },
+            });
+            expect(res.statusCode).toBe(201);
+          }
+
+          // Create open groups then end them
+          for (let i = 0; i < endCount; i++) {
+            const createRes = await app.inject({
+              method: 'POST',
+              url: '/api/v1/groups',
+              headers: authHeader(token),
+              payload: { name: `ToEnd ${i}`, accessType: 'open' },
+            });
+            expect(createRes.statusCode).toBe(201);
+            const { id: groupId } = JSON.parse(createRes.body) as { id: string };
+
+            const endRes = await app.inject({
+              method: 'POST',
+              url: `/api/v1/groups/${groupId}/end`,
+              headers: authHeader(token),
+            });
+            expect(endRes.statusCode).toBe(200);
+          }
+
+          // Query the public list
+          const listRes = await app.inject({
+            method: 'GET',
+            url: '/api/v1/groups/public',
+            headers: authHeader(token),
+          });
+          expect(listRes.statusCode).toBe(200);
+
+          const { groups: publicGroups } = JSON.parse(listRes.body) as {
+            groups: Array<{ accessType: string; status: string }>;
+          };
+
+          // Every returned group must be open and active
+          for (const g of publicGroups) {
+            expect(g.accessType).toBe('open');
+            expect(g.status).toBe('active');
+          }
+
+          // Count must match exactly the open+active groups (invite_only and ended excluded)
+          expect(publicGroups).toHaveLength(openCount);
+
+          await app.close();
+        },
+      ),
+      { numRuns: 25 },
+    );
   });
 });

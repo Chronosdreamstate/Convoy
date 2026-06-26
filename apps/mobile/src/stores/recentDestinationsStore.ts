@@ -22,17 +22,23 @@ const secureStorage = createJSONStorage(() => ({
   removeItem: (name: string) => SecureStore.deleteItemAsync(name),
 }));
 
-const MAX_RECENT = 5;
+export const MAX_RECENT = 5;
+
+/** Pure reducer — exported for property testing. */
+export function applyAddDestination(
+  destinations: RecentDestination[],
+  d: RecentDestination,
+): RecentDestination[] {
+  const filtered = destinations.filter((r) => r.id !== d.id);
+  return [d, ...filtered].slice(0, MAX_RECENT);
+}
 
 export const useRecentDestinationsStore = create<RecentDestinationsState>()(
   persist(
     (set) => ({
       destinations: [],
       addDestination: (d) =>
-        set((state) => {
-          const filtered = state.destinations.filter((r) => r.id !== d.id);
-          return { destinations: [d, ...filtered].slice(0, MAX_RECENT) };
-        }),
+        set((state) => ({ destinations: applyAddDestination(state.destinations, d) })),
       clearDestinations: () => set({ destinations: [] }),
     }),
     {
