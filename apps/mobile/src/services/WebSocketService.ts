@@ -1,8 +1,10 @@
 /**
- * WebSocketService — Socket.io client with exponential-backoff reconnection.
+ * WebSocketService — Socket.io client with exponential-backoff reconnection,
+ * heartbeat ping/pong, AppState awareness, and location update throttling.
  * Requirements: 43.2
  */
 
+import { AppState, AppStateStatus } from 'react-native';
 import { io, Socket, ManagerOptions, SocketOptions } from 'socket.io-client';
 
 // ---------------------------------------------------------------------------
@@ -18,10 +20,13 @@ export interface WebSocketConfig {
   initialDelayMs?: number;
   /** Max delay cap in ms (default 30000). */
   maxDelayMs?: number;
+  /** Heartbeat ping interval in ms (default 25000). */
+  heartbeatIntervalMs?: number;
+  /** Location update throttle in ms (default 1000 = 1/second). */
+  locationThrottleMs?: number;
   /**
    * Called when the server rejects the connection with an auth error (e.g. expired token).
    * Should refresh the access token and return the new one, or throw if refresh fails.
-   * When provided, the service will update socket.auth and retry the connection automatically.
    */
   onAuthError?: () => Promise<string>;
   /**
@@ -53,18 +58,36 @@ export function computeBackoffMs(
 // WebSocketService
 // ---------------------------------------------------------------------------
 
-/** Resolved config with numeric defaults filled in; optional callbacks stay optional. */
-type ResolvedWebSocketConfig = Required<Pick<WebSocketConfig, 'url' | 'auth' | 'initialDelayMs' | 'maxDelayMs'>> &
+type ResolvedWebSocketConfig = Required<
+  Pick<
+    WebSocketConfig,
+    'url' | 'auth' | 'initialDelayMs' | 'maxDelayMs' | 'heartbeatIntervalMs' | 'locationThrottleMs'
+  >
+> &
   Pick<WebSocketConfig, 'onAuthError' | 'onAuthFailed'>;
 
 export class WebSocketService {
   private socket: Socket | null = null;
   private readonly config: ResolvedWebSocketConfig;
 
+  // Heartbeat
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+
+  // AppState
+  private appStateSubscription: ReturnType<typeof AppState.addEventListener> | null = null;
+  private appState: AppStateStatus = AppState.currentState;
+
+  // Location throttle
+  private lastLocationEmitTs = 0;
+  private pendingLocationPayload: unknown = null;
+  private locationThrottleTimer: ReturnType<typeof setTimeout> | null = null;
+
   constructor(config: WebSocketConfig) {
     this.config = {
       initialDelayMs: 1_000,
       maxDelayMs: 30_000,
+      heartbeatIntervalMs: 25_000,
+      locationThrottleMs: 1_000,
       ...config,
     };
   }
@@ -83,12 +106,19 @@ export class WebSocketService {
       reconnectionDelay: this.config.initialDelayMs,
       reconnectionDelayMax: this.config.maxDelayMs,
       randomizationFactor: 0.25,
+      timeout: 10_000,
     };
 
     this.socket = io(this.config.url, opts);
 
-    // Handle auth errors (e.g. expired access token) on connect/reconnect attempts.
-    // socket.io fires connect_error when the server middleware calls next(new Error(...)).
+    this.socket.on('connect', () => {
+      this._startHeartbeat();
+    });
+
+    this.socket.on('disconnect', () => {
+      this._stopHeartbeat();
+    });
+
     this.socket.on('connect_error', async (err: Error) => {
       const isAuthError =
         err.message.includes('401') ||
@@ -97,29 +127,66 @@ export class WebSocketService {
 
       if (!isAuthError || !this.config.onAuthError) return;
 
-      // Capture reference so the async continuation always holds the same socket instance.
       const s = this.socket;
       if (!s) return;
 
-      // Prevent socket.io's built-in reconnection from racing with our refresh.
+      // Prevent socket.io's built-in reconnection from racing with our token refresh.
       s.io.opts.reconnection = false;
 
       try {
         const newToken = await this.config.onAuthError();
         s.auth = { ...s.auth, token: newToken };
-        // Re-enable reconnection and initiate the retry.
         s.io.opts.reconnection = true;
         s.connect();
       } catch {
-        // Refresh failed — session is unrecoverable; notify the caller.
         this.config.onAuthFailed?.();
       }
     });
 
+    this._subscribeAppState();
+
     return this.socket;
   }
 
+  /**
+   * Emit a location update at most once per locationThrottleMs.
+   * The most recent payload is buffered and flushed when the window expires.
+   * When backgrounded, throttle increases to 5 s to save battery.
+   */
+  emitLocation(payload: unknown): void {
+    if (!this.socket?.connected) return;
+
+    const throttleMs =
+      this.appState === 'background' || this.appState === 'inactive'
+        ? 5_000
+        : this.config.locationThrottleMs;
+
+    const elapsed = Date.now() - this.lastLocationEmitTs;
+
+    if (elapsed >= throttleMs) {
+      this._flushLocation(payload);
+    } else {
+      this.pendingLocationPayload = payload;
+      if (!this.locationThrottleTimer) {
+        this.locationThrottleTimer = setTimeout(() => {
+          this.locationThrottleTimer = null;
+          if (this.pendingLocationPayload !== null) {
+            this._flushLocation(this.pendingLocationPayload);
+            this.pendingLocationPayload = null;
+          }
+        }, throttleMs - elapsed);
+      }
+    }
+  }
+
   disconnect(): void {
+    this._stopHeartbeat();
+    this._unsubscribeAppState();
+    if (this.locationThrottleTimer) {
+      clearTimeout(this.locationThrottleTimer);
+      this.locationThrottleTimer = null;
+    }
+    this.pendingLocationPayload = null;
     this.socket?.disconnect();
     this.socket = null;
   }
@@ -127,4 +194,56 @@ export class WebSocketService {
   get instance(): Socket | null {
     return this.socket;
   }
+
+  // ---------------------------------------------------------------------------
+  // Private helpers
+  // ---------------------------------------------------------------------------
+
+  private _flushLocation(payload: unknown): void {
+    if (!this.socket?.connected) return;
+    this.socket.emit('location:update', payload);
+    this.lastLocationEmitTs = Date.now();
+  }
+
+  private _startHeartbeat(): void {
+    this._stopHeartbeat();
+    this.heartbeatTimer = setInterval(() => {
+      if (this.socket?.connected) {
+        this.socket.emit('ping');
+      }
+    }, this.config.heartbeatIntervalMs);
+  }
+
+  private _stopHeartbeat(): void {
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
+  }
+
+  private _subscribeAppState(): void {
+    this.appStateSubscription = AppState.addEventListener('change', this._handleAppStateChange);
+  }
+
+  private _unsubscribeAppState(): void {
+    this.appStateSubscription?.remove();
+    this.appStateSubscription = null;
+  }
+
+  private _handleAppStateChange = (nextState: AppStateStatus): void => {
+    const prev = this.appState;
+    this.appState = nextState;
+
+    if (nextState === 'active' && prev !== 'active') {
+      // Foregrounded — reconnect if socket dropped while backgrounded.
+      if (this.socket && !this.socket.connected) {
+        this.socket.connect();
+      }
+      this._startHeartbeat();
+    } else if ((nextState === 'background' || nextState === 'inactive') && prev === 'active') {
+      // Backgrounded — pause heartbeat to save battery; socket.io reconnect
+      // handles recovery when we return to foreground.
+      this._stopHeartbeat();
+    }
+  };
 }

@@ -11,7 +11,6 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  Vibration,
   View,
 } from 'react-native';
 import MapView, { Marker, Polyline, LongPressEvent, PROVIDER_DEFAULT } from 'react-native-maps';
@@ -44,6 +43,7 @@ import { apiTokenFetcher } from '../../services/ApiTokenFetcher';
 import { DriveService } from '../../services/DriveService';
 import { carPlayService } from '../../services/CarPlayService';
 import { androidAutoService } from '../../services/AndroidAutoService';
+import { HapticService } from '../../services/HapticService';
 
 interface GapAlert { memberId: string; distanceM: number }
 interface SosAlert { pin: SosPin; memberName: string }
@@ -172,13 +172,7 @@ function MemberMarkerView({ member, isStale, distanceM }: { member: MemberLocati
 const motionStateService = new MotionStateService();
 
 const hapticAdapter = {
-  impact: () => {
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const Haptics = require('expo-haptics');
-      void Haptics.impactAsync('medium');
-    } catch { /* expo-haptics not installed — non-fatal */ }
-  },
+  impact: () => HapticService.trigger('medium'),
 };
 
 // Module-level SQLite DB instance — init returns a Promise so callers await it
@@ -741,7 +735,7 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
   }, []);
 
   const handlePttStart = useCallback(() => {
-    Vibration.vibrate(30);
+    HapticService.pttStart();
     // Request mic permission lazily on first PTT attempt (Req 36.6)
     if (!micPermGrantedRef.current) {
       void requestMicPermissionForPTT().then((granted) => {
@@ -765,7 +759,7 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
   }, [pttChannelId]);
 
   const handlePttEnd = useCallback(() => {
-    Vibration.vibrate([0, 20]);
+    HapticService.pttEnd();
     setIsPttTransmitting(false);
     if (pttServiceRef.current) {
       // PTTService handles socket emit + Agora mic close

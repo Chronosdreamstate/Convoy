@@ -13,6 +13,7 @@ import {
   RefreshControl,
 } from 'react-native';
 import { apiClient } from '../../services/apiClient';
+import SkeletonCard from '../../components/SkeletonLoader';
 
 const COLOR_MAP: Record<string, string> = {
   'black': '#1a1a1a', 'white': '#f5f5f5', 'silver': '#c0c0c0', 'gray': '#808080',
@@ -244,8 +245,8 @@ export default function GarageScreen() {
   if (isLoading) {
     return (
       <SafeAreaView style={styles.container}>
-        <View style={styles.centered}>
-          <ActivityIndicator color="#DC143C" size="large" />
+        <View style={styles.skeletonPad}>
+          {[0, 1].map((i) => <SkeletonCard key={i} />)}
         </View>
       </SafeAreaView>
     );
@@ -591,6 +592,7 @@ export default function GarageScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0A0A0A' },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  skeletonPad: { padding: 20, paddingTop: 24 },
   scroll: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 48 },
 
   header: {

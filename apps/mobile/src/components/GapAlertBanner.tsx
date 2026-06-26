@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { Animated, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { HapticService } from '../services/HapticService';
 
 interface Props {
   memberName: string;
@@ -19,6 +20,7 @@ function GapAlertBanner({ memberName, distanceM, thresholdM, onDismiss, onSlowDo
   const dismissTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
+    HapticService.trigger('warning');
     Animated.spring(slideY, {
       toValue: 0,
       damping: 20,

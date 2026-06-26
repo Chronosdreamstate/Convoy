@@ -7,6 +7,7 @@ interface Props {
   onHoldStart: () => void;
   onHoldEnd: () => void;
   isTransmitting: boolean;
+  isMuted?: boolean;
   disabled?: boolean;
   size?: number;
 }

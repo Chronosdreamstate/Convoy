@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Image,
   SafeAreaView,
   ScrollView,
   StyleSheet,
@@ -43,13 +44,26 @@ function initials(name: string): string {
     .join('');
 }
 
-function AvatarCircle({ name }: { name: string }) {
+function AvatarCircle({ name, avatarUrl, onPress }: { name: string; avatarUrl?: string | null; onPress?: () => void }) {
   return (
-    <View style={styles.avatarRing}>
-      <View style={styles.avatarCircle}>
-        <Text style={styles.avatarInitials}>{initials(name)}</Text>
+    <TouchableOpacity
+      style={styles.avatarRing}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel="Change profile photo"
+      activeOpacity={0.85}
+    >
+      {avatarUrl ? (
+        <Image source={{ uri: avatarUrl }} style={styles.avatarCircle} />
+      ) : (
+        <View style={styles.avatarCircle}>
+          <Text style={styles.avatarInitials}>{initials(name)}</Text>
+        </View>
+      )}
+      <View style={styles.avatarCameraOverlay}>
+        <Text style={styles.avatarCameraIcon}>📷</Text>
       </View>
-    </View>
+    </TouchableOpacity>
   );
 }
 
@@ -85,6 +99,7 @@ export default function ProfileScreen() {
   const [privacy, setPrivacy] = useState<'open' | 'invite_only'>('open');
   const [isDirty, setIsDirty] = useState(false);
   const [editingName, setEditingName] = useState(false);
+  const [localAvatarUri, setLocalAvatarUri] = useState<string | null>(null);
   const nameInputRef = useRef<import('react-native').TextInput>(null);
 
   // Mounted guard — prevents setState calls after the component unmounts
@@ -165,6 +180,14 @@ export default function ProfileScreen() {
     }
   };
 
+  const handleAvatarPress = () => {
+    Alert.alert(
+      'Profile Photo',
+      'Avatar upload will be available in the next app update.',
+      [{ text: 'OK', style: 'cancel' }],
+    );
+  };
+
   const handleSignOut = () => {
     Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
       { text: 'Cancel', style: 'cancel' },
@@ -205,7 +228,11 @@ export default function ProfileScreen() {
 
         {/* Avatar + callsign badge */}
         <View style={styles.avatarSection}>
-          <AvatarCircle name={displayName || profile?.displayName || '?'} />
+          <AvatarCircle
+            name={displayName || profile?.displayName || '?'}
+            avatarUrl={localAvatarUri ?? profile?.avatarUrl}
+            onPress={handleAvatarPress}
+          />
           <TouchableOpacity
             style={styles.displayNameRow}
             onPress={() => {
@@ -425,6 +452,22 @@ const styles = StyleSheet.create({
     fontSize: 34,
     fontWeight: '700',
     color: '#ffffff',
+  },
+  avatarCameraOverlay: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: '#DC143C',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: '#0A0A0A',
+  },
+  avatarCameraIcon: {
+    fontSize: 13,
   },
   displayNameRow: {
     marginTop: 4,

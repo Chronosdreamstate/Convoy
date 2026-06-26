@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { HapticService } from '../services/HapticService';
 
 interface Props {
   visible: boolean;
@@ -34,12 +35,7 @@ export default function SosAlertModal({
   useEffect(() => {
     if (!visible) return;
 
-    // Trigger haptic feedback on show
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      const Haptics = require('expo-haptics');
-      void Haptics.notificationAsync('error');
-    } catch { /* expo-haptics not available — non-fatal */ }
+    HapticService.trigger('error');
 
     const anim = Animated.loop(
       Animated.sequence([

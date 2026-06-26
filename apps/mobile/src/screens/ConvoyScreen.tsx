@@ -960,6 +960,16 @@ export default function ConvoyScreen({ userId }: Props) {
         </TouchableOpacity>
       )}
 
+      {/* Invite Friends — visible to all members */}
+      <TouchableOpacity
+        style={styles.inviteBtn}
+        onPress={() => setShowInvite(true)}
+        accessibilityRole="button"
+        accessibilityLabel="Invite friends to this convoy"
+      >
+        <Text style={styles.inviteBtnText}>📨  Invite Friends</Text>
+      </TouchableOpacity>
+
       <Text style={styles.sectionLabel}>MEMBERS ({members.length})</Text>
 
       <FlatList
@@ -1057,6 +1067,68 @@ export default function ConvoyScreen({ userId }: Props) {
           <Text style={styles.secondaryBtnText}>Leave Convoy</Text>
         </TouchableOpacity>
       </View>
+
+      {/* Invite Friends modal */}
+      <Modal
+        visible={showInvite}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowInvite(false)}
+        accessibilityViewIsModal
+      >
+        <TouchableOpacity
+          style={styles.qrOverlay}
+          activeOpacity={1}
+          onPress={() => setShowInvite(false)}
+          accessibilityRole="button"
+          accessibilityLabel="Close invite modal"
+        >
+          <TouchableOpacity activeOpacity={1} onPress={() => {}}>
+            <View style={styles.inviteModal}>
+              <View style={styles.inviteModalHandle} />
+              <Text style={styles.inviteModalTitle}>📨 Invite Friends</Text>
+              <Text style={styles.inviteModalGroupName}>{group?.name}</Text>
+              <Text style={styles.inviteModalHint}>Share this code to invite riders</Text>
+
+              <View style={styles.inviteCodeBox}>
+                <Text style={styles.inviteCodeText} accessibilityLabel={`Join code: ${group?.joinCode ?? ''}`}>
+                  {group?.joinCode ?? '------'}
+                </Text>
+              </View>
+
+              <View style={styles.inviteActions}>
+                <TouchableOpacity
+                  style={[styles.inviteCopyBtn, inviteCopyFeedback && styles.inviteCopyBtnSuccess]}
+                  onPress={() => void handleInviteCopy()}
+                  accessibilityRole="button"
+                  accessibilityLabel="Copy join code"
+                >
+                  <Text style={styles.inviteCopyBtnText}>
+                    {inviteCopyFeedback ? '✓ Copied!' : '📋 Copy Code'}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.inviteShareBtn}
+                  onPress={() => void handleInviteShare()}
+                  accessibilityRole="button"
+                  accessibilityLabel="Share join code via share sheet"
+                >
+                  <Text style={styles.inviteShareBtnText}>↑ Share</Text>
+                </TouchableOpacity>
+              </View>
+
+              <TouchableOpacity
+                style={styles.inviteQrLink}
+                onPress={() => { setShowInvite(false); setShowQR(true); }}
+                accessibilityRole="button"
+                accessibilityLabel="Show QR code"
+              >
+                <Text style={styles.inviteQrLinkText}>Show QR Code instead</Text>
+              </TouchableOpacity>
+            </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
 
       {/* QR code modal (Req 7.3) */}
       <Modal
@@ -1560,4 +1632,104 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
   },
   scheduleBtnText: { color: '#888888', fontSize: 13, fontWeight: '600' },
+
+  // Invite Friends button
+  inviteBtn: {
+    backgroundColor: '#1A0505',
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#DC143C',
+    minHeight: 48,
+    justifyContent: 'center',
+  },
+  inviteBtnText: { color: '#DC143C', fontWeight: '700', fontSize: 15 },
+
+  // Invite modal
+  inviteModal: {
+    backgroundColor: '#1C1C1C',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    borderRadius: 20,
+    padding: 24,
+    width: 340,
+    alignItems: 'center',
+  },
+  inviteModalHandle: {
+    width: 40,
+    height: 4,
+    backgroundColor: '#2A2A2A',
+    borderRadius: 2,
+    marginBottom: 20,
+  },
+  inviteModalTitle: {
+    color: '#F0F0F0',
+    fontSize: 20,
+    fontWeight: '800',
+    marginBottom: 4,
+    textAlign: 'center',
+  },
+  inviteModalGroupName: {
+    color: '#DC143C',
+    fontSize: 14,
+    fontWeight: '700',
+    marginBottom: 6,
+    textAlign: 'center',
+  },
+  inviteModalHint: {
+    color: '#555555',
+    fontSize: 12,
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  inviteCodeBox: {
+    backgroundColor: '#0A0A0A',
+    borderRadius: 14,
+    paddingVertical: 20,
+    paddingHorizontal: 32,
+    marginBottom: 20,
+    borderWidth: 2,
+    borderColor: '#DC143C',
+    width: '100%',
+    alignItems: 'center',
+  },
+  inviteCodeText: {
+    color: '#DC143C',
+    fontSize: 36,
+    fontWeight: '800',
+    letterSpacing: 10,
+    fontFamily: 'monospace',
+    textAlign: 'center',
+  },
+  inviteActions: {
+    flexDirection: 'row',
+    gap: 10,
+    width: '100%',
+    marginBottom: 14,
+  },
+  inviteCopyBtn: {
+    flex: 1,
+    backgroundColor: '#2A2A2A',
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+    minHeight: 48,
+    justifyContent: 'center',
+  },
+  inviteCopyBtnSuccess: { backgroundColor: '#14532D', borderWidth: 1, borderColor: '#22C55E' },
+  inviteCopyBtnText: { color: '#F0F0F0', fontWeight: '700', fontSize: 14 },
+  inviteShareBtn: {
+    flex: 1,
+    backgroundColor: '#DC143C',
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+    minHeight: 48,
+    justifyContent: 'center',
+  },
+  inviteShareBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
+  inviteQrLink: { paddingVertical: 8 },
+  inviteQrLinkText: { color: '#555555', fontSize: 13, textDecorationLine: 'underline' },
 });

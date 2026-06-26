@@ -7,6 +7,11 @@
  * Property 105: Non-admin gets 403 from PATCH /groups/:id/settings
  * Property 106: gapThresholdM outside [100, 160000] returns 400
  * Property 107: PATCH /groups/:id/settings updates only the fields that were sent
+ * Property 119: POST /groups/:id/events — admin required (403 for non-admin, 201 for admin)
+ * Property 120: scheduledFor must be a future date (past → 400)
+ * Property 121: GET /groups/:id/events only returns upcoming+future events
+ * Property 122: DELETE /groups/:id/events/:eventId soft-deletes to status='cancelled'
+ * Property 123: Event title max 100 chars (101 chars → 400)
  */
 
 import Fastify, { FastifyInstance } from 'fastify';
@@ -56,10 +61,22 @@ interface InMemoryChannelMember {
   user_id: string;
 }
 
+interface InMemoryEvent {
+  id: string;
+  group_id: string;
+  created_by: string;
+  title: string;
+  description: string | null;
+  scheduled_for: Date;
+  status: 'upcoming' | 'cancelled';
+  created_at: Date;
+}
+
 let groups: InMemoryGroup[] = [];
 let members: InMemoryMember[] = [];
 let channels: InMemoryChannel[] = [];
 let channelMembers: InMemoryChannelMember[] = [];
+let events: InMemoryEvent[] = [];
 let seqId = 0;
 
 function nextId(): string {
@@ -71,6 +88,7 @@ function resetStore(): void {
   members = [];
   channels = [];
   channelMembers = [];
+  events = [];
   seqId = 0;
 }
 
@@ -155,6 +173,63 @@ async function poolQuery(sql: string, values?: unknown[]): Promise<{ rows: unkno
       };
     });
     return { rows, rowCount: rows.length };
+  }
+
+  // INSERT INTO group_events (POST /groups/:id/events)
+  if (norm.startsWith('INSERT INTO GROUP_EVENTS')) {
+    const [groupId, createdBy, title, description, scheduledFor] = values as [string, string, string, string | null, string];
+    const ev: InMemoryEvent = {
+      id: nextId(),
+      group_id: groupId,
+      created_by: createdBy,
+      title,
+      description: description ?? null,
+      scheduled_for: new Date(scheduledFor),
+      status: 'upcoming',
+      created_at: new Date(),
+    };
+    events.push(ev);
+    return {
+      rows: [{
+        id: ev.id,
+        group_id: ev.group_id,
+        title: ev.title,
+        description: ev.description,
+        scheduled_for: ev.scheduled_for.toISOString(),
+        status: ev.status,
+        created_at: ev.created_at.toISOString(),
+      }],
+      rowCount: 1,
+    };
+  }
+
+  // SELECT FROM group_events (GET /groups/:id/events — upcoming only)
+  if (norm.includes('FROM GROUP_EVENTS') && norm.includes("STATUS = 'UPCOMING'")) {
+    const groupId = values![0] as string;
+    const now = new Date();
+    const upcoming = events
+      .filter((e) => e.group_id === groupId && e.scheduled_for > now && e.status === 'upcoming')
+      .sort((a, b) => a.scheduled_for.getTime() - b.scheduled_for.getTime())
+      .slice(0, 10);
+    return {
+      rows: upcoming.map((e) => ({
+        id: e.id,
+        title: e.title,
+        description: e.description,
+        scheduled_for: e.scheduled_for.toISOString(),
+        status: e.status,
+        created_by: e.created_by,
+      })),
+      rowCount: upcoming.length,
+    };
+  }
+
+  // UPDATE group_events SET status = 'cancelled' (DELETE /groups/:id/events/:eventId)
+  if (norm.includes('UPDATE GROUP_EVENTS') && norm.includes("'CANCELLED'")) {
+    const [eventId, groupId] = values as [string, string];
+    const ev = events.find((e) => e.id === eventId && e.group_id === groupId && e.status === 'upcoming');
+    if (ev) { ev.status = 'cancelled'; }
+    return { rows: ev ? [{ id: ev.id }] : [], rowCount: ev ? 1 : 0 };
   }
 
   // GET /groups/public — returns open+active groups with member counts (Property 99)

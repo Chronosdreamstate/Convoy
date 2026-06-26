@@ -14,6 +14,7 @@ import {
   View,
 } from 'react-native';
 import { apiClient } from '../services/apiClient';
+import { SkeletonRow } from '../components/SkeletonLoader';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -106,16 +107,7 @@ function FriendsTab() {
   if (loading) {
     return (
       <View style={styles.skeletonContainer}>
-        {[0, 1, 2, 3].map((i) => (
-          <View key={i} style={styles.skeletonRow}>
-            <View style={styles.skeletonAvatar} />
-            <View style={styles.skeletonLines}>
-              <View style={[styles.skeletonLine, { width: '55%' }]} />
-              <View style={[styles.skeletonLine, { width: '35%', marginTop: 6 }]} />
-            </View>
-            <View style={styles.skeletonBtn} />
-          </View>
-        ))}
+        {[0, 1, 2, 3].map((i) => <SkeletonRow key={i} />)}
       </View>
     );
   }
@@ -227,17 +219,7 @@ function RequestsTab({ onCountChange }: { onCountChange?: (n: number) => void })
   if (loading) {
     return (
       <View style={styles.skeletonContainer}>
-        {[0, 1, 2].map((i) => (
-          <View key={i} style={styles.skeletonRow}>
-            <View style={styles.skeletonAvatar} />
-            <View style={styles.skeletonLines}>
-              <View style={[styles.skeletonLine, { width: '55%' }]} />
-              <View style={[styles.skeletonLine, { width: '35%', marginTop: 6 }]} />
-            </View>
-            <View style={styles.skeletonBtn} />
-            <View style={[styles.skeletonBtn, { marginLeft: 6 }]} />
-          </View>
-        ))}
+        {[0, 1, 2].map((i) => <SkeletonRow key={i} />)}
       </View>
     );
   }
@@ -732,38 +714,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#0A0A0A',
     paddingHorizontal: 16,
     paddingTop: 12,
-  },
-  skeletonRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#1C1C1C',
-    borderRadius: 12,
-    padding: 14,
-    marginBottom: 10,
-    opacity: 0.6,
-    gap: 12,
-  },
-  skeletonAvatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#2A2A2A',
-    flexShrink: 0,
-  },
-  skeletonLines: {
-    flex: 1,
-  },
-  skeletonLine: {
-    height: 12,
-    borderRadius: 6,
-    backgroundColor: '#2A2A2A',
-  },
-  skeletonBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 8,
-    backgroundColor: '#2A2A2A',
-    flexShrink: 0,
   },
   centered: {
     flex: 1,

@@ -5,6 +5,7 @@
 
 import { Queue, Worker, Job } from 'bullmq';
 import IORedis from 'ioredis';
+import { Pool } from 'pg';
 
 // ---------------------------------------------------------------------------
 // Job types
@@ -86,6 +87,7 @@ export function createNotificationWorker(
   deviceStore: IDeviceStore,
   gateway: IPushGateway,
   preferenceStore: IPreferenceStore,
+  db?: Pool,
 ): Worker<NotificationJob> {
   return new Worker<NotificationJob>(
     'notifications',
@@ -109,6 +111,19 @@ export function createNotificationWorker(
           gateway.send(d.token, d.platform, { title, body, data, priority }),
         ),
       );
+
+      // Persist to notification_history for the in-app notification center
+      if (db) {
+        try {
+          await db.query(
+            `INSERT INTO notification_history (user_id, type, title, body, data)
+             VALUES ($1, $2, $3, $4, $5)`,
+            [userId, type, title, body, data ? JSON.stringify(data) : '{}'],
+          );
+        } catch {
+          // non-fatal — don't fail the job if history insert fails
+        }
+      }
     },
     { connection, concurrency: 20 },
   );

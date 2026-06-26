@@ -21,6 +21,7 @@ import drivesRoutes from './drives/drives.routes';
 import fuelRoutes from './fuel/fuel.routes';
 import accountRoutes from './account/account.routes';
 import placesRoutes from './places/places.routes';
+import notificationsRoutes from './notifications/notifications.routes';
 import socketioPlugin from './plugins/socketio';
 import notificationsPlugin from './plugins/notifications';
 
@@ -108,6 +109,9 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   // Places / geocoding (proxies OpenStreetMap Nominatim — no API key needed)
   await app.register(placesRoutes, { prefix: '/api/v1' });
+
+  // Notification history (read/mark-read)
+  await app.register(notificationsRoutes, { prefix: '/api/v1' });
 
   // WebSocket server (socket.io, must be last so db/redis decorators are available)
   await app.register(socketioPlugin);

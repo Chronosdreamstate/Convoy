@@ -309,21 +309,42 @@ export default function RootLayout() {
   return (
     <SafeAreaProvider>
       <ErrorBoundary>
-        <Stack screenOptions={{ headerShown: false }}>
-          <Stack.Screen name="(auth)" />
-          <Stack.Screen name="(tabs)" />
+        <Stack
+          screenOptions={{
+            headerShown: false,
+            animation: 'slide_from_right',
+            animationDuration: 220,
+          }}
+        >
+          <Stack.Screen name="(auth)" options={{ animation: 'fade' }} />
+          <Stack.Screen name="(tabs)" options={{ animation: 'fade' }} />
+          <Stack.Screen name="(onboarding)" options={{ animation: 'fade' }} />
           <Stack.Screen name="friends" />
           <Stack.Screen name="invite" />
           <Stack.Screen name="group-browse" />
-          <Stack.Screen name="group-settings" />
-          <Stack.Screen name="waypoints" />
-          <Stack.Screen name="join" />
-          <Stack.Screen name="convoy-end" />
           <Stack.Screen name="notifications" />
-          <Stack.Screen name="(onboarding)" />
-          <Stack.Screen name="create-event" />
           <Stack.Screen name="replay" />
           <Stack.Screen name="group/[id]" />
+          <Stack.Screen
+            name="group-settings"
+            options={{ animation: 'slide_from_bottom', presentation: 'modal' }}
+          />
+          <Stack.Screen
+            name="waypoints"
+            options={{ animation: 'slide_from_bottom', presentation: 'modal' }}
+          />
+          <Stack.Screen
+            name="join"
+            options={{ animation: 'slide_from_bottom', presentation: 'modal' }}
+          />
+          <Stack.Screen
+            name="convoy-end"
+            options={{ animation: 'slide_from_bottom', presentation: 'modal' }}
+          />
+          <Stack.Screen
+            name="create-event"
+            options={{ animation: 'slide_from_bottom', presentation: 'modal' }}
+          />
         </Stack>
       </ErrorBoundary>
       <OfflineIndicator isOffline={isOffline} />

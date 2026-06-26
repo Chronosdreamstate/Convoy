@@ -70,6 +70,27 @@ export function isDrivesSortedDesc(drives: Pick<DriveResponse, 'endedAt'>[]): bo
   return true;
 }
 
+/** Property 33: page is always >= 1. */
+export function parsePage(raw: string | undefined): number {
+  return Math.max(1, parseInt(raw ?? '1', 10) || 1);
+}
+
+/** Property 33: limit is clamped to [1, 50]. */
+export function parseLimit(raw: string | undefined): number {
+  return Math.min(50, Math.max(1, parseInt(raw ?? '20', 10) || 20));
+}
+
+/** Property 34: offset = (page - 1) * limit, always >= 0. */
+export function computeOffset(page: number, limit: number): number {
+  return (page - 1) * limit;
+}
+
+/** Property 34: pages = ceil(total / limit). */
+export function computePages(total: number, limit: number): number {
+  if (limit <= 0) return 0;
+  return Math.ceil(total / limit);
+}
+
 export function serializeDriveRow(row: RawDriveRow): DriveResponse {
   return {
     id: row.id,
@@ -189,9 +210,9 @@ const drivesRoutes: FastifyPluginAsync = async (fastify) => {
     const userId = (request.user as { sub: string }).sub;
 
     const query = (request.query as { page?: string; limit?: string });
-    const page = Math.max(1, parseInt(query.page ?? '1', 10) || 1);
-    const limit = Math.min(50, Math.max(1, parseInt(query.limit ?? '20', 10) || 20));
-    const offset = (page - 1) * limit;
+    const page = parsePage(query.page);
+    const limit = parseLimit(query.limit);
+    const offset = computeOffset(page, limit);
 
     const result = await fastify.db.query<RawDriveRow>(
       `SELECT id, user_id, group_id, route_trace, distance_m, duration_s,

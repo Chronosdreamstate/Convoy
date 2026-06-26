@@ -22,6 +22,7 @@ import {
 } from 'react-native';
 import MapView, { Polyline, PROVIDER_DEFAULT } from 'react-native-maps';
 import { useRouter } from 'expo-router';
+import SkeletonCard from '../components/SkeletonLoader';
 import { apiClient } from '../services/apiClient';
 
 const MAPBOX_TOKEN = process.env.EXPO_PUBLIC_MAPBOX_TOKEN ?? '';
@@ -562,8 +563,8 @@ export default function DriveHistoryScreen() {
   if (loading && drives.length === 0) {
     return (
       <SafeAreaView style={styles.container}>
-        <View style={styles.centered}>
-          <ActivityIndicator color="#DC143C" size="large" />
+        <View style={styles.skeletonPad}>
+          {[0, 1, 2, 3].map((i) => <SkeletonCard key={i} />)}
         </View>
       </SafeAreaView>
     );
@@ -759,6 +760,7 @@ export default function DriveHistoryScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0A0A0A' },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  skeletonPad: { padding: 16, paddingTop: 20 },
 
   screenHeader: {
     paddingHorizontal: 16,
