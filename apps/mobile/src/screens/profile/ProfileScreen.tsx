@@ -244,6 +244,21 @@ export default function ProfileScreen() {
           ) : null}
         </View>
 
+        {/* Profile completion bar */}
+        {profile && (
+          <ProfileCompletionBar
+            hasCallsign={!!profile.pttCallsign}
+            hasVehicle={vehicleCount > 0}
+            hasAvatar={!!profile.avatarUrl}
+            hasFriend={friendCount > 0}
+            onItemPress={(item) => {
+              if (item === 'vehicle') router.push('/garage');
+              else if (item === 'friend') router.push('/friends');
+              else if (item === 'callsign') { /* focus callsign field */ }
+            }}
+          />
+        )}
+
         {/* Callsign + privacy card */}
         <View style={styles.card}>
           <Text style={styles.cardLabel}>PTT Callsign</Text>

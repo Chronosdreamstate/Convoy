@@ -34,6 +34,12 @@ export interface AndroidAutoState {
   nearbyGroupCount: number;
   /** Lifecycle phase of the convoy — used by Kotlin screens to switch between idle/active/ending UI. */
   convoyStatus: 'idle' | 'active' | 'ending';
+  /** Callsign of the member currently transmitting on PTT — shown as a waveform banner. */
+  transmittingMemberCallsign: string | null;
+  /** Display name of the next route waypoint. */
+  nextWaypointName: string | null;
+  /** ETA to next waypoint in minutes. */
+  nextWaypointEtaMinutes: number | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -101,7 +107,10 @@ export class AndroidAutoService {
       this.lastState.myCallsign === state.myCallsign &&
       this.lastState.activeGroupName === state.activeGroupName &&
       this.lastState.nearbyGroupCount === state.nearbyGroupCount &&
-      this.lastState.convoyStatus === state.convoyStatus
+      this.lastState.convoyStatus === state.convoyStatus &&
+      this.lastState.transmittingMemberCallsign === state.transmittingMemberCallsign &&
+      this.lastState.nextWaypointName === state.nextWaypointName &&
+      this.lastState.nextWaypointEtaMinutes === state.nextWaypointEtaMinutes
     ) {
       return;
     }

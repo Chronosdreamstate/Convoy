@@ -4,6 +4,7 @@ import {
   Animated,
   FlatList,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -41,6 +42,8 @@ import { PTTService } from '../../services/PTTService';
 import { agoraEngineAdapter, requestMicPermissionForPTT } from '../../services/AgoraEngineAdapter';
 import { apiTokenFetcher } from '../../services/ApiTokenFetcher';
 import { DriveService } from '../../services/DriveService';
+import { carPlayService } from '../../services/CarPlayService';
+import { androidAutoService } from '../../services/AndroidAutoService';
 
 interface GapAlert { memberId: string; distanceM: number }
 interface SosAlert { pin: SosPin; memberName: string }
@@ -236,6 +239,9 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
   // PTT voice availability — tracks Agora engine connection state (Req 43.3)
   const [pttVoiceAvailable, setPttVoiceAvailable] = useState(true);
 
+  // Callsign of the member currently transmitting PTT — used for CarPlay/AndroidAuto waveform
+  const [transmittingCallsign, setTransmittingCallsign] = useState<string | null>(null);
+
   // Reactive socket and settings from shared stores
   const { socket } = useSocketStore();
   const mapStyle = useSettingsStore((s) => s.mapStyle);
@@ -297,6 +303,25 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
       animated: true,
     });
   }, [memberLocations, myLocation, autoCenterAll, groupId]);
+
+  // Sync CarPlay + AndroidAuto with current convoy state
+  useEffect(() => {
+    const state = {
+      groupId: groupId ?? null,
+      memberCount: members.length,
+      routeActive: routeCoords.length > 0,
+      pttChannelId: pttChannelId ?? null,
+      myCallsign: user?.pttCallsign ?? '',
+      activeGroupName: groupName ?? null,
+      nearbyGroupCount: 0,
+      convoyStatus: groupId ? 'active' as const : 'idle' as const,
+      transmittingMemberCallsign: transmittingCallsign,
+      nextWaypointName: null,
+      nextWaypointEtaMinutes: null,
+    };
+    if (Platform.OS === 'ios') carPlayService.syncStateIfChanged(state);
+    else if (Platform.OS === 'android') androidAutoService.syncStateIfChanged(state);
+  }, [groupId, members.length, routeCoords.length, pttChannelId, user, groupName, transmittingCallsign]);
 
   // Pulsing ring animation when actively transmitting PTT
   useEffect(() => {
@@ -473,6 +498,12 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
     });
     socketRef.current = socket;
     useSocketStore.getState().setSocket(socket);
+
+    // Track who's transmitting PTT for CarPlay/AndroidAuto waveform display
+    socket.on('ptt:started', (data: { userId: string; callsign?: string | null }) => {
+      setTransmittingCallsign(data.callsign ?? null);
+    });
+    socket.on('ptt:ended', () => { setTransmittingCallsign(null); });
 
     // Forward our own logId to PTTService; keep fabPttLogIdRef for socket-only fallback
     socket.on('ptt:transmit', (data: { logId: string; userId: string }) => {

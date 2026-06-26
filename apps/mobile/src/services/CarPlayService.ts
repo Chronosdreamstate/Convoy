@@ -35,6 +35,12 @@ export interface CarPlayState {
   nearbyGroupCount: number;
   /** Lifecycle phase of the convoy — used by native to switch between map/list/idle templates. */
   convoyStatus: 'idle' | 'active' | 'ending';
+  /** Callsign of the member currently transmitting on PTT — shown as a waveform banner. */
+  transmittingMemberCallsign: string | null;
+  /** Display name of the next route waypoint — shown in the native navigation strip. */
+  nextWaypointName: string | null;
+  /** ETA to next waypoint in minutes — shown alongside waypoint name. */
+  nextWaypointEtaMinutes: number | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -52,7 +58,10 @@ function statesEqual(a: CarPlayState, b: CarPlayState): boolean {
     a.myCallsign === b.myCallsign &&
     a.activeGroupName === b.activeGroupName &&
     a.nearbyGroupCount === b.nearbyGroupCount &&
-    a.convoyStatus === b.convoyStatus
+    a.convoyStatus === b.convoyStatus &&
+    a.transmittingMemberCallsign === b.transmittingMemberCallsign &&
+    a.nextWaypointName === b.nextWaypointName &&
+    a.nextWaypointEtaMinutes === b.nextWaypointEtaMinutes
   );
 }
 
