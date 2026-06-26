@@ -19,6 +19,7 @@
       "bundleIdentifier": "app.convoy.mobile",
       "buildNumber": "1",
       "usesAppleSignIn": true,
+      "associatedDomains": ["applinks:convoy.app"],
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "CONVOY uses your location to keep your convoy in sync and find nearby groups.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "CONVOY uses background location to update your position in the convoy.",
@@ -33,6 +34,18 @@
       },
       "package": "app.convoy.mobile",
       "versionCode": 1,
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            { "scheme": "https", "host": "convoy.app", "pathPrefix": "/join" },
+            { "scheme": "https", "host": "convoy.app", "pathPrefix": "/invite" },
+            { "scheme": "https", "host": "convoy.app", "pathPrefix": "/group" }
+          ],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
+      ],
       "permissions": [
         "ACCESS_FINE_LOCATION",
         "ACCESS_COARSE_LOCATION",
@@ -46,7 +59,12 @@
       "bundler": "metro",
       "favicon": "./assets/favicon.png"
     },
+    "updates": {
+      "fallbackToCacheTimeout": 0,
+      "checkAutomatically": "ON_LOAD"
+    },
     "plugins": [
+      "expo-updates",
       "expo-router",
       "expo-secure-store",
       "expo-apple-authentication",

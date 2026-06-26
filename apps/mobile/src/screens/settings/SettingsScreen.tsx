@@ -18,6 +18,7 @@ import { apiClient } from '../../services/apiClient';
 import { authService } from '../../services/AuthService';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { theme } from '../../theme';
+import * as Updates from 'expo-updates';
 
 const PRIVACY_POLICY_URL = 'https://convoy.app/privacy';
 const TERMS_URL = 'https://convoy.app/terms';
@@ -165,6 +166,7 @@ export default function SettingsScreen() {
   const [error, setError] = useState<string | null>(null);
   const [isDirty, setIsDirty] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
   const saveSuccessTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -289,6 +291,35 @@ export default function SettingsScreen() {
   };
 
   const mark = () => setIsDirty(true);
+
+  const handleCheckForUpdates = async () => {
+    setCheckingUpdate(true);
+    try {
+      const update = await Updates.checkForUpdateAsync();
+      if (update.isAvailable) {
+        Alert.alert(
+          'Update Available',
+          'A new version of CONVOY is available.',
+          [
+            { text: 'Later', style: 'cancel' },
+            {
+              text: 'Restart',
+              onPress: async () => {
+                await Updates.fetchUpdateAsync();
+                await Updates.reloadAsync();
+              },
+            },
+          ],
+        );
+      } else {
+        Alert.alert('Up to Date', "You're on the latest version!");
+      }
+    } catch {
+      Alert.alert('Not Available', 'Updates not available in development.');
+    } finally {
+      setCheckingUpdate(false);
+    }
+  };
 
   const handleSignOut = async () => {
     Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
@@ -547,6 +578,17 @@ export default function SettingsScreen() {
         {/* ── ABOUT ───────────────────────────────────────────────────────── */}
         <SectionHeader title="ABOUT" />
         <View style={styles.sectionCard}>
+          <SettingRow
+            icon="🔄"
+            label="Check for Updates"
+            subtitle="Check for the latest version of CONVOY"
+            onPress={() => { void handleCheckForUpdates(); }}
+            rightSlot={
+              checkingUpdate
+                ? <ActivityIndicator color={theme.colors.accent} size="small" />
+                : undefined
+            }
+          />
           <SettingRow
             icon="⭐"
             label="Rate CONVOY"

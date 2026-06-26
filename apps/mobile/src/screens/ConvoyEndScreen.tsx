@@ -211,7 +211,7 @@ export default function ConvoyEndScreen() {
       <View style={styles.footer}>
         <TouchableOpacity
           style={styles.secondaryBtn}
-          onPress={() => router.replace('/(tabs)/drives')}
+          onPress={() => router.replace('/(tabs)/drives' as never)}
           accessibilityRole="button"
           accessibilityLabel="View drive history"
         >
