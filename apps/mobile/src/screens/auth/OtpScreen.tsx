@@ -12,6 +12,7 @@ import {
   Animated,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
+import * as SecureStore from 'expo-secure-store';
 import { authService } from '../../services/AuthService';
 import { useAuthStore } from '../../stores/authStore';
 
@@ -21,7 +22,7 @@ export default function OtpScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ phone: string }>();
   const phone = Array.isArray(params.phone) ? params.phone[0] : params.phone;
-  const { setUser, setAccessToken } = useAuthStore();
+  const { setUser, setAccessToken, setIsFirstLogin } = useAuthStore();
 
   const [otp, setOtp] = useState('');
   const [isVerifying, setIsVerifying] = useState(false);
@@ -74,9 +75,15 @@ export default function OtpScreen() {
     setIsVerifying(true);
     try {
       const result = await authService.verifyOtp(phone, value);
+      const onboardingDone = await SecureStore.getItemAsync('onboarding_complete').catch(() => '1');
       setUser(result.user);
       setAccessToken(result.accessToken);
-      router.replace('/(tabs)/map');
+      if (!onboardingDone) {
+        setIsFirstLogin(true);
+        router.replace('/(onboarding)/vehicle' as never);
+      } else {
+        router.replace('/(tabs)/map');
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Verification failed. Please try again.';
       setError(message);

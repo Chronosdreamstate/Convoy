@@ -793,6 +793,14 @@ export default function ConvoyScreen({ userId }: Props) {
           <View style={styles.memberCountBadge}>
             <Text style={styles.memberCountText}>{members.length} RIDERS</Text>
           </View>
+          <TouchableOpacity
+            onPress={() => router.push({ pathname: '/group-chat' as never, params: { groupId: activeGroupId } })}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityRole="button"
+            accessibilityLabel="Group chat"
+          >
+            <Text style={{ fontSize: 20 }}>💬</Text>
+          </TouchableOpacity>
           {isAdmin && (
             <TouchableOpacity
               onPress={() => router.push({ pathname: '/group-settings' as never, params: { groupId: group.id, isAdmin: 'true' } })}

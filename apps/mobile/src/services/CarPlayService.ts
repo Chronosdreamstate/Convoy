@@ -155,6 +155,21 @@ export class CarPlayService {
   syncStateIfChanged(state: CarPlayState): void {
     if (this.currentState && statesEqual(this.currentState, state)) return;
     this.syncState(state);
+    this.syncInstrumentCluster();
+  }
+
+  /**
+   * Pushes current state to the instrument cluster display (CarPlay Ultra / dual-display).
+   * Clears the cluster first, then repopulates with the latest state values.
+   * A no-op when no cluster was provided to the constructor.
+   */
+  syncInstrumentCluster(): void {
+    if (!this.instrumentCluster || !this.currentState) return;
+    const s = this.currentState;
+    this.instrumentCluster.clear();
+    this.instrumentCluster.showSpeedLimit(0);
+    this.instrumentCluster.showNextWaypoint(s.nextWaypointName ?? '', 0);
+    this.instrumentCluster.showConvoyPosition(1, s.memberCount);
   }
 
   /** Returns the last synced state, or null if syncState has never been called. */
