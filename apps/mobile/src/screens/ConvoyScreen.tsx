@@ -103,6 +103,7 @@ export default function ConvoyScreen({ userId }: Props) {
   const [discoverLoading, setDiscoverLoading] = useState(false);
   const [copyFeedback, setCopyFeedback] = useState(false);
   const [showQR, setShowQR] = useState(false);
+  const copyFeedbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const { socket } = useSocketStore();
   const { memberLocations } = useLocationStore();
@@ -123,6 +124,12 @@ export default function ConvoyScreen({ userId }: Props) {
       clearGroupMeta();
     }
   }, [group?.id, group?.name, group?.memberCount, group?.adminId, setActiveGroupId, setGroupMeta, clearGroupMeta]);
+
+  useEffect(() => {
+    return () => {
+      if (copyFeedbackTimer.current) clearTimeout(copyFeedbackTimer.current);
+    };
+  }, []);
 
   // On mount: restore full group state when the root layout already resolved an
   // active group from GET /groups/active (happens after app restart).
@@ -328,7 +335,8 @@ export default function ConvoyScreen({ userId }: Props) {
     try {
       await Clipboard.setStringAsync(group.joinCode);
       setCopyFeedback(true);
-      setTimeout(() => setCopyFeedback(false), 2000);
+      if (copyFeedbackTimer.current) clearTimeout(copyFeedbackTimer.current);
+      copyFeedbackTimer.current = setTimeout(() => setCopyFeedback(false), 2000);
     } catch {
       try {
         await Share.share({ message: `Join my convoy! Code: ${group.joinCode}` });

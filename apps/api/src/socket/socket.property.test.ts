@@ -279,3 +279,93 @@ describe('haversineMeters', () => {
     expect(haversineMeters(a, b)).toBeCloseTo(haversineMeters(b, a), 0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Property 95: haversineMeters identity — distance from a point to itself is 0
+//   Validates: correctness invariant for gap-alert and distance accumulation
+// ---------------------------------------------------------------------------
+describe('Property 95: haversineMeters(A, A) === 0 for any coordinate', () => {
+  it('returns exactly 0 for arbitrary identical point pairs', () => {
+    fc.assert(
+      fc.property(
+        fc.float({ min: -90, max: 90, noNaN: true }),
+        fc.float({ min: -180, max: 180, noNaN: true }),
+        (lat, lng) => {
+          const point = { lat, lng };
+          expect(haversineMeters(point, point)).toBe(0);
+        },
+      ),
+      { numRuns: 500 },
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Property 96: haversineMeters symmetry — d(A, B) === d(B, A)
+//   Validates: distance accumulation is order-independent
+// ---------------------------------------------------------------------------
+describe('Property 96: haversineMeters(A, B) === haversineMeters(B, A) for any coordinate pair', () => {
+  it('is symmetric for arbitrary coordinate pairs', () => {
+    fc.assert(
+      fc.property(
+        fc.float({ min: -90, max: 90, noNaN: true }),
+        fc.float({ min: -180, max: 180, noNaN: true }),
+        fc.float({ min: -90, max: 90, noNaN: true }),
+        fc.float({ min: -180, max: 180, noNaN: true }),
+        (lat1, lng1, lat2, lng2) => {
+          const a = { lat: lat1, lng: lng1 };
+          const b = { lat: lat2, lng: lng2 };
+          // Allow a tiny floating-point epsilon (< 1 metre)
+          expect(Math.abs(haversineMeters(a, b) - haversineMeters(b, a))).toBeLessThan(1);
+        },
+      ),
+      { numRuns: 500 },
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Property 97: haversineMeters non-negativity — distance is always ≥ 0
+//   Validates: no negative distances can corrupt Redis incrbyfloat accumulation
+// ---------------------------------------------------------------------------
+describe('Property 97: haversineMeters(A, B) >= 0 for any coordinate pair', () => {
+  it('is non-negative for arbitrary coordinate pairs', () => {
+    fc.assert(
+      fc.property(
+        fc.float({ min: -90, max: 90, noNaN: true }),
+        fc.float({ min: -180, max: 180, noNaN: true }),
+        fc.float({ min: -90, max: 90, noNaN: true }),
+        fc.float({ min: -180, max: 180, noNaN: true }),
+        (lat1, lng1, lat2, lng2) => {
+          const d = haversineMeters({ lat: lat1, lng: lng1 }, { lat: lat2, lng: lng2 });
+          expect(d).toBeGreaterThanOrEqual(0);
+        },
+      ),
+      { numRuns: 500 },
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Property 98: haversineMeters bounded — never exceeds Earth's half-circumference
+//   Earth's mean radius ≈ 6 371 km → half-circumference ≈ 20 037 km
+//   Validates: no astronomically wrong distance can slip through
+// ---------------------------------------------------------------------------
+describe('Property 98: haversineMeters(A, B) <= 20_037_508 for any coordinate pair', () => {
+  it('never exceeds Earth half-circumference', () => {
+    const HALF_CIRCUMFERENCE_M = 20_037_508;
+    fc.assert(
+      fc.property(
+        fc.float({ min: -90, max: 90, noNaN: true }),
+        fc.float({ min: -180, max: 180, noNaN: true }),
+        fc.float({ min: -90, max: 90, noNaN: true }),
+        fc.float({ min: -180, max: 180, noNaN: true }),
+        (lat1, lng1, lat2, lng2) => {
+          const d = haversineMeters({ lat: lat1, lng: lng1 }, { lat: lat2, lng: lng2 });
+          expect(d).toBeLessThanOrEqual(HALF_CIRCUMFERENCE_M);
+        },
+      ),
+      { numRuns: 500 },
+    );
+  });
+});
