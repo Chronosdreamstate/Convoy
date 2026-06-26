@@ -1,0 +1,2 @@
+ALTER TABLE convoy_groups
+  ADD COLUMN IF NOT EXISTS waypoints JSONB NOT NULL DEFAULT '[]';

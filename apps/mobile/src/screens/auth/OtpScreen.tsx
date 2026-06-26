@@ -15,6 +15,8 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { authService } from '../../services/AuthService';
 import { useAuthStore } from '../../stores/authStore';
 
+const DIGIT_COUNT = 6;
+
 export default function OtpScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ phone: string }>();
@@ -24,25 +26,32 @@ export default function OtpScreen() {
   const [otp, setOtp] = useState('');
   const [isVerifying, setIsVerifying] = useState(false);
   const [isResending, setIsResending] = useState(false);
-  const [resendCooldown, setResendCooldown] = useState(60);
+  const [resendCooldown, setResendCooldown] = useState(30);
   const [error, setError] = useState<string | null>(null);
   const [resendMessage, setResendMessage] = useState<string | null>(null);
+
+  const inputRef = useRef<TextInput>(null);
   const cooldownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const autoSubmitRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const shakeAnim = useRef(new Animated.Value(0)).current;
 
-  // Start 60s initial countdown on mount so user knows when resend is available
-  useEffect(() => {
+  const startCooldown = () => {
+    if (cooldownRef.current) clearInterval(cooldownRef.current);
     cooldownRef.current = setInterval(() => {
       setResendCooldown((s) => {
-        if (s <= 1) {
-          clearInterval(cooldownRef.current!);
-          cooldownRef.current = null;
-          return 0;
-        }
+        if (s <= 1) { clearInterval(cooldownRef.current!); cooldownRef.current = null; return 0; }
         return s - 1;
       });
     }, 1000);
-    return () => { if (cooldownRef.current) clearInterval(cooldownRef.current); };
+  };
+
+  useEffect(() => {
+    startCooldown();
+    return () => {
+      if (cooldownRef.current) clearInterval(cooldownRef.current);
+      if (autoSubmitRef.current) clearTimeout(autoSubmitRef.current);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const triggerShake = () => {
@@ -57,22 +66,14 @@ export default function OtpScreen() {
     ]).start();
   };
 
-  const handleVerify = async () => {
-    if (otp.length !== 6) {
-      setError('Please enter the 6-digit code.');
-      triggerShake();
-      return;
-    }
-    if (!phone) {
-      setError('Phone number is missing. Please go back and try again.');
-      return;
-    }
-
+  const handleVerify = async (code?: string) => {
+    const value = code ?? otp;
+    if (value.length !== 6) { setError('Please enter the 6-digit code.'); triggerShake(); return; }
+    if (!phone) { setError('Phone number is missing. Please go back and try again.'); return; }
     setError(null);
     setIsVerifying(true);
-
     try {
-      const result = await authService.verifyOtp(phone, otp);
+      const result = await authService.verifyOtp(phone, value);
       setUser(result.user);
       setAccessToken(result.accessToken);
       router.replace('/(tabs)/map');
@@ -85,35 +86,27 @@ export default function OtpScreen() {
     }
   };
 
+  const handleOtpChange = (text: string) => {
+    const digits = text.replace(/[^0-9]/g, '').slice(0, DIGIT_COUNT);
+    setOtp(digits);
+    setError(null);
+    if (autoSubmitRef.current) { clearTimeout(autoSubmitRef.current); autoSubmitRef.current = null; }
+    if (digits.length === DIGIT_COUNT) {
+      autoSubmitRef.current = setTimeout(() => { void handleVerify(digits); }, 300);
+    }
+  };
+
   const handleResend = async () => {
     if (!phone || resendCooldown > 0) return;
-
-    setResendMessage(null);
-    setError(null);
-    setIsResending(true);
-
+    setResendMessage(null); setError(null); setIsResending(true);
     try {
       const { devOtp } = await authService.requestOtp(phone);
-      if (devOtp) {
-        setResendMessage(`Dev mode — new OTP: ${devOtp}`);
-      } else {
-        setResendMessage('A new code has been sent.');
-      }
+      setResendMessage(devOtp ? `Dev mode — new OTP: ${devOtp}` : 'A new code has been sent.');
       setOtp('');
-      setResendCooldown(60);
-      cooldownRef.current = setInterval(() => {
-        setResendCooldown((s) => {
-          if (s <= 1) {
-            clearInterval(cooldownRef.current!);
-            cooldownRef.current = null;
-            return 0;
-          }
-          return s - 1;
-        });
-      }, 1000);
+      setResendCooldown(30);
+      startCooldown();
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to resend OTP.';
-      setError(message);
+      setError(err instanceof Error ? err.message : 'Failed to resend OTP.');
     } finally {
       setIsResending(false);
     }
@@ -121,10 +114,7 @@ export default function OtpScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <KeyboardAvoidingView
-        style={styles.inner}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      >
+      <KeyboardAvoidingView style={styles.inner} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <TouchableOpacity
           style={styles.backBtn}
           onPress={() => router.back()}
@@ -135,6 +125,8 @@ export default function OtpScreen() {
           <Text style={styles.backBtnText}>← Back</Text>
         </TouchableOpacity>
 
+        <Text style={styles.logo}>CONVOY</Text>
+
         <View style={styles.header}>
           <Text style={styles.title}>Enter the code</Text>
           <Text style={styles.subtitle}>
@@ -144,41 +136,51 @@ export default function OtpScreen() {
         </View>
 
         <View style={styles.form}>
-          <Animated.View style={{ transform: [{ translateX: shakeAnim }] }}>
-            <TextInput
-              style={styles.otpInput}
-              value={otp}
-              onChangeText={(text) => {
-                setOtp(text.replace(/[^0-9]/g, '').slice(0, 6));
-                setError(null);
-              }}
-              placeholder="••••••"
-              placeholderTextColor="#555555"
-              keyboardType="number-pad"
-              textContentType="oneTimeCode"
-              returnKeyType="done"
-              onSubmitEditing={() => { void handleVerify(); }}
-              accessibilityLabel="Verification code, 6 digits"
-              accessibilityHint="Enter the code sent to your phone"
-            />
+          {/* Hidden input captures keyboard; digit boxes are the visual layer */}
+          <TextInput
+            ref={inputRef}
+            value={otp}
+            onChangeText={handleOtpChange}
+            keyboardType="number-pad"
+            textContentType="oneTimeCode"
+            maxLength={DIGIT_COUNT}
+            style={styles.hiddenInput}
+            autoFocus
+            accessibilityLabel="Verification code, 6 digits"
+          />
+
+          <Animated.View style={[styles.digitRow, { transform: [{ translateX: shakeAnim }] }]}>
+            {Array.from({ length: DIGIT_COUNT }).map((_, i) => (
+              <TouchableOpacity
+                key={i}
+                style={[
+                  styles.digitBox,
+                  otp.length === i && styles.digitBoxActive,
+                  otp[i] !== undefined && styles.digitBoxFilled,
+                ]}
+                onPress={() => inputRef.current?.focus()}
+                activeOpacity={0.7}
+                accessibilityRole="none"
+              >
+                <Text style={styles.digitText}>{otp[i] ?? ''}</Text>
+              </TouchableOpacity>
+            ))}
           </Animated.View>
 
           {error ? <Text style={styles.errorText}>{error}</Text> : null}
           {resendMessage ? <Text style={styles.successText}>{resendMessage}</Text> : null}
 
           <TouchableOpacity
-            style={[styles.button, (isVerifying || otp.length !== 6) && styles.buttonDisabled]}
+            style={[styles.button, (isVerifying || otp.length !== DIGIT_COUNT) && styles.buttonDisabled]}
             onPress={() => { void handleVerify(); }}
-            disabled={isVerifying || otp.length !== 6}
+            disabled={isVerifying || otp.length !== DIGIT_COUNT}
             accessibilityRole="button"
-            accessibilityLabel="Verify OTP"
-            accessibilityState={{ disabled: isVerifying || otp.length !== 6 }}
+            accessibilityLabel="Verify code"
+            accessibilityState={{ disabled: isVerifying || otp.length !== DIGIT_COUNT }}
           >
-            {isVerifying ? (
-              <ActivityIndicator color="#FFFFFF" />
-            ) : (
-              <Text style={styles.buttonText}>Verify</Text>
-            )}
+            {isVerifying
+              ? <ActivityIndicator color="#FFFFFF" />
+              : <Text style={styles.buttonText}>Verify</Text>}
           </TouchableOpacity>
 
           <View style={styles.resendRow}>
@@ -187,19 +189,13 @@ export default function OtpScreen() {
               onPress={() => { void handleResend(); }}
               disabled={isResending || resendCooldown > 0}
               accessibilityRole="button"
-              accessibilityLabel={
-                resendCooldown > 0
-                  ? `Resend code, available in ${resendCooldown} seconds`
-                  : 'Resend code'
-              }
+              accessibilityLabel={resendCooldown > 0 ? `Resend code available in ${resendCooldown} seconds` : 'Resend code'}
               accessibilityState={{ disabled: isResending || resendCooldown > 0 }}
             >
               {isResending ? (
                 <ActivityIndicator size="small" color="#DC143C" />
               ) : resendCooldown > 0 ? (
-                <Text style={[styles.resendLink, styles.resendDisabled]}>
-                  Resend code ({resendCooldown}s)
-                </Text>
+                <Text style={styles.resendDisabled}>Resend code in {resendCooldown}s</Text>
               ) : (
                 <Text style={styles.resendLink}>Resend code</Text>
               )}
@@ -212,92 +208,51 @@ export default function OtpScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#0A0A0A',
-  },
-  inner: {
-    flex: 1,
-    paddingHorizontal: 24,
-    paddingTop: 32,
-  },
-  header: {
-    marginBottom: 32,
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: '700',
-    color: '#FFFFFF',
-    marginBottom: 8,
-  },
-  subtitle: {
-    fontSize: 15,
-    color: '#888888',
-    lineHeight: 22,
-  },
-  phoneNumber: {
-    color: '#FFFFFF',
-    fontWeight: '600',
-  },
+  container: { flex: 1, backgroundColor: '#0A0A0A' },
+  inner: { flex: 1, paddingHorizontal: 24, paddingTop: 32 },
   backBtn: { paddingTop: 8, paddingBottom: 16, alignSelf: 'flex-start' },
   backBtnText: { color: '#DC143C', fontSize: 16, fontWeight: '600' },
-  form: {
-    gap: 12,
+  logo: {
+    fontSize: 32,
+    fontWeight: '700',
+    color: '#DC143C',
+    letterSpacing: 6,
+    marginBottom: 32,
   },
-  otpInput: {
-    backgroundColor: '#1A1A1A',
-    borderRadius: 12,
+  header: { marginBottom: 32 },
+  title: { fontSize: 28, fontWeight: '700', color: '#FFFFFF', marginBottom: 8 },
+  subtitle: { fontSize: 15, color: '#888888', lineHeight: 22 },
+  phoneNumber: { color: '#FFFFFF', fontWeight: '600' },
+  form: { gap: 16 },
+  hiddenInput: { position: 'absolute', opacity: 0, width: 1, height: 1 },
+  digitRow: { flexDirection: 'row', justifyContent: 'space-between' },
+  digitBox: {
+    width: 44,
+    height: 56,
+    borderRadius: 8,
+    backgroundColor: '#1C1C1C',
     borderWidth: 1,
     borderColor: '#2A2A2A',
-    paddingHorizontal: 16,
-    paddingVertical: 18,
-    fontSize: 28,
-    color: '#FFFFFF',
-    letterSpacing: 12,
-    textAlign: 'center',
-    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  errorText: {
-    color: '#FF4444',
-    fontSize: 13,
-  },
-  successText: {
-    color: '#44FF88',
-    fontSize: 13,
-  },
+  digitBoxActive: { borderColor: '#DC143C' },
+  digitBoxFilled: { backgroundColor: '#242424' },
+  digitText: { color: '#FFFFFF', fontSize: 22, fontWeight: '700' },
+  errorText: { color: '#FF4444', fontSize: 13 },
+  successText: { color: '#44FF88', fontSize: 13 },
   button: {
     backgroundColor: '#DC143C',
     borderRadius: 12,
-    paddingVertical: 16,
+    height: 56,
     alignItems: 'center',
-    marginTop: 8,
-    minHeight: 56,
     justifyContent: 'center',
+    marginTop: 4,
   },
-  buttonDisabled: {
-    opacity: 0.5,
-  },
-  buttonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  resendRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginTop: 8,
-  },
-  resendText: {
-    color: '#666666',
-    fontSize: 14,
-  },
-  resendLink: {
-    color: '#DC143C',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  resendDisabled: {
-    color: '#555555',
-  },
+  buttonDisabled: { opacity: 0.5 },
+  buttonText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
+  resendRow: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center' },
+  resendText: { color: '#666666', fontSize: 14 },
+  resendLink: { color: '#DC143C', fontSize: 14, fontWeight: '600' },
+  resendDisabled: { color: '#555555', fontSize: 14 },
 });

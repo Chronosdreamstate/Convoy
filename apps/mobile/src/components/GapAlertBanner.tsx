@@ -51,7 +51,12 @@ function GapAlertBanner({ memberName, distanceM, thresholdM, onDismiss, onSlowDo
   });
 
   return (
-    <Animated.View style={[styles.container, { transform: [{ translateY: slideY }] }]}>
+    <Animated.View
+      style={[styles.container, { transform: [{ translateY: slideY }] }]}
+      accessible={true}
+      accessibilityLabel="You are falling behind the convoy"
+      accessibilityLiveRegion="assertive"
+    >
       <View style={styles.strip} />
       <View style={styles.content}>
         <View style={styles.main}>
@@ -66,11 +71,23 @@ function GapAlertBanner({ memberName, distanceM, thresholdM, onDismiss, onSlowDo
           </View>
           <View style={styles.actions}>
             {onSlowDown ? (
-              <TouchableOpacity style={styles.slowBtn} onPress={onSlowDown} hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}>
+              <TouchableOpacity
+                style={styles.slowBtn}
+                onPress={onSlowDown}
+                hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
+                accessibilityRole="button"
+                accessibilityLabel="Slow down"
+              >
                 <Text style={styles.slowBtnText}>Slow Down</Text>
               </TouchableOpacity>
             ) : null}
-            <TouchableOpacity style={styles.dismissBtn} onPress={handleDismiss} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <TouchableOpacity
+              style={styles.dismissBtn}
+              onPress={handleDismiss}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              accessibilityRole="button"
+              accessibilityLabel="Dismiss gap alert"
+            >
               <Text style={styles.dismissText}>✕</Text>
             </TouchableOpacity>
           </View>

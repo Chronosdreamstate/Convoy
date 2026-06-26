@@ -134,9 +134,10 @@ export default function SosAlertModal({
       animationType="fade"
       statusBarTranslucent
       onRequestClose={handleDismiss}
+      accessibilityViewIsModal
     >
       <View style={styles.overlay}>
-        <View style={styles.card}>
+        <View style={styles.card} accessibilityLabel="SOS alert">
 
           {/* Pulsing SOS icon */}
           <Animated.View style={[styles.iconCircle, { transform: [{ scale: pulse }] }]}>

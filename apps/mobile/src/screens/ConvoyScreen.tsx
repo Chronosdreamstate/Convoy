@@ -876,8 +876,8 @@ export default function ConvoyScreen({ userId }: Props) {
                   key={ch.id}
                   style={[styles.channelListRow, isActive && styles.channelListRowActive]}
                   onPress={() => void handleJoinChannel(ch.id)}
-                  accessibilityRole="radio"
-                  accessibilityLabel={ch.isAll ? 'All members channel' : `Channel ${ch.name}`}
+                  accessibilityRole="button"
+                  accessibilityLabel={`PTT Channel: ${ch.isAll ? 'All Members' : ch.name}`}
                   accessibilityState={{ checked: isActive }}
                 >
                   <View style={[styles.channelListStrip, isActive && styles.channelListStripActive]} />
@@ -1006,7 +1006,11 @@ export default function ConvoyScreen({ userId }: Props) {
               </View>
 
               {/* Name + callsign */}
-              <View style={memberStyles.info}>
+              <View
+                style={memberStyles.info}
+                accessible={true}
+                accessibilityLabel={`${m.displayName}${m.callsign ? ` ${m.callsign}` : ''}, ${isLive ? 'online' : 'offline'}`}
+              >
                 <View style={memberStyles.nameRow}>
                   <Text style={memberStyles.name}>{m.displayName}</Text>
                   {memberIsAdmin && <Text style={memberStyles.adminBadge}>ADMIN</Text>}

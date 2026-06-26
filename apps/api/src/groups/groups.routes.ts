@@ -1020,9 +1020,9 @@ async function groupsRoutes(
       // Build the aggregate expression based on the requested metric.
       // metric is validated against the enum so this interpolation is safe.
       const aggregateExpr =
-        metric === 'distance' ? 'SUM(d.distance_metres)' :
-        metric === 'convoys'  ? 'COUNT(d.id)'            :
-                                'SUM(d.duration_seconds)';
+        metric === 'distance' ? 'SUM(d.distance_m)' :
+        metric === 'convoys'  ? 'COUNT(d.id)'        :
+                                'SUM(d.duration_s)';
 
       interface LeaderboardDriveRow {
         user_id: string;
@@ -1035,7 +1035,7 @@ async function groupsRoutes(
       const result = await fastify.db.query<LeaderboardDriveRow>(
         `SELECT d.user_id, u.display_name, u.ptt_callsign, u.avatar_url,
                 COALESCE(${aggregateExpr}, 0) AS value
-         FROM drives d
+         FROM drive_history d
          JOIN users u ON u.id = d.user_id
          WHERE d.group_id = $1
          GROUP BY d.user_id, u.display_name, u.ptt_callsign, u.avatar_url

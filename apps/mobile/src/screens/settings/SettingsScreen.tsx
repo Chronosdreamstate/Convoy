@@ -18,7 +18,6 @@ import { apiClient } from '../../services/apiClient';
 import { authService } from '../../services/AuthService';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { theme } from '../../theme';
-import * as Updates from 'expo-updates';
 
 const PRIVACY_POLICY_URL = 'https://convoy.app/privacy';
 const TERMS_URL = 'https://convoy.app/terms';
@@ -295,6 +294,9 @@ export default function SettingsScreen() {
   const handleCheckForUpdates = async () => {
     setCheckingUpdate(true);
     try {
+      // expo-updates OTA check — only available in production EAS builds
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const Updates = require('expo-updates') as { checkForUpdateAsync: () => Promise<{ isAvailable: boolean }>; fetchUpdateAsync: () => Promise<void>; reloadAsync: () => Promise<void> };
       const update = await Updates.checkForUpdateAsync();
       if (update.isAvailable) {
         Alert.alert(
@@ -315,7 +317,7 @@ export default function SettingsScreen() {
         Alert.alert('Up to Date', "You're on the latest version!");
       }
     } catch {
-      Alert.alert('Not Available', 'Updates not available in development.');
+      Alert.alert('Not Available', 'Updates are only available in production builds.');
     } finally {
       setCheckingUpdate(false);
     }

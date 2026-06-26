@@ -409,11 +409,25 @@ export function registerSocketHandlers(
 
   return async (socket: Socket) => {
     const userId = socket.data.userId as string;
-    const groupId = socket.data.groupId as string;
+    let groupId = socket.data.groupId as string;
 
-    if (!userId || !groupId) {
+    if (!userId) {
       socket.disconnect(true);
       return;
+    }
+
+    // Auto-rejoin on reconnect: if groupId is absent from auth (e.g. client reconnected
+    // with only a JWT), look up the user's current active group membership in the DB.
+    if (!groupId) {
+      const activeGroup = await fastify.db.query<{ group_id: string }>(
+        `SELECT group_id FROM convoy_members WHERE user_id = $1 AND left_at IS NULL LIMIT 1`,
+        [userId],
+      );
+      if (activeGroup.rows.length === 0) {
+        socket.disconnect(true);
+        return;
+      }
+      groupId = activeGroup.rows[0].group_id;
     }
 
     // Verify active membership before joining room — prevents unauthorized room access
@@ -432,6 +446,8 @@ export function registerSocketHandlers(
 
     // Notify other group members (Req 8.3)
     socket.to(`group:${groupId}`).emit('member:joined', { userId });
+    // Presence: broadcast online status with timestamp to the full group room
+    io.to(`group:${groupId}`).emit('member:online', { userId, ts: Date.now() });
 
     // Handle real-time location updates (Req 8.1, 8.2)
     socket.on('location:update', (data: unknown) => {
@@ -458,6 +474,15 @@ export function registerSocketHandlers(
         redis: fastify.redis,
         io,
       }).catch((err: unknown) => fastify.log.error({ err }, 'hazard proximity error'));
+      // Centroid gap alert: warn user if they drift > 5 km from the group centroid
+      handleCentroidGapAlert({
+        groupId,
+        userId,
+        location: { lat: parsed.data.lat, lng: parsed.data.lng },
+        redis: fastify.redis,
+        db: fastify.db,
+        io,
+      }).catch((err: unknown) => fastify.log.error({ err }, 'centroid gap alert error'));
     });
 
     // PTT start (Req 10.1–10.4)
@@ -513,6 +538,8 @@ export function registerSocketHandlers(
     socket.on('disconnect', () => {
       lastLocUpdate.delete(socket.id);
       io.to(`group:${groupId}`).emit('member:left', { userId });
+      // Presence: broadcast offline status with timestamp to the full group room
+      io.to(`group:${groupId}`).emit('member:offline', { userId, ts: Date.now() });
       fastify.redis.del(`loc:${groupId}:${userId}`).catch((err: unknown) => fastify.log.error({ err }, 'redis del error'));
     });
   };

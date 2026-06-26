@@ -890,15 +890,21 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
           const vehicle = memberVehiclesRef.current[m.userId];
           const speedLine = isStale ? `Last seen ${formatElapsed(m.receivedAt)}` : `${m.speedKph.toFixed(0)} km/h`;
           const description = vehicle ? `${speedLine} · ${vehicle}` : speedLine;
+          const memberName = m.displayName ?? `Member ${m.userId.slice(0, 6)}`;
+          const distM = myLocation ? haversineDistanceM(myLocation.lat, myLocation.lng, m.lat, m.lng) : undefined;
+          const markerLabel = distM != null
+            ? `${memberName}, ${distM >= 1000 ? `${(distM / 1000).toFixed(1)} km away` : `${Math.round(distM)} m away`}`
+            : memberName;
           return (
             <Marker
               key={m.userId}
               coordinate={{ latitude: m.lat, longitude: m.lng }}
-              title={m.displayName ?? `Member ${m.userId.slice(0, 6)}`}
+              title={memberName}
               description={description}
               anchor={{ x: 0.5, y: 1 }}
+              accessibilityLabel={markerLabel}
             >
-              <MemberMarkerView member={m} isStale={isStale} />
+              <MemberMarkerView member={m} isStale={isStale} distanceM={distM} />
             </Marker>
           );
         })}
@@ -1002,7 +1008,7 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
           style={[styles.recenterBtn, { top: topBase + 52 }]}
           onPress={() => setAutoCenterAll(true)}
           accessibilityRole="button"
-          accessibilityLabel="Auto-center on all convoy members"
+          accessibilityLabel="Re-center map"
         >
           <Text style={styles.recenterText}>🎯</Text>
         </TouchableOpacity>
@@ -1070,7 +1076,8 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
                 <TouchableOpacity
                   style={[styles.fabItem, styles.fabSosItem]}
                   onPress={() => { setFabOpen(false); handleSosPress(); }}
-                  accessibilityLabel="Send SOS emergency alert"
+                  accessibilityLabel="Send SOS alert"
+                  accessibilityHint="Alerts your convoy of an emergency"
                   accessibilityRole="button"
                 >
                   <Text style={styles.fabItemIcon}>🆘</Text>
@@ -1090,9 +1097,10 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
                     !pttVoiceAvailable
                       ? 'Voice unavailable'
                       : fabPttActive
-                        ? 'Transmitting — release to stop'
-                        : 'Hold for push-to-talk'
+                        ? 'Transmitting voice'
+                        : 'Push to Talk'
                   }
+                  accessibilityHint="Hold to broadcast voice to convoy"
                   accessibilityRole="button"
                 >
                   <Text style={styles.fabItemIcon}>{pttVoiceAvailable ? '🎙' : '🚫'}</Text>
@@ -1137,9 +1145,10 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
               !pttVoiceAvailable
                 ? 'Voice unavailable'
                 : isPttTransmitting
-                  ? 'Transmitting — release to stop'
-                  : 'Hold to push to talk'
+                  ? 'Transmitting voice'
+                  : 'Push to Talk'
             }
+            accessibilityHint="Hold to broadcast voice to convoy"
             accessibilityRole="button"
           >
             <Text style={styles.pttStandaloneIcon}>{pttVoiceAvailable ? '🎙' : '🚫'}</Text>
@@ -1246,7 +1255,7 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
             onPress={() => setSheetExpanded((v) => !v)}
             style={{ alignItems: 'center', paddingTop: 4, paddingBottom: 2 }}
             accessibilityRole="button"
-            accessibilityLabel={sheetExpanded ? 'Collapse member panel' : 'Expand member panel'}
+            accessibilityLabel="Toggle member list"
           >
             <View style={styles.panelHandle} />
           </TouchableOpacity>

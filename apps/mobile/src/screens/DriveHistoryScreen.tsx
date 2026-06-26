@@ -597,6 +597,14 @@ export default function DriveHistoryScreen() {
             <View>
               <TotalStatsHeader drives={drives} onExport={handleExport} />
               <WeeklyStreakCard drives={drives} />
+              <TouchableOpacity
+                style={styles.leaderboardBtn}
+                onPress={() => router.push('/leaderboard')}
+                accessibilityRole="button"
+                accessibilityLabel="View leaderboard"
+              >
+                <Text style={styles.leaderboardBtnText}>🏆 View Leaderboard</Text>
+              </TouchableOpacity>
             </View>
           ) : null
         }
@@ -840,6 +848,18 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   emptyCtaText: { color: '#fff', fontSize: 15, fontWeight: '700' },
+
+  leaderboardBtn: {
+    marginHorizontal: 16,
+    marginBottom: 8,
+    paddingVertical: 12,
+    backgroundColor: '#1C1C1C',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#2A2A2A',
+    alignItems: 'center',
+  },
+  leaderboardBtnText: { color: '#DC143C', fontSize: 14, fontWeight: '600' },
 
   // Export button (inside stats header)
   exportBtn: {
