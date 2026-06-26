@@ -993,6 +993,57 @@ async function groupsRoutes(
   );
 
   // -------------------------------------------------------------------------
+  // GET /groups/:id/leaderboard — ranked member drive stats
+  // -------------------------------------------------------------------------
+  fastify.get(
+    '/groups/:id/leaderboard',
+    { preHandler: [authenticate, generalLimiter(fastify.redis)] },
+    async (request, reply) => {
+      const userId = (request.user as { sub: string }).sub;
+      const { id } = request.params as { id: string };
+
+      const member = await getActiveMember(id, userId, fastify.db);
+      if (!member) return reply.forbidden('You are not a member of this group');
+
+      interface LeaderboardRow {
+        display_name: string;
+        callsign: string | null;
+        drive_count: string;
+        total_distance_m: string | null;
+        last_drive: string | null;
+      }
+
+      const result = await fastify.db.query<LeaderboardRow>(
+        `SELECT u.display_name, u.ptt_callsign AS callsign,
+                COUNT(d.id) AS drive_count,
+                SUM(d.distance_m) AS total_distance_m,
+                MAX(d.ended_at) AS last_drive
+         FROM convoy_members gm
+         JOIN users u ON u.id = gm.user_id
+         LEFT JOIN drives d ON d.user_id = gm.user_id AND d.group_id = $1
+         WHERE gm.group_id = $1
+         GROUP BY u.id, u.display_name, u.ptt_callsign
+         ORDER BY total_distance_m DESC NULLS LAST
+         LIMIT 20`,
+        [id],
+      );
+
+      const leaderboard = result.rows.map((row, index) => ({
+        rank: index + 1,
+        displayName: row.display_name,
+        callsign: row.callsign ?? null,
+        driveCount: parseInt(row.drive_count, 10),
+        totalDistanceKm: row.total_distance_m
+          ? Math.round((parseFloat(row.total_distance_m) / 1000) * 10) / 10
+          : 0,
+        lastDriveAt: row.last_drive ?? null,
+      }));
+
+      return reply.send({ leaderboard });
+    },
+  );
+
+  // -------------------------------------------------------------------------
   // DELETE /groups/:id/events/:eventId — cancel event (admin only)
   // -------------------------------------------------------------------------
   fastify.delete(

@@ -1818,3 +1818,622 @@ describe('Properties 113–118: GET /groups browse endpoint', () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Properties 119–123: group events endpoints
+// ---------------------------------------------------------------------------
+
+// -------------------------------------------------------------------------
+// Property 119: POST /groups/:id/events — admin required
+// -------------------------------------------------------------------------
+describe('Property 119: POST /groups/:id/events — only admin may create events', () => {
+  beforeEach(() => { resetStore(); });
+
+  it('non-member gets 403', async () => {
+    await fc.assert(
+      fc.asyncProperty(fcUuid, fcUuid, async (adminId, strangerId) => {
+        fc.pre(adminId !== strangerId);
+        resetStore();
+        const app = buildTestApp();
+        await app.ready();
+
+        const adminToken = signToken(app, adminId);
+        const strangerToken = signToken(app, strangerId);
+
+        const createRes = await app.inject({
+          method: 'POST',
+          url: '/api/v1/groups',
+          headers: authHeader(adminToken),
+          payload: { name: 'Event Group', accessType: 'open' },
+        });
+        expect(createRes.statusCode).toBe(201);
+        const { id: groupId } = JSON.parse(createRes.body) as { id: string };
+
+        const futureDate = new Date(Date.now() + 86_400_000).toISOString();
+        const res = await app.inject({
+          method: 'POST',
+          url: `/api/v1/groups/${groupId}/events`,
+          headers: authHeader(strangerToken),
+          payload: { title: 'Canyon Run', scheduledFor: futureDate },
+        });
+
+        expect(res.statusCode).toBe(403);
+        await app.close();
+      }),
+      { numRuns: 15 },
+    );
+  });
+
+  it('regular member (non-admin) gets 403', async () => {
+    const app = buildTestApp();
+    await app.ready();
+
+    const adminId = '00000000-0000-0000-0000-119000000001';
+    const memberId = '00000000-0000-0000-0000-119000000002';
+    const adminToken = signToken(app, adminId);
+    const memberToken = signToken(app, memberId);
+
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/api/v1/groups',
+      headers: authHeader(adminToken),
+      payload: { name: 'Admin-only Events Group', accessType: 'open' },
+    });
+    const { id: groupId, joinCode } = JSON.parse(createRes.body) as { id: string; joinCode: string };
+
+    await app.inject({
+      method: 'POST',
+      url: '/api/v1/groups/join',
+      headers: authHeader(memberToken),
+      payload: { code: joinCode },
+    });
+
+    const futureDate = new Date(Date.now() + 86_400_000).toISOString();
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/v1/groups/${groupId}/events`,
+      headers: authHeader(memberToken),
+      payload: { title: 'Unauthorized Run', scheduledFor: futureDate },
+    });
+
+    expect(res.statusCode).toBe(403);
+    await app.close();
+  });
+
+  it('admin creates event and receives 201 with event payload', async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        fcUuid,
+        fc.string({ minLength: 1, maxLength: 80 }).filter((s) => s.trim().length > 0),
+        async (adminId, title) => {
+          resetStore();
+          const app = buildTestApp();
+          await app.ready();
+
+          const token = signToken(app, adminId);
+
+          const createRes = await app.inject({
+            method: 'POST',
+            url: '/api/v1/groups',
+            headers: authHeader(token),
+            payload: { name: 'Creator Group', accessType: 'open' },
+          });
+          const { id: groupId } = JSON.parse(createRes.body) as { id: string };
+
+          const futureDate = new Date(Date.now() + 3_600_000).toISOString();
+          const res = await app.inject({
+            method: 'POST',
+            url: `/api/v1/groups/${groupId}/events`,
+            headers: authHeader(token),
+            payload: { title: title.trim(), scheduledFor: futureDate },
+          });
+
+          expect(res.statusCode).toBe(201);
+          const body = JSON.parse(res.body) as { event: { id: string; title: string; status: string } };
+          expect(body.event.title).toBe(title.trim());
+          expect(body.event.status).toBe('upcoming');
+          expect(typeof body.event.id).toBe('string');
+
+          await app.close();
+        },
+      ),
+      { numRuns: 20 },
+    );
+  });
+});
+
+// -------------------------------------------------------------------------
+// Property 120: scheduledFor must be a future date
+// -------------------------------------------------------------------------
+describe('Property 120: scheduledFor must be in the future', () => {
+  beforeEach(() => { resetStore(); });
+
+  it('past date returns 400', async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        fc.integer({ min: 1, max: 365 }),
+        async (daysAgo) => {
+          resetStore();
+          const app = buildTestApp();
+          await app.ready();
+
+          const adminId = '00000000-0000-0000-0000-120000000001';
+          const token = signToken(app, adminId);
+
+          const createRes = await app.inject({
+            method: 'POST',
+            url: '/api/v1/groups',
+            headers: authHeader(token),
+            payload: { name: 'Past Event Group' },
+          });
+          const { id: groupId } = JSON.parse(createRes.body) as { id: string };
+
+          const pastDate = new Date(Date.now() - daysAgo * 86_400_000).toISOString();
+          const res = await app.inject({
+            method: 'POST',
+            url: `/api/v1/groups/${groupId}/events`,
+            headers: authHeader(token),
+            payload: { title: 'Past Run', scheduledFor: pastDate },
+          });
+
+          expect(res.statusCode).toBe(400);
+          await app.close();
+        },
+      ),
+      { numRuns: 15 },
+    );
+  });
+
+  it('missing scheduledFor returns 400', async () => {
+    const app = buildTestApp();
+    await app.ready();
+
+    const adminId = '00000000-0000-0000-0000-120000000002';
+    const token = signToken(app, adminId);
+
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/api/v1/groups',
+      headers: authHeader(token),
+      payload: { name: 'No-Date Group' },
+    });
+    const { id: groupId } = JSON.parse(createRes.body) as { id: string };
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/v1/groups/${groupId}/events`,
+      headers: authHeader(token),
+      payload: { title: 'No Date Run' },
+    });
+
+    expect(res.statusCode).toBe(400);
+    await app.close();
+  });
+
+  it('invalid ISO string returns 400', async () => {
+    const app = buildTestApp();
+    await app.ready();
+
+    const adminId = '00000000-0000-0000-0000-120000000003';
+    const token = signToken(app, adminId);
+
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/api/v1/groups',
+      headers: authHeader(token),
+      payload: { name: 'Bad Date Group' },
+    });
+    const { id: groupId } = JSON.parse(createRes.body) as { id: string };
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/v1/groups/${groupId}/events`,
+      headers: authHeader(token),
+      payload: { title: 'Bad Date', scheduledFor: 'not-a-date' },
+    });
+
+    expect(res.statusCode).toBe(400);
+    await app.close();
+  });
+
+  it('future date in any timezone offset returns 201', async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        fc.integer({ min: 1, max: 30 }),
+        async (daysAhead) => {
+          resetStore();
+          const app = buildTestApp();
+          await app.ready();
+
+          const adminId = '00000000-0000-0000-0000-120000000004';
+          const token = signToken(app, adminId);
+
+          const createRes = await app.inject({
+            method: 'POST',
+            url: '/api/v1/groups',
+            headers: authHeader(token),
+            payload: { name: 'Future Group' },
+          });
+          const { id: groupId } = JSON.parse(createRes.body) as { id: string };
+
+          const futureDate = new Date(Date.now() + daysAhead * 86_400_000).toISOString();
+          const res = await app.inject({
+            method: 'POST',
+            url: `/api/v1/groups/${groupId}/events`,
+            headers: authHeader(token),
+            payload: { title: 'Upcoming Run', scheduledFor: futureDate },
+          });
+
+          expect(res.statusCode).toBe(201);
+          await app.close();
+        },
+      ),
+      { numRuns: 15 },
+    );
+  });
+});
+
+// -------------------------------------------------------------------------
+// Property 121: GET /groups/:id/events only returns upcoming + future events
+// -------------------------------------------------------------------------
+describe('Property 121: GET /groups/:id/events only returns upcoming+future events', () => {
+  beforeEach(() => { resetStore(); });
+
+  it('cancelled events are never returned in the GET list', async () => {
+    const app = buildTestApp();
+    await app.ready();
+
+    const adminId = '00000000-0000-0000-0000-121000000001';
+    const token = signToken(app, adminId);
+
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/api/v1/groups',
+      headers: authHeader(token),
+      payload: { name: 'Events List Group' },
+    });
+    const { id: groupId } = JSON.parse(createRes.body) as { id: string };
+
+    const futureDate = new Date(Date.now() + 7_200_000).toISOString();
+    const postRes = await app.inject({
+      method: 'POST',
+      url: `/api/v1/groups/${groupId}/events`,
+      headers: authHeader(token),
+      payload: { title: 'To-be-cancelled Run', scheduledFor: futureDate },
+    });
+    expect(postRes.statusCode).toBe(201);
+    const { event } = JSON.parse(postRes.body) as { event: { id: string } };
+
+    // Cancel the event
+    await app.inject({
+      method: 'DELETE',
+      url: `/api/v1/groups/${groupId}/events/${event.id}`,
+      headers: authHeader(token),
+    });
+
+    const listRes = await app.inject({
+      method: 'GET',
+      url: `/api/v1/groups/${groupId}/events`,
+      headers: authHeader(token),
+    });
+    expect(listRes.statusCode).toBe(200);
+    const { events: evList } = JSON.parse(listRes.body) as { events: { id: string }[] };
+    expect(evList.find((e) => e.id === event.id)).toBeUndefined();
+
+    await app.close();
+  });
+
+  it('all returned events have status=upcoming', async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        fc.integer({ min: 1, max: 4 }),
+        async (count) => {
+          resetStore();
+          const app = buildTestApp();
+          await app.ready();
+
+          const adminId = '00000000-0000-0000-0000-121000000002';
+          const token = signToken(app, adminId);
+
+          const createRes = await app.inject({
+            method: 'POST',
+            url: '/api/v1/groups',
+            headers: authHeader(token),
+            payload: { name: 'Upcoming Events Group' },
+          });
+          const { id: groupId } = JSON.parse(createRes.body) as { id: string };
+
+          for (let i = 0; i < count; i++) {
+            const futureDate = new Date(Date.now() + (i + 1) * 3_600_000).toISOString();
+            await app.inject({
+              method: 'POST',
+              url: `/api/v1/groups/${groupId}/events`,
+              headers: authHeader(token),
+              payload: { title: `Run ${i}`, scheduledFor: futureDate },
+            });
+          }
+
+          const listRes = await app.inject({
+            method: 'GET',
+            url: `/api/v1/groups/${groupId}/events`,
+            headers: authHeader(token),
+          });
+          expect(listRes.statusCode).toBe(200);
+          const { events: evList } = JSON.parse(listRes.body) as {
+            events: { status: string; scheduledFor: string }[];
+          };
+          expect(evList).toHaveLength(count);
+          for (const ev of evList) {
+            expect(ev.status).toBe('upcoming');
+            expect(new Date(ev.scheduledFor) > new Date()).toBe(true);
+          }
+
+          await app.close();
+        },
+      ),
+      { numRuns: 15 },
+    );
+  });
+
+  it('events from other groups are not returned', async () => {
+    const app = buildTestApp();
+    await app.ready();
+
+    const adminId = '00000000-0000-0000-0000-121000000003';
+    const token = signToken(app, adminId);
+
+    const [groupA, groupB] = await Promise.all([
+      app.inject({ method: 'POST', url: '/api/v1/groups', headers: authHeader(token), payload: { name: 'Group A' } }),
+      app.inject({ method: 'POST', url: '/api/v1/groups', headers: authHeader(token), payload: { name: 'Group B' } }),
+    ]);
+    const { id: idA } = JSON.parse(groupA.body) as { id: string };
+    const { id: idB } = JSON.parse(groupB.body) as { id: string };
+
+    const futureA = new Date(Date.now() + 3_600_000).toISOString();
+    const futureB = new Date(Date.now() + 7_200_000).toISOString();
+
+    await app.inject({ method: 'POST', url: `/api/v1/groups/${idA}/events`, headers: authHeader(token), payload: { title: 'Event A', scheduledFor: futureA } });
+    await app.inject({ method: 'POST', url: `/api/v1/groups/${idB}/events`, headers: authHeader(token), payload: { title: 'Event B', scheduledFor: futureB } });
+
+    const listA = await app.inject({ method: 'GET', url: `/api/v1/groups/${idA}/events`, headers: authHeader(token) });
+    const { events: aEvents } = JSON.parse(listA.body) as { events: { title: string }[] };
+    expect(aEvents).toHaveLength(1);
+    expect(aEvents[0].title).toBe('Event A');
+
+    await app.close();
+  });
+});
+
+// -------------------------------------------------------------------------
+// Property 122: DELETE soft-deletes event (status → 'cancelled', row remains)
+// -------------------------------------------------------------------------
+describe('Property 122: DELETE /groups/:id/events/:eventId soft-deletes to cancelled', () => {
+  beforeEach(() => { resetStore(); });
+
+  it('after DELETE, event still exists in store with status=cancelled', async () => {
+    await fc.assert(
+      fc.asyncProperty(fcUuid, async (adminId) => {
+        resetStore();
+        const app = buildTestApp();
+        await app.ready();
+
+        const token = signToken(app, adminId);
+
+        const createRes = await app.inject({
+          method: 'POST',
+          url: '/api/v1/groups',
+          headers: authHeader(token),
+          payload: { name: 'Soft Delete Group' },
+        });
+        const { id: groupId } = JSON.parse(createRes.body) as { id: string };
+
+        const futureDate = new Date(Date.now() + 3_600_000).toISOString();
+        const postRes = await app.inject({
+          method: 'POST',
+          url: `/api/v1/groups/${groupId}/events`,
+          headers: authHeader(token),
+          payload: { title: 'Cancellable Run', scheduledFor: futureDate },
+        });
+        expect(postRes.statusCode).toBe(201);
+        const { event } = JSON.parse(postRes.body) as { event: { id: string } };
+
+        const deleteRes = await app.inject({
+          method: 'DELETE',
+          url: `/api/v1/groups/${groupId}/events/${event.id}`,
+          headers: authHeader(token),
+        });
+        expect(deleteRes.statusCode).toBe(204);
+
+        // Event row still in store but status is cancelled
+        const storedEvent = events.find((e) => e.id === event.id);
+        expect(storedEvent).toBeDefined();
+        expect(storedEvent!.status).toBe('cancelled');
+
+        await app.close();
+      }),
+      { numRuns: 15 },
+    );
+  });
+
+  it('non-admin delete returns 403', async () => {
+    const app = buildTestApp();
+    await app.ready();
+
+    const adminId = '00000000-0000-0000-0000-122000000001';
+    const memberId = '00000000-0000-0000-0000-122000000002';
+    const adminToken = signToken(app, adminId);
+    const memberToken = signToken(app, memberId);
+
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/api/v1/groups',
+      headers: authHeader(adminToken),
+      payload: { name: 'Protected Event Group', accessType: 'open' },
+    });
+    const { id: groupId, joinCode } = JSON.parse(createRes.body) as { id: string; joinCode: string };
+
+    await app.inject({ method: 'POST', url: '/api/v1/groups/join', headers: authHeader(memberToken), payload: { code: joinCode } });
+
+    const futureDate = new Date(Date.now() + 3_600_000).toISOString();
+    const postRes = await app.inject({
+      method: 'POST',
+      url: `/api/v1/groups/${groupId}/events`,
+      headers: authHeader(adminToken),
+      payload: { title: 'Protected Run', scheduledFor: futureDate },
+    });
+    const { event } = JSON.parse(postRes.body) as { event: { id: string } };
+
+    const deleteRes = await app.inject({
+      method: 'DELETE',
+      url: `/api/v1/groups/${groupId}/events/${event.id}`,
+      headers: authHeader(memberToken),
+    });
+    expect(deleteRes.statusCode).toBe(403);
+
+    // Event must remain upcoming
+    const storedEvent = events.find((e) => e.id === event.id);
+    expect(storedEvent!.status).toBe('upcoming');
+
+    await app.close();
+  });
+
+  it('deleting an already-cancelled event returns 404', async () => {
+    const app = buildTestApp();
+    await app.ready();
+
+    const adminId = '00000000-0000-0000-0000-122000000003';
+    const token = signToken(app, adminId);
+
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/api/v1/groups',
+      headers: authHeader(token),
+      payload: { name: 'Already Cancelled Group' },
+    });
+    const { id: groupId } = JSON.parse(createRes.body) as { id: string };
+
+    const futureDate = new Date(Date.now() + 3_600_000).toISOString();
+    const postRes = await app.inject({
+      method: 'POST',
+      url: `/api/v1/groups/${groupId}/events`,
+      headers: authHeader(token),
+      payload: { title: 'Double Cancel', scheduledFor: futureDate },
+    });
+    const { event } = JSON.parse(postRes.body) as { event: { id: string } };
+
+    // First cancel succeeds
+    await app.inject({ method: 'DELETE', url: `/api/v1/groups/${groupId}/events/${event.id}`, headers: authHeader(token) });
+
+    // Second cancel returns 404 (already cancelled → WHERE status='upcoming' matches nothing)
+    const secondDelete = await app.inject({
+      method: 'DELETE',
+      url: `/api/v1/groups/${groupId}/events/${event.id}`,
+      headers: authHeader(token),
+    });
+    expect(secondDelete.statusCode).toBe(404);
+
+    await app.close();
+  });
+});
+
+// -------------------------------------------------------------------------
+// Property 123: Event title max 100 chars (101 chars → 400)
+// -------------------------------------------------------------------------
+describe('Property 123: Event title is max 100 characters', () => {
+  beforeEach(() => { resetStore(); });
+
+  it('title of 101+ chars returns 400', async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        fc.integer({ min: 101, max: 300 }),
+        async (titleLen) => {
+          resetStore();
+          const app = buildTestApp();
+          await app.ready();
+
+          const adminId = '00000000-0000-0000-0000-123000000001';
+          const token = signToken(app, adminId);
+
+          const createRes = await app.inject({
+            method: 'POST',
+            url: '/api/v1/groups',
+            headers: authHeader(token),
+            payload: { name: 'Title Bounds Group' },
+          });
+          const { id: groupId } = JSON.parse(createRes.body) as { id: string };
+
+          const overLongTitle = 'A'.repeat(titleLen);
+          const futureDate = new Date(Date.now() + 3_600_000).toISOString();
+          const res = await app.inject({
+            method: 'POST',
+            url: `/api/v1/groups/${groupId}/events`,
+            headers: authHeader(token),
+            payload: { title: overLongTitle, scheduledFor: futureDate },
+          });
+
+          expect(res.statusCode).toBe(400);
+          await app.close();
+        },
+      ),
+      { numRuns: 15 },
+    );
+  });
+
+  it('title of exactly 100 chars is accepted', async () => {
+    const app = buildTestApp();
+    await app.ready();
+
+    const adminId = '00000000-0000-0000-0000-123000000002';
+    const token = signToken(app, adminId);
+
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/api/v1/groups',
+      headers: authHeader(token),
+      payload: { name: 'Title Max Group' },
+    });
+    const { id: groupId } = JSON.parse(createRes.body) as { id: string };
+
+    const exactTitle = 'X'.repeat(100);
+    const futureDate = new Date(Date.now() + 3_600_000).toISOString();
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/v1/groups/${groupId}/events`,
+      headers: authHeader(token),
+      payload: { title: exactTitle, scheduledFor: futureDate },
+    });
+
+    expect(res.statusCode).toBe(201);
+    const { event } = JSON.parse(res.body) as { event: { title: string } };
+    expect(event.title).toBe(exactTitle);
+
+    await app.close();
+  });
+
+  it('empty title returns 400', async () => {
+    const app = buildTestApp();
+    await app.ready();
+
+    const adminId = '00000000-0000-0000-0000-123000000003';
+    const token = signToken(app, adminId);
+
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/api/v1/groups',
+      headers: authHeader(token),
+      payload: { name: 'Empty Title Group' },
+    });
+    const { id: groupId } = JSON.parse(createRes.body) as { id: string };
+
+    const futureDate = new Date(Date.now() + 3_600_000).toISOString();
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/v1/groups/${groupId}/events`,
+      headers: authHeader(token),
+      payload: { title: '', scheduledFor: futureDate },
+    });
+
+    expect(res.statusCode).toBe(400);
+    await app.close();
+  });
+});
