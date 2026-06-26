@@ -529,6 +529,7 @@ export default function FriendsScreen() {
           style={styles.qrOverlay}
           activeOpacity={1}
           onPress={() => setShowInviteQR(false)}
+          accessibilityRole="button"
           accessibilityLabel="Close QR invite"
         >
           <View style={styles.qrCard}>

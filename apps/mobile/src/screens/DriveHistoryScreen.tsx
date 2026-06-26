@@ -148,7 +148,7 @@ function DriveDetail({ drive, onBack, onShare, onDelete, sharing, deleting }: De
 
   return (
     <View style={styles.detail}>
-      <TouchableOpacity style={styles.backBtn} onPress={onBack} accessibilityLabel="Go back">
+      <TouchableOpacity style={styles.backBtn} onPress={onBack} accessibilityRole="button" accessibilityLabel="Go back">
         <Text style={styles.backText}>← Back</Text>
       </TouchableOpacity>
 
@@ -205,6 +205,7 @@ function DriveDetail({ drive, onBack, onShare, onDelete, sharing, deleting }: De
           style={[styles.shareBtn, sharing && styles.shareBtnDisabled]}
           onPress={() => onShare(drive.id)}
           disabled={sharing || deleting}
+          accessibilityRole="button"
           accessibilityLabel="Share summary card"
         >
           {sharing ? (
@@ -218,6 +219,7 @@ function DriveDetail({ drive, onBack, onShare, onDelete, sharing, deleting }: De
           style={[styles.deleteBtn, deleting && styles.shareBtnDisabled]}
           onPress={() => onDelete(drive.id)}
           disabled={deleting || sharing}
+          accessibilityRole="button"
           accessibilityLabel="Delete drive record"
         >
           {deleting ? (
@@ -388,6 +390,7 @@ export default function DriveHistoryScreen() {
             <TouchableOpacity
               style={styles.driveCard}
               onPress={() => setSelected(drive)}
+              accessibilityRole="button"
               accessibilityLabel={`Drive on ${formatDate(drive.endedAt)}, ${formatDistance(drive.distanceM)}`}
             >
               {/* Left: map thumbnail */}
@@ -430,6 +433,7 @@ export default function DriveHistoryScreen() {
               onPress={() => void handleShare(drive.id)}
               disabled={sharingId === drive.id}
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              accessibilityRole="button"
               accessibilityLabel="Share drive"
             >
               {sharingId === drive.id

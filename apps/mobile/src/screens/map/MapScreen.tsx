@@ -938,6 +938,7 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
             <TouchableOpacity
               onPress={() => setGapAlerts([])}
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              accessibilityRole="button"
               accessibilityLabel="Dismiss gap alerts"
             >
               <Text style={styles.alertDismiss}>✕</Text>
@@ -960,6 +961,7 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
             <TouchableOpacity
               onPress={() => setHazardAlerts([])}
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              accessibilityRole="button"
               accessibilityLabel="Dismiss hazard alerts"
             >
               <Text style={styles.alertDismiss}>✕</Text>
