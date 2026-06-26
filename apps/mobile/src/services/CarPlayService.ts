@@ -137,6 +137,13 @@ export class CarPlayService {
     return this.currentState;
   }
 
+  /** Update the PTT transmitting callsign without requiring a full state rebuild. */
+  setTransmitting(callsign: string | null): void {
+    if (!this.currentState) return;
+    const next: CarPlayState = { ...this.currentState, transmittingMemberCallsign: callsign };
+    this.syncStateIfChanged(next);
+  }
+
   /** Subscribe to session changes — used by DrivingModeService. */
   onCarPlaySessionChange(cb: CarPlayListener): () => void {
     this.listeners.add(cb);
