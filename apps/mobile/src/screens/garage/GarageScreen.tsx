@@ -360,6 +360,7 @@ export default function GarageScreen() {
                 disabled={isSaving}
                 accessibilityRole="button"
                 accessibilityLabel={editingId ? 'Save changes' : 'Add vehicle'}
+                accessibilityState={{ disabled: isSaving }}
               >
                 {isSaving ? (
                   <ActivityIndicator color="#FFFFFF" />

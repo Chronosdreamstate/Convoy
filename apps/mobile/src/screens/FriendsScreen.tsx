@@ -142,6 +142,7 @@ function FriendsTab() {
             disabled={removing === friend.id}
             accessibilityRole="button"
             accessibilityLabel={`Remove ${friend.displayName}`}
+            accessibilityState={{ disabled: removing === friend.id }}
           >
             {removing === friend.id ? (
               <ActivityIndicator color="#DC143C" size="small" />
@@ -253,6 +254,7 @@ function RequestsTab() {
               disabled={acting?.id === req.id}
               accessibilityRole="button"
               accessibilityLabel={`Accept request from ${req.displayName}`}
+              accessibilityState={{ disabled: acting?.id === req.id }}
             >
               {acting?.id === req.id && acting.action === 'accept' ? (
                 <ActivityIndicator color="#fff" size="small" />
@@ -266,6 +268,7 @@ function RequestsTab() {
               disabled={acting?.id === req.id}
               accessibilityRole="button"
               accessibilityLabel={`Decline request from ${req.displayName}`}
+              accessibilityState={{ disabled: acting?.id === req.id }}
             >
               {acting?.id === req.id && acting.action === 'decline' ? (
                 <ActivityIndicator color="#888" size="small" />
@@ -395,6 +398,7 @@ function FindPeopleTab() {
                 disabled={sending === user.id}
                 accessibilityRole="button"
                 accessibilityLabel={`Add ${user.displayName} as friend`}
+                accessibilityState={{ disabled: sending === user.id }}
               >
                 {sending === user.id ? (
                   <ActivityIndicator color="#fff" size="small" />
@@ -468,6 +472,7 @@ export default function FriendsScreen() {
             disabled={isLoadingQR}
             accessibilityRole="button"
             accessibilityLabel="Show QR code invite"
+            accessibilityState={{ disabled: isLoadingQR }}
           >
             {isLoadingQR
               ? <ActivityIndicator color="#DC143C" size="small" />
@@ -480,6 +485,7 @@ export default function FriendsScreen() {
             disabled={isInviting}
             accessibilityRole="button"
             accessibilityLabel="Invite friends"
+            accessibilityState={{ disabled: isInviting }}
           >
             {isInviting
               ? <ActivityIndicator color="#DC143C" size="small" />

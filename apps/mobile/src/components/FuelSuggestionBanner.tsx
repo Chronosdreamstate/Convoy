@@ -88,6 +88,7 @@ export default function FuelSuggestionBanner({
                 disabled={!isAdmin}
                 accessibilityRole="button"
                 accessibilityLabel={`${isAdmin ? 'Select' : 'View'} fuel station: ${s.name}, ${s.distanceM >= 1000 ? `${(s.distanceM / 1000).toFixed(1)} km` : `${s.distanceM} m`} away`}
+                accessibilityState={{ disabled: !isAdmin }}
               >
                 <View style={styles.stationInfo}>
                   <Text style={styles.stationName}>{s.name}</Text>
@@ -120,6 +121,7 @@ export default function FuelSuggestionBanner({
           disabled={loading}
           accessibilityRole="button"
           accessibilityLabel="Find nearby fuel stations"
+          accessibilityState={{ disabled: loading }}
         >
           {loading
             ? <ActivityIndicator color="#fff" size="small" />

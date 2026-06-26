@@ -143,6 +143,7 @@ export default function OtpScreen() {
             disabled={isVerifying || otp.length !== 6}
             accessibilityRole="button"
             accessibilityLabel="Verify OTP"
+            accessibilityState={{ disabled: isVerifying || otp.length !== 6 }}
           >
             {isVerifying ? (
               <ActivityIndicator color="#FFFFFF" />
@@ -158,6 +159,7 @@ export default function OtpScreen() {
               disabled={isResending || resendCooldown > 0}
               accessibilityRole="button"
               accessibilityLabel="Resend OTP"
+              accessibilityState={{ disabled: isResending || resendCooldown > 0 }}
             >
               {isResending ? (
                 <ActivityIndicator size="small" color="#DC143C" />

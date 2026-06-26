@@ -1068,6 +1068,7 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
               onPress={() => handlePickSosTarget('Yourself', myLocation?.lat ?? 0, myLocation?.lng ?? 0)}
               accessibilityRole="button"
               accessibilityLabel={myLocation ? 'SOS for yourself using your GPS location' : 'Location unavailable'}
+              accessibilityState={{ disabled: !myLocation }}
             >
               <Text style={styles.pickerRowEmoji}>🙋</Text>
               <View style={styles.pickerRowBody}>
@@ -1172,6 +1173,7 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
                 disabled={isCalcRoute}
                 accessibilityRole="button"
                 accessibilityLabel="Calculate route"
+                accessibilityState={{ disabled: isCalcRoute }}
               >
                 <Text style={styles.routeSearchBtnText}>{isCalcRoute ? '…' : 'Go'}</Text>
               </TouchableOpacity>

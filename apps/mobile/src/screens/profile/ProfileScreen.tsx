@@ -241,6 +241,7 @@ export default function ProfileScreen() {
             disabled={!isDirty || isSaving}
             accessibilityRole="button"
             accessibilityLabel="Save profile"
+            accessibilityState={{ disabled: !isDirty || isSaving }}
           >
             {isSaving ? (
               <ActivityIndicator color="#fff" size="small" />

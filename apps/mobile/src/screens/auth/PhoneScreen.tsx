@@ -99,6 +99,7 @@ export default function PhoneScreen() {
             disabled={isLoading}
             accessibilityRole="button"
             accessibilityLabel="Send OTP"
+            accessibilityState={{ disabled: isLoading }}
           >
             {isLoading ? (
               <ActivityIndicator color="#FFFFFF" />

@@ -529,6 +529,7 @@ export default function SettingsScreen() {
           disabled={!isDirty || isSaving}
           accessibilityRole="button"
           accessibilityLabel="Save settings"
+          accessibilityState={{ disabled: !isDirty || isSaving }}
         >
           {isSaving ? (
             <ActivityIndicator color="#FFFFFF" />

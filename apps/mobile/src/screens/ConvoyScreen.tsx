@@ -432,7 +432,7 @@ export default function ConvoyScreen({ userId }: Props) {
             onChangeText={setGroupName}
             autoFocus
           />
-          <TouchableOpacity style={styles.primaryBtn} onPress={handleCreate} disabled={loading} accessibilityRole="button" accessibilityLabel="Create convoy">
+          <TouchableOpacity style={styles.primaryBtn} onPress={handleCreate} disabled={loading} accessibilityRole="button" accessibilityLabel="Create convoy" accessibilityState={{ disabled: loading }}>
             {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryBtnText}>Create</Text>}
           </TouchableOpacity>
           <TouchableOpacity style={styles.secondaryBtn} onPress={() => setView('home')} accessibilityRole="button" accessibilityLabel="Cancel and go back">
@@ -456,7 +456,7 @@ export default function ConvoyScreen({ userId }: Props) {
             maxLength={6}
             autoFocus
           />
-          <TouchableOpacity style={styles.primaryBtn} onPress={handleJoin} disabled={loading} accessibilityRole="button" accessibilityLabel="Join convoy with code">
+          <TouchableOpacity style={styles.primaryBtn} onPress={handleJoin} disabled={loading} accessibilityRole="button" accessibilityLabel="Join convoy with code" accessibilityState={{ disabled: loading }}>
             {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryBtnText}>Join</Text>}
           </TouchableOpacity>
           <TouchableOpacity style={styles.secondaryBtn} onPress={() => setView('home')} accessibilityRole="button" accessibilityLabel="Cancel and go back">
@@ -481,6 +481,7 @@ export default function ConvoyScreen({ userId }: Props) {
             disabled={discoverLoading}
             accessibilityRole="button"
             accessibilityLabel="Refresh convoy list"
+            accessibilityState={{ disabled: discoverLoading }}
           >
             {discoverLoading
               ? <ActivityIndicator color="#888888" />
@@ -501,6 +502,7 @@ export default function ConvoyScreen({ userId }: Props) {
                   disabled={loading}
                   accessibilityRole="button"
                   accessibilityLabel={`Join convoy: ${g.name}`}
+                  accessibilityState={{ disabled: loading }}
                 >
                   <Text style={styles.discoverJoinText}>Join</Text>
                 </TouchableOpacity>

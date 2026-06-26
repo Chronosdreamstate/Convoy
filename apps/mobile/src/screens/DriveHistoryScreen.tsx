@@ -207,6 +207,7 @@ function DriveDetail({ drive, onBack, onShare, onDelete, sharing, deleting }: De
           disabled={sharing || deleting}
           accessibilityRole="button"
           accessibilityLabel="Share summary card"
+          accessibilityState={{ disabled: sharing || deleting }}
         >
           {sharing ? (
             <ActivityIndicator color="#fff" />
@@ -221,6 +222,7 @@ function DriveDetail({ drive, onBack, onShare, onDelete, sharing, deleting }: De
           disabled={deleting || sharing}
           accessibilityRole="button"
           accessibilityLabel="Delete drive record"
+          accessibilityState={{ disabled: deleting || sharing }}
         >
           {deleting ? (
             <ActivityIndicator color="#DC143C" />
@@ -435,6 +437,7 @@ export default function DriveHistoryScreen() {
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               accessibilityRole="button"
               accessibilityLabel="Share drive"
+              accessibilityState={{ disabled: sharingId === drive.id }}
             >
               {sharingId === drive.id
                 ? <ActivityIndicator color="#fff" size="small" />

@@ -45,13 +45,32 @@ const envSchema = z.object({
   NOMINATIM_CONTACT_EMAIL: z.string().email().default('support@convoy.app'),
 });
 
+const INSECURE_JWT_DEFAULTS = new Set([
+  'change-me-in-production-minimum-32-chars!!',
+  'change-me-refresh-secret-minimum-32-chars',
+]);
+
 function parseEnv() {
   const result = envSchema.safeParse(process.env);
   if (!result.success) {
     console.error('Invalid environment variables:', result.error.format());
     process.exit(1);
   }
-  return result.data;
+
+  const data = result.data;
+
+  if (data.NODE_ENV === 'production') {
+    if (INSECURE_JWT_DEFAULTS.has(data.JWT_SECRET)) {
+      console.error('FATAL: JWT_SECRET is set to the insecure default value. Set a strong random secret before deploying.');
+      process.exit(1);
+    }
+    if (INSECURE_JWT_DEFAULTS.has(data.JWT_REFRESH_SECRET)) {
+      console.error('FATAL: JWT_REFRESH_SECRET is set to the insecure default value. Set a strong random secret before deploying.');
+      process.exit(1);
+    }
+  }
+
+  return data;
 }
 
 export const env = parseEnv();

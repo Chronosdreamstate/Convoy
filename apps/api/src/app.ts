@@ -112,8 +112,33 @@ export async function buildApp(): Promise<FastifyInstance> {
   // WebSocket server (socket.io, must be last so db/redis decorators are available)
   await app.register(socketioPlugin);
 
-  // Health check
-  app.get('/health', async () => ({ status: 'ok', timestamp: new Date().toISOString() }));
+  // Health check — probes DB and Redis so load balancers get a real liveness signal
+  app.get('/health', async (_request, reply) => {
+    const checks: Record<string, 'ok' | 'error'> = {};
+    let healthy = true;
+
+    try {
+      await app.db.query('SELECT 1');
+      checks.db = 'ok';
+    } catch {
+      checks.db = 'error';
+      healthy = false;
+    }
+
+    try {
+      await app.redis.ping();
+      checks.redis = 'ok';
+    } catch {
+      checks.redis = 'error';
+      healthy = false;
+    }
+
+    return reply.status(healthy ? 200 : 503).send({
+      status: healthy ? 'ok' : 'degraded',
+      timestamp: new Date().toISOString(),
+      checks,
+    });
+  });
 
   return app;
 }

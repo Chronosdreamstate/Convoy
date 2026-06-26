@@ -145,6 +145,7 @@ export default function EmailScreen() {
               disabled={isLoading}
               accessibilityRole="button"
               accessibilityLabel={mode === 'signin' ? 'Sign In' : 'Sign Up'}
+              accessibilityState={{ disabled: isLoading }}
             >
               {isLoading ? (
                 <ActivityIndicator color="#FFFFFF" />
