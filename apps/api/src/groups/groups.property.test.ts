@@ -1,8 +1,12 @@
 /**
- * Property 9:  Group creator is always assigned the Admin role
- * Property 10: Join code is exactly 6 alphanumeric characters and unique per group
- * Property 11: Invite-only groups silently reject unapproved joins with 403
- * Property 12: Admin role transfers to the earliest-joined remaining member on Admin departure
+ * Property 9:   Group creator is always assigned the Admin role
+ * Property 10:  Join code is exactly 6 alphanumeric characters and unique per group
+ * Property 11:  Invite-only groups silently reject unapproved joins with 403
+ * Property 12:  Admin role transfers to the earliest-joined remaining member on Admin departure
+ * Property 99:  GET /groups/public only returns open+active groups
+ * Property 105: Non-admin gets 403 from PATCH /groups/:id/settings
+ * Property 106: gapThresholdM outside [100, 160000] returns 400
+ * Property 107: PATCH /groups/:id/settings updates only the fields that were sent
  */
 
 import Fastify, { FastifyInstance } from 'fastify';
@@ -111,6 +115,18 @@ async function poolQuery(sql: string, values?: unknown[]): Promise<{ rows: unkno
       (m) => m.group_id === groupId && m.user_id === userId && m.left_at === null,
     );
     return { rows: m ? [m] : [], rowCount: m ? 1 : 0 };
+  }
+
+  // PATCH /groups/:id/settings — dynamic SET clause always includes RETURNING
+  if (norm.startsWith('UPDATE CONVOY_GROUPS SET') && norm.includes('RETURNING')) {
+    const groupId = (values as unknown[])[values!.length - 1] as string;
+    const g = groups.find((g) => g.id === groupId);
+    if (!g) return { rows: [], rowCount: 0 };
+    let idx = 0;
+    if (norm.includes('GAP_THRESHOLD_M =')) g.gap_threshold_m = (values as unknown[])[idx++] as number;
+    if (norm.includes('PTT_MAX_SECONDS =')) g.ptt_max_seconds = (values as unknown[])[idx++] as number;
+    if (norm.includes('ACCESS_TYPE =')) g.access_type = (values as unknown[])[idx] as 'open' | 'invite_only';
+    return { rows: [g], rowCount: 1 };
   }
 
   // GET /groups/public — returns open+active groups with member counts (Property 99)
@@ -870,5 +886,448 @@ describe('Property 99: GET /groups/public only returns open+active groups', () =
       ),
       { numRuns: 25 },
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Property 105: Non-admin gets 403 from PATCH /groups/:id/settings
+//   Validates: Requirement 24.3
+// ---------------------------------------------------------------------------
+describe('Property 105: Only the Admin can change group settings', () => {
+  beforeEach(() => { resetStore(); });
+
+  it('non-admin user is rejected with 403 for any settings change', async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        fcUuid, // adminId
+        fcUuid, // non-admin userId
+        async (adminId, nonAdminId) => {
+          fc.pre(adminId !== nonAdminId);
+
+          resetStore();
+          const app = buildTestApp();
+          await app.ready();
+
+          const adminToken = signToken(app, adminId);
+          const nonAdminToken = signToken(app, nonAdminId);
+
+          const createRes = await app.inject({
+            method: 'POST',
+            url: '/api/v1/groups',
+            headers: authHeader(adminToken),
+            payload: { name: 'Settings Group', accessType: 'open' },
+          });
+          expect(createRes.statusCode).toBe(201);
+          const { id: groupId } = JSON.parse(createRes.body) as { id: string };
+
+          const patchRes = await app.inject({
+            method: 'PATCH',
+            url: `/api/v1/groups/${groupId}/settings`,
+            headers: authHeader(nonAdminToken),
+            payload: { gapThresholdM: 500 },
+          });
+          expect(patchRes.statusCode).toBe(403);
+
+          // Group settings must remain unchanged
+          const g = groups.find((g) => g.id === groupId)!;
+          expect(g.gap_threshold_m).toBe(3219); // default
+
+          await app.close();
+        },
+      ),
+      { numRuns: 20 },
+    );
+  });
+
+  it('admin succeeds; a second user with no role also gets 403', async () => {
+    const app = buildTestApp();
+    await app.ready();
+
+    const adminId = '00000000-0000-0000-0000-105000000001';
+    const strangerId = '00000000-0000-0000-0000-105000000002';
+    const adminToken = signToken(app, adminId);
+    const strangerToken = signToken(app, strangerId);
+
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/api/v1/groups',
+      headers: authHeader(adminToken),
+      payload: { name: 'Auth Test Group' },
+    });
+    const { id: groupId } = JSON.parse(createRes.body) as { id: string };
+
+    // Admin succeeds
+    const adminPatch = await app.inject({
+      method: 'PATCH',
+      url: `/api/v1/groups/${groupId}/settings`,
+      headers: authHeader(adminToken),
+      payload: { gapThresholdM: 1000 },
+    });
+    expect(adminPatch.statusCode).toBe(200);
+
+    // Stranger (no membership at all) is rejected
+    const strangerPatch = await app.inject({
+      method: 'PATCH',
+      url: `/api/v1/groups/${groupId}/settings`,
+      headers: authHeader(strangerToken),
+      payload: { gapThresholdM: 2000 },
+    });
+    expect(strangerPatch.statusCode).toBe(403);
+
+    await app.close();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Property 106: gapThresholdM outside [100, 160000] returns 400
+//   Validates: Requirements 24.3, schema constraints
+// ---------------------------------------------------------------------------
+describe('Property 106: gapThresholdM schema bounds are enforced', () => {
+  beforeEach(() => { resetStore(); });
+
+  it('values below 100 return 400', async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        fc.integer({ min: -10000, max: 99 }),
+        async (badGap) => {
+          resetStore();
+          const app = buildTestApp();
+          await app.ready();
+
+          const adminId = '00000000-0000-0000-0000-106000000001';
+          const token = signToken(app, adminId);
+
+          const createRes = await app.inject({
+            method: 'POST',
+            url: '/api/v1/groups',
+            headers: authHeader(token),
+            payload: { name: 'Bounds Group' },
+          });
+          const { id: groupId } = JSON.parse(createRes.body) as { id: string };
+
+          const patchRes = await app.inject({
+            method: 'PATCH',
+            url: `/api/v1/groups/${groupId}/settings`,
+            headers: authHeader(token),
+            payload: { gapThresholdM: badGap },
+          });
+          expect(patchRes.statusCode).toBe(400);
+
+          await app.close();
+        },
+      ),
+      { numRuns: 20 },
+    );
+  });
+
+  it('values above 160000 return 400', async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        fc.integer({ min: 160001, max: 1_000_000 }),
+        async (badGap) => {
+          resetStore();
+          const app = buildTestApp();
+          await app.ready();
+
+          const adminId = '00000000-0000-0000-0000-106000000002';
+          const token = signToken(app, adminId);
+
+          const createRes = await app.inject({
+            method: 'POST',
+            url: '/api/v1/groups',
+            headers: authHeader(token),
+            payload: { name: 'Bounds Group Hi' },
+          });
+          const { id: groupId } = JSON.parse(createRes.body) as { id: string };
+
+          const patchRes = await app.inject({
+            method: 'PATCH',
+            url: `/api/v1/groups/${groupId}/settings`,
+            headers: authHeader(token),
+            payload: { gapThresholdM: badGap },
+          });
+          expect(patchRes.statusCode).toBe(400);
+
+          await app.close();
+        },
+      ),
+      { numRuns: 20 },
+    );
+  });
+
+  it('any value in [100, 160000] is accepted with 200', async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        fc.integer({ min: 100, max: 160000 }),
+        async (validGap) => {
+          resetStore();
+          const app = buildTestApp();
+          await app.ready();
+
+          const adminId = '00000000-0000-0000-0000-106000000003';
+          const token = signToken(app, adminId);
+
+          const createRes = await app.inject({
+            method: 'POST',
+            url: '/api/v1/groups',
+            headers: authHeader(token),
+            payload: { name: 'Valid Gap Group' },
+          });
+          const { id: groupId } = JSON.parse(createRes.body) as { id: string };
+
+          const patchRes = await app.inject({
+            method: 'PATCH',
+            url: `/api/v1/groups/${groupId}/settings`,
+            headers: authHeader(token),
+            payload: { gapThresholdM: validGap },
+          });
+          expect(patchRes.statusCode).toBe(200);
+          const body = JSON.parse(patchRes.body) as { gapThresholdM: number };
+          expect(body.gapThresholdM).toBe(validGap);
+
+          await app.close();
+        },
+      ),
+      { numRuns: 30 },
+    );
+  });
+
+  it('boundary values 100 and 160000 are accepted', async () => {
+    const app = buildTestApp();
+    await app.ready();
+
+    const adminId = '00000000-0000-0000-0000-106000000004';
+    const token = signToken(app, adminId);
+
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/api/v1/groups',
+      headers: authHeader(token),
+      payload: { name: 'Boundary Group' },
+    });
+    const { id: groupId } = JSON.parse(createRes.body) as { id: string };
+
+    for (const boundary of [100, 160000]) {
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/api/v1/groups/${groupId}/settings`,
+        headers: authHeader(token),
+        payload: { gapThresholdM: boundary },
+      });
+      expect(res.statusCode).toBe(200);
+      expect((JSON.parse(res.body) as { gapThresholdM: number }).gapThresholdM).toBe(boundary);
+    }
+
+    await app.close();
+  });
+
+  it('pttMaxSeconds outside [5, 60] returns 400', async () => {
+    const app = buildTestApp();
+    await app.ready();
+
+    const adminId = '00000000-0000-0000-0000-106000000005';
+    const token = signToken(app, adminId);
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/api/v1/groups',
+      headers: authHeader(token),
+      payload: { name: 'PTT Bounds Group' },
+    });
+    const { id: groupId } = JSON.parse(createRes.body) as { id: string };
+
+    const tooLow = await app.inject({
+      method: 'PATCH',
+      url: `/api/v1/groups/${groupId}/settings`,
+      headers: authHeader(token),
+      payload: { pttMaxSeconds: 4 },
+    });
+    expect(tooLow.statusCode).toBe(400);
+
+    const tooHigh = await app.inject({
+      method: 'PATCH',
+      url: `/api/v1/groups/${groupId}/settings`,
+      headers: authHeader(token),
+      payload: { pttMaxSeconds: 61 },
+    });
+    expect(tooHigh.statusCode).toBe(400);
+
+    const valid = await app.inject({
+      method: 'PATCH',
+      url: `/api/v1/groups/${groupId}/settings`,
+      headers: authHeader(token),
+      payload: { pttMaxSeconds: 45 },
+    });
+    expect(valid.statusCode).toBe(200);
+
+    await app.close();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Property 107: PATCH /groups/:id/settings updates only the fields that were sent
+//   Validates: Requirements 24.3 (partial update isolation)
+// ---------------------------------------------------------------------------
+describe('Property 107: PATCH /groups/:id/settings performs partial updates only', () => {
+  beforeEach(() => { resetStore(); });
+
+  it('sending only gapThresholdM leaves pttMaxSeconds and accessType unchanged', async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        fc.integer({ min: 100, max: 160000 }),
+        async (newGap) => {
+          resetStore();
+          const app = buildTestApp();
+          await app.ready();
+
+          const adminId = '00000000-0000-0000-0000-107000000001';
+          const token = signToken(app, adminId);
+
+          const createRes = await app.inject({
+            method: 'POST',
+            url: '/api/v1/groups',
+            headers: authHeader(token),
+            payload: { name: 'Partial Update Group', accessType: 'open' },
+          });
+          const { id: groupId } = JSON.parse(createRes.body) as { id: string };
+          const g = groups.find((g) => g.id === groupId)!;
+          const originalPtt = g.ptt_max_seconds;
+          const originalAccess = g.access_type;
+
+          const patchRes = await app.inject({
+            method: 'PATCH',
+            url: `/api/v1/groups/${groupId}/settings`,
+            headers: authHeader(token),
+            payload: { gapThresholdM: newGap },
+          });
+          expect(patchRes.statusCode).toBe(200);
+
+          const body = JSON.parse(patchRes.body) as {
+            gapThresholdM: number;
+            pttMaxSeconds: number;
+            accessType: string;
+          };
+          expect(body.gapThresholdM).toBe(newGap);
+          expect(body.pttMaxSeconds).toBe(originalPtt);
+          expect(body.accessType).toBe(originalAccess);
+
+          await app.close();
+        },
+      ),
+      { numRuns: 25 },
+    );
+  });
+
+  it('sending all three fields updates all three independently', async () => {
+    const app = buildTestApp();
+    await app.ready();
+
+    const adminId = '00000000-0000-0000-0000-107000000002';
+    const token = signToken(app, adminId);
+
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/api/v1/groups',
+      headers: authHeader(token),
+      payload: { name: 'Full Update Group', accessType: 'open' },
+    });
+    const { id: groupId } = JSON.parse(createRes.body) as { id: string };
+
+    const patchRes = await app.inject({
+      method: 'PATCH',
+      url: `/api/v1/groups/${groupId}/settings`,
+      headers: authHeader(token),
+      payload: { gapThresholdM: 800, pttMaxSeconds: 20, accessType: 'invite_only' },
+    });
+    expect(patchRes.statusCode).toBe(200);
+
+    const body = JSON.parse(patchRes.body) as {
+      gapThresholdM: number;
+      pttMaxSeconds: number;
+      accessType: string;
+    };
+    expect(body.gapThresholdM).toBe(800);
+    expect(body.pttMaxSeconds).toBe(20);
+    expect(body.accessType).toBe('invite_only');
+
+    await app.close();
+  });
+
+  it('empty body returns the current settings unchanged', async () => {
+    const app = buildTestApp();
+    await app.ready();
+
+    const adminId = '00000000-0000-0000-0000-107000000003';
+    const token = signToken(app, adminId);
+
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/api/v1/groups',
+      headers: authHeader(token),
+      payload: { name: 'No-Op Group', accessType: 'open' },
+    });
+    const { id: groupId } = JSON.parse(createRes.body) as { id: string };
+    const g = groups.find((g) => g.id === groupId)!;
+    const snapshot = { gap: g.gap_threshold_m, ptt: g.ptt_max_seconds, access: g.access_type };
+
+    const patchRes = await app.inject({
+      method: 'PATCH',
+      url: `/api/v1/groups/${groupId}/settings`,
+      headers: authHeader(token),
+      payload: {},
+    });
+    expect(patchRes.statusCode).toBe(200);
+
+    const body = JSON.parse(patchRes.body) as {
+      gapThresholdM: number;
+      pttMaxSeconds: number;
+      accessType: string;
+    };
+    expect(body.gapThresholdM).toBe(snapshot.gap);
+    expect(body.pttMaxSeconds).toBe(snapshot.ptt);
+    expect(body.accessType).toBe(snapshot.access);
+
+    await app.close();
+  });
+
+  it('consecutive patches accumulate correctly', async () => {
+    const app = buildTestApp();
+    await app.ready();
+
+    const adminId = '00000000-0000-0000-0000-107000000004';
+    const token = signToken(app, adminId);
+
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/api/v1/groups',
+      headers: authHeader(token),
+      payload: { name: 'Accumulate Group', accessType: 'open' },
+    });
+    const { id: groupId } = JSON.parse(createRes.body) as { id: string };
+
+    // First patch: change gap
+    await app.inject({
+      method: 'PATCH',
+      url: `/api/v1/groups/${groupId}/settings`,
+      headers: authHeader(token),
+      payload: { gapThresholdM: 1000 },
+    });
+
+    // Second patch: change ptt, leaving gap at 1000
+    const secondPatch = await app.inject({
+      method: 'PATCH',
+      url: `/api/v1/groups/${groupId}/settings`,
+      headers: authHeader(token),
+      payload: { pttMaxSeconds: 15 },
+    });
+    expect(secondPatch.statusCode).toBe(200);
+
+    const body = JSON.parse(secondPatch.body) as {
+      gapThresholdM: number;
+      pttMaxSeconds: number;
+    };
+    expect(body.gapThresholdM).toBe(1000); // retained from first patch
+    expect(body.pttMaxSeconds).toBe(15);   // set by second patch
+
+    await app.close();
   });
 });
