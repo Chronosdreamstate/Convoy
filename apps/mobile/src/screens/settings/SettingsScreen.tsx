@@ -295,8 +295,8 @@ export default function SettingsScreen() {
     setCheckingUpdate(true);
     try {
       // expo-updates OTA check — only available in production EAS builds
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const Updates = require('expo-updates') as { checkForUpdateAsync: () => Promise<{ isAvailable: boolean }>; fetchUpdateAsync: () => Promise<void>; reloadAsync: () => Promise<void> };
+      // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-explicit-any
+      const Updates = (require as any)('expo-updates') as { checkForUpdateAsync: () => Promise<{ isAvailable: boolean }>; fetchUpdateAsync: () => Promise<void>; reloadAsync: () => Promise<void> };
       const update = await Updates.checkForUpdateAsync();
       if (update.isAvailable) {
         Alert.alert(

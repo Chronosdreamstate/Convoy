@@ -29,6 +29,7 @@ import { apiClient } from '../../services/apiClient';
 import { HazardType } from '../../services/HazardService';
 import DestinationSearch, { SearchResult } from '../../components/DestinationSearch';
 import HazardPicker from '../../components/HazardPicker';
+import HazardReportModal from '../../components/HazardReportModal';
 import SpeedLimitHUD from '../../components/SpeedLimitHUD';
 import FuelSuggestionBanner from '../../components/FuelSuggestionBanner';
 import GapAlertBanner from '../../components/GapAlertBanner';
@@ -205,6 +206,8 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
   const [isOnline, setIsOnline]               = useState(true);
   const [isPttTransmitting, setIsPttTransmitting] = useState(false);
   const [showHazardPicker, setShowHazardPicker]   = useState(false);
+  const [showHazardModal, setShowHazardModal]     = useState(false);
+  const [hazardModalCoords, setHazardModalCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [showFuelBanner, setShowFuelBanner]         = useState(false);
 
   // FAB menu state

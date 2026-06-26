@@ -599,7 +599,7 @@ export default function DriveHistoryScreen() {
               <WeeklyStreakCard drives={drives} />
               <TouchableOpacity
                 style={styles.leaderboardBtn}
-                onPress={() => router.push('/leaderboard')}
+                onPress={() => router.push('/leaderboard' as never)}
                 accessibilityRole="button"
                 accessibilityLabel="View leaderboard"
               >
