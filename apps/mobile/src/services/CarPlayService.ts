@@ -97,8 +97,10 @@ export class CarPlayService {
   private stateRequestSub: EmitterSubscription | null = null;
   private currentState: CarPlayState | null = null;
   private stopFn: (() => void) | null = null;
+  private instrumentCluster: ICarPlayInstrumentCluster | null = null;
 
-  constructor() {
+  constructor(instrumentCluster?: ICarPlayInstrumentCluster) {
+    this.instrumentCluster = instrumentCluster ?? null;
     if (Platform.OS === 'ios' && NativeModules.ConvoyCarPlay) {
       this.module = NativeModules.ConvoyCarPlay as IConvoyCarPlayModule;
       this.emitter = new NativeEventEmitter(NativeModules.ConvoyCarPlay);

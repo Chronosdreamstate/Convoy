@@ -401,6 +401,8 @@ export default function GroupBrowseScreen() {
               <TouchableOpacity
                 onPress={() => void Linking.openSettings()}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                accessibilityRole="button"
+                accessibilityLabel="Open location settings"
               >
                 <Text style={styles.locationSettingsLink}> Open Settings</Text>
               </TouchableOpacity>

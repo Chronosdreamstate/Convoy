@@ -1070,7 +1070,7 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.fabItem}
-                onPress={() => { setFabOpen(false); setShowHazardPicker(true); }}
+                onPress={() => { setFabOpen(false); setHazardModalCoords(myLocation); setShowHazardModal(true); }}
                 accessibilityLabel="Report a road hazard"
                 accessibilityRole="button"
               >
@@ -1442,12 +1442,20 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
         </View>
       </Modal>
 
-      {/* Hazard picker bottom sheet */}
+      {/* Hazard picker bottom sheet (legacy — motion-aware type selection) */}
       <HazardPicker
         visible={showHazardPicker}
         isInMotion={mySpeedKph > 5}
         onSelect={handleHazardSelect}
         onClose={() => setShowHazardPicker(false)}
+      />
+
+      {/* Hazard report modal — full form with severity, note, and GPS coords */}
+      <HazardReportModal
+        visible={showHazardModal}
+        onClose={() => setShowHazardModal(false)}
+        lat={hazardModalCoords?.lat ?? null}
+        lng={hazardModalCoords?.lng ?? null}
       />
 
       {/* Route planning modal */}
