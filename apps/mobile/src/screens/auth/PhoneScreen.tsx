@@ -10,21 +10,34 @@ import {
   KeyboardAvoidingView,
   Platform,
   Alert,
+  Modal,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { authService } from '../../services/AuthService';
 
-function formatPhoneDigits(raw: string): string {
+const COUNTRIES = [
+  { code: 'US', flag: '🇺🇸', dial: '+1',  label: 'United States'  },
+  { code: 'CA', flag: '🇨🇦', dial: '+1',  label: 'Canada'          },
+  { code: 'GB', flag: '🇬🇧', dial: '+44', label: 'United Kingdom'  },
+  { code: 'AU', flag: '🇦🇺', dial: '+61', label: 'Australia'       },
+  { code: 'MX', flag: '🇲🇽', dial: '+52', label: 'Mexico'          },
+] as const;
+
+type Country = typeof COUNTRIES[number];
+
+function formatPhone(raw: string, dial: string): string {
   const d = raw.replace(/\D/g, '').slice(0, 10);
+  if (dial !== '+1') return d;
   if (d.length <= 3) return d;
-  if (d.length <= 6) return `${d.slice(0, 3)} ${d.slice(3)}`;
-  return `${d.slice(0, 3)} ${d.slice(3, 6)} ${d.slice(6)}`;
+  if (d.length <= 6) return `(${d.slice(0, 3)}) ${d.slice(3)}`;
+  return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`;
 }
 
 export default function PhoneScreen() {
   const router = useRouter();
+  const [country, setCountry] = useState<Country>(COUNTRIES[0]);
   const [digits, setDigits] = useState('');
-  const [isFocused, setIsFocused] = useState(false);
+  const [showPicker, setShowPicker] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -35,19 +48,13 @@ export default function PhoneScreen() {
   };
 
   const handleSendOtp = async () => {
-    if (digits.length === 0) {
-      setError('Please enter your phone number.');
+    if (digits.length < 10) {
+      setError('Please enter a valid 10-digit phone number.');
       return;
     }
-    if (digits.length !== 10) {
-      setError('Please enter a valid 10-digit US phone number.');
-      return;
-    }
-
-    const e164 = '+1' + digits;
+    const e164 = country.dial + digits;
     setError(null);
     setIsLoading(true);
-
     try {
       const { devOtp } = await authService.requestOtp(e164);
       if (devOtp) {
@@ -58,19 +65,21 @@ export default function PhoneScreen() {
         router.push({ pathname: '/(auth)/otp', params: { phone: e164 } });
       }
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to send OTP. Please try again.';
-      setError(message);
+      setError(err instanceof Error ? err.message : 'Failed to send OTP. Please try again.');
     } finally {
       setIsLoading(false);
     }
   };
 
+  const selectCountry = (c: Country) => {
+    setCountry(c);
+    setDigits('');
+    setShowPicker(false);
+  };
+
   return (
     <SafeAreaView style={styles.container}>
-      <KeyboardAvoidingView
-        style={styles.inner}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      >
+      <KeyboardAvoidingView style={styles.inner} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <TouchableOpacity
           style={styles.backBtn}
           onPress={() => router.back()}
@@ -81,6 +90,8 @@ export default function PhoneScreen() {
           <Text style={styles.backBtnText}>← Back</Text>
         </TouchableOpacity>
 
+        <Text style={styles.logo}>CONVOY</Text>
+
         <View style={styles.header}>
           <Text style={styles.title}>Enter your number</Text>
           <Text style={styles.subtitle}>
@@ -89,31 +100,33 @@ export default function PhoneScreen() {
         </View>
 
         <View style={styles.form}>
-          <Text style={styles.label}>Phone Number</Text>
-
-          <View style={[styles.inputRow, isFocused && styles.inputRowFocused]}>
-            <View
-              style={styles.prefixChip}
-              accessibilityLabel="Country code: plus 1, United States"
-              accessible
+          {/* Phone input row — bottom-line style, no card border */}
+          <View style={styles.inputArea}>
+            <TouchableOpacity
+              style={styles.countryPicker}
+              onPress={() => setShowPicker(true)}
+              accessibilityRole="button"
+              accessibilityLabel={`Country: ${country.label}, dial code ${country.dial}`}
             >
-              <Text style={styles.prefixText}>🇺🇸  +1</Text>
-            </View>
-            <View style={styles.inputDivider} />
+              <Text style={styles.flag}>{country.flag}</Text>
+              <Text style={styles.dialCode}>{country.dial}</Text>
+              <Text style={styles.chevron}>▾</Text>
+            </TouchableOpacity>
+
+            <View style={styles.divider} />
+
             <TextInput
               style={styles.input}
-              value={formatPhoneDigits(digits)}
+              value={formatPhone(digits, country.dial)}
               onChangeText={handleChangeText}
-              placeholder="555 123 4567"
-              placeholderTextColor="#555555"
+              placeholder="(555) 123-4567"
+              placeholderTextColor="#888888"
               keyboardType="phone-pad"
               autoComplete="tel"
               textContentType="telephoneNumber"
               autoFocus
               returnKeyType="send"
               onSubmitEditing={() => { void handleSendOtp(); }}
-              onFocus={() => setIsFocused(true)}
-              onBlur={() => setIsFocused(false)}
               accessibilityLabel="Phone number, required"
             />
           </View>
@@ -125,113 +138,147 @@ export default function PhoneScreen() {
             onPress={() => { void handleSendOtp(); }}
             disabled={isLoading || digits.length < 10}
             accessibilityRole="button"
-            accessibilityLabel="Send OTP"
+            accessibilityLabel="Continue"
             accessibilityHint="Sends a one-time code to your phone"
             accessibilityState={{ disabled: isLoading || digits.length < 10 }}
           >
-            {isLoading ? (
-              <ActivityIndicator color="#FFFFFF" />
-            ) : (
-              <Text style={styles.buttonText}>Send OTP</Text>
-            )}
+            {isLoading
+              ? <ActivityIndicator color="#FFFFFF" />
+              : <Text style={styles.buttonText}>Continue →</Text>}
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
+
+      {/* Country picker bottom sheet */}
+      <Modal
+        visible={showPicker}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowPicker(false)}
+      >
+        <TouchableOpacity
+          style={styles.overlay}
+          onPress={() => setShowPicker(false)}
+          activeOpacity={1}
+          accessibilityRole="button"
+          accessibilityLabel="Close country picker"
+        >
+          <View style={styles.sheet}>
+            <View style={styles.sheetHandle} />
+            <Text style={styles.sheetTitle}>Select Country</Text>
+
+            {COUNTRIES.map((c) => (
+              <TouchableOpacity
+                key={c.code}
+                style={[styles.countryRow, country.code === c.code && styles.countryRowSelected]}
+                onPress={() => selectCountry(c)}
+                accessibilityRole="radio"
+                accessibilityState={{ checked: country.code === c.code }}
+                accessibilityLabel={`${c.label}, ${c.dial}`}
+              >
+                <Text style={styles.countryFlag}>{c.flag}</Text>
+                <Text style={styles.countryLabel}>{c.label}</Text>
+                <Text style={styles.countryDial}>{c.dial}</Text>
+                {country.code === c.code && <Text style={styles.checkmark}>✓</Text>}
+              </TouchableOpacity>
+            ))}
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#0A0A0A',
-  },
-  inner: {
-    flex: 1,
-    paddingHorizontal: 24,
-    paddingTop: 32,
-    justifyContent: 'flex-start',
-  },
-  header: {
-    marginBottom: 32,
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: '700',
-    color: '#FFFFFF',
-    marginBottom: 8,
-  },
-  subtitle: {
-    fontSize: 15,
-    color: '#888888',
-    lineHeight: 22,
-  },
-  form: {
-    gap: 12,
-  },
+  container: { flex: 1, backgroundColor: '#0A0A0A' },
+  inner: { flex: 1, paddingHorizontal: 24, paddingTop: 32 },
   backBtn: { paddingTop: 8, paddingBottom: 16, alignSelf: 'flex-start' },
   backBtnText: { color: '#DC143C', fontSize: 16, fontWeight: '600' },
-  label: {
-    fontSize: 13,
-    color: '#AAAAAA',
-    marginBottom: 4,
+  logo: {
+    fontSize: 32,
+    fontWeight: '700',
+    color: '#DC143C',
+    letterSpacing: 6,
+    marginBottom: 32,
   },
-  inputRow: {
+  header: { marginBottom: 40 },
+  title: { fontSize: 28, fontWeight: '700', color: '#FFFFFF', marginBottom: 8 },
+  subtitle: { fontSize: 15, color: '#888888', lineHeight: 22 },
+  form: { gap: 20 },
+  inputArea: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#1A1A1A',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#2A2A2A',
-    minHeight: 56,
-    overflow: 'hidden',
+    borderBottomWidth: 1,
+    borderBottomColor: '#2A2A2A',
+    paddingBottom: 12,
   },
-  inputRowFocused: {
-    borderColor: '#DC143C',
+  countryPicker: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingRight: 14,
   },
-  prefixChip: {
-    paddingHorizontal: 14,
-    paddingVertical: 4,
-    justifyContent: 'center',
-  },
-  prefixText: {
-    color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '600',
-  },
-  inputDivider: {
-    width: 1,
-    height: 28,
-    backgroundColor: '#333333',
-    marginVertical: 10,
-  },
+  flag: { fontSize: 22 },
+  dialCode: { color: '#FFFFFF', fontSize: 17, fontWeight: '600' },
+  chevron: { color: '#888888', fontSize: 10 },
+  divider: { width: 1, height: 24, backgroundColor: '#2A2A2A', marginRight: 14 },
   input: {
     flex: 1,
-    paddingHorizontal: 14,
-    fontSize: 17,
+    fontSize: 24,
     color: '#FFFFFF',
-    minHeight: 56,
+    paddingVertical: 0,
   },
-  errorText: {
-    color: '#FF4444',
-    fontSize: 13,
-    marginTop: 2,
-  },
+  errorText: { color: '#FF4444', fontSize: 13, marginTop: -8 },
   button: {
     backgroundColor: '#DC143C',
     borderRadius: 12,
-    paddingVertical: 18,
+    height: 56,
     alignItems: 'center',
-    marginTop: 8,
-    minHeight: 56,
     justifyContent: 'center',
   },
-  buttonDisabled: {
-    opacity: 0.45,
+  buttonDisabled: { opacity: 0.45 },
+  buttonText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
+  // Modal
+  overlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0,0,0,0.65)',
   },
-  buttonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
+  sheet: {
+    backgroundColor: '#1C1C1C',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingHorizontal: 24,
+    paddingTop: 12,
+    paddingBottom: 40,
+  },
+  sheetHandle: {
+    width: 40,
+    height: 4,
+    backgroundColor: '#2A2A2A',
+    borderRadius: 2,
+    alignSelf: 'center',
+    marginBottom: 20,
+  },
+  sheetTitle: {
+    color: '#888888',
+    fontSize: 11,
     fontWeight: '700',
+    letterSpacing: 1.5,
+    textTransform: 'uppercase',
+    marginBottom: 8,
   },
+  countryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 16,
+    gap: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#242424',
+  },
+  countryRowSelected: { opacity: 1 },
+  countryFlag: { fontSize: 24 },
+  countryLabel: { flex: 1, color: '#FFFFFF', fontSize: 16 },
+  countryDial: { color: '#888888', fontSize: 15 },
+  checkmark: { color: '#DC143C', fontSize: 16, fontWeight: '700' },
 });

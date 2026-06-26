@@ -95,6 +95,8 @@ const createHazardSchema = z.object({
   type: z.enum(HAZARD_TYPES),
   lat: z.number().min(-90).max(90),
   lng: z.number().min(-180).max(180),
+  severity: z.enum(['low', 'medium', 'high']).optional().default('medium'),
+  note: z.string().max(100).optional(),
 });
 
 const bulkHazardItemSchema = z.object({
@@ -134,7 +136,7 @@ export default async function hazardsRoutes(fastify: FastifyInstance): Promise<v
     if (!parsed.success) {
       return reply.badRequest(parsed.error.errors[0].message);
     }
-    const { type, lat, lng } = parsed.data;
+    const { type, lat, lng, severity, note } = parsed.data;
 
     const allowed = await checkRateLimit(redis, userId);
     if (!allowed) {
@@ -144,10 +146,10 @@ export default async function hazardsRoutes(fastify: FastifyInstance): Promise<v
     const expiresAt = computeExpiresAt(Date.now());
 
     const result = await pool.query<{ id: string; created_at: Date }>(
-      `INSERT INTO hazard_reports (reporter_id, hazard_type, location, expires_at)
-       VALUES ($1, $2, ST_SetSRID(ST_MakePoint($3, $4), 4326)::geography, $5)
+      `INSERT INTO hazard_reports (reporter_id, hazard_type, location, expires_at, severity, note)
+       VALUES ($1, $2, ST_SetSRID(ST_MakePoint($3, $4), 4326)::geography, $5, $6, $7)
        RETURNING id, created_at`,
-      [userId, type, lng, lat, expiresAt],
+      [userId, type, lng, lat, expiresAt, severity, note ?? null],
     );
 
     const row = result.rows[0];

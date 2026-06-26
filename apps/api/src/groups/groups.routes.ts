@@ -1088,6 +1088,63 @@ async function groupsRoutes(
       return reply.status(204).send();
     },
   );
+
+  // -------------------------------------------------------------------------
+  // GET /groups/:id/waypoints — list current route waypoints
+  // -------------------------------------------------------------------------
+  fastify.get(
+    '/groups/:id/waypoints',
+    { preHandler: [authenticate, generalLimiter(fastify.redis)] },
+    async (request, reply) => {
+      const userId = (request.user as { sub: string }).sub;
+      const { id } = request.params as { id: string };
+
+      const memberCheck = await fastify.db.query<{ id: string }>(
+        `SELECT id FROM convoy_members WHERE group_id = $1 AND user_id = $2 AND left_at IS NULL`,
+        [id, userId],
+      );
+      if (!memberCheck.rows[0]) return reply.forbidden('Not a member of this group');
+
+      const result = await fastify.db.query<{ waypoints: unknown }>(
+        `SELECT waypoints FROM convoy_groups WHERE id = $1`,
+        [id],
+      );
+      if (!result.rows[0]) return reply.notFound('Group not found');
+
+      return reply.send({ waypoints: result.rows[0].waypoints ?? [] });
+    },
+  );
+
+  // -------------------------------------------------------------------------
+  // POST /groups/:id/waypoints — replace waypoints list (admin only, limit 20)
+  // -------------------------------------------------------------------------
+  fastify.post(
+    '/groups/:id/waypoints',
+    { preHandler: [authenticate, generalLimiter(fastify.redis)] },
+    async (request, reply) => {
+      const userId = (request.user as { sub: string }).sub;
+      const { id } = request.params as { id: string };
+
+      const groupResult = await fastify.db.query<{ admin_id: string }>(
+        'SELECT admin_id FROM convoy_groups WHERE id = $1',
+        [id],
+      );
+      const group = groupResult.rows[0];
+      if (!group) return reply.notFound('Group not found');
+      if (group.admin_id !== userId) return reply.forbidden('Only the group admin can set waypoints');
+
+      const body = request.body as { waypoints?: unknown[] };
+      const waypoints = Array.isArray(body?.waypoints) ? body.waypoints.slice(0, 20) : [];
+
+      await fastify.db.query(
+        `UPDATE convoy_groups SET waypoints = $1::jsonb WHERE id = $2`,
+        [JSON.stringify(waypoints), id],
+      );
+
+      fastify.io.to(`group:${id}`).emit('group:waypoints_updated', { groupId: id, waypoints });
+      return reply.send({ waypoints });
+    },
+  );
 }
 
 export default groupsRoutes;

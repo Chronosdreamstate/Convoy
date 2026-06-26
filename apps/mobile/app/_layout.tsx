@@ -346,6 +346,7 @@ export default function RootLayout() {
             options={{ animation: 'slide_from_bottom', presentation: 'modal' }}
           />
           <Stack.Screen name="leaderboard" />
+          <Stack.Screen name="group-leaderboard" />
         </Stack>
       </ErrorBoundary>
       <OfflineIndicator isOffline={isOffline} />

@@ -960,15 +960,36 @@ export default function ConvoyScreen({ userId }: Props) {
         </TouchableOpacity>
       )}
 
-      {/* Invite Friends — visible to all members */}
-      <TouchableOpacity
-        style={styles.inviteBtn}
-        onPress={() => setShowInvite(true)}
-        accessibilityRole="button"
-        accessibilityLabel="Invite friends to this convoy"
-      >
-        <Text style={styles.inviteBtnText}>📨  Invite Friends</Text>
-      </TouchableOpacity>
+      {/* Quick action row — Invite + Leaderboard */}
+      <View style={styles.quickActions}>
+        <TouchableOpacity
+          style={styles.quickActionBtn}
+          onPress={() => setShowInvite(true)}
+          accessibilityRole="button"
+          accessibilityLabel="Invite friends to this convoy"
+        >
+          <Text style={styles.quickActionIcon}>📨</Text>
+          <Text style={styles.quickActionText}>Invite</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.quickActionBtn}
+          onPress={() => router.push({ pathname: '/leaderboard' as never, params: { groupId: group.id, groupName: group.name } })}
+          accessibilityRole="button"
+          accessibilityLabel="View group leaderboard"
+        >
+          <Text style={styles.quickActionIcon}>🏆</Text>
+          <Text style={styles.quickActionText}>Leaderboard</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.quickActionBtn}
+          onPress={() => router.push({ pathname: '/waypoints' as never, params: { groupId: group.id } })}
+          accessibilityRole="button"
+          accessibilityLabel="Manage waypoints"
+        >
+          <Text style={styles.quickActionIcon}>📍</Text>
+          <Text style={styles.quickActionText}>Waypoints</Text>
+        </TouchableOpacity>
+      </View>
 
       <Text style={styles.sectionLabel}>MEMBERS ({members.length})</Text>
 
@@ -996,8 +1017,15 @@ export default function ConvoyScreen({ userId }: Props) {
           const memberIsAdmin = m.userId === group.adminId;
           const avatarBg = memberIsAdmin ? '#2A0A0A' : '#1C1C1C';
           const avatarText = memberIsAdmin ? '#DC143C' : '#888888';
+          const distanceStr = distFromLead != null
+            ? `${distFromLead >= 1000 ? `${(distFromLead / 1000).toFixed(1)} km` : `${Math.round(distFromLead)} m`} away`
+            : '';
           return (
-            <View style={memberStyles.row}>
+            <View
+              style={memberStyles.row}
+              accessible={true}
+              accessibilityLabel={`${m.callsign ?? m.displayName}${distanceStr ? `, ${distanceStr}` : ''}`}
+            >
               {/* Initials avatar */}
               <View style={[memberStyles.avatar, { backgroundColor: avatarBg }]}>
                 <Text style={[memberStyles.avatarText, { color: avatarText }]}>
@@ -1637,19 +1665,26 @@ const styles = StyleSheet.create({
   },
   scheduleBtnText: { color: '#888888', fontSize: 13, fontWeight: '600' },
 
-  // Invite Friends button
-  inviteBtn: {
-    backgroundColor: '#1A0505',
-    borderRadius: 12,
-    paddingVertical: 14,
-    alignItems: 'center',
+  // Quick action row
+  quickActions: {
+    flexDirection: 'row',
+    gap: 10,
     marginBottom: 12,
-    borderWidth: 1,
-    borderColor: '#DC143C',
-    minHeight: 48,
-    justifyContent: 'center',
   },
-  inviteBtnText: { color: '#DC143C', fontWeight: '700', fontSize: 15 },
+  quickActionBtn: {
+    flex: 1,
+    backgroundColor: '#1C1C1C',
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#2A2A2A',
+    minHeight: 60,
+    gap: 4,
+  },
+  quickActionIcon: { fontSize: 20 },
+  quickActionText: { color: '#888888', fontSize: 11, fontWeight: '700', letterSpacing: 0.5 },
 
   // Invite modal
   inviteModal: {

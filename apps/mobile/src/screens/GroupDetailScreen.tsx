@@ -231,25 +231,42 @@ export default function GroupDetailScreen() {
         <View style={{ height: 100 }} />
       </ScrollView>
 
-      {/* Join / View button */}
+      {/* Action buttons */}
       <View style={styles.footer}>
-        {group.isMember ? (
-          <TouchableOpacity style={styles.viewBtn} onPress={() => router.replace('/(tabs)/convoy')}>
-            <Text style={styles.joinText}>🚗 View Convoy</Text>
-          </TouchableOpacity>
-        ) : (
+        <View style={styles.footerRow}>
+          {group.isMember ? (
+            <TouchableOpacity
+              style={[styles.viewBtn, { flex: 1 }]}
+              onPress={() => router.replace('/(tabs)/convoy')}
+            >
+              <Text style={styles.joinText}>🚗 View Convoy</Text>
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity
+              style={[styles.joinBtn, { flex: 1 }, joining && styles.joinBtnDisabled]}
+              onPress={handleJoin}
+              disabled={joining}
+            >
+              {joining ? (
+                <ActivityIndicator color="#FFFFFF" />
+              ) : (
+                <Text style={styles.joinText}>Join Convoy</Text>
+              )}
+            </TouchableOpacity>
+          )}
           <TouchableOpacity
-            style={[styles.joinBtn, joining && styles.joinBtnDisabled]}
-            onPress={handleJoin}
-            disabled={joining}
+            style={styles.leaderboardBtn}
+            onPress={() =>
+              router.push({
+                pathname: '/leaderboard',
+                params: { groupId: group.id, groupName: group.name },
+              } as never)
+            }
+            accessibilityLabel="View leaderboard"
           >
-            {joining ? (
-              <ActivityIndicator color="#FFFFFF" />
-            ) : (
-              <Text style={styles.joinText}>Join Convoy</Text>
-            )}
+            <Text style={styles.leaderboardIcon}>🏆</Text>
           </TouchableOpacity>
-        )}
+        </View>
       </View>
     </SafeAreaView>
   );
@@ -301,8 +318,11 @@ const styles = StyleSheet.create({
   eventDate: { color: '#888888', fontSize: 13 },
 
   footer: { position: 'absolute', bottom: 0, left: 0, right: 0, padding: 20, backgroundColor: '#0A0A0A', borderTopWidth: 1, borderTopColor: '#1C1C1C' },
+  footerRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   joinBtn: { backgroundColor: '#DC143C', borderRadius: 16, paddingVertical: 18, alignItems: 'center' },
   joinBtnDisabled: { opacity: 0.5 },
   viewBtn: { backgroundColor: '#1C1C1C', borderRadius: 16, paddingVertical: 18, alignItems: 'center', borderWidth: 1, borderColor: '#DC143C' },
   joinText: { color: '#FFFFFF', fontSize: 17, fontWeight: '700' },
+  leaderboardBtn: { width: 56, height: 56, borderRadius: 16, backgroundColor: '#1C1C1C', borderWidth: 1, borderColor: '#2A2A2A', alignItems: 'center', justifyContent: 'center' },
+  leaderboardIcon: { fontSize: 24 },
 });

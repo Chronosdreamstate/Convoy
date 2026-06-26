@@ -13,6 +13,7 @@ import settingsRoutes from './settings/settings.routes';
 import vehiclesRoutes from './vehicles/vehicles.routes';
 import friendsRoutes from './friends/friends.routes';
 import groupsRoutes from './groups/groups.routes';
+import chatRoutes from './groups/chat.routes';
 import routesRoutes from './routes/routes.routes';
 import hazardsRoutes from './hazards/hazards.routes';
 import pttRoutes from './ptt/ptt.routes';
@@ -85,6 +86,9 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   // Convoy group management
   await app.register(groupsRoutes, { prefix: '/api/v1' });
+
+  // Group text chat
+  await app.register(chatRoutes, { prefix: '/api/v1' });
 
   // Route calculation and push
   await app.register(routesRoutes, { prefix: '/api/v1' });

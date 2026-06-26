@@ -12,34 +12,31 @@ import {
   ScrollView,
   Dimensions,
 } from 'react-native';
-
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
-
-const SLIDES = [
-  {
-    emoji: '🚗🚙🚕',
-    emojiSize: 48,
-    title: 'Drive Together',
-    body: 'Keep your crew in sync with real-time convoy tracking',
-  },
-  {
-    emoji: '🎙️',
-    emojiSize: 64,
-    title: 'Built-in Radio',
-    body: 'Crystal-clear push-to-talk between all convoy members',
-  },
-  {
-    emoji: '🏁',
-    emojiSize: 64,
-    title: 'Find Your Crew',
-    body: 'Browse car meets and convoys happening near you',
-  },
-];
 import { useRouter } from 'expo-router';
 import { authService } from '../../services/AuthService';
 import { useAuthStore } from '../../stores/authStore';
 import { theme } from '../../theme';
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
+
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+
+const SLIDES = [
+  {
+    emoji: '🚗',
+    title: 'Drive Together',
+    body: 'Keep your crew in sync with real-time convoy tracking',
+  },
+  {
+    emoji: '🎙️',
+    title: 'Built-in Radio',
+    body: 'Crystal-clear push-to-talk between all convoy members',
+  },
+  {
+    emoji: '🏁',
+    title: 'Find Your Crew',
+    body: 'Browse car meets and convoys happening near you',
+  },
+];
 
 GoogleSignin.configure({
   iosClientId: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID,
@@ -66,6 +63,9 @@ export default function WelcomeScreen() {
   const carouselRef = useRef<ScrollView>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const activeSlideRef = useRef(0);
+
+  // Animated dot widths — spring from 6px to 20px on active
+  const dotWidths = useRef(SLIDES.map((_, i) => new Animated.Value(i === 0 ? 20 : 6))).current;
 
   useEffect(() => {
     Animated.parallel([
@@ -110,12 +110,24 @@ export default function WelcomeScreen() {
     };
   }, [heroOpacity, heroTranslate, accentScale]);
 
+  // Spring-animate dot widths whenever active slide changes
+  useEffect(() => {
+    SLIDES.forEach((_, i) => {
+      Animated.spring(dotWidths[i], {
+        toValue: i === activeSlide ? 20 : 6,
+        useNativeDriver: false,
+        tension: 120,
+        friction: 8,
+      }).start();
+    });
+  }, [activeSlide, dotWidths]);
+
   const handleCarouselScroll = (e: { nativeEvent: { contentOffset: { x: number } } }) => {
     const idx = Math.round(e.nativeEvent.contentOffset.x / SCREEN_WIDTH);
     if (idx !== activeSlideRef.current) {
       activeSlideRef.current = idx;
       setActiveSlide(idx);
-      // Reset timer when user swipes manually
+      // Reset timer on manual swipe
       if (intervalRef.current) clearInterval(intervalRef.current);
       intervalRef.current = setInterval(() => {
         const next = (activeSlideRef.current + 1) % SLIDES.length;
@@ -177,6 +189,7 @@ export default function WelcomeScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
+      {/* CONVOY hero wordmark */}
       <Animated.View
         style={[
           styles.heroSection,
@@ -202,52 +215,69 @@ export default function WelcomeScreen() {
         >
           {SLIDES.map((slide, i) => (
             <View key={i} style={styles.slide}>
-              <Text style={{ fontSize: slide.emojiSize, textAlign: 'center' }}>{slide.emoji}</Text>
+              {/* Subtle crimson corner glow */}
+              <View style={styles.slideGlow} pointerEvents="none" />
+
+              {/* 72px hero emoji with crimson drop shadow */}
+              <View style={styles.emojiWrapper}>
+                <Text style={styles.emojiText}>{slide.emoji}</Text>
+              </View>
+
               <Text style={styles.slideTitle}>{slide.title}</Text>
               <Text style={styles.slideBody}>{slide.body}</Text>
             </View>
           ))}
         </ScrollView>
+
+        {/* Animated dot indicators */}
         <View style={styles.dotsRow}>
           {SLIDES.map((_, i) => (
-            <View
+            <Animated.View
               key={i}
-              style={[styles.dot, i === activeSlide ? styles.dotActive : styles.dotInactive]}
+              style={[
+                styles.dot,
+                i === activeSlide ? styles.dotActive : styles.dotInactive,
+                { width: dotWidths[i] },
+              ]}
             />
           ))}
         </View>
       </Animated.View>
 
+      {/* CTA section */}
       <View style={styles.buttonSection}>
-        {/* Phone auth */}
+        {/* Primary CTA */}
         <TouchableOpacity
-          style={styles.primaryButton}
+          style={styles.getStartedButton}
           onPress={() => router.push('/(auth)/phone')}
           accessibilityRole="button"
-          accessibilityLabel="Sign in with Phone"
+          accessibilityLabel="Get Started"
           accessibilityHint="Opens phone number entry screen"
         >
-          <Text style={styles.primaryButtonText}>📱  Sign in with Phone</Text>
+          <Text style={styles.getStartedText}>Get Started</Text>
         </TouchableOpacity>
 
-        {/* Divider */}
+        {/* Already have an account link */}
+        <View style={styles.signInRow}>
+          <Text style={styles.signInHint}>Already have an account? </Text>
+          <TouchableOpacity
+            onPress={() => router.push('/(auth)/email')}
+            accessibilityRole="button"
+            accessibilityLabel="Sign In"
+            hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
+          >
+            <Text style={styles.signInLink}>Sign In</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Social auth divider */}
         <View style={styles.dividerRow}>
           <View style={styles.dividerLine} />
           <Text style={styles.dividerText}>or</Text>
           <View style={styles.dividerLine} />
         </View>
 
-        <TouchableOpacity
-          style={styles.secondaryButton}
-          onPress={() => router.push('/(auth)/email')}
-          accessibilityRole="button"
-          accessibilityLabel="Sign in with Email"
-          accessibilityHint="Opens email and password entry screen"
-        >
-          <Text style={styles.secondaryButtonText}>✉️  Sign in with Email</Text>
-        </TouchableOpacity>
-
-        {/* Apple sign-in — black with white text */}
+        {/* Apple sign-in */}
         {Platform.OS === 'ios' && (
           <TouchableOpacity
             style={styles.appleButton}
@@ -262,7 +292,7 @@ export default function WelcomeScreen() {
 
         {/* Google sign-in */}
         <TouchableOpacity
-          style={styles.googleButton}
+          style={[styles.googleButton, Platform.OS === 'ios' && styles.googleButtonAfterApple]}
           onPress={() => { void handleGoogleSignIn(); }}
           accessibilityRole="button"
           accessibilityLabel="Sign in with Google"
@@ -312,8 +342,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: theme.spacing.lg,
   },
   appName: {
-    ...theme.typography.hero,
+    fontSize: 32,
+    fontWeight: '900',
     color: theme.colors.text,
+    letterSpacing: 6,
   },
   logoAccent: {
     width: 80,
@@ -336,6 +368,30 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: theme.spacing.xl,
     gap: theme.spacing.md,
+    overflow: 'hidden',
+  },
+  // Subtle crimson glow orb pinned to top-right of each slide
+  slideGlow: {
+    position: 'absolute',
+    top: -80,
+    right: -60,
+    width: 220,
+    height: 220,
+    borderRadius: 110,
+    backgroundColor: theme.colors.accent,
+    opacity: 0.07,
+  },
+  // Wrapper gives the emoji a crimson drop shadow
+  emojiWrapper: {
+    shadowColor: theme.colors.accent,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.45,
+    shadowRadius: 14,
+    elevation: 10,
+  },
+  emojiText: {
+    fontSize: 72,
+    textAlign: 'center',
   },
   slideTitle: {
     fontSize: 28,
@@ -354,17 +410,16 @@ const styles = StyleSheet.create({
   dotsRow: {
     flexDirection: 'row',
     justifyContent: 'center',
+    alignItems: 'center',
     gap: 8,
     marginTop: theme.spacing.lg,
   },
   dot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+    height: 6,
+    borderRadius: 3,
   },
   dotActive: {
     backgroundColor: theme.colors.accent,
-    width: 24,
   },
   dotInactive: {
     backgroundColor: theme.colors.border,
@@ -373,20 +428,39 @@ const styles = StyleSheet.create({
     paddingBottom: theme.spacing.sm,
     paddingHorizontal: theme.spacing.lg,
   },
-  primaryButton: {
+  // "Get Started" — 56px tall, pill shape (borderRadius 28), crimson with glow
+  getStartedButton: {
     backgroundColor: theme.colors.accent,
-    borderRadius: 14,
-    paddingVertical: 18,
-    paddingHorizontal: theme.spacing.lg,
+    borderRadius: 28,
+    height: 56,
     alignItems: 'center',
-    minHeight: 56,
     justifyContent: 'center',
+    shadowColor: theme.colors.accent,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.35,
+    shadowRadius: 12,
+    elevation: 6,
   },
-  primaryButtonText: {
+  getStartedText: {
     color: theme.colors.text,
-    fontSize: 16,
+    fontSize: 17,
     fontWeight: '700',
-    letterSpacing: 0.3,
+    letterSpacing: 0.5,
+  },
+  signInRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 14,
+  },
+  signInHint: {
+    color: theme.colors.textMuted,
+    fontSize: 14,
+  },
+  signInLink: {
+    color: theme.colors.accent,
+    fontSize: 14,
+    fontWeight: '600',
   },
   dividerRow: {
     flexDirection: 'row',
@@ -403,23 +477,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     marginHorizontal: 12,
   },
-  secondaryButton: {
-    backgroundColor: theme.colors.card,
-    borderRadius: 14,
-    paddingVertical: 18,
-    paddingHorizontal: theme.spacing.lg,
-    alignItems: 'center',
-    minHeight: 56,
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-  },
-  secondaryButtonText: {
-    color: theme.colors.text,
-    fontSize: 16,
-    fontWeight: '600',
-    letterSpacing: 0.3,
-  },
   appleButton: {
     backgroundColor: '#000000',
     borderRadius: 14,
@@ -428,7 +485,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     minHeight: 56,
     justifyContent: 'center',
-    marginTop: 10,
+    marginBottom: 10,
     borderWidth: 1,
     borderColor: '#333333',
   },
@@ -448,7 +505,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderWidth: 1,
     borderColor: '#4285F4',
-    marginTop: 10,
+  },
+  googleButtonAfterApple: {
+    // no extra margin needed — appleButton already has marginBottom: 10
   },
   googleButtonText: {
     color: '#4285F4',

@@ -92,7 +92,13 @@ interface GroupCardProps {
 
 function GroupCard({ group, onJoin, onView, joining, showDistance, eventCountdown }: GroupCardProps) {
   return (
-    <TouchableOpacity style={styles.card} onPress={() => onView(group.id)} activeOpacity={0.8}>
+    <TouchableOpacity
+      style={styles.card}
+      onPress={() => onView(group.id)}
+      activeOpacity={0.8}
+      accessibilityLabel={`${group.name}, ${group.memberCount} members`}
+      accessibilityRole="button"
+    >
       <View style={styles.cardHeader}>
         <Text style={styles.groupName} numberOfLines={1}>{group.name}</Text>
         <View style={styles.openBadge}>

@@ -17,28 +17,27 @@ import { theme } from '../theme';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-type WaypointType = 'stop' | 'photo' | 'fuel' | 'rest' | 'food';
+type WaypointType = 'waypoint' | 'photo_stop' | 'fuel' | 'rest';
 
 interface Waypoint {
   id: string;
   name: string;
   address: string;
-  type: WaypointType;
+  type?: WaypointType;
   lat?: number;
   lng?: number;
 }
 
 // ─── Waypoint type definitions ────────────────────────────────────────────────
 
-const WAYPOINT_TYPES: { key: WaypointType; label: string; icon: string; color: string }[] = [
-  { key: 'stop',  label: 'Stop',  icon: '📍', color: theme.colors.accent },
-  { key: 'photo', label: 'Photo', icon: '📸', color: theme.colors.info },
-  { key: 'fuel',  label: 'Fuel',  icon: '⛽', color: theme.colors.warning },
-  { key: 'rest',  label: 'Rest',  icon: '🛌', color: theme.colors.success },
-  { key: 'food',  label: 'Food',  icon: '🍔', color: '#F97316' },
+const WAYPOINT_TYPES: { key: WaypointType; label: string; icon: string }[] = [
+  { key: 'waypoint',   label: 'Stop',  icon: '📍' },
+  { key: 'photo_stop', label: 'Photo', icon: '📸' },
+  { key: 'fuel',       label: 'Fuel',  icon: '⛽' },
+  { key: 'rest',       label: 'Rest',  icon: '🅿️' },
 ];
 
-function getTypeConfig(type: WaypointType) {
+function getTypeConfig(type?: WaypointType) {
   return WAYPOINT_TYPES.find((t) => t.key === type) ?? WAYPOINT_TYPES[0];
 }
 
@@ -57,7 +56,7 @@ export default function WaypointManagementScreen() {
   const [modalVisible, setModalVisible] = useState(false);
   const [draftName, setDraftName]       = useState('');
   const [draftAddress, setDraftAddress] = useState('');
-  const [draftType, setDraftType]       = useState<WaypointType>('stop');
+  const [draftType, setDraftType]       = useState<WaypointType>('waypoint');
   const [saving, setSaving]             = useState(false);
 
   // ── Reorder / remove ────────────────────────────────────────────────────────
