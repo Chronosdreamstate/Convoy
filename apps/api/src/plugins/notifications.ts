@@ -26,7 +26,7 @@ async function notificationsPlugin(fastify: FastifyInstance): Promise<void> {
   const preferenceStore = new PostgresPreferenceStore(fastify.db);
 
   const queue = createNotificationQueue(queueRedis);
-  const worker = createNotificationWorker(workerRedis, deviceStore, gateway, preferenceStore);
+  const worker = createNotificationWorker(workerRedis, deviceStore, gateway, preferenceStore, fastify.db);
 
   worker.on('failed', (job, err) => {
     fastify.log.error({ jobId: job?.id, err }, 'notification job failed');

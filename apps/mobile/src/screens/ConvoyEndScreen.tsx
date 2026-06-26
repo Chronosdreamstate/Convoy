@@ -207,8 +207,16 @@ export default function ConvoyEndScreen() {
         </Animated.View>
       </View>
 
-      {/* Back to map — anchored at bottom */}
+      {/* Anchored footer buttons */}
       <View style={styles.footer}>
+        <TouchableOpacity
+          style={styles.secondaryBtn}
+          onPress={() => router.push('/drive-history')}
+          accessibilityRole="button"
+          accessibilityLabel="View drive history"
+        >
+          <Text style={styles.secondaryBtnText}>📋  Drive History</Text>
+        </TouchableOpacity>
         <TouchableOpacity
           style={styles.primaryBtn}
           onPress={() => router.replace('/(tabs)/map')}

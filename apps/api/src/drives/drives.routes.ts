@@ -236,7 +236,7 @@ const drivesRoutes: FastifyPluginAsync = async (fastify) => {
         ...serializeDriveRow(row),
         summaryCardUrl: hydrateSummaryCardUrl(row.summary_card_url, env.MAPBOX_API_TOKEN),
       })),
-      pagination: { page, limit, total, pages: Math.ceil(total / limit) },
+      pagination: { page, limit, total, pages: computePages(total, limit) },
     });
   });
 

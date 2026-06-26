@@ -2,6 +2,8 @@
  * Property tests for drive history.
  * Property 31: Drive_History record contains all required fields (Req 19.1)
  * Property 32: Drive History is sorted reverse-chronologically (Req 19.3)
+ * Property 33: Pagination params are always valid (Req 19.4)
+ * Property 34: Pagination math is always consistent (Req 19.4)
  */
 
 import fc from 'fast-check';
@@ -12,6 +14,10 @@ import {
   buildSummaryCardUrl,
   hydrateSummaryCardUrl,
   REQUIRED_DRIVE_FIELDS,
+  parsePage,
+  parseLimit,
+  computeOffset,
+  computePages,
   RawDriveRow,
   DriveResponse,
 } from './drives.routes';

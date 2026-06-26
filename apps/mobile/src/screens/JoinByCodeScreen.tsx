@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { apiClient } from '../services/apiClient';
+import { HapticService } from '../services/HapticService';
 
 const CODE_LENGTH = 6;
 
@@ -52,6 +53,7 @@ export default function JoinByCodeScreen() {
     setError(null);
     try {
       await apiClient.post('/api/v1/groups/join', { code });
+      HapticService.trigger('success');
       router.replace('/(tabs)/map');
     } catch (err: unknown) {
       const status =
