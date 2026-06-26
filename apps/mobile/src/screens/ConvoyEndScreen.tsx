@@ -313,6 +313,22 @@ const styles = StyleSheet.create({
   footer: {
     paddingHorizontal: 24,
     paddingBottom: 16,
+    gap: 10,
+  },
+  secondaryBtn: {
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: '#2A2A2A',
+    borderRadius: 14,
+    paddingVertical: 15,
+    alignItems: 'center',
+    minHeight: 52,
+    justifyContent: 'center',
+  },
+  secondaryBtnText: {
+    color: '#888888',
+    fontSize: 15,
+    fontWeight: '600',
   },
   primaryBtn: {
     backgroundColor: '#DC143C',
