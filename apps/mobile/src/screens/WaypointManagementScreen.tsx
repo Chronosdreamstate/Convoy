@@ -88,7 +88,7 @@ export default function WaypointManagementScreen() {
   const openModal = () => {
     setDraftName('');
     setDraftAddress('');
-    setDraftType('stop');
+    setDraftType('waypoint');
     setModalVisible(true);
   };
 
@@ -187,16 +187,16 @@ export default function WaypointManagementScreen() {
                   </View>
 
                   {/* Type icon badge */}
-                  <View style={[styles.typeBadge, { backgroundColor: typeConfig.color + '22' }]}>
+                  <View style={styles.typeBadge}>
                     <Text style={styles.typeBadgeIcon}>{typeConfig.icon}</Text>
                   </View>
 
                   {/* Info */}
                   <View style={styles.rowInfo}>
                     <Text style={styles.rowName} numberOfLines={1}>
-                      {item.name}
+                      {typeConfig.icon} {item.name}
                     </Text>
-                    <Text style={[styles.rowTypeLabel, { color: typeConfig.color }]}>
+                    <Text style={[styles.rowTypeLabel, { color: theme.colors.accent }]}>
                       {typeConfig.label}
                     </Text>
                     {item.address ? (

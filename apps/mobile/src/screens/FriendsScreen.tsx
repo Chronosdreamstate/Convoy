@@ -15,33 +15,17 @@ import {
 import { apiClient } from '../services/apiClient';
 import { SkeletonRow } from '../components/SkeletonLoader';
 
-// ─── Types ───────────────────────────────────────────────────────────────────
-
-interface Friend {
-  id: string;
-  displayName: string;
-  callsign?: string;
-  avatarUrl?: string;
-  isOnline?: boolean;
-}
-interface FriendRequest {
-  id: string;
-  displayName: string;
-  avatarUrl?: string;
-}
+// Types
+interface Friend { id: string; displayName: string; callsign?: string; avatarUrl?: string; isOnline?: boolean; }
+interface FriendRequest { id: string; displayName: string; avatarUrl?: string; }
 type Tab = 'friends' | 'requests';
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
+// Helpers
 function initials(name: string) {
   return name.trim().split(/\s+/).slice(0, 2).map(w => w[0]?.toUpperCase() ?? '').join('');
 }
 function Avatar({ name }: { name: string }) {
-  return (
-    <View style={styles.avatar}>
-      <Text style={styles.avatarText}>{initials(name)}</Text>
-    </View>
-  );
+  return <View style={styles.avatar}><Text style={styles.avatarText}>{initials(name)}</Text></View>;
 }
 function Empty({ icon, title, sub }: { icon: string; title: string; sub: string }) {
   return (
@@ -53,8 +37,7 @@ function Empty({ icon, title, sub }: { icon: string; title: string; sub: string 
   );
 }
 
-// ─── Friends tab ─────────────────────────────────────────────────────────────
-
+// Friends tab
 function FriendsTab({ query }: { query: string }) {
   const [friends, setFriends] = useState<Friend[]>([]);
   const [loading, setLoading] = useState(true);
@@ -82,15 +65,12 @@ function FriendsTab({ query }: { query: string }) {
 
   const q = query.toLowerCase().trim();
   const list = q
-    ? friends.filter(f =>
-        f.displayName.toLowerCase().includes(q) ||
-        f.callsign?.toLowerCase().includes(q))
+    ? friends.filter(f => f.displayName.toLowerCase().includes(q) || f.callsign?.toLowerCase().includes(q))
     : friends;
 
   if (loading) return (
     <View style={styles.skeletonWrap}>{[0, 1, 2, 3].map(i => <SkeletonRow key={i} />)}</View>
   );
-
   return (
     <ScrollView contentContainerStyle={styles.listPad} showsVerticalScrollIndicator={false}>
       {error ? <Text style={styles.errorTxt}>{error}</Text> : null}
@@ -104,24 +84,12 @@ function FriendsTab({ query }: { query: string }) {
               {f.callsign ? <Text style={styles.cardSub} numberOfLines={1}>{f.callsign}</Text> : null}
             </View>
             <View style={styles.cardBtns}>
-              <TouchableOpacity
-                style={styles.mapBtn}
-                accessibilityRole="button"
-                accessibilityLabel={`View ${f.displayName} on map`}
-              >
+              <TouchableOpacity style={styles.mapBtn} accessibilityRole="button" accessibilityLabel={`View ${f.displayName} on map`}>
                 <Text style={styles.mapBtnTxt}>↗</Text>
               </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.trashBtn}
-                onPress={() => remove(f.id)}
-                disabled={removing === f.id}
-                accessibilityRole="button"
-                accessibilityLabel={`Remove ${f.displayName}`}
-                accessibilityState={{ disabled: removing === f.id }}
-              >
-                {removing === f.id
-                  ? <ActivityIndicator color="#DC143C" size="small" />
-                  : <Text style={styles.trashBtnTxt}>✕</Text>}
+              <TouchableOpacity style={styles.trashBtn} onPress={() => remove(f.id)} disabled={removing === f.id}
+                accessibilityRole="button" accessibilityLabel={`Remove ${f.displayName}`} accessibilityState={{ disabled: removing === f.id }}>
+                {removing === f.id ? <ActivityIndicator color="#DC143C" size="small" /> : <Text style={styles.trashBtnTxt}>✕</Text>}
               </TouchableOpacity>
             </View>
           </View>
@@ -131,8 +99,7 @@ function FriendsTab({ query }: { query: string }) {
   );
 }
 
-// ─── Requests tab ─────────────────────────────────────────────────────────────
-
+// Requests tab
 function RequestsTab({ onCount }: { onCount: (n: number) => void }) {
   const [reqs, setReqs] = useState<FriendRequest[]>([]);
   const [loading, setLoading] = useState(true);
@@ -162,7 +129,6 @@ function RequestsTab({ onCount }: { onCount: (n: number) => void }) {
   if (loading) return (
     <View style={styles.skeletonWrap}>{[0, 1, 2].map(i => <SkeletonRow key={i} />)}</View>
   );
-
   return (
     <ScrollView contentContainerStyle={styles.listPad} showsVerticalScrollIndicator={false}>
       {error ? <Text style={styles.errorTxt}>{error}</Text> : null}
@@ -176,29 +142,15 @@ function RequestsTab({ onCount }: { onCount: (n: number) => void }) {
               <Text style={styles.cardSub}>Wants to be friends</Text>
             </View>
             <View style={styles.cardBtns}>
-              <TouchableOpacity
-                style={styles.acceptBtn}
-                onPress={() => act(r.id, 'accept')}
-                disabled={acting?.id === r.id}
-                accessibilityRole="button"
-                accessibilityLabel={`Accept ${r.displayName}`}
-                accessibilityState={{ disabled: acting?.id === r.id }}
-              >
+              <TouchableOpacity style={styles.acceptBtn} onPress={() => act(r.id, 'accept')} disabled={acting?.id === r.id}
+                accessibilityRole="button" accessibilityLabel={`Accept ${r.displayName}`} accessibilityState={{ disabled: acting?.id === r.id }}>
                 {acting?.id === r.id && acting.action === 'accept'
-                  ? <ActivityIndicator color="#fff" size="small" />
-                  : <Text style={styles.acceptBtnTxt}>✓</Text>}
+                  ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.acceptBtnTxt}>✓</Text>}
               </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.declineBtn}
-                onPress={() => act(r.id, 'decline')}
-                disabled={acting?.id === r.id}
-                accessibilityRole="button"
-                accessibilityLabel={`Decline ${r.displayName}`}
-                accessibilityState={{ disabled: acting?.id === r.id }}
-              >
+              <TouchableOpacity style={styles.declineBtn} onPress={() => act(r.id, 'decline')} disabled={acting?.id === r.id}
+                accessibilityRole="button" accessibilityLabel={`Decline ${r.displayName}`} accessibilityState={{ disabled: acting?.id === r.id }}>
                 {acting?.id === r.id && acting.action === 'decline'
-                  ? <ActivityIndicator color="#888" size="small" />
-                  : <Text style={styles.declineBtnTxt}>✕</Text>}
+                  ? <ActivityIndicator color="#888" size="small" /> : <Text style={styles.declineBtnTxt}>✕</Text>}
               </TouchableOpacity>
             </View>
           </View>
@@ -208,8 +160,7 @@ function RequestsTab({ onCount }: { onCount: (n: number) => void }) {
   );
 }
 
-// ─── Main screen ─────────────────────────────────────────────────────────────
-
+// Main screen
 const TABS: { id: Tab; label: string }[] = [
   { id: 'friends', label: 'Friends' },
   { id: 'requests', label: 'Requests' },
@@ -232,18 +183,12 @@ export default function FriendsScreen() {
     setInviting(true);
     try {
       const { data } = await apiClient.get<{ inviteLink: string }>('/api/v1/friends/invite-link');
-      await Share.share({
-        message: `Join me on CONVOY — the car enthusiast group navigation app! ${data.inviteLink}`,
-        url: data.inviteLink,
-      });
+      await Share.share({ message: `Join me on CONVOY — the car enthusiast group navigation app! ${data.inviteLink}`, url: data.inviteLink });
     } catch { Alert.alert('Error', 'Could not generate invite link.'); }
     finally { setInviting(false); }
   }, []);
 
-  const underlineX = tabAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0, tabBarW / 2],
-  });
+  const underlineX = tabAnim.interpolate({ inputRange: [0, 1], outputRange: [0, tabBarW / 2] });
 
   return (
     <SafeAreaView style={styles.root}>
@@ -254,17 +199,9 @@ export default function FriendsScreen() {
       {tab === 'friends' && (
         <View style={styles.searchRow}>
           <Text style={styles.searchIco}>🔍</Text>
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Search by name or callsign…"
-            placeholderTextColor="#888888"
-            value={query}
-            onChangeText={setQuery}
-            autoCapitalize="none"
-            autoCorrect={false}
-            returnKeyType="search"
-            accessibilityLabel="Search friends"
-          />
+          <TextInput style={styles.searchInput} placeholder="Search by name or callsign…" placeholderTextColor="#888888"
+            value={query} onChangeText={setQuery} autoCapitalize="none" autoCorrect={false}
+            returnKeyType="search" accessibilityLabel="Search friends" />
           {query.length > 0 && (
             <TouchableOpacity onPress={() => setQuery('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
               <Text style={styles.searchClear}>✕</Text>
@@ -275,22 +212,15 @@ export default function FriendsScreen() {
 
       <View style={styles.tabBar} onLayout={e => setTabBarW(e.nativeEvent.layout.width)}>
         {TABS.map((t, i) => (
-          <TouchableOpacity
-            key={t.id}
-            style={styles.tabBtn}
-            onPress={() => switchTab(i)}
-            accessibilityRole="tab"
-            accessibilityState={{ selected: tab === t.id }}
-          >
+          <TouchableOpacity key={t.id} style={styles.tabBtn} onPress={() => switchTab(i)}
+            accessibilityRole="tab" accessibilityState={{ selected: tab === t.id }}>
             <Text style={[styles.tabLabel, tab === t.id && styles.tabLabelActive]}>{t.label}</Text>
             {t.id === 'requests' && pending > 0 && (
               <View style={styles.badge}><Text style={styles.badgeTxt}>{pending > 99 ? '99+' : pending}</Text></View>
             )}
           </TouchableOpacity>
         ))}
-        <Animated.View
-          style={[styles.underline, { width: tabBarW / 2, transform: [{ translateX: underlineX }] }]}
-        />
+        <Animated.View style={[styles.underline, { width: tabBarW / 2, transform: [{ translateX: underlineX }] }]} />
       </View>
 
       <View style={styles.content}>
@@ -298,53 +228,35 @@ export default function FriendsScreen() {
         {tab === 'requests' && <RequestsTab onCount={setPending} />}
       </View>
 
-      <TouchableOpacity
-        style={styles.fab}
-        onPress={() => { void invite(); }}
-        disabled={inviting}
-        accessibilityRole="button"
-        accessibilityLabel="Invite friends"
-        accessibilityState={{ disabled: inviting }}
-      >
-        {inviting
-          ? <ActivityIndicator color="#fff" size="small" />
-          : <Text style={styles.fabIcon}>+</Text>}
+      <TouchableOpacity style={styles.fab} onPress={() => { void invite(); }} disabled={inviting}
+        accessibilityRole="button" accessibilityLabel="Invite friends" accessibilityState={{ disabled: inviting }}>
+        {inviting ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.fabIcon}>+</Text>}
       </TouchableOpacity>
     </SafeAreaView>
   );
 }
 
-// ─── Styles ──────────────────────────────────────────────────────────────────
-
+// Styles
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#0A0A0A' },
   header: { paddingHorizontal: 24, paddingTop: 16, paddingBottom: 8 },
   headerTitle: { fontSize: 28, fontWeight: '700', color: '#FFFFFF' },
 
   searchRow: {
-    flexDirection: 'row', alignItems: 'center',
-    backgroundColor: '#1C1C1C', borderRadius: 12, borderWidth: 1, borderColor: '#2A2A2A',
+    flexDirection: 'row', alignItems: 'center', backgroundColor: '#1C1C1C',
+    borderRadius: 12, borderWidth: 1, borderColor: '#2A2A2A',
     marginHorizontal: 16, marginBottom: 8, paddingHorizontal: 14, minHeight: 48,
   },
   searchIco: { fontSize: 16, marginRight: 8 },
   searchInput: { flex: 1, fontSize: 15, color: '#FFFFFF', paddingVertical: 10 },
   searchClear: { color: '#888888', fontSize: 15, paddingLeft: 8 },
 
-  tabBar: {
-    flexDirection: 'row', marginHorizontal: 16,
-    borderBottomWidth: 1, borderBottomColor: '#2A2A2A', marginBottom: 4,
-  },
-  tabBtn: {
-    flex: 1, paddingVertical: 12, alignItems: 'center', justifyContent: 'center',
-    flexDirection: 'row', gap: 6, minHeight: 44,
-  },
+  tabBar: { flexDirection: 'row', marginHorizontal: 16, borderBottomWidth: 1, borderBottomColor: '#2A2A2A', marginBottom: 4 },
+  tabBtn: { flex: 1, paddingVertical: 12, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6, minHeight: 44 },
   tabLabel: { fontSize: 14, fontWeight: '600', color: '#888888' },
   tabLabelActive: { color: '#FFFFFF' },
   underline: { position: 'absolute', bottom: 0, height: 2, backgroundColor: '#DC143C', borderRadius: 1 },
-  badge: {
-    backgroundColor: '#DC143C', borderRadius: 10,
-    minWidth: 18, height: 18, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4,
-  },
+  badge: { backgroundColor: '#DC143C', borderRadius: 10, minWidth: 18, height: 18, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 },
   badgeTxt: { color: '#FFFFFF', fontSize: 10, fontWeight: '700' },
 
   content: { flex: 1 },
@@ -352,59 +264,36 @@ const styles = StyleSheet.create({
   listPad: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 100 },
 
   card: {
-    flexDirection: 'row', alignItems: 'center',
-    backgroundColor: '#1C1C1C', borderRadius: 14, borderWidth: 1, borderColor: '#2A2A2A',
+    flexDirection: 'row', alignItems: 'center', backgroundColor: '#1C1C1C',
+    borderRadius: 14, borderWidth: 1, borderColor: '#2A2A2A',
     paddingHorizontal: 14, paddingVertical: 12, marginBottom: 10, minHeight: 72,
   },
-  avatar: {
-    width: 44, height: 44, borderRadius: 22,
-    backgroundColor: '#DC143C', alignItems: 'center', justifyContent: 'center',
-    marginRight: 12, flexShrink: 0,
-  },
+  avatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#DC143C', alignItems: 'center', justifyContent: 'center', marginRight: 12, flexShrink: 0 },
   avatarText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
   cardInfo: { flex: 1, marginRight: 8 },
   cardName: { fontSize: 15, fontWeight: '700', color: '#FFFFFF' },
   cardSub: { fontSize: 12, color: '#888888', marginTop: 2 },
   cardBtns: { flexDirection: 'row', gap: 8 },
 
-  mapBtn: {
-    width: 38, height: 38, borderRadius: 8,
-    backgroundColor: '#242424', borderWidth: 1, borderColor: '#2A2A2A',
-    alignItems: 'center', justifyContent: 'center',
-  },
+  mapBtn: { width: 38, height: 38, borderRadius: 8, backgroundColor: '#242424', borderWidth: 1, borderColor: '#2A2A2A', alignItems: 'center', justifyContent: 'center' },
   mapBtnTxt: { color: '#888888', fontSize: 16, fontWeight: '700' },
-  trashBtn: {
-    width: 38, height: 38, borderRadius: 8,
-    borderWidth: 1, borderColor: '#DC143C', backgroundColor: 'transparent',
-    alignItems: 'center', justifyContent: 'center',
-  },
+  trashBtn: { width: 38, height: 38, borderRadius: 8, borderWidth: 1, borderColor: '#DC143C', backgroundColor: 'transparent', alignItems: 'center', justifyContent: 'center' },
   trashBtnTxt: { color: '#DC143C', fontSize: 15, fontWeight: '700' },
-
-  acceptBtn: {
-    width: 38, height: 38, borderRadius: 8,
-    backgroundColor: '#DC143C', alignItems: 'center', justifyContent: 'center',
-  },
+  acceptBtn: { width: 38, height: 38, borderRadius: 8, backgroundColor: '#DC143C', alignItems: 'center', justifyContent: 'center' },
   acceptBtnTxt: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
-  declineBtn: {
-    width: 38, height: 38, borderRadius: 8,
-    borderWidth: 1, borderColor: '#2A2A2A', backgroundColor: 'transparent',
-    alignItems: 'center', justifyContent: 'center',
-  },
+  declineBtn: { width: 38, height: 38, borderRadius: 8, borderWidth: 1, borderColor: '#2A2A2A', backgroundColor: 'transparent', alignItems: 'center', justifyContent: 'center' },
   declineBtnTxt: { color: '#888888', fontSize: 15, fontWeight: '700' },
 
   empty: { alignItems: 'center', paddingTop: 64, paddingHorizontal: 32 },
   emptyIcon: { fontSize: 44, marginBottom: 14 },
   emptyTitle: { fontSize: 18, fontWeight: '700', color: '#FFFFFF', marginBottom: 6, textAlign: 'center' },
   emptySub: { fontSize: 14, color: '#888888', textAlign: 'center', lineHeight: 20 },
-
   errorTxt: { color: '#DC143C', fontSize: 13, marginBottom: 10, textAlign: 'center' },
 
   fab: {
-    position: 'absolute', bottom: 28, right: 24,
-    width: 56, height: 56, borderRadius: 28,
+    position: 'absolute', bottom: 28, right: 24, width: 56, height: 56, borderRadius: 28,
     backgroundColor: '#DC143C', alignItems: 'center', justifyContent: 'center',
-    shadowColor: '#DC143C', shadowOpacity: 0.45, shadowRadius: 14,
-    shadowOffset: { width: 0, height: 4 }, elevation: 8,
+    shadowColor: '#DC143C', shadowOpacity: 0.45, shadowRadius: 14, shadowOffset: { width: 0, height: 4 }, elevation: 8,
   },
   fabIcon: { color: '#FFFFFF', fontSize: 30, fontWeight: '300', lineHeight: 34 },
 });

@@ -145,6 +145,13 @@ export class AndroidAutoService {
     return this.connected;
   }
 
+  /** Update the PTT transmitting callsign without requiring a full state rebuild. */
+  setTransmitting(callsign: string | null): void {
+    if (!this.lastState) return;
+    const next: AndroidAutoState = { ...this.lastState, transmittingMemberCallsign: callsign };
+    this.syncStateIfChanged(next);
+  }
+
   /**
    * Async session check via native module — source of truth for initial state before
    * the first connect event fires (e.g., if the service was restarted mid-session).

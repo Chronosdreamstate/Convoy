@@ -124,9 +124,7 @@ function EntryRow({ entry, onDelete }: { entry: FuelEntry; onDelete: (id: string
   );
 }
 
-// ---------------------------------------------------------------------------
-// Add fuel modal
-// ---------------------------------------------------------------------------
+// --- Add fuel modal ---
 
 function AddModal({ visible, onClose, onSaved }: {
   visible: boolean; onClose: () => void; onSaved: (e: FuelEntry) => void;
@@ -196,9 +194,7 @@ function AddModal({ visible, onClose, onSaved }: {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Main screen
-// ---------------------------------------------------------------------------
+// --- Main screen ---
 
 export default function FuelLogScreen() {
   const [entries, setEntries] = useState<FuelEntry[]>([]);
@@ -295,9 +291,7 @@ export default function FuelLogScreen() {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Styles
-// ---------------------------------------------------------------------------
+// --- Styles ---
 
 const s = StyleSheet.create({
   bg: { flex: 1, backgroundColor: '#0A0A0A' },

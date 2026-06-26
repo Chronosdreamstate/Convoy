@@ -15,6 +15,7 @@ import {
 import { useRouter } from 'expo-router';
 import { authService } from '../../services/AuthService';
 import { useAuthStore } from '../../stores/authStore';
+import { theme } from '../../theme';
 
 type Mode = 'signin' | 'signup';
 
@@ -148,6 +149,11 @@ export default function EmailScreen() {
             <Text style={styles.backBtnText}>← Back</Text>
           </TouchableOpacity>
 
+          {/* CONVOY wordmark */}
+          <View style={styles.wordmarkRow}>
+            <Text style={styles.wordmark}>CONVOY</Text>
+          </View>
+
           <Animated.View style={{ opacity: fadeAnim }}>
             <View style={styles.header}>
               <Text style={styles.title}>
@@ -169,7 +175,7 @@ export default function EmailScreen() {
                   onChangeText={handleEmailChange}
                   onBlur={handleEmailBlur}
                   placeholder="you@example.com"
-                  placeholderTextColor="#555555"
+                  placeholderTextColor={theme.colors.textSubtle}
                   keyboardType="email-address"
                   autoCapitalize="none"
                   autoComplete="email"
@@ -192,7 +198,7 @@ export default function EmailScreen() {
                   value={password}
                   onChangeText={handlePasswordChange}
                   placeholder="••••••••"
-                  placeholderTextColor="#555555"
+                  placeholderTextColor={theme.colors.textSubtle}
                   secureTextEntry={!showPassword}
                   autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
                   textContentType={mode === 'signup' ? 'newPassword' : 'password'}
@@ -224,7 +230,7 @@ export default function EmailScreen() {
                 accessibilityState={{ disabled: isSubmitDisabled }}
               >
                 {isLoading ? (
-                  <ActivityIndicator color="#FFFFFF" />
+                  <ActivityIndicator color={theme.colors.text} />
                 ) : (
                   <Text style={styles.buttonText}>{mode === 'signin' ? 'Sign In' : 'Sign Up'}</Text>
                 )}
@@ -255,32 +261,51 @@ export default function EmailScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0A0A0A',
+    backgroundColor: theme.colors.bg,
   },
   keyboardAvoid: {
     flex: 1,
   },
   inner: {
-    paddingHorizontal: 24,
-    paddingTop: 32,
-    paddingBottom: 48,
+    paddingHorizontal: theme.spacing.lg,
+    paddingTop: theme.spacing.xl,
+    paddingBottom: theme.spacing.xxl,
+  },
+  backBtn: {
+    paddingTop: 8,
+    paddingBottom: 16,
+    alignSelf: 'flex-start',
+  },
+  backBtnText: {
+    color: theme.colors.accent,
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  // Subtle CONVOY wordmark centered at top
+  wordmarkRow: {
+    alignItems: 'center',
+    marginBottom: theme.spacing.xl,
+  },
+  wordmark: {
+    fontSize: 24,
+    fontWeight: '900',
+    color: theme.colors.text,
+    letterSpacing: 6,
   },
   header: {
-    marginBottom: 32,
+    marginBottom: theme.spacing.xl,
   },
   title: {
     fontSize: 28,
     fontWeight: '700',
-    color: '#FFFFFF',
+    color: theme.colors.text,
     marginBottom: 8,
   },
   subtitle: {
     fontSize: 15,
-    color: '#888888',
+    color: theme.colors.textMuted,
     lineHeight: 22,
   },
-  backBtn: { paddingTop: 8, paddingBottom: 16, alignSelf: 'flex-start' },
-  backBtnText: { color: '#DC143C', fontSize: 16, fontWeight: '600' },
   form: {
     gap: 8,
   },
@@ -299,20 +324,20 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   input: {
-    backgroundColor: '#1A1A1A',
-    borderRadius: 12,
+    backgroundColor: theme.colors.card,
+    borderRadius: theme.radius.md,
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: theme.colors.border,
     paddingHorizontal: 16,
     paddingVertical: 14,
     fontSize: 16,
-    color: '#FFFFFF',
+    color: theme.colors.text,
   },
   inputError: {
-    borderColor: '#FF4444',
+    borderColor: theme.colors.error,
   },
   validIcon: {
-    color: '#22C55E',
+    color: theme.colors.success,
     fontSize: 18,
     fontWeight: '700',
     marginLeft: 10,
@@ -325,31 +350,38 @@ const styles = StyleSheet.create({
     fontSize: 18,
   },
   fieldError: {
-    color: '#FF4444',
+    color: theme.colors.error,
     fontSize: 12,
     marginTop: 4,
     marginLeft: 4,
   },
   submitError: {
-    color: '#FF4444',
+    color: theme.colors.error,
     fontSize: 13,
     marginTop: 8,
     textAlign: 'center',
   },
   button: {
-    backgroundColor: '#DC143C',
-    borderRadius: 12,
-    paddingVertical: 16,
+    backgroundColor: theme.colors.accent,
+    borderRadius: 28,
+    height: 56,
     alignItems: 'center',
+    justifyContent: 'center',
     marginTop: 12,
+    shadowColor: theme.colors.accent,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.35,
+    shadowRadius: 12,
+    elevation: 6,
   },
   buttonDisabled: {
     opacity: 0.5,
   },
   buttonText: {
-    color: '#FFFFFF',
+    color: theme.colors.text,
     fontSize: 16,
     fontWeight: '700',
+    letterSpacing: 0.3,
   },
   toggleRow: {
     flexDirection: 'row',
@@ -357,11 +389,11 @@ const styles = StyleSheet.create({
     marginTop: 16,
   },
   toggleText: {
-    color: '#666666',
+    color: theme.colors.textMuted,
     fontSize: 14,
   },
   toggleLink: {
-    color: '#DC143C',
+    color: theme.colors.accent,
     fontSize: 14,
     fontWeight: '600',
   },

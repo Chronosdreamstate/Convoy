@@ -114,6 +114,7 @@ export default function JoinByCodeScreen() {
               onSubmitEditing={handleJoin}
               placeholder="XXXXXXXX"
               placeholderTextColor="#333333"
+              accessibilityLabel="Convoy join code"
             />
           </View>
         </Pressable>

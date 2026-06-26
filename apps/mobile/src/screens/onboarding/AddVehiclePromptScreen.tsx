@@ -50,12 +50,12 @@ export default function AddVehiclePromptScreen() {
       // non-blocking — proceed regardless
     } finally {
       setLoading(false);
-      router.replace('/(onboarding)/find-group' as never);
+      router.replace('/(onboarding)/ptt-tutorial' as never);
     }
   };
 
   const handleSkip = () => {
-    router.replace('/(onboarding)/find-group' as never);
+    router.replace('/(onboarding)/ptt-tutorial' as never);
   };
 
   return (

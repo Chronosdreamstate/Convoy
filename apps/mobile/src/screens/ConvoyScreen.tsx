@@ -1091,7 +1091,7 @@ export default function ConvoyScreen({ userId }: Props) {
       <View style={styles.actions}>
         <View style={styles.actionsDivider} />
         {isAdmin && (
-          <TouchableOpacity style={styles.dangerBtn} onPress={handleEnd} accessibilityRole="button" accessibilityLabel="End convoy for all members">
+          <TouchableOpacity style={styles.dangerBtn} onPress={handleEnd} accessibilityRole="button" accessibilityLabel="End convoy">
             <Text style={styles.dangerBtnText}>🛑  End Convoy</Text>
           </TouchableOpacity>
         )}
