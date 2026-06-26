@@ -233,3 +233,158 @@ describe('hydrateSummaryCardUrl', () => {
     expect(hydrated).toBe(url);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Property 33: Pagination query params are always safe
+// ---------------------------------------------------------------------------
+
+describe('Property 33: parsePage / parseLimit always return valid values', () => {
+  test('P33.1: parsePage always returns >= 1 for any string input', () => {
+    fc.assert(
+      fc.property(
+        fc.oneof(
+          fc.string(),
+          fc.integer().map(String),
+          fc.constant(undefined),
+          fc.constant('0'),
+          fc.constant('-5'),
+          fc.constant('abc'),
+          fc.constant(''),
+        ),
+        (raw) => {
+          const page = parsePage(raw as string | undefined);
+          expect(page).toBeGreaterThanOrEqual(1);
+          expect(Number.isInteger(page)).toBe(true);
+        },
+      ),
+      { numRuns: 300 },
+    );
+  });
+
+  test('P33.2: parseLimit always returns value in [1, 50] for any string input', () => {
+    fc.assert(
+      fc.property(
+        fc.oneof(
+          fc.string(),
+          fc.integer().map(String),
+          fc.constant(undefined),
+          fc.constant('0'),
+          fc.constant('100'),
+          fc.constant('-1'),
+          fc.constant(''),
+        ),
+        (raw) => {
+          const limit = parseLimit(raw as string | undefined);
+          expect(limit).toBeGreaterThanOrEqual(1);
+          expect(limit).toBeLessThanOrEqual(50);
+          expect(Number.isInteger(limit)).toBe(true);
+        },
+      ),
+      { numRuns: 300 },
+    );
+  });
+
+  test('P33.3: parsePage with valid integer string returns that integer (if >= 1)', () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 1, max: 10_000 }),
+        (n) => {
+          expect(parsePage(String(n))).toBe(n);
+        },
+      ),
+    );
+  });
+
+  test('P33.4: parseLimit with valid integer in [1,50] is identity', () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 1, max: 50 }),
+        (n) => {
+          expect(parseLimit(String(n))).toBe(n);
+        },
+      ),
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Property 34: Pagination math is always consistent
+// ---------------------------------------------------------------------------
+
+describe('Property 34: Pagination math invariants', () => {
+  test('P34.1: computeOffset is always >= 0', () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 1, max: 1_000 }),
+        fc.integer({ min: 1, max: 50 }),
+        (page, limit) => {
+          expect(computeOffset(page, limit)).toBeGreaterThanOrEqual(0);
+        },
+      ),
+    );
+  });
+
+  test('P34.2: offset for page 1 is always 0', () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 1, max: 50 }),
+        (limit) => {
+          expect(computeOffset(1, limit)).toBe(0);
+        },
+      ),
+    );
+  });
+
+  test('P34.3: computePages * limit >= total (enough pages to cover all rows)', () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 0, max: 100_000 }),
+        fc.integer({ min: 1, max: 50 }),
+        (total, limit) => {
+          const pages = computePages(total, limit);
+          expect(pages * limit).toBeGreaterThanOrEqual(total);
+        },
+      ),
+    );
+  });
+
+  test('P34.4: computePages with total=0 is 0', () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 1, max: 50 }),
+        (limit) => {
+          expect(computePages(0, limit)).toBe(0);
+        },
+      ),
+    );
+  });
+
+  test('P34.5: total <= limit implies exactly 1 page', () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 1, max: 50 }),
+        fc.integer({ min: 1, max: 50 }),
+        (total, limit) => {
+          fc.pre(total <= limit);
+          expect(computePages(total, limit)).toBe(1);
+        },
+      ),
+    );
+  });
+
+  test('P34.6: offset + limit never exceeds total by more than limit-1', () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 1, max: 200 }),
+        fc.integer({ min: 1, max: 50 }),
+        fc.integer({ min: 1, max: 10 }),
+        (total, limit, page) => {
+          const pages = computePages(total, limit);
+          fc.pre(page <= pages);
+          const offset = computeOffset(page, limit);
+          expect(offset).toBeLessThan(total + limit);
+        },
+      ),
+    );
+  });
+});
