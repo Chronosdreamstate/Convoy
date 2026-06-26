@@ -2,87 +2,194 @@
  * Speed limit HUD overlay (Req 23.1–23.4)
  * Displays posted speed limit sign + current speed; animates when significantly over limit.
  */
-import React, { useEffect, useRef } from 'react';
-import { Animated, StyleSheet, View, Text } from 'react-native';
-import { RouteService } from '../services/RouteService';
+import React, { useEffect, useRef, useState } from 'react';
+import {
+  Animated,
+  StyleSheet,
+  TouchableOpacity,
+  View,
+  Text,
+} from 'react-native';
+
+const MPH_TO_KMH = 1.60934;
+const AUTO_HIDE_DELAY_MS = 5_000;
 
 interface Props {
   /** Posted speed limit in km/h. null means data unavailable. */
-  postedLimitKph: number | null;
+  postedLimitKph?: number | null;
   /** Current GPS speed in km/h. */
-  currentSpeedKph: number;
+  currentSpeedKph?: number;
+  /** Current user speed in mph (takes precedence over currentSpeedKph). */
+  userSpeedMph?: number;
+  /** Posted speed limit in mph (takes precedence over postedLimitKph; defaults to 65). */
+  speedLimitMph?: number;
 }
 
-function SpeedLimitHUD({ postedLimitKph, currentSpeedKph }: Props) {
-  const exceeded =
-    postedLimitKph !== null &&
-    RouteService.isSpeedLimitExceeded(currentSpeedKph, postedLimitKph);
+function SpeedLimitHUD({
+  postedLimitKph,
+  currentSpeedKph = 0,
+  userSpeedMph,
+  speedLimitMph,
+}: Props) {
+  // ── Resolve canonical mph values ──────────────────────────────────────────
+  const resolvedSpeedMph: number =
+    userSpeedMph !== undefined ? userSpeedMph : currentSpeedKph / MPH_TO_KMH;
 
-  // Pulse when ≥10% over limit (belt-and-braces alert beyond the color change)
-  const significantlyOver =
-    postedLimitKph !== null && currentSpeedKph > postedLimitKph * 1.1;
+  /** True only when an explicit limit was provided (not just the 65 mph default). */
+  const hasExplicitLimit =
+    speedLimitMph !== undefined || postedLimitKph != null;
 
-  const pulseAnim = useRef(new Animated.Value(1)).current;
+  const resolvedLimitMph: number =
+    speedLimitMph !== undefined
+      ? speedLimitMph
+      : postedLimitKph != null
+        ? postedLimitKph / MPH_TO_KMH
+        : 65;
+
+  // ── Unit toggle (mph ↔ km/h) ──────────────────────────────────────────────
+  const [unit, setUnit] = useState<'mph' | 'kmh'>('mph');
+  const toggleUnit = () => setUnit(u => (u === 'mph' ? 'kmh' : 'mph'));
+
+  const displaySpeed =
+    unit === 'mph'
+      ? Math.round(resolvedSpeedMph)
+      : Math.round(resolvedSpeedMph * MPH_TO_KMH);
+
+  const displayLimit =
+    unit === 'mph'
+      ? Math.round(resolvedLimitMph)
+      : Math.round(resolvedLimitMph * MPH_TO_KMH);
+
+  const unitLabel = unit === 'mph' ? 'mph' : 'km/h';
+
+  // ── Over-limit detection ──────────────────────────────────────────────────
+  const exceeded = resolvedSpeedMph > resolvedLimitMph;
+  const significantlyOver = resolvedSpeedMph > resolvedLimitMph * 1.1;
+
+  // ── Border opacity pulse (1.0 ↔ 0.7, 600 ms) when significantly over ─────
+  const borderOpacityAnim = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
     if (significantlyOver) {
       const pulse = Animated.loop(
         Animated.sequence([
-          Animated.timing(pulseAnim, {
-            toValue: 1.08,
-            duration: 400,
+          Animated.timing(borderOpacityAnim, {
+            toValue: 0.7,
+            duration: 600,
             useNativeDriver: true,
           }),
-          Animated.timing(pulseAnim, {
-            toValue: 1,
-            duration: 400,
+          Animated.timing(borderOpacityAnim, {
+            toValue: 1.0,
+            duration: 600,
             useNativeDriver: true,
           }),
         ]),
       );
       pulse.start();
       return () => pulse.stop();
-    } else {
-      pulseAnim.setValue(1);
-      return undefined;
     }
-  }, [significantlyOver, pulseAnim]);
+    borderOpacityAnim.setValue(1);
+    return undefined;
+  }, [significantlyOver, borderOpacityAnim]);
 
-  const speedLabel = Math.round(currentSpeedKph);
+  // ── Auto-hide when stationary for > AUTO_HIDE_DELAY_MS ───────────────────
+  const [visible, setVisible] = useState(true);
+  const hudOpacityAnim = useRef(new Animated.Value(1)).current;
+  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const visibleRef = useRef(true);
 
-  const a11yLabel =
-    postedLimitKph !== null
-      ? `Speed limit ${postedLimitKph} km/h. Current speed ${speedLabel} km/h${exceeded ? ', exceeded' : ''}`
-      : `Speed limit unavailable. Current speed ${speedLabel} km/h`;
+  useEffect(() => {
+    let cancelled = false;
+    const isMoving = resolvedSpeedMph > 0;
+
+    if (isMoving) {
+      // Cancel any pending hide timer
+      if (hideTimerRef.current) {
+        clearTimeout(hideTimerRef.current);
+        hideTimerRef.current = null;
+      }
+      // Re-show if currently hidden
+      if (!visibleRef.current) {
+        visibleRef.current = true;
+        setVisible(true);
+        Animated.timing(hudOpacityAnim, {
+          toValue: 1,
+          duration: 300,
+          useNativeDriver: true,
+        }).start();
+      }
+    } else if (!hideTimerRef.current && visibleRef.current) {
+      // Speed is 0 — begin countdown once; don't reset on each re-render
+      hideTimerRef.current = setTimeout(() => {
+        if (cancelled) return;
+        Animated.timing(hudOpacityAnim, {
+          toValue: 0,
+          duration: 400,
+          useNativeDriver: true,
+        }).start(() => {
+          if (!cancelled) {
+            visibleRef.current = false;
+            setVisible(false);
+          }
+        });
+        hideTimerRef.current = null;
+      }, AUTO_HIDE_DELAY_MS);
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, [resolvedSpeedMph, hudOpacityAnim]);
+
+  // ── Accessibility ─────────────────────────────────────────────────────────
+  const a11yLabel = hasExplicitLimit
+    ? `Speed limit ${displayLimit} ${unitLabel}. Current speed ${displaySpeed} ${unitLabel}${exceeded ? ', exceeded' : ''}`
+    : `Speed limit unavailable. Current speed ${displaySpeed} ${unitLabel}`;
+
+  // ── Dynamic sign border color ─────────────────────────────────────────────
+  const borderColor = significantlyOver ? '#DC143C' : '#2A2A2A';
+
+  if (!visible) return null;
 
   return (
-    <View style={styles.wrapper} accessibilityLabel={a11yLabel} accessibilityRole="text">
+    <Animated.View
+      style={[styles.wrapper, { opacity: hudOpacityAnim }]}
+      accessibilityLabel={a11yLabel}
+      accessibilityRole="text"
+    >
       {/* Current speed readout */}
       <View style={styles.currentSpeedRow}>
         <Text
           style={[styles.currentSpeed, exceeded && styles.currentSpeedOver]}
           maxFontSizeMultiplier={1}
         >
-          {speedLabel}
-        </Text>
-        <Text
-          style={[styles.currentSpeedUnit, exceeded && styles.currentSpeedOver]}
-          maxFontSizeMultiplier={1}
-        >
-          km/h
+          {displaySpeed}
         </Text>
       </View>
 
+      {/* Unit toggle — tap to switch mph ↔ km/h */}
+      <TouchableOpacity
+        onPress={toggleUnit}
+        style={styles.unitToggle}
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        accessibilityRole="button"
+        accessibilityLabel={`Speed in ${unitLabel}. Tap to switch units.`}
+      >
+        <Text style={styles.unitToggleText}>{unitLabel}</Text>
+      </TouchableOpacity>
+
       {/* Road sign */}
-      <Animated.View style={[styles.sign, { transform: [{ scale: pulseAnim }] }]}>
+      <Animated.View
+        style={[styles.sign, { borderColor, opacity: borderOpacityAnim }]}
+      >
         <Text style={styles.signLimit} maxFontSizeMultiplier={1}>
-          {postedLimitKph !== null ? String(postedLimitKph) : '–'}
+          {hasExplicitLimit ? String(displayLimit) : '–'}
         </Text>
         <Text style={styles.signUnit} maxFontSizeMultiplier={1}>
-          {postedLimitKph !== null ? 'KMH' : 'No data'}
+          {hasExplicitLimit ? unitLabel.toUpperCase() : 'No data'}
         </Text>
       </Animated.View>
-    </View>
+    </Animated.View>
   );
 }
 
@@ -97,7 +204,7 @@ const styles = StyleSheet.create({
   currentSpeedRow: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    marginBottom: 4,
+    marginBottom: 2,
   },
   currentSpeed: {
     fontSize: 20,
@@ -105,15 +212,21 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     lineHeight: 22,
   },
-  currentSpeedUnit: {
-    fontSize: 10,
-    fontWeight: '600',
-    color: '#AAAAAA',
-    marginLeft: 2,
-    marginBottom: 1,
-  },
   currentSpeedOver: {
     color: '#DC143C',
+  },
+  unitToggle: {
+    marginBottom: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    backgroundColor: '#1C1C1C',
+  },
+  unitToggleText: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#888888',
+    letterSpacing: 0.3,
   },
   sign: {
     width: 64,
@@ -121,7 +234,7 @@ const styles = StyleSheet.create({
     borderRadius: 32,
     backgroundColor: '#FFFFFF',
     borderWidth: 4,
-    borderColor: '#DC143C',
+    borderColor: '#2A2A2A',
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: '#000',

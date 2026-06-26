@@ -300,7 +300,7 @@ export default function WaypointManagementScreen() {
                     onPress={() => setDraftType(t.key)}
                     style={[
                       styles.typePill,
-                      isActive && { backgroundColor: t.color, borderColor: t.color },
+                      isActive && styles.typePillActive,
                     ]}
                     accessibilityRole="button"
                     accessibilityLabel={`Select type ${t.label}`}
@@ -398,6 +398,7 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: theme.radius.sm,
+    backgroundColor: theme.colors.accent + '22',
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 10,

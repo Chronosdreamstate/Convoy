@@ -1,12 +1,14 @@
-import React, { useEffect, useMemo, useRef } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
   Dimensions,
+  Share,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -134,6 +136,24 @@ function formatDistance(metres: number): string {
   return `${(metres / 1000).toFixed(1)} km`;
 }
 
+function buildShareText(
+  distanceKm: string,
+  duration: string,
+  members: number,
+  topSpeed: number | null,
+): string {
+  const lines: string[] = [
+    '🏁 Just finished a CONVOY ride!',
+    `📍 ${distanceKm} in ${duration}`,
+    `👥 ${members} rider${members !== 1 ? 's' : ''} strong`,
+  ];
+  if (topSpeed != null) {
+    lines.push(`🏎️ Top speed: ${topSpeed} km/h`);
+  }
+  lines.push('Download CONVOY and join the fun!');
+  return lines.join('\n');
+}
+
 // ---------------------------------------------------------------------------
 // StatCard — one of three horizontal cards
 // ---------------------------------------------------------------------------
@@ -190,12 +210,14 @@ export default function ConvoyEndScreen() {
     durationMinutes,
     distanceM,
     memberCount,
+    topSpeedKmh,
     routeTrace,
   } = useLocalSearchParams<{
     groupName: string;
     durationMinutes: string;
     distanceM: string;
     memberCount: string;
+    topSpeedKmh?: string;
     routeTrace?: string;
   }>();
 
@@ -203,6 +225,10 @@ export default function ConvoyEndScreen() {
   const scale = useRef(new Animated.Value(0)).current;
   const iconOpacity = useRef(new Animated.Value(0)).current;
   const contentOpacity = useRef(new Animated.Value(0)).current;
+
+  // Copy toast state
+  const [copied, setCopied] = useState(false);
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     Animated.parallel([
@@ -227,11 +253,40 @@ export default function ConvoyEndScreen() {
     }).start();
   }, []);
 
+  // Clean up copy timer on unmount
+  useEffect(() => {
+    return () => {
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+    };
+  }, []);
+
   const duration = parseInt(durationMinutes ?? '0', 10);
   const distance = parseInt(distanceM ?? '0', 10);
   const members = parseInt(memberCount ?? '1', 10);
+  const topSpeed = topSpeedKmh ? parseInt(topSpeedKmh, 10) : null;
   const hasTrace = Boolean(routeTrace && routeTrace.length > 0);
   const displayGroup = groupName ?? 'Your Crew';
+
+  // Human-readable distance for the share card (always km if >= 1 km)
+  const distanceKmText =
+    distance >= 1000 ? `${(distance / 1000).toFixed(1)}km` : `${distance}m`;
+
+  const shareText = buildShareText(distanceKmText, formatDuration(duration), members, topSpeed);
+
+  const handleShare = async () => {
+    try {
+      await Share.share({ message: shareText });
+    } catch {
+      // User cancelled or share sheet unavailable — swallow silently
+    }
+  };
+
+  const handleCopy = async () => {
+    await Clipboard.setStringAsync(shareText);
+    setCopied(true);
+    if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+    copyTimerRef.current = setTimeout(() => setCopied(false), 2000);
+  };
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -270,6 +325,26 @@ export default function ConvoyEndScreen() {
 
       {/* Anchored footer */}
       <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 16) }]}>
+        {/* Share Your Ride — full-width crimson share button */}
+        <TouchableOpacity
+          style={styles.shareBtn}
+          onPress={handleShare}
+          accessibilityRole="button"
+          accessibilityLabel="Share your ride summary"
+        >
+          <Text style={styles.shareBtnText}>Share Your Ride 🚀</Text>
+        </TouchableOpacity>
+
+        {/* Copy text link — small muted link, shows Copied! toast for 2s */}
+        <TouchableOpacity
+          style={styles.copyLink}
+          onPress={handleCopy}
+          accessibilityRole="button"
+          accessibilityLabel={copied ? 'Copied to clipboard' : 'Copy stats to clipboard'}
+        >
+          <Text style={styles.copyLinkText}>{copied ? 'Copied!' : 'Copy text'}</Text>
+        </TouchableOpacity>
+
         {/* Drive Again — crimson primary */}
         <TouchableOpacity
           style={styles.primaryBtn}
@@ -433,6 +508,36 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     gap: 12,
   },
+
+  // Share Your Ride — full-width crimson, 52px height, 14px radius
+  shareBtn: {
+    backgroundColor: T.accent,
+    borderRadius: 14,
+    height: 52,
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  shareBtnText: {
+    color: T.text,
+    fontSize: 16,
+    fontWeight: '700',
+    letterSpacing: 0.2,
+  },
+
+  // Copy text — small muted link below share button
+  copyLink: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 2,
+    marginTop: -4, // tighten gap with share button
+  },
+  copyLinkText: {
+    color: T.muted,
+    fontSize: 13,
+    fontWeight: '500',
+  },
+
   primaryBtn: {
     backgroundColor: T.accent,
     borderRadius: 14,

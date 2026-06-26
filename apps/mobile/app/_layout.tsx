@@ -347,6 +347,7 @@ export default function RootLayout() {
           />
           <Stack.Screen name="leaderboard" />
           <Stack.Screen name="group-leaderboard" />
+          <Stack.Screen name="group-chat" options={{ headerShown: false }} />
         </Stack>
       </ErrorBoundary>
       <OfflineIndicator isOffline={isOffline} />

@@ -44,6 +44,29 @@ export interface CarPlayState {
 }
 
 // ---------------------------------------------------------------------------
+// Instrument Cluster interface (CarPlay Ultra / dual-display vehicles)
+// ---------------------------------------------------------------------------
+
+export interface ICarPlayInstrumentCluster {
+  /** Display the current road speed limit on the instrument cluster. */
+  showSpeedLimit(limitKph: number): void;
+  /** Display the next convoy waypoint name and distance to it. */
+  showNextWaypoint(name: string, distanceKm: number): void;
+  /** Display this vehicle's position within the convoy and total convoy size. */
+  showConvoyPosition(myPosition: number, total: number): void;
+  /** Clear all convoy data from the instrument cluster display. */
+  clear(): void;
+}
+
+/** No-op implementation — used in tests and on non-Ultra (single-display) hardware. */
+export class NoopInstrumentCluster implements ICarPlayInstrumentCluster {
+  showSpeedLimit(_limitKph: number): void {}
+  showNextWaypoint(_name: string, _distanceKm: number): void {}
+  showConvoyPosition(_myPosition: number, _total: number): void {}
+  clear(): void {}
+}
+
+// ---------------------------------------------------------------------------
 // CarPlayService
 // ---------------------------------------------------------------------------
 

@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { authService } from '../../services/AuthService';
+import { theme } from '../../theme';
 
 const COUNTRIES = [
   { code: 'US', flag: '🇺🇸', dial: '+1',  label: 'United States'  },
@@ -90,7 +91,7 @@ export default function PhoneScreen() {
           <Text style={styles.backBtnText}>← Back</Text>
         </TouchableOpacity>
 
-        <Text style={styles.logo}>CONVOY</Text>
+        <Text style={styles.logo} accessibilityLabel="CONVOY">CONVOY</Text>
 
         <View style={styles.header}>
           <Text style={styles.title}>Enter your number</Text>

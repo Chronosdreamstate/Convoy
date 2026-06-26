@@ -998,9 +998,7 @@ async function groupsRoutes(
   );
 
   // -------------------------------------------------------------------------
-  // GET /groups/:id/leaderboard — ranked member drive stats
-  // ?metric=distance|convoys|time  (default: distance)
-  // ?limit=1-50                    (default: 20)
+  // GET /groups/:id/leaderboard — top 10 members ranked by total distance
   // -------------------------------------------------------------------------
   fastify.get(
     '/groups/:id/leaderboard',
@@ -1009,51 +1007,47 @@ async function groupsRoutes(
       const userId = (request.user as { sub: string }).sub;
       const { id } = request.params as { id: string };
 
-      const parsed = leaderboardSchema.safeParse(request.query);
-      if (!parsed.success) return reply.badRequest(parsed.error.errors[0].message);
-
-      const { metric, limit } = parsed.data;
-
       const member = await getActiveMember(id, userId, fastify.db);
       if (!member) return reply.forbidden('You are not a member of this group');
 
-      // Build the aggregate expression based on the requested metric.
-      // metric is validated against the enum so this interpolation is safe.
-      const aggregateExpr =
-        metric === 'distance' ? 'SUM(d.distance_m)' :
-        metric === 'convoys'  ? 'COUNT(d.id)'        :
-                                'SUM(d.duration_s)';
-
-      interface LeaderboardDriveRow {
-        user_id: string;
+      interface LeaderboardRow {
+        id: string;
         display_name: string;
-        ptt_callsign: string | null;
         avatar_url: string | null;
-        value: string;
+        ptt_callsign: string | null;
+        total_distance_m: string;
+        total_drives: string;
+        top_speed_kmh: string;
       }
 
-      const result = await fastify.db.query<LeaderboardDriveRow>(
-        `SELECT d.user_id, u.display_name, u.ptt_callsign, u.avatar_url,
-                COALESCE(${aggregateExpr}, 0) AS value
-         FROM drive_history d
-         JOIN users u ON u.id = d.user_id
-         WHERE d.group_id = $1
-         GROUP BY d.user_id, u.display_name, u.ptt_callsign, u.avatar_url
-         ORDER BY value DESC
-         LIMIT $2`,
-        [id, limit],
+      const result = await fastify.db.query<LeaderboardRow>(
+        `SELECT
+           u.id, u.display_name, u.avatar_url, u.ptt_callsign,
+           COALESCE(SUM(dh.distance_m), 0)::BIGINT AS total_distance_m,
+           COUNT(dh.id)::INT AS total_drives,
+           COALESCE(MAX(dh.top_speed_kph), 0)::INT AS top_speed_kmh
+         FROM convoy_members cm
+         JOIN users u ON u.id = cm.user_id
+         LEFT JOIN drive_history dh ON dh.user_id = cm.user_id AND dh.group_id = $1
+         WHERE cm.group_id = $1 AND cm.left_at IS NULL
+         GROUP BY u.id, u.display_name, u.avatar_url, u.ptt_callsign
+         ORDER BY total_distance_m DESC
+         LIMIT 10`,
+        [id],
       );
 
-      const members = result.rows.map((row, index) => ({
-        userId: row.user_id,
-        displayName: row.display_name,
-        callsign: row.ptt_callsign ?? null,
-        avatarUrl: row.avatar_url ?? null,
-        value: parseFloat(row.value),
+      const leaderboard = result.rows.map((row, index) => ({
         rank: index + 1,
+        id: row.id,
+        displayName: row.display_name,
+        avatarUrl: row.avatar_url ?? null,
+        pttCallsign: row.ptt_callsign ?? null,
+        totalDistanceM: parseInt(row.total_distance_m, 10),
+        totalDrives: parseInt(row.total_drives, 10),
+        topSpeedKmh: parseInt(row.top_speed_kmh, 10),
       }));
 
-      return reply.send({ members, metric });
+      return reply.send({ leaderboard });
     },
   );
 

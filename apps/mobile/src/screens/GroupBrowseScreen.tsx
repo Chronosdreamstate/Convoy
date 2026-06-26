@@ -334,7 +334,7 @@ export default function GroupBrowseScreen() {
     <SafeAreaView style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backButton} accessibilityRole="button">
+        <TouchableOpacity onPress={() => router.back()} style={styles.backButton} accessibilityRole="button" accessibilityLabel="Go back">
           <Text style={styles.backText}>‹ Back</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Browse Groups</Text>
@@ -357,7 +357,7 @@ export default function GroupBrowseScreen() {
             accessibilityLabel="Search groups"
           />
           {search.length > 0 && (
-            <TouchableOpacity onPress={() => setSearch('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <TouchableOpacity onPress={() => setSearch('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} accessibilityRole="button" accessibilityLabel="Clear search">
               <Text style={styles.clearIcon}>✕</Text>
             </TouchableOpacity>
           )}
@@ -377,6 +377,7 @@ export default function GroupBrowseScreen() {
             style={[styles.filterPill, activeFilter === tab && styles.filterPillActive]}
             onPress={() => setActiveFilter(tab)}
             accessibilityRole="button"
+            accessibilityLabel={tab}
             accessibilityState={{ selected: activeFilter === tab }}
           >
             <Text style={[styles.filterPillText, activeFilter === tab && styles.filterPillTextActive]}>

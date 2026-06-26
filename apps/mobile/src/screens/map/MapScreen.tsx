@@ -678,22 +678,32 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
       .then((res) => setDroppedPin((prev) => prev ? { ...prev, address: res.data.address } : prev))
       .catch(() => {});
 
-    if (!groupId) return;
-    // In a group, also offer to broadcast as Rally Point (Req 20.1)
-    Alert.alert(
-      'Pin Dropped',
-      'Broadcast this location as a Rally Point to all group members?',
-      [
+    const openHazardReport = () => {
+      setHazardModalCoords({ lat, lng });
+      setShowHazardModal(true);
+    };
+
+    if (!groupId) {
+      // Outside a group — offer just pin or hazard report
+      Alert.alert('Pin Dropped', 'Report a hazard at this location?', [
         { text: 'Just Pin', style: 'cancel' },
-        {
-          text: 'Broadcast Rally',
-          onPress: async () => {
-            try { await rallyService.broadcastRally(groupId, lat, lng); }
-            catch { Alert.alert('Error', 'Could not broadcast rally point.'); }
-          },
+        { text: 'Report Hazard', onPress: openHazardReport },
+      ]);
+      return;
+    }
+
+    // In a group — also offer Rally Point broadcast (Req 20.1)
+    Alert.alert('Pin Dropped', 'What would you like to do here?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Rally Point',
+        onPress: async () => {
+          try { await rallyService.broadcastRally(groupId, lat, lng); }
+          catch { Alert.alert('Error', 'Could not broadcast rally point.'); }
         },
-      ],
-    );
+      },
+      { text: 'Report Hazard', onPress: openHazardReport },
+    ]);
   }, [groupId]);
 
   // Open person picker — only available inside an active convoy
@@ -1144,14 +1154,8 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
             ]}
             onPressIn={() => { if (pttVoiceAvailable) { setFabPttActive(true); handlePttStart(); } }}
             onPressOut={() => { setFabPttActive(false); handlePttEnd(); }}
-            accessibilityLabel={
-              !pttVoiceAvailable
-                ? 'Voice unavailable'
-                : isPttTransmitting
-                  ? 'Transmitting voice'
-                  : 'Push to Talk'
-            }
-            accessibilityHint="Hold to broadcast voice to convoy"
+            accessibilityLabel="Push to talk"
+            accessibilityHint="Hold to transmit voice to group"
             accessibilityRole="button"
           >
             <Text style={styles.pttStandaloneIcon}>{pttVoiceAvailable ? '🎙' : '🚫'}</Text>
