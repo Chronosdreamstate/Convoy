@@ -160,8 +160,10 @@ export default function ConvoyScreen({ userId }: Props) {
   const copyFeedbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inviteCopyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const [upcomingEvent, setUpcomingEvent] = useState<{ title: string; scheduledFor: string } | null>(null);
-  const [eventCountdown, setEventCountdown] = useState('');
+  const [upcomingEvent, setUpcomingEvent] = useState<{ id: string; title: string; scheduledFor: string } | null>(null);
+  const [eventCountdown, setEventCountdown] = useState<{ hours: number; minutes: number; seconds: number } | null>(null);
+  const [convoyStarting, setConvoyStarting] = useState(false);
+  const [eventRsvp, setEventRsvp] = useState<{ going: number; maybe: number; notGoing: number; myStatus: string | null }>({ going: 0, maybe: 0, notGoing: 0, myStatus: null });
 
   const { socket } = useSocketStore();
   const { memberLocations } = useLocationStore();
@@ -240,18 +242,25 @@ export default function ConvoyScreen({ userId }: Props) {
       .catch(() => {});
   }, [group?.id]);
 
-  // Update countdown every minute
+  // Update countdown every second
   useEffect(() => {
-    if (!upcomingEvent) { setEventCountdown(''); return; }
+    if (!upcomingEvent) { setEventCountdown(null); setConvoyStarting(false); return; }
     const update = () => {
       const diffMs = new Date(upcomingEvent.scheduledFor).getTime() - Date.now();
-      if (diffMs <= 0) { setEventCountdown('Starting now'); return; }
-      const h = Math.floor(diffMs / 3600000);
-      const m = Math.floor((diffMs % 3600000) / 60000);
-      setEventCountdown(h > 0 ? `${h}h ${m}m away` : `${m}m away`);
+      if (diffMs <= 0) {
+        setEventCountdown(null);
+        setConvoyStarting(true);
+        return;
+      }
+      setConvoyStarting(false);
+      setEventCountdown({
+        hours: Math.floor(diffMs / 3600000),
+        minutes: Math.floor((diffMs % 3600000) / 60000),
+        seconds: Math.floor((diffMs % 60000) / 1000),
+      });
     };
     update();
-    const id = setInterval(update, 60000);
+    const id = setInterval(update, 1000);
     return () => clearInterval(id);
   }, [upcomingEvent]);
 
@@ -960,13 +969,37 @@ export default function ConvoyScreen({ userId }: Props) {
         )}
       </View>
 
-      {/* Upcoming event card */}
-      {upcomingEvent && (
+      {/* Convoy starting banner */}
+      {convoyStarting && (
+        <View style={styles.startingBanner}>
+          <Text style={styles.startingBannerText}>🏁 Convoy starting!</Text>
+        </View>
+      )}
+
+      {/* Upcoming event countdown card */}
+      {upcomingEvent && eventCountdown && (
         <View style={styles.eventCard}>
           <View style={styles.eventStrip} />
-          <View style={{ flex: 1 }}>
+          <View style={{ flex: 1, padding: 12 }}>
             <Text style={styles.eventTitle}>📅 {upcomingEvent.title}</Text>
-            <Text style={styles.eventCountdown}>Starting {eventCountdown}</Text>
+            <Text style={styles.eventCountdownLabel}>Starts in</Text>
+            <View style={styles.countdownRow}>
+              {[
+                { value: eventCountdown.hours, label: 'HH' },
+                { value: eventCountdown.minutes, label: 'MM' },
+                { value: eventCountdown.seconds, label: 'SS' },
+              ].map((unit, i) => {
+                const isUrgent = eventCountdown.hours < 1;
+                return (
+                  <React.Fragment key={unit.label}>
+                    {i > 0 && <Text style={[styles.countdownColon, isUrgent && styles.countdownColonUrgent]}>:</Text>}
+                    <Text style={[styles.countdownNum, isUrgent && styles.countdownNumUrgent]}>
+                      {String(unit.value).padStart(2, '0')}
+                    </Text>
+                  </React.Fragment>
+                );
+              })}
+            </View>
           </View>
         </View>
       )}
@@ -1677,8 +1710,28 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   eventStrip: { width: 4, backgroundColor: '#F59E0B' },
-  eventTitle: { color: '#F0F0F0', fontSize: 14, fontWeight: '700', padding: 12, paddingBottom: 4 },
-  eventCountdown: { color: '#F59E0B', fontSize: 12, paddingHorizontal: 12, paddingBottom: 12 },
+  eventTitle: { color: '#F0F0F0', fontSize: 14, fontWeight: '700', marginBottom: 2 },
+  eventCountdownLabel: { color: '#888888', fontSize: 11, marginBottom: 4 },
+  countdownRow: { flexDirection: 'row', alignItems: 'center', gap: 2 },
+  countdownNum: {
+    color: '#F0F0F0',
+    fontSize: 32,
+    fontWeight: '700',
+    fontVariant: ['tabular-nums'] as any,
+    minWidth: 44,
+    textAlign: 'center',
+  },
+  countdownNumUrgent: { color: '#DC143C' },
+  countdownColon: { color: '#888888', fontSize: 20, fontWeight: '700', marginHorizontal: 2 },
+  countdownColonUrgent: { color: '#DC143C' },
+  startingBanner: {
+    backgroundColor: '#DC143C',
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  startingBannerText: { color: '#fff', fontSize: 18, fontWeight: '800', letterSpacing: 1 },
 
   // Schedule event button
   scheduleBtn: {
