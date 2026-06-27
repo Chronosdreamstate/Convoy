@@ -23,6 +23,7 @@ import {
 import { SyncService } from '../src/services/SyncService';
 import { SQLiteOfflineDB } from '../src/services/OfflineCacheService';
 import type { OfflineHazard, OfflineDrive } from '../src/services/OfflineCacheService';
+import { offlineQueue } from '../src/services/OfflineQueueService';
 
 // Set up foreground notification display behaviour at module load time,
 // before any notifications can arrive.

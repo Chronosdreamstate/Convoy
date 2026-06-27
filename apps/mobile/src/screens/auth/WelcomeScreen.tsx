@@ -17,6 +17,7 @@ import { authService } from '../../services/AuthService';
 import { useAuthStore } from '../../stores/authStore';
 import { theme } from '../../theme';
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
+import { useAccessibilitySettings } from '../../hooks/useAccessibilitySettings';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 

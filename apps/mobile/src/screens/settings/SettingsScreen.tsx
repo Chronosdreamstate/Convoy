@@ -626,6 +626,12 @@ export default function SettingsScreen() {
             icon="🚗"
             label="CarPlay / Android Auto"
             subtitle="Connect to your vehicle to configure head unit settings"
+          />
+          <SettingRow
+            icon="🎙️"
+            label="Siri Shortcuts"
+            subtitle="4 shortcuts available — say 'Start my convoy'"
+            onPress={() => { void SiriShortcutsService.donateAll(); }}
             last
           />
         </View>
