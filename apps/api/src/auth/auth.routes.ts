@@ -150,7 +150,19 @@ async function authRoutes(fastify: FastifyInstance, _opts: FastifyPluginOptions)
   // -------------------------------------------------------------------------
   // POST /auth/email/signup
   // -------------------------------------------------------------------------
-  fastify.post('/auth/email/signup', async (request, reply) => {
+  fastify.post('/auth/email/signup', {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['email', 'password'],
+        properties: {
+          email: { type: 'string', format: 'email', maxLength: 254 },
+          password: { type: 'string', minLength: 8, maxLength: 128 },
+        },
+        additionalProperties: false,
+      },
+    },
+  }, async (request, reply) => {
     const result = emailSignupSchema.safeParse(request.body);
     if (!result.success) {
       return reply.badRequest(result.error.errors[0].message);

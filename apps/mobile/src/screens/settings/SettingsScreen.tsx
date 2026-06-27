@@ -20,6 +20,7 @@ import { authService } from '../../services/AuthService';
 import { SiriShortcutsService } from '../../services/SiriShortcutsService';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { theme } from '../../theme';
+import { onboardingState } from '../../utils/onboardingState';
 
 const DISTANCE_UNIT_KEY = '@convoy/distanceUnit';
 const GAP_THRESHOLD_KEY = '@convoy/gapThresholdM';

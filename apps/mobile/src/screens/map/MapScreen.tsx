@@ -16,7 +16,8 @@ import {
 import MapView, { Marker, Callout, Polyline, LongPressEvent, PROVIDER_DEFAULT } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ExpoLocation from 'expo-location';
-import { io, Socket } from 'socket.io-client';
+import { Socket } from 'socket.io-client';
+import { WebSocketService } from '../../services/WebSocketService';
 import { useAuthStore } from '../../stores/authStore';
 import { useSocketStore } from '../../stores/socketStore';
 import { useSettingsStore } from '../../stores/settingsStore';
@@ -327,7 +328,7 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
   const memberCallsignsRef = useRef<Record<string, string>>({});
   const driveServiceRef = useRef(new DriveService());
   const memberCountRef  = useRef(0);
-  const lastEmitRef     = useRef<number>(-3000); // throttle own-location emits to 1/3 s
+  const wsServiceRef    = useRef<WebSocketService | null>(null);
   const lastRecvRef     = useRef<Record<string, number>>({}); // throttle incoming per-userId to 800ms
 
   // Auto-center: fit map to all convoy members; user tap disables
@@ -476,13 +477,7 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
       motionStateService.update(speedKph);
       setIsInMotion(motionStateService.state === 'in_motion');
       driveServiceRef.current.addPoint(lat, lng, speedKph);
-      const now = Date.now();
-      if (socketRef.current?.connected && now - lastEmitRef.current >= 3000) {
-        socketRef.current.emit('location:update', {
-          lat, lng, heading, speed_kph: speedKph, ts,
-        });
-        lastEmitRef.current = now;
-      }
+      wsServiceRef.current?.emitLocation({ lat, lng, heading, speed_kph: speedKph, ts });
     });
     LocationService.startTracking();
     return () => { LocationService.stopTracking(); };
@@ -606,14 +601,22 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
   // WebSocket
   useEffect(() => {
     if (!token || !groupId) return;
-    // Exponential backoff: 1s initial, 30s cap, ±25% jitter (Req 43.2)
-    const socket = io(socketUrl, {
-      transports: ['websocket'],
+    // Exponential backoff, heartbeat, AppState-aware reconnect, background location throttle (Req 43.2)
+    const wsService = new WebSocketService({
+      url: socketUrl,
       auth: { token, groupId },
-      reconnectionDelay: 1_000,
-      reconnectionDelayMax: 30_000,
-      randomizationFactor: 0.25,
+      locationThrottleMs: 3_000,
+      onAuthError: async () => {
+        const newToken = await authService.refreshToken();
+        if (!newToken) throw new Error('Token refresh failed');
+        return newToken;
+      },
+      onAuthFailed: () => {
+        useAuthStore.getState().signOut();
+      },
     });
+    const socket = wsService.connect();
+    wsServiceRef.current = wsService;
     socketRef.current = socket;
     useSocketStore.getState().setSocket(socket);
 
@@ -673,34 +676,6 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
           }
         });
       }).catch(() => {});
-    });
-
-    // Handle auth errors on connect/reconnect (e.g. expired access token during a network outage).
-    // socket.io fires connect_error when the server middleware rejects the handshake.
-    socket.on('connect_error', async (err: Error) => {
-      const isAuthError =
-        err.message.includes('401') ||
-        err.message.toLowerCase().includes('unauthorized') ||
-        err.message.toLowerCase().includes('token');
-
-      if (!isAuthError) return;
-
-      // Pause built-in reconnection while we refresh the token to avoid a retry storm.
-      socket.io.opts.reconnection = false;
-
-      try {
-        const newToken = await authService.refreshToken();
-        if (newToken) {
-          socket.auth = { token: newToken, groupId };
-          socket.io.opts.reconnection = true;
-          socket.connect();
-        } else {
-          // refreshToken returned null — refresh token is also expired; force sign-out.
-          useAuthStore.getState().signOut();
-        }
-      } catch {
-        useAuthStore.getState().signOut();
-      }
     });
 
     socket.on('location:update', (d: { userId: string; lat: number; lng: number; heading: number; speed_kph: number; ts: number }) => {
@@ -803,7 +778,8 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
         api: { postDrive: (body) => apiClient.post('/api/v1/drives', body).then((r) => r.data) },
         isOnline: () => true,
       });
-      socket.disconnect();
+      wsService.disconnect();
+      wsServiceRef.current = null;
       useSocketStore.getState().setSocket(null);
       clearGroup();
     };

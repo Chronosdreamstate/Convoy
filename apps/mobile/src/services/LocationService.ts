@@ -2,45 +2,98 @@ import * as Location from 'expo-location';
 
 export const LOCATION_TASK_NAME = 'convoy-background-location';
 
-type LocationCallback = (loc: { lat: number; lng: number; heading: number; speedKph: number; ts: number }) => void;
-let _onLocation: LocationCallback | null = null;
+// ---------------------------------------------------------------------------
+// Shared types
+// ---------------------------------------------------------------------------
 
-/*
- * Background tracking via expo-task-manager (not yet installed).
- * Install with: npx expo install expo-task-manager
- * Then uncomment:
- *
- * import * as TaskManager from 'expo-task-manager';
- * TaskManager.defineTask(LOCATION_TASK_NAME, ({ data, error }) => {
- *   if (error || !data || !_onLocation) return;
- *   const { locations } = data as { locations: Location.LocationObject[] };
- *   const loc = locations[locations.length - 1];
- *   _onLocation({
- *     lat: loc.coords.latitude, lng: loc.coords.longitude,
- *     heading: loc.coords.heading ?? 0,
- *     speedKph: (loc.coords.speed ?? 0) * 3.6,
- *     ts: loc.timestamp,
- *   });
- * });
+export interface LocationData {
+  lat: number;
+  lng: number;
+  heading: number;
+  speed_kph: number;
+  ts: number;
+}
+
+export interface ILocationDB {
+  init(): Promise<void>;
+  saveLastKnownLocation(userId: string, location: LocationData): Promise<void>;
+  getAllLastKnownLocations(): Promise<Map<string, LocationData>>;
+}
+
+// ---------------------------------------------------------------------------
+// Socket interface for dependency injection
+// ---------------------------------------------------------------------------
+
+interface SocketLike {
+  connected: boolean;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  emit(event: string, data: LocationData): any;
+}
+
+// ---------------------------------------------------------------------------
+// LocationService class (testable, dependency-injected)
+// ---------------------------------------------------------------------------
+
+/**
+ * Handles GPS update throttling (≤1 emit per 3 s) and DB caching.
+ * Instantiate with a socket and DB for testing; use static methods for the
+ * singleton / MapScreen integration.
  */
+export class LocationService {
+  private readonly socket: SocketLike;
+  private readonly db: ILocationDB;
+  private readonly userId: string;
+  private lastEmitTs: number | null = null;
+  private static readonly THROTTLE_MS = 3_000;
 
-let _foregroundSub: Location.LocationSubscription | null = null;
-let _backgroundStarted = false;
+  constructor(socket: SocketLike, db: ILocationDB, userId: string) {
+    this.socket = socket;
+    this.db = db;
+    this.userId = userId;
+  }
 
-export const LocationService = {
-  setCallback(cb: LocationCallback) { _onLocation = cb; },
-  clearCallback() { _onLocation = null; },
+  /** Returns true if the update should be suppressed (within the 3-second window). */
+  shouldThrottle(ts: number): boolean {
+    if (this.lastEmitTs === null) {
+      this.lastEmitTs = ts;
+      return false;
+    }
+    if (ts - this.lastEmitTs >= LocationService.THROTTLE_MS) {
+      this.lastEmitTs = ts;
+      return false;
+    }
+    return true;
+  }
 
-  async startTracking(): Promise<void> {
+  /** Process one GPS fix: always persist to DB; emit to socket if not throttled. */
+  async handleGPSUpdate(location: LocationData): Promise<void> {
+    await this.db.saveLastKnownLocation(this.userId, location);
+    if (!this.shouldThrottle(location.ts) && this.socket.connected) {
+      this.socket.emit('location_update', location);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Static singleton interface (used by MapScreen / DriveService)
+  // ---------------------------------------------------------------------------
+
+  private static _onLocation: LocationCallback | null = null;
+  private static _foregroundSub: Location.LocationSubscription | null = null;
+  private static _backgroundStarted = false;
+
+  static setCallback(cb: LocationCallback) { LocationService._onLocation = cb; }
+  static clearCallback() { LocationService._onLocation = null; }
+
+  static async startTracking(): Promise<void> {
     const bg = await Location.requestBackgroundPermissionsAsync().catch(() => ({ status: 'denied' as const }));
     if (bg.status === 'granted') {
-      await this._startBackground();
+      await LocationService._startBackground();
     } else {
-      await this._startForeground();
+      await LocationService._startForeground();
     }
-  },
+  }
 
-  async _startBackground(): Promise<void> {
+  static async _startBackground(): Promise<void> {
     /*
      * When expo-task-manager is installed, replace this block:
      * const isRunning = await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME).catch(() => false);
@@ -56,21 +109,24 @@ export const LocationService = {
      *     },
      *     pausesUpdatesAutomatically: false,
      *   });
-     *   _backgroundStarted = true;
+     *   LocationService._backgroundStarted = true;
      * }
      */
-    await this._startForeground();
-  },
+    await LocationService._startForeground();
+  }
 
-  async _startForeground(): Promise<void> {
-    if (_foregroundSub) return;
+  static async _startForeground(): Promise<void> {
+    if (LocationService._foregroundSub) return;
     const { status } = await Location.requestForegroundPermissionsAsync();
-    if (status !== 'granted') return;
-    _foregroundSub = await Location.watchPositionAsync(
+    if (status !== 'granted') {
+      console.warn('[LocationService] Foreground location permission denied — GPS tracking unavailable');
+      return;
+    }
+    LocationService._foregroundSub = await Location.watchPositionAsync(
       { accuracy: Location.Accuracy.High, distanceInterval: 10 },
       (loc) => {
-        if (!_onLocation) return;
-        _onLocation({
+        if (!LocationService._onLocation) return;
+        LocationService._onLocation({
           lat: loc.coords.latitude,
           lng: loc.coords.longitude,
           heading: loc.coords.heading ?? 0,
@@ -79,20 +135,35 @@ export const LocationService = {
         });
       },
     );
-  },
+  }
 
-  async stopTracking(): Promise<void> {
-    if (_backgroundStarted) {
+  static async stopTracking(): Promise<void> {
+    if (LocationService._backgroundStarted) {
       // When expo-task-manager is installed, uncomment:
       // const isRunning = await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME).catch(() => false);
       // if (isRunning) await Location.stopLocationUpdatesAsync(LOCATION_TASK_NAME);
-      _backgroundStarted = false;
+      LocationService._backgroundStarted = false;
     }
-    if (_foregroundSub) { _foregroundSub.remove(); _foregroundSub = null; }
-    _onLocation = null;
-  },
+    if (LocationService._foregroundSub) {
+      LocationService._foregroundSub.remove();
+      LocationService._foregroundSub = null;
+    }
+    LocationService._onLocation = null;
+  }
 
-  get isTracking(): boolean {
-    return _backgroundStarted || _foregroundSub !== null;
-  },
-};
+  static get isTracking(): boolean {
+    return LocationService._backgroundStarted || LocationService._foregroundSub !== null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Legacy callback type (used by MapScreen)
+// ---------------------------------------------------------------------------
+
+type LocationCallback = (loc: {
+  lat: number;
+  lng: number;
+  heading: number;
+  speedKph: number;
+  ts: number;
+}) => void;

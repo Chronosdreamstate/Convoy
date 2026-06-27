@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { apiClient } from '../../services/apiClient';
+import { onboardingState } from '../../utils/onboardingState';
 
 const VEHICLE_TYPES = [
   { key: 'sedan', icon: '🚗', label: 'Car' },
@@ -60,11 +61,13 @@ export default function AddVehiclePromptScreen() {
       // non-blocking — proceed regardless
     } finally {
       setLoading(false);
+      await onboardingState.markComplete('vehicle');
       router.replace('/(onboarding)/ptt-tutorial' as never);
     }
   };
 
-  const handleSkip = () => {
+  const handleSkip = async () => {
+    await onboardingState.markSkipped('vehicle');
     router.replace('/(onboarding)/ptt-tutorial' as never);
   };
 

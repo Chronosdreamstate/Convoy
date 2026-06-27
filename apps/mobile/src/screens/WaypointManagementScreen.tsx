@@ -709,4 +709,27 @@ const styles = StyleSheet.create({
     minHeight: 48,
   },
   inputSpaced: { marginTop: 10 },
+
+  // Fuel price pill
+  fuelPill: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#1C3A1C',
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    marginTop: 4,
+    borderWidth: 1,
+    borderColor: '#22C55E33',
+  },
+  fuelPillText: {
+    color: '#22C55E',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  fuelNote: {
+    color: '#888888',
+    fontSize: 11,
+    marginTop: 2,
+    fontStyle: 'italic',
+  },
 });

@@ -8,26 +8,9 @@
 
 import { Platform } from 'react-native';
 import Constants from 'expo-constants';
+import * as Notifications from 'expo-notifications';
+import * as Device from 'expo-device';
 import { apiClient } from './apiClient';
-
-// ---------------------------------------------------------------------------
-// Lazy accessors for expo-notifications and expo-device.
-// Using require() inside functions keeps the TypeScript compiler happy when
-// these packages are not yet in node_modules, while still importing them
-// correctly at runtime (they are part of the standard Expo SDK bundle).
-// ---------------------------------------------------------------------------
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function getNotifications(): any {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  return require('expo-notifications');
-}
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function getDevice(): any {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  return require('expo-device');
-}
 
 // ---------------------------------------------------------------------------
 // Module-level notification handler
@@ -41,18 +24,13 @@ function getDevice(): any {
  * foreground notifications are presented.
  */
 export function setupNotificationHandler(): void {
-  try {
-    const Notifications = getNotifications();
-    Notifications.setNotificationHandler({
-      handleNotification: async () => ({
-        shouldShowAlert: true,
-        shouldPlaySound: true,
-        shouldSetBadge: false,
-      }),
-    });
-  } catch {
-    // Non-fatal if expo-notifications is not yet installed
-  }
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowAlert: true,
+      shouldPlaySound: true,
+      shouldSetBadge: false,
+    }),
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -121,9 +99,6 @@ export interface INotificationHandler {
  */
 export async function registerForPushNotificationsAsync(): Promise<string | null> {
   try {
-    const Notifications = getNotifications();
-    const Device = getDevice();
-
     // 1. Push tokens are not available in the simulator / emulator
     if (!Device.isDevice) return null;
 

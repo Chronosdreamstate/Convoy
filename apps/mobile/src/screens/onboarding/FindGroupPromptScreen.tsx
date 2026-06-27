@@ -10,6 +10,7 @@ import {
 import { useRouter } from 'expo-router';
 import * as SecureStore from 'expo-secure-store';
 import { useAuthStore } from '../../stores/authStore';
+import { onboardingState } from '../../utils/onboardingState';
 
 export default function FindGroupPromptScreen() {
   const router = useRouter();
@@ -37,8 +38,13 @@ export default function FindGroupPromptScreen() {
     ]).start();
   }, []);
 
-  const completeOnboarding = useCallback(async (destination: string) => {
+  const completeOnboarding = useCallback(async (destination: string, skipped = false) => {
     await SecureStore.setItemAsync('onboarding_complete', '1').catch(() => {});
+    if (skipped) {
+      await onboardingState.markSkipped('group');
+    } else {
+      await onboardingState.markComplete('group');
+    }
     setIsFirstLogin(false);
     router.replace(destination as never);
   }, [router, setIsFirstLogin]);
@@ -83,7 +89,7 @@ export default function FindGroupPromptScreen() {
         </View>
 
         <TouchableOpacity
-          onPress={() => void completeOnboarding('/(tabs)/map')}
+          onPress={() => void completeOnboarding('/(tabs)/map', true)}
           hitSlop={{ top: 12, bottom: 12, left: 24, right: 24 }}
         >
           <Text style={styles.skipText}>Skip for now</Text>

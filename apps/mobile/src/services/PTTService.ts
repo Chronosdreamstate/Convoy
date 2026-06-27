@@ -92,7 +92,7 @@ export class PTTService {
     if (!this.expiryListenerRegistered) {
       this.engine.onTokenPrivilegeWillExpire(async () => {
         if (!this.session) return;
-        const refreshed = await this.tokenFetcher.fetchToken(groupId, channelId);
+        const refreshed = await this.tokenFetcher.fetchToken(this.session.groupId, this.session.channelId);
         await this.engine.joinChannel(refreshed.token, refreshed.channelName, refreshed.uid);
       });
       this.expiryListenerRegistered = true;

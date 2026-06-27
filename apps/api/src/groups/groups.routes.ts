@@ -144,7 +144,22 @@ async function groupsRoutes(
   // -------------------------------------------------------------------------
   // POST /groups — create group (Req 7.1, 7.2)
   // -------------------------------------------------------------------------
-  fastify.post('/groups', { preHandler: [authenticate, generalLimiter(fastify.redis)] }, async (request, reply) => {
+  fastify.post('/groups', {
+    preHandler: [authenticate, generalLimiter(fastify.redis)],
+    schema: {
+      body: {
+        type: 'object',
+        required: ['name'],
+        properties: {
+          name: { type: 'string', minLength: 1, maxLength: 100 },
+          accessType: { type: 'string', enum: ['open', 'invite_only'] },
+          vehicleFocus: { type: 'string', maxLength: 50 },
+          gapThresholdM: { type: 'integer', minimum: 50, maximum: 160000 },
+          pttChannelName: { type: 'string', maxLength: 40 },
+        },
+      },
+    },
+  }, async (request, reply) => {
     const adminId = (request.user as { sub: string }).sub;
 
     const parsed = createGroupSchema.safeParse(request.body);
