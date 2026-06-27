@@ -1045,7 +1045,7 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
       >
         {members.map((m: MemberLocation) => {
           const ga = gapAlerts.find(a => a.memberId === m.userId);
-          const gapStatus = ga ? (ga.distanceM > 3000 ? 'alert' : 'warning') as const : 'ok' as const;
+          const gapStatus = ga ? (ga.distanceM > 3000 ? 'alert' as const : 'warning' as const) : 'ok' as const;
           return (
             <MemberMarker
               key={m.userId}

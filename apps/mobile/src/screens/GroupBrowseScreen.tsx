@@ -178,25 +178,25 @@ interface FeaturedCardProps {
 function FeaturedCard({ group, onJoin, onView, joining, eventCountdown }: FeaturedCardProps) {
   return (
     <TouchableOpacity
-      style={styles.featCard}
+      style={browseStyles.featCard}
       onPress={() => onView(group.id)}
       activeOpacity={0.8}
       accessibilityLabel={`Featured: ${group.name}, ${group.memberCount} members`}
       accessibilityRole="button"
     >
-      <Text style={styles.featName} numberOfLines={2}>{group.name}</Text>
-      <Text style={styles.featMeta}>👥 {group.memberCount}</Text>
+      <Text style={browseStyles.featName} numberOfLines={2}>{group.name}</Text>
+      <Text style={browseStyles.featMeta}>👥 {group.memberCount}</Text>
       {eventCountdown && (
-        <Text style={styles.featEvent} numberOfLines={1}>{eventCountdown.label}</Text>
+        <Text style={browseStyles.featEvent} numberOfLines={1}>{eventCountdown.label}</Text>
       )}
       <TouchableOpacity
-        style={[styles.featJoinBtn, joining && { opacity: 0.5 }]}
+        style={[browseStyles.featJoinBtn, joining && { opacity: 0.5 }]}
         onPress={(e) => { e.stopPropagation?.(); onJoin(group.id); }}
         disabled={joining}
         accessibilityRole="button"
         accessibilityLabel={`Join ${group.name}`}
       >
-        <Text style={styles.featJoinText}>{joining ? '...' : 'Join →'}</Text>
+        <Text style={browseStyles.featJoinText}>{joining ? '...' : 'Join →'}</Text>
       </TouchableOpacity>
     </TouchableOpacity>
   );
@@ -416,12 +416,12 @@ export default function GroupBrowseScreen() {
 
       {/* Featured Groups horizontal scroll */}
       {featuredGroups.length >= 3 && (
-        <View style={styles.featuredSection}>
-          <Text style={styles.featuredTitle}>🔥 Featured Groups</Text>
+        <View style={browseStyles.featuredSection}>
+          <Text style={browseStyles.featuredTitle}>🔥 Featured Groups</Text>
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.featuredContent}
+            contentContainerStyle={browseStyles.featuredContent}
           >
             {featuredGroups.map((group) => (
               <FeaturedCard
@@ -529,22 +529,22 @@ export default function GroupBrowseScreen() {
           contentContainerStyle={filtered.length === 0 ? styles.emptyContainer : styles.listContent}
           ListHeaderComponent={
             nearbyQuick.length > 0 && activeFilter !== 'Nearby' ? (
-              <View style={styles.nearbySection}>
-                <Text style={styles.nearbyTitle}>📍 Nearby</Text>
+              <View style={browseStyles.nearbySection}>
+                <Text style={browseStyles.nearbyTitle}>📍 Nearby</Text>
                 <ScrollView
                   horizontal
                   showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.nearbyContent}
+                  contentContainerStyle={browseStyles.nearbyContent}
                 >
                   {nearbyQuick.map((group) => (
                     <TouchableOpacity
                       key={group.id}
-                      style={styles.nearbyChip}
+                      style={browseStyles.nearbyChip}
                       onPress={() => router.push(`/group/${group.id}` as never)}
                       activeOpacity={0.8}
                     >
-                      <Text style={styles.nearbyChipName} numberOfLines={1}>{group.name}</Text>
-                      <Text style={styles.nearbyChipMeta}>{group.memberCount} members</Text>
+                      <Text style={browseStyles.nearbyChipName} numberOfLines={1}>{group.name}</Text>
+                      <Text style={browseStyles.nearbyChipMeta}>{group.memberCount} members</Text>
                     </TouchableOpacity>
                   ))}
                 </ScrollView>
@@ -733,95 +733,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 20,
   },
-  // Featured section
-  featuredSection: {
-    paddingHorizontal: 16,
-    paddingBottom: 12,
-  },
-  featuredTitle: {
-    color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '700',
-    marginBottom: 10,
-  },
-  featuredContent: {
-    gap: 10,
-    paddingRight: 4,
-  },
-  featCard: {
-    width: 140,
-    minHeight: 110,
-    backgroundColor: '#1C1C1C',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#2A2A2A',
-    padding: 12,
-  },
-  featName: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '700',
-    marginBottom: 4,
-    lineHeight: 18,
-  },
-  featMeta: {
-    color: '#888888',
-    fontSize: 12,
-    marginBottom: 4,
-  },
-  featEvent: {
-    color: '#F59E0B',
-    fontSize: 11,
-    marginBottom: 6,
-  },
-  featJoinBtn: {
-    borderWidth: 1,
-    borderColor: '#DC143C',
-    borderRadius: 6,
-    paddingVertical: 5,
-    alignItems: 'center',
-    marginTop: 4,
-  },
-  featJoinText: {
-    color: '#DC143C',
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  // Nearby quick row
-  nearbySection: {
-    marginBottom: 12,
-  },
-  nearbyTitle: {
-    color: '#888888',
-    fontSize: 12,
-    fontWeight: '700',
-    letterSpacing: 0.5,
-    textTransform: 'uppercase',
-    marginBottom: 8,
-  },
-  nearbyContent: {
-    gap: 8,
-    paddingRight: 4,
-  },
-  nearbyChip: {
-    backgroundColor: '#1C1C1C',
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#2A2A2A',
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    minWidth: 120,
-  },
-  nearbyChipName: {
-    color: '#FFFFFF',
-    fontSize: 13,
-    fontWeight: '600',
-    marginBottom: 2,
-  },
-  nearbyChipMeta: {
-    color: '#888888',
-    fontSize: 11,
-  },
   // Card
   card: {
     backgroundColor: '#1C1C1C',
@@ -942,5 +853,97 @@ const styles = StyleSheet.create({
     color: '#888888',
     fontSize: 15,
     fontWeight: '600',
+  },
+});
+
+const browseStyles = StyleSheet.create({
+  // Featured section
+  featuredSection: {
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+  },
+  featuredTitle: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '700',
+    marginBottom: 10,
+  },
+  featuredContent: {
+    gap: 10,
+    paddingRight: 4,
+  },
+  featCard: {
+    width: 140,
+    minHeight: 110,
+    backgroundColor: '#1C1C1C',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#2A2A2A',
+    padding: 12,
+  },
+  featName: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '700',
+    marginBottom: 4,
+    lineHeight: 18,
+  },
+  featMeta: {
+    color: '#888888',
+    fontSize: 12,
+    marginBottom: 4,
+  },
+  featEvent: {
+    color: '#F59E0B',
+    fontSize: 11,
+    marginBottom: 6,
+  },
+  featJoinBtn: {
+    borderWidth: 1,
+    borderColor: '#DC143C',
+    borderRadius: 6,
+    paddingVertical: 5,
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  featJoinText: {
+    color: '#DC143C',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  // Nearby quick row
+  nearbySection: {
+    marginBottom: 12,
+  },
+  nearbyTitle: {
+    color: '#888888',
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+    marginBottom: 8,
+  },
+  nearbyContent: {
+    gap: 8,
+    paddingRight: 4,
+  },
+  nearbyChip: {
+    backgroundColor: '#1C1C1C',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#2A2A2A',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    minWidth: 120,
+  },
+  nearbyChipName: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '600',
+    marginBottom: 2,
+  },
+  nearbyChipMeta: {
+    color: '#888888',
+    fontSize: 11,
   },
 });
