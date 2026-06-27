@@ -11,6 +11,7 @@ const patchMeSchema = z.object({
   avatarUrl: z.string().url().nullable().optional(),
   pttCallsign: z.string().max(20).regex(/^[a-zA-Z0-9_-]+$/, 'Callsign must be alphanumeric, dash, or underscore').nullable().optional(),
   privacy: z.enum(['open', 'invite_only']).optional(),
+  mods: z.array(z.string().max(100)).max(20).optional(),
 });
 
 const deviceSchema = z.object({
@@ -28,6 +29,7 @@ interface UserRow {
   privacy: string;
   created_at: Date;
   primary_vehicle_type: string | null;
+  mods: string[];
 }
 
 async function usersRoutes(
@@ -41,8 +43,8 @@ async function usersRoutes(
     const userId = (request.user as { sub: string }).sub;
 
     const result = await fastify.db.query<UserRow>(
-      `SELECT u.id, u.display_name, u.phone_number, u.email, u.avatar_url, u.ptt_callsign, u.privacy, u.created_at,
-              (SELECT vehicle_type FROM vehicles WHERE user_id = u.id AND is_main = true LIMIT 1) AS primary_vehicle_type
+      `SELECT u.id, u.display_name, u.phone_number, u.email, u.avatar_url, u.ptt_callsign, u.privacy, u.created_at, u.mods,
+              (SELECT vehicle_type FROM vehicles WHERE user_id = u.id AND is_active = true LIMIT 1) AS primary_vehicle_type
        FROM users u WHERE u.id = $1`,
       [userId],
     );
@@ -62,6 +64,7 @@ async function usersRoutes(
       privacy: u.privacy,
       createdAt: u.created_at,
       vehicleType: u.primary_vehicle_type ?? undefined,
+      mods: u.mods ?? [],
     });
   });
 
@@ -76,7 +79,7 @@ async function usersRoutes(
       return reply.badRequest(parsed.error.errors[0].message);
     }
 
-    const { displayName, avatarUrl, pttCallsign, privacy } = parsed.data;
+    const { displayName, avatarUrl, pttCallsign, privacy, mods } = parsed.data;
 
     // Build partial SET clause — only update fields that were explicitly provided
     const setClauses: string[] = ['updated_at = now()'];
@@ -99,6 +102,10 @@ async function usersRoutes(
       setClauses.push(`privacy = $${paramIdx++}`);
       values.push(privacy);
     }
+    if (mods !== undefined) {
+      setClauses.push(`mods = $${paramIdx++}`);
+      values.push(mods);
+    }
 
     if (values.length === 0) {
       return reply.badRequest('At least one field must be provided');
@@ -109,7 +116,7 @@ async function usersRoutes(
     const result = await fastify.db.query<UserRow>(
       `UPDATE users SET ${setClauses.join(', ')}
        WHERE id = $${paramIdx}
-       RETURNING id, display_name, phone_number, email, avatar_url, ptt_callsign, privacy, created_at`,
+       RETURNING id, display_name, phone_number, email, avatar_url, ptt_callsign, privacy, created_at, mods`,
       values,
     );
 
@@ -123,6 +130,7 @@ async function usersRoutes(
       pttCallsign: u.ptt_callsign,
       privacy: u.privacy,
       createdAt: u.created_at,
+      mods: u.mods ?? [],
     });
   });
 

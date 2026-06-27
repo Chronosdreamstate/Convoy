@@ -190,7 +190,7 @@ export default function GarageScreen() {
       if (Haptics) void Haptics.impactAsync('medium' as never);
     } catch { /* non-fatal */ }
     try {
-      const res = await apiClient.patch<Vehicle>(`/api/v1/vehicles/${v.id}`, { primary: true });
+      const res = await apiClient.post<Vehicle>(`/api/v1/vehicles/${v.id}/activate`);
       setVehicles((prev) => prev.map((veh) => ({
         ...veh, isActive: veh.id === res.data.id, primary: veh.id === res.data.id,
       })));

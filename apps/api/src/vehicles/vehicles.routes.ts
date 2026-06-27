@@ -4,16 +4,21 @@ import { authenticate } from '../middleware/authenticate';
 import { generalLimiter } from '../middleware/rateLimiter';
 
 const vehicleBodySchema = z.object({
-  year: z.number().int().min(1886).max(2100).nullable().optional(),
+  name: z.string().max(100).nullable().optional(),
+  type: z.string().max(50).nullable().optional(),
+  year: z.number().int().min(1885).max(2100).nullable().optional(),
   make: z.string().max(100).nullable().optional(),
   model: z.string().max(100).nullable().optional(),
   color: z.string().max(50).nullable().optional(),
   photoUrl: z.string().url().nullable().optional(),
+  primary: z.boolean().optional(),
 });
 
 interface VehicleRow {
   id: string;
   user_id: string;
+  name: string | null;
+  vehicle_type: string | null;
   year: number | null;
   make: string | null;
   model: string | null;
@@ -26,6 +31,8 @@ interface VehicleRow {
 function toResponse(v: VehicleRow) {
   return {
     id: v.id,
+    name: v.name,
+    type: v.vehicle_type,
     year: v.year,
     make: v.make,
     model: v.model,
@@ -46,13 +53,22 @@ async function vehiclesRoutes(
   fastify.get('/vehicles', { preHandler: [authenticate, generalLimiter(fastify.redis)] }, async (request, reply) => {
     const userId = (request.user as { sub: string }).sub;
 
-    const result = await fastify.db.query<VehicleRow>(
-      `SELECT id, user_id, year, make, model, color, photo_url, is_active, created_at
-       FROM vehicles WHERE user_id = $1 ORDER BY created_at ASC`,
-      [userId],
-    );
+    const [vehicleResult, modsResult] = await Promise.all([
+      fastify.db.query<VehicleRow>(
+        `SELECT id, user_id, name, vehicle_type, year, make, model, color, photo_url, is_active, created_at
+         FROM vehicles WHERE user_id = $1 ORDER BY created_at ASC`,
+        [userId],
+      ),
+      fastify.db.query<{ mods: string[] }>(
+        `SELECT mods FROM users WHERE id = $1`,
+        [userId],
+      ),
+    ]);
 
-    return reply.send({ vehicles: result.rows.map(toResponse) });
+    return reply.send({
+      vehicles: vehicleResult.rows.map(toResponse),
+      mods: modsResult.rows[0]?.mods ?? [],
+    });
   });
 
   // -------------------------------------------------------------------------
@@ -66,16 +82,24 @@ async function vehiclesRoutes(
       return reply.badRequest(parsed.error.errors[0].message);
     }
 
-    const { year, make, model, color, photoUrl } = parsed.data;
+    const { name, type, year, make, model, color, photoUrl, primary } = parsed.data;
 
     const result = await fastify.db.query<VehicleRow>(
-      `INSERT INTO vehicles (user_id, year, make, model, color, photo_url)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING id, user_id, year, make, model, color, photo_url, is_active, created_at`,
-      [userId, year ?? null, make ?? null, model ?? null, color ?? null, photoUrl ?? null],
+      `INSERT INTO vehicles (user_id, name, vehicle_type, year, make, model, color, photo_url)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       RETURNING id, user_id, name, vehicle_type, year, make, model, color, photo_url, is_active, created_at`,
+      [userId, name ?? null, type ?? null, year ?? null, make ?? null, model ?? null, color ?? null, photoUrl ?? null],
     );
 
-    return reply.status(201).send(toResponse(result.rows[0]));
+    const newVehicle = result.rows[0];
+
+    if (primary) {
+      await fastify.db.query(`UPDATE vehicles SET is_active = false WHERE user_id = $1`, [userId]);
+      await fastify.db.query(`UPDATE vehicles SET is_active = true WHERE id = $1`, [newVehicle.id]);
+      newVehicle.is_active = true;
+    }
+
+    return reply.status(201).send(toResponse(newVehicle));
   });
 
   // -------------------------------------------------------------------------
@@ -90,39 +114,51 @@ async function vehiclesRoutes(
       return reply.badRequest(parsed.error.errors[0].message);
     }
 
-    const { year, make, model, color, photoUrl } = parsed.data;
+    const { name, type, year, make, model, color, photoUrl, primary } = parsed.data;
 
     const setClauses: string[] = [];
     const values: unknown[] = [];
     let paramIdx = 1;
 
+    if (name !== undefined) { setClauses.push(`name = $${paramIdx++}`); values.push(name); }
+    if (type !== undefined) { setClauses.push(`vehicle_type = $${paramIdx++}`); values.push(type); }
     if (year !== undefined) { setClauses.push(`year = $${paramIdx++}`); values.push(year); }
     if (make !== undefined) { setClauses.push(`make = $${paramIdx++}`); values.push(make); }
     if (model !== undefined) { setClauses.push(`model = $${paramIdx++}`); values.push(model); }
     if (color !== undefined) { setClauses.push(`color = $${paramIdx++}`); values.push(color); }
     if (photoUrl !== undefined) { setClauses.push(`photo_url = $${paramIdx++}`); values.push(photoUrl); }
 
+    let updatedVehicle: VehicleRow;
+
     if (setClauses.length === 0) {
       const current = await fastify.db.query<VehicleRow>(
-        `SELECT id, user_id, year, make, model, color, photo_url, is_active, created_at
+        `SELECT id, user_id, name, vehicle_type, year, make, model, color, photo_url, is_active, created_at
          FROM vehicles WHERE id = $1 AND user_id = $2`,
         [id, userId],
       );
       if (!current.rows[0]) return reply.notFound('Vehicle not found');
-      return reply.send(toResponse(current.rows[0]));
+      updatedVehicle = current.rows[0];
+    } else {
+      values.push(id, userId);
+
+      const result = await fastify.db.query<VehicleRow>(
+        `UPDATE vehicles SET ${setClauses.join(', ')}
+         WHERE id = $${paramIdx} AND user_id = $${paramIdx + 1}
+         RETURNING id, user_id, name, vehicle_type, year, make, model, color, photo_url, is_active, created_at`,
+        values,
+      );
+
+      if (!result.rows[0]) return reply.notFound('Vehicle not found');
+      updatedVehicle = result.rows[0];
     }
 
-    values.push(id, userId);
+    if (primary) {
+      await fastify.db.query(`UPDATE vehicles SET is_active = false WHERE user_id = $1`, [userId]);
+      await fastify.db.query(`UPDATE vehicles SET is_active = true WHERE id = $1`, [id]);
+      updatedVehicle.is_active = true;
+    }
 
-    const result = await fastify.db.query<VehicleRow>(
-      `UPDATE vehicles SET ${setClauses.join(', ')}
-       WHERE id = $${paramIdx} AND user_id = $${paramIdx + 1}
-       RETURNING id, user_id, year, make, model, color, photo_url, is_active, created_at`,
-      values,
-    );
-
-    if (!result.rows[0]) return reply.notFound('Vehicle not found');
-    return reply.send(toResponse(result.rows[0]));
+    return reply.send(toResponse(updatedVehicle));
   });
 
   // -------------------------------------------------------------------------
