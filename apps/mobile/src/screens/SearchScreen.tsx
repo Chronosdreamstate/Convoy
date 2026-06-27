@@ -51,7 +51,7 @@ export default function SearchScreen() {
   const [people, setPeople] = useState<UserResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
-  const [friendActions, setFriendActions] = useState<Record<string, 'pending' | 'friends'>>({});
+  const [friendActions, setFriendActions] = useState<Partial<Record<string, 'pending' | 'friends'>>>({});
 
   useEffect(() => {
     AsyncStorage.getItem(STORAGE_KEY)

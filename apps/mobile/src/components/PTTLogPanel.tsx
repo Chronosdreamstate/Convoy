@@ -190,7 +190,7 @@ function LogRow({
 // PTTLogPanel
 // ---------------------------------------------------------------------------
 
-function PTTLogPanel({ socket, initialEntries = [] }: Props) {
+function PTTLogPanel({ socket, initialEntries = [], groupId }: Props) {
   const [entries, setEntries] = useState<PttLogEntry[]>(
     initialEntries.slice(-MAX_ENTRIES),
   );

@@ -15,6 +15,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { apiClient } from '../services/apiClient';
 import { theme } from '../theme';
 import { useSocketStore } from '../stores/socketStore';
+import { useFuelPrice } from '../hooks/useFuelPrice';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 

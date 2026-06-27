@@ -242,6 +242,7 @@ export default function GroupBrowseScreen() {
     lat?: number;
     lng?: number;
     silent?: boolean;
+    vehicleType?: VehicleFilter;
   } = {}) => {
     if (!opts.silent) setLoading(true);
     setFetchError(null);
@@ -249,6 +250,8 @@ export default function GroupBrowseScreen() {
       const params: Record<string, unknown> = { accessType: 'open', limit: 40 };
       if (opts.lat !== undefined) params.lat = opts.lat;
       if (opts.lng !== undefined) params.lng = opts.lng;
+      const vf = opts.vehicleType !== undefined ? opts.vehicleType : vehicleFilter;
+      if (vf) params.vehicleType = vf;
 
       const res = await apiClient.get<{ groups: PublicGroup[] }>('/groups', { params });
       const fetched = res.data.groups ?? [];
@@ -273,7 +276,7 @@ export default function GroupBrowseScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [vehicleFilter]);
 
   const fetchFeatured = useCallback(async () => {
     try {
