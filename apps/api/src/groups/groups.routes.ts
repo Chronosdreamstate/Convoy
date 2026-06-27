@@ -1263,6 +1263,64 @@ async function groupsRoutes(
   );
 
   // -------------------------------------------------------------------------
+  // POST /groups/:id/events/:eventId/remind — push reminder to all going RSVPs
+  // -------------------------------------------------------------------------
+  fastify.post(
+    '/groups/:id/events/:eventId/remind',
+    { preHandler: [authenticate, generalLimiter(fastify.redis)] },
+    async (request, reply) => {
+      const userId = (request.user as { sub: string }).sub;
+      const { id, eventId } = request.params as { id: string; eventId: string };
+
+      // Verify membership
+      const memberCheck = await fastify.db.query(
+        `SELECT 1 FROM convoy_members WHERE group_id = $1 AND user_id = $2 AND left_at IS NULL`,
+        [id, userId],
+      );
+      if ((memberCheck.rowCount ?? 0) === 0) return reply.forbidden('Not a group member');
+
+      // Fetch event details
+      const eventRow = await fastify.db.query<{ title: string; scheduled_for: Date; group_id: string }>(
+        `SELECT title, scheduled_for, group_id FROM group_events WHERE id = $1 AND group_id = $2 AND status = 'upcoming'`,
+        [eventId, id],
+      );
+      if (!eventRow.rows[0]) return reply.notFound('Event not found or not upcoming');
+
+      const { title, scheduled_for } = eventRow.rows[0];
+
+      // Get device tokens for all users with going RSVP (excluding requester)
+      const tokenRows = await fastify.db.query<{ token: string }>(
+        `SELECT DISTINCT pd.token
+         FROM event_rsvps r
+         JOIN push_devices pd ON pd.user_id = r.user_id
+         WHERE r.event_id = $1 AND r.status = 'going' AND r.user_id != $2`,
+        [eventId, userId],
+      );
+
+      // Emit in-app via socket
+      fastify.io.to(`group:${id}`).emit('event:reminder', {
+        groupId: id, eventId, title,
+        scheduledFor: scheduled_for,
+      });
+
+      // Push notify via notification history (best-effort)
+      const when = new Date(scheduled_for).toLocaleString('en-US', {
+        month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+      });
+      for (const { token } of tokenRows.rows) {
+        await fastify.db.query(
+          `INSERT INTO notification_history (user_id, type, title, body, data)
+           SELECT user_id, 'event_reminder', $2, $3, $4::jsonb
+           FROM push_devices WHERE token = $1 LIMIT 1`,
+          [token, `Reminder: ${title}`, `Coming up ${when}`, JSON.stringify({ groupId: id, eventId })],
+        ).catch(() => {});
+      }
+
+      return reply.send({ sent: tokenRows.rows.length });
+    },
+  );
+
+  // -------------------------------------------------------------------------
   // GET /groups/:id/drives — all drives recorded within this group (Req history)
   // -------------------------------------------------------------------------
   fastify.get(

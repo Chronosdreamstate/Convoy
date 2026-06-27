@@ -103,6 +103,70 @@ async function searchFuelStations(
 // ---------------------------------------------------------------------------
 
 const fuelRoutes: FastifyPluginAsync = async (fastify) => {
+  // ── GET /fuel/logs ────────────────────────────────────────────────────────
+  fastify.get('/fuel/logs', { preHandler: [authenticate, generalLimiter(fastify.redis)] }, async (request, reply) => {
+    const userId = (request.user as { sub: string }).sub;
+    const result = await fastify.db.query<{
+      id: string; date: Date; gallons: string; price_per_gallon: string;
+      notes: string | null; location: string | null; mpg: string | null;
+    }>(
+      `SELECT id, date, gallons, price_per_gallon, notes, location, mpg
+       FROM fuel_logs WHERE user_id = $1 ORDER BY date DESC LIMIT 200`,
+      [userId],
+    );
+    return reply.send({
+      logs: result.rows.map((r) => ({
+        id: r.id,
+        date: r.date.toISOString(),
+        gallons: parseFloat(r.gallons),
+        pricePerGallon: parseFloat(r.price_per_gallon),
+        notes: r.notes ?? undefined,
+        location: r.location ?? undefined,
+        mpg: r.mpg != null ? parseFloat(r.mpg) : undefined,
+      })),
+    });
+  });
+
+  // ── POST /fuel/logs ───────────────────────────────────────────────────────
+  fastify.post('/fuel/logs', { preHandler: [authenticate, generalLimiter(fastify.redis)] }, async (request, reply) => {
+    const userId = (request.user as { sub: string }).sub;
+    const body = request.body as {
+      gallons?: number; pricePerGallon?: number;
+      notes?: string; location?: string; mpg?: number; date?: string;
+    };
+    const gallons = Number(body.gallons);
+    const ppg = Number(body.pricePerGallon);
+    if (!gallons || gallons <= 0) return reply.badRequest('gallons must be > 0');
+    if (!ppg || ppg <= 0) return reply.badRequest('pricePerGallon must be > 0');
+    const date = body.date ? new Date(body.date) : new Date();
+    if (isNaN(date.getTime())) return reply.badRequest('invalid date');
+
+    const result = await fastify.db.query<{ id: string; date: Date; gallons: string; price_per_gallon: string; notes: string | null; location: string | null; mpg: string | null }>(
+      `INSERT INTO fuel_logs (user_id, date, gallons, price_per_gallon, notes, location, mpg)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING id, date, gallons, price_per_gallon, notes, location, mpg`,
+      [userId, date, gallons, ppg, body.notes ?? null, body.location ?? null, body.mpg ?? null],
+    );
+    const r = result.rows[0];
+    return reply.status(201).send({
+      id: r.id, date: r.date.toISOString(),
+      gallons: parseFloat(r.gallons), pricePerGallon: parseFloat(r.price_per_gallon),
+      notes: r.notes ?? undefined, location: r.location ?? undefined,
+      mpg: r.mpg != null ? parseFloat(r.mpg) : undefined,
+    });
+  });
+
+  // ── DELETE /fuel/logs/:id ─────────────────────────────────────────────────
+  fastify.delete<{ Params: { id: string } }>('/fuel/logs/:id', { preHandler: [authenticate, generalLimiter(fastify.redis)] }, async (request, reply) => {
+    const userId = (request.user as { sub: string }).sub;
+    const result = await fastify.db.query(
+      `DELETE FROM fuel_logs WHERE id = $1 AND user_id = $2`,
+      [request.params.id, userId],
+    );
+    if ((result.rowCount ?? 0) === 0) return reply.notFound('Fuel log not found');
+    return reply.status(204).send();
+  });
+
   // ── GET /places/fuel ─────────────────────────────────────────────────────
   // Property 36: accessible to all Members (Req 21.4)
   fastify.get('/places/fuel', { preHandler: [authenticate, generalLimiter(fastify.redis)] }, async (request, reply) => {

@@ -253,7 +253,7 @@ export default function GroupBrowseScreen() {
       const vf = opts.vehicleType !== undefined ? opts.vehicleType : vehicleFilter;
       if (vf) params.vehicleType = vf;
 
-      const res = await apiClient.get<{ groups: PublicGroup[] }>('/groups', { params });
+      const res = await apiClient.get<{ groups: PublicGroup[] }>('/api/v1/groups', { params });
       const fetched = res.data.groups ?? [];
 
       // If we have user coords, annotate each group with distance
@@ -280,7 +280,7 @@ export default function GroupBrowseScreen() {
 
   const fetchFeatured = useCallback(async () => {
     try {
-      const res = await apiClient.get<{ groups: PublicGroup[] }>('/groups/featured');
+      const res = await apiClient.get<{ groups: PublicGroup[] }>('/api/v1/groups/featured');
       setFeaturedGroups(res.data.groups ?? []);
     } catch {
       // silent — featured is a nice-to-have
@@ -309,7 +309,7 @@ export default function GroupBrowseScreen() {
         if (cancelled) return;
         const coords = { lat: loc.coords.latitude, lng: loc.coords.longitude };
         userCoordsRef.current = coords;
-        const res = await apiClient.get<{ groups: PublicGroup[] }>('/groups', {
+        const res = await apiClient.get<{ groups: PublicGroup[] }>('/api/v1/groups', {
           params: { accessType: 'open', nearby: true, lat: coords.lat, lng: coords.lng, limit: 5 },
         });
         if (!cancelled) setNearbyQuick(res.data.groups ?? []);
@@ -330,7 +330,7 @@ export default function GroupBrowseScreen() {
       const results = await Promise.all(
         first5.map(async (id) => {
           try {
-            const res = await apiClient.get<{ events: GroupEvent[] }>(`/groups/${id}/events`);
+            const res = await apiClient.get<{ events: GroupEvent[] }>(`/api/v1/groups/${id}/events`);
             const events = res.data.events ?? [];
             const upcoming = events
               .map((e) => ({ id: e.id, countdown: formatCountdown(e.scheduledAt) }))
@@ -416,7 +416,7 @@ export default function GroupBrowseScreen() {
   const handleJoin = useCallback(async (groupId: string) => {
     setJoiningId(groupId);
     try {
-      await apiClient.post(`/groups/${groupId}/join`);
+      await apiClient.post(`/api/v1/groups/${groupId}/members`, {});
       router.back();
     } catch {
       Alert.alert('Could not join', 'This group may be full or no longer available.');

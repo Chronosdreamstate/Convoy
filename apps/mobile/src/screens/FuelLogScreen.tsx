@@ -145,7 +145,7 @@ function AddModal({ visible, onClose, onSaved }: {
     if (!iso) { Alert.alert('Validation', 'Use MM/DD/YYYY for the date.'); return; }
     setSaving(true);
     try {
-      const res = await apiClient.post<FuelEntry>('/fuel', {
+      const res = await apiClient.post<FuelEntry>('/api/v1/fuel/logs', {
         gallons: gal, pricePerGallon: ppg, notes: notes.trim() || undefined, date: iso,
       });
       onSaved(res.data);
@@ -204,8 +204,8 @@ export default function FuelLogScreen() {
 
   const load = useCallback(async () => {
     try {
-      const r = await apiClient.get<FuelEntry[]>('/fuel');
-      setEntries(r.data);
+      const r = await apiClient.get<{ logs: FuelEntry[] }>('/api/v1/fuel/logs');
+      setEntries(r.data.logs);
     } catch {
       Alert.alert('Error', 'Could not load fuel logs.');
     } finally {
@@ -224,7 +224,7 @@ export default function FuelLogScreen() {
         text: 'Delete', style: 'destructive',
         onPress: async () => {
           try {
-            await apiClient.delete(`/fuel/${id}`);
+            await apiClient.delete(`/api/v1/fuel/logs/${id}`);
             setEntries(prev => prev.filter(e => e.id !== id));
           } catch {
             Alert.alert('Error', 'Could not delete entry.');
