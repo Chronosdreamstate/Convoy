@@ -1297,6 +1297,81 @@ async function groupsRoutes(
   );
 
   // -------------------------------------------------------------------------
+  // PATCH /groups/:id/transfer-admin — transfer admin role (current admin only)
+  // -------------------------------------------------------------------------
+  fastify.patch(
+    '/groups/:id/transfer-admin',
+    { preHandler: [authenticate, generalLimiter(fastify.redis)] },
+    async (request, reply) => {
+      const userId = (request.user as { sub: string }).sub;
+      const { id } = request.params as { id: string };
+
+      const { newAdminId } = request.body as { newAdminId?: string };
+      if (!newAdminId) return reply.badRequest('newAdminId is required');
+      if (newAdminId === userId) return reply.badRequest('Cannot transfer admin to yourself');
+
+      const groupResult = await fastify.db.query<{ admin_id: string; status: string }>(
+        'SELECT admin_id, status FROM convoy_groups WHERE id = $1',
+        [id],
+      );
+      const group = groupResult.rows[0];
+      if (!group) return reply.notFound('Group not found');
+      if (group.admin_id !== userId) return reply.forbidden('Only the current Admin can transfer admin');
+      if (group.status !== 'active') return reply.gone('Group is not active');
+
+      const targetMember = await getActiveMember(id, newAdminId, fastify.db);
+      if (!targetMember) return reply.notFound('Target user is not an active member');
+
+      await fastify.db.query(
+        'UPDATE convoy_groups SET admin_id = $1 WHERE id = $2',
+        [newAdminId, id],
+      );
+
+      fastify.io.to(`group:${id}`).emit('group:admin_transferred', {
+        groupId: id,
+        previousAdminId: userId,
+        newAdminId,
+      });
+
+      return reply.send({ message: 'Admin transferred', newAdminId });
+    },
+  );
+
+  // -------------------------------------------------------------------------
+  // POST /groups/:id/announcement — broadcast to all group members (admin only)
+  // -------------------------------------------------------------------------
+  fastify.post(
+    '/groups/:id/announcement',
+    { preHandler: [authenticate, generalLimiter(fastify.redis)] },
+    async (request, reply) => {
+      const userId = (request.user as { sub: string }).sub;
+      const { id } = request.params as { id: string };
+
+      const { message } = request.body as { message?: string };
+      if (!message || message.trim().length === 0) return reply.badRequest('message is required');
+      if (message.length > 200) return reply.badRequest('message must be 200 characters or fewer');
+
+      const groupResult = await fastify.db.query<{ admin_id: string; status: string }>(
+        'SELECT admin_id, status FROM convoy_groups WHERE id = $1',
+        [id],
+      );
+      const group = groupResult.rows[0];
+      if (!group) return reply.notFound('Group not found');
+      if (group.admin_id !== userId) return reply.forbidden('Only the Admin can send announcements');
+      if (group.status !== 'active') return reply.gone('Group is not active');
+
+      fastify.io.to(`group:${id}`).emit('group:announcement', {
+        groupId: id,
+        senderId: userId,
+        message: message.trim(),
+        sentAt: new Date().toISOString(),
+      });
+
+      return reply.status(200).send({ message: 'Announcement sent' });
+    },
+  );
+
+  // -------------------------------------------------------------------------
   // GET /groups/:id/drives — shared convoy drive history (members only)
   // -------------------------------------------------------------------------
   fastify.get(

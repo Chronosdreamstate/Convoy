@@ -7,8 +7,11 @@ import {
   StyleSheet,
   Share,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
+import { useRouter } from 'expo-router';
 import { useGroupStore } from '../stores/groupStore';
+import { apiClient } from '../services/apiClient';
 
 interface MemberInfo {
   userId: string;
@@ -56,6 +59,8 @@ export default function MemberDetailModal({
   const activeGroupId = useGroupStore((s) => s.activeGroupId);
   const [friendSent, setFriendSent] = useState(false);
   const [inviting, setInviting] = useState(false);
+  const [kicking, setKicking] = useState(false);
+  const [muting, setMuting] = useState(false);
 
   if (!member) return null;
 
@@ -179,13 +184,28 @@ export default function MemberDetailModal({
           <View style={styles.adminSection}>
             <View style={styles.adminRow}>
               <TouchableOpacity
-                style={styles.outlineBtn}
-                onPress={() => onMute?.(member.userId, !member.isMuted)}
+                style={[styles.outlineBtn, muting && styles.outlineBtnDisabled]}
+                onPress={async () => {
+                  if (!activeGroupId || muting) return;
+                  setMuting(true);
+                  try {
+                    await apiClient.post(
+                      `/api/v1/groups/${activeGroupId}/members/${member.userId}/mute`,
+                      { muted: !member.isMuted },
+                    );
+                    onMute?.(member.userId, !member.isMuted);
+                  } catch {
+                    Alert.alert('Error', 'Could not update mute status. Try again.');
+                  } finally {
+                    setMuting(false);
+                  }
+                }}
+                disabled={muting}
                 accessibilityRole="button"
               >
-                <Text style={styles.outlineBtnText}>
-                  {member.isMuted ? '🔊 Unmute' : '🔇 Mute'}
-                </Text>
+                {muting
+                  ? <ActivityIndicator color="#FFFFFF" size="small" />
+                  : <Text style={styles.outlineBtnText}>{member.isMuted ? '🔊 Unmute' : '🔇 Mute'}</Text>}
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -198,11 +218,41 @@ export default function MemberDetailModal({
             </View>
 
             <TouchableOpacity
-              style={styles.kickBtn}
-              onPress={() => onKick?.(member.userId)}
+              style={[styles.kickBtn, kicking && styles.kickBtnDisabled]}
+              disabled={kicking}
+              onPress={() => {
+                Alert.alert(
+                  'Remove Member',
+                  `Remove ${member.displayName} from the group?`,
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    {
+                      text: 'Remove',
+                      style: 'destructive',
+                      onPress: async () => {
+                        if (!activeGroupId) return;
+                        setKicking(true);
+                        try {
+                          await apiClient.delete(
+                            `/api/v1/groups/${activeGroupId}/members/${member.userId}`,
+                          );
+                          onKick?.(member.userId);
+                          onClose();
+                        } catch {
+                          Alert.alert('Error', 'Could not remove member. Try again.');
+                        } finally {
+                          setKicking(false);
+                        }
+                      },
+                    },
+                  ],
+                );
+              }}
               accessibilityRole="button"
             >
-              <Text style={styles.kickBtnText}>Remove from group</Text>
+              {kicking
+                ? <ActivityIndicator color="#DC143C" size="small" />
+                : <Text style={styles.kickBtnText}>Remove from group</Text>}
             </TouchableOpacity>
           </View>
         )}
@@ -328,11 +378,19 @@ const styles = StyleSheet.create({
     width: '100%',
     paddingVertical: 12,
     alignItems: 'center',
+    minHeight: 44,
+    justifyContent: 'center',
+  },
+  kickBtnDisabled: {
+    opacity: 0.5,
   },
   kickBtnText: {
     color: '#DC143C',
     fontSize: 14,
     fontWeight: '600',
+  },
+  outlineBtnDisabled: {
+    opacity: 0.5,
   },
   closeBtn: {
     width: '100%',

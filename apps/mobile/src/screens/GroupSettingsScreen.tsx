@@ -25,6 +25,13 @@ interface GroupSettings {
   accessType: 'open' | 'invite_only';
 }
 
+interface GroupMember {
+  userId: string;
+  displayName: string;
+  pttCallsign: string | null;
+  isAdmin: boolean;
+}
+
 // ---------------------------------------------------------------------------
 // Pill selector
 // ---------------------------------------------------------------------------
@@ -104,24 +111,40 @@ export default function GroupSettingsScreen() {
   const [pttMaxSeconds, setPttMaxSeconds] = useState(30);
   const [accessType, setAccessType] = useState<'open' | 'invite_only'>('open');
 
+  // Transfer admin state
+  const [members, setMembers] = useState<GroupMember[]>([]);
+  const [transferring, setTransferring] = useState(false);
+
+  // Announcement state
+  const [announcement, setAnnouncement] = useState('');
+  const [sendingAnnouncement, setSendingAnnouncement] = useState(false);
+
   const loadSettings = useCallback(async () => {
     if (!groupId) return;
     setLoading(true);
     setError(null);
     try {
-      const res = await apiClient.get<GroupSettings>(`/api/v1/groups/${groupId}`);
-      const g = res.data;
+      const [settingsRes, membersRes] = await Promise.all([
+        apiClient.get<GroupSettings>(`/api/v1/groups/${groupId}`),
+        isAdmin
+          ? apiClient.get<{ members: GroupMember[] }>(`/api/v1/groups/${groupId}/members`)
+          : Promise.resolve(null),
+      ]);
+      const g = settingsRes.data;
       setSettings(g);
       setName(g.name);
       setGapThresholdM(g.gapThresholdM);
       setPttMaxSeconds(g.pttMaxSeconds);
       setAccessType(g.accessType);
+      if (membersRes) {
+        setMembers(membersRes.data.members.filter((m) => !m.isAdmin));
+      }
     } catch {
       setError('Could not load group settings. Please try again.');
     } finally {
       setLoading(false);
     }
-  }, [groupId]);
+  }, [groupId, isAdmin]);
 
   useEffect(() => { void loadSettings(); }, [loadSettings]);
 
@@ -314,6 +337,112 @@ export default function GroupSettingsScreen() {
           </>
         )}
 
+        {/* Transfer Admin */}
+        {isAdmin && members.length > 0 && (
+          <>
+            <Text style={[styles.sectionHeader, { marginTop: 32 }]}>TRANSFER ADMIN</Text>
+            <View style={styles.card}>
+              <Text style={styles.settingLabel}>Hand over group admin to another member</Text>
+              {members.map((m) => (
+                <TouchableOpacity
+                  key={m.userId}
+                  style={styles.memberRow}
+                  disabled={transferring}
+                  onPress={() => {
+                    Alert.alert(
+                      'Transfer Admin',
+                      `Make ${m.displayName} the new admin? You will lose admin privileges.`,
+                      [
+                        { text: 'Cancel', style: 'cancel' },
+                        {
+                          text: 'Transfer',
+                          style: 'destructive',
+                          onPress: async () => {
+                            setTransferring(true);
+                            try {
+                              await apiClient.patch(`/api/v1/groups/${groupId}/transfer-admin`, {
+                                newAdminId: m.userId,
+                              });
+                              Alert.alert('Done', `${m.displayName} is now the group admin.`);
+                              router.replace('/(tabs)/convoy');
+                            } catch {
+                              Alert.alert('Error', 'Failed to transfer admin. Try again.');
+                            } finally {
+                              setTransferring(false);
+                            }
+                          },
+                        },
+                      ],
+                    );
+                  }}
+                  accessibilityRole="button"
+                >
+                  <View style={styles.memberInfo}>
+                    <View style={styles.memberAvatar}>
+                      <Text style={styles.memberAvatarText}>
+                        {m.displayName.trim()[0]?.toUpperCase() ?? '?'}
+                      </Text>
+                    </View>
+                    <View>
+                      <Text style={styles.memberName}>{m.displayName}</Text>
+                      {m.pttCallsign ? (
+                        <Text style={styles.memberCallsign}>📻 {m.pttCallsign}</Text>
+                      ) : null}
+                    </View>
+                  </View>
+                  <Text style={styles.transferArrow}>›</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </>
+        )}
+
+        {/* Announcement Broadcast */}
+        {isAdmin && (
+          <>
+            <Text style={[styles.sectionHeader, { marginTop: 32 }]}>ANNOUNCEMENT</Text>
+            <View style={styles.card}>
+              <Text style={styles.settingLabel}>Send a message to all group members</Text>
+              <TextInput
+                style={styles.announcementInput}
+                value={announcement}
+                onChangeText={(t) => setAnnouncement(t.slice(0, 200))}
+                placeholder="Type your announcement..."
+                placeholderTextColor="#555"
+                multiline
+                maxLength={200}
+                returnKeyType="default"
+              />
+              <Text style={styles.charCount}>{announcement.length}/200</Text>
+              <TouchableOpacity
+                style={[styles.announceBtn, (sendingAnnouncement || announcement.trim().length === 0) && styles.announceBtnDisabled]}
+                disabled={sendingAnnouncement || announcement.trim().length === 0}
+                onPress={async () => {
+                  if (!announcement.trim()) return;
+                  setSendingAnnouncement(true);
+                  try {
+                    await apiClient.post(`/api/v1/groups/${groupId}/announcement`, {
+                      message: announcement.trim(),
+                    });
+                    setAnnouncement('');
+                    Alert.alert('Sent', 'Announcement delivered to all members.');
+                  } catch {
+                    Alert.alert('Error', 'Failed to send announcement. Try again.');
+                  } finally {
+                    setSendingAnnouncement(false);
+                  }
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="Send announcement"
+              >
+                <Text style={styles.announceBtnText}>
+                  {sendingAnnouncement ? 'Sending...' : '📢 Send Announcement'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </>
+        )}
+
         {/* Danger zone */}
         <Text style={[styles.sectionHeader, { marginTop: 32 }]}>DANGER ZONE</Text>
         <View style={styles.card}>
@@ -473,4 +602,56 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   retryBtnText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
+
+  memberRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#2A2A2A',
+  },
+  memberInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    flex: 1,
+  },
+  memberAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#0A0A0A',
+    borderWidth: 1,
+    borderColor: '#2A2A2A',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  memberAvatarText: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
+  memberName: { color: '#FFFFFF', fontSize: 14, fontWeight: '600' },
+  memberCallsign: { color: '#888888', fontSize: 12, marginTop: 2 },
+  transferArrow: { color: '#DC143C', fontSize: 20, fontWeight: '700', paddingLeft: 8 },
+
+  announcementInput: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    borderWidth: 1,
+    borderColor: '#2A2A2A',
+    borderRadius: 10,
+    padding: 12,
+    minHeight: 80,
+    textAlignVertical: 'top',
+    marginBottom: 8,
+  },
+  charCount: { color: '#555', fontSize: 11, textAlign: 'right', marginBottom: 12 },
+  announceBtn: {
+    backgroundColor: '#DC143C',
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+    minHeight: 52,
+    justifyContent: 'center',
+  },
+  announceBtnDisabled: { opacity: 0.4 },
+  announceBtnText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
 });
