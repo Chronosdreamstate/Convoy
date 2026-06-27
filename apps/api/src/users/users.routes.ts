@@ -27,6 +27,7 @@ interface UserRow {
   ptt_callsign: string | null;
   privacy: string;
   created_at: Date;
+  primary_vehicle_type: string | null;
 }
 
 async function usersRoutes(
@@ -60,6 +61,7 @@ async function usersRoutes(
       pttCallsign: u.ptt_callsign,
       privacy: u.privacy,
       createdAt: u.created_at,
+      vehicleType: u.primary_vehicle_type ?? undefined,
     });
   });
 
