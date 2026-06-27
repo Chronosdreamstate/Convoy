@@ -18,6 +18,7 @@ import Constants from 'expo-constants';
 import { apiClient } from '../../services/apiClient';
 import { authService } from '../../services/AuthService';
 import { SiriShortcutsService } from '../../services/SiriShortcutsService';
+import { SkeletonBox } from '../../components/SkeletonLoader';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { theme } from '../../theme';
 import { onboardingState } from '../../utils/onboardingState';
@@ -372,9 +373,15 @@ export default function SettingsScreen() {
   if (isLoading) {
     return (
       <SafeAreaView style={styles.container}>
-        <View style={styles.centered}>
-          <ActivityIndicator color={theme.colors.accent} size="large" />
-        </View>
+        <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+          <Text style={styles.title}>Settings</Text>
+          {[0, 1, 2, 3, 4].map((i) => (
+            <View key={i} style={{ marginBottom: 20, gap: 10 }}>
+              <SkeletonBox width="30%" height={11} />
+              {[0, 1].map((j) => <SkeletonBox key={j} width="100%" height={52} borderRadius={14} />)}
+            </View>
+          ))}
+        </ScrollView>
       </SafeAreaView>
     );
   }
