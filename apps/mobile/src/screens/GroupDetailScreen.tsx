@@ -128,7 +128,7 @@ export default function GroupDetailScreen() {
   if (loading) {
     return (
       <SafeAreaView style={styles.container}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} accessibilityRole="button" accessibilityLabel="Go back">
           <Text style={styles.backText}>‹ Back</Text>
         </TouchableOpacity>
         <DetailSkeleton />

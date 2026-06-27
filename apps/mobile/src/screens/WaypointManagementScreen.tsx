@@ -518,17 +518,18 @@ const styles = StyleSheet.create({
   typePill: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: 6,
     paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: theme.radius.pill,
+    height: 36,
+    borderRadius: 8,
     borderWidth: 1,
     borderColor: theme.colors.border,
-    backgroundColor: theme.colors.bg,
+    backgroundColor: '#2A2A2A',
   },
-  typePillActive:      { backgroundColor: 'rgba(220,20,60,0.15)', borderColor: theme.colors.accent },
+  typePillActive:      { backgroundColor: '#DC143C', borderColor: '#DC143C' },
   typePillIcon:        { fontSize: 15 },
-  typePillLabel:       { fontSize: 13, fontWeight: '600', color: theme.colors.textMuted },
+  typePillLabel:       { fontSize: 14, fontWeight: '600', color: theme.colors.textMuted },
   typePillLabelActive: { color: theme.colors.text },
 
   // Inputs

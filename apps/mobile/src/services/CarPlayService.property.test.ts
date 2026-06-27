@@ -42,7 +42,7 @@ jest.mock('react-native', () => ({
 
 // Import AFTER mock is registered
 import { NativeModules, NativeEventEmitter } from 'react-native';
-import { CarPlayService, CarPlayState } from './CarPlayService';
+import { CarPlayService, CarPlayState, ICarPlayInstrumentCluster } from './CarPlayService';
 
 // Typed references to the mocked functions
 const mockSyncState = NativeModules.ConvoyCarPlay.syncState as jest.Mock;
