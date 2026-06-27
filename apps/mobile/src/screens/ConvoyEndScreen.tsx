@@ -3,6 +3,9 @@ import {
   Alert,
   Animated,
   Dimensions,
+  Image,
+  Modal,
+  ScrollView,
   Share,
   StyleSheet,
   Text,
@@ -369,15 +372,27 @@ export default function ConvoyEndScreen() {
   const iconOpacity = useRef(new Animated.Value(0)).current;
   const contentOpacity = useRef(new Animated.Value(0)).current;
 
+  // Stable drive ID for photo storage
+  const driveId = useRef(`drive_${Date.now()}`).current;
+
   // State
   const [copied, setCopied] = useState(false);
   const [shared, setShared] = useState(false);
   const [weeklyDrives, setWeeklyDrives] = useState(0);
+  const [photos, setPhotos] = useState<string[]>([]);
+  const [previewPhoto, setPreviewPhoto] = useState<string | null>(null);
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     incrementWeeklyDrives().then(setWeeklyDrives);
   }, []);
+
+  // Load persisted photos for this drive
+  useEffect(() => {
+    AsyncStorage.getItem(`convoy:drive:${driveId}:photos`)
+      .then(raw => { if (raw) setPhotos(JSON.parse(raw)); })
+      .catch(() => {});
+  }, [driveId]);
 
   useEffect(() => {
     Animated.parallel([
@@ -420,7 +435,22 @@ export default function ConvoyEndScreen() {
   const distanceKmText =
     distance >= 1000 ? `${(distance / 1000).toFixed(1)}km` : `${distance}m`;
 
-  const shareText = buildShareText(distanceKmText, formatDuration(duration), members, topSpeed, displayGroup);
+  const shareText = buildShareText(distanceKmText, formatDuration(duration), members, topSpeed, displayGroup)
+    + (photos.length > 0 ? `\n📸 ${photos.length} photo${photos.length !== 1 ? 's' : ''} from the drive` : '');
+
+  const savePhotos = async (newPhotos: string[]) => {
+    try {
+      await AsyncStorage.setItem(`convoy:drive:${driveId}:photos`, JSON.stringify(newPhotos));
+    } catch {}
+  };
+
+  const pickFromLibrary = () => {
+    Alert.alert(
+      'Add Drive Photos',
+      'Photo upload coming soon! You\'ll be able to add photos from your drive in the next update.',
+      [{ text: 'Got it', style: 'default' }],
+    );
+  };
 
   const handleShare = async () => {
     try {
@@ -448,6 +478,18 @@ export default function ConvoyEndScreen() {
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <Confetti />
+
+      {/* Full-screen photo preview modal */}
+      <Modal visible={previewPhoto !== null} transparent animationType="fade" onRequestClose={() => setPreviewPhoto(null)}>
+        <View style={styles.photoModalBg}>
+          <TouchableOpacity style={styles.photoModalClose} onPress={() => setPreviewPhoto(null)}>
+            <Text style={styles.photoModalCloseText}>✕</Text>
+          </TouchableOpacity>
+          {previewPhoto && (
+            <Image source={{ uri: previewPhoto }} style={styles.photoModalImage} resizeMode="contain" />
+          )}
+        </View>
+      </Modal>
 
       {/* Body */}
       <View style={styles.inner}>
@@ -484,12 +526,39 @@ export default function ConvoyEndScreen() {
       <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 16) }]}>
         {/* Weekly streak banner */}
         {weeklyDrives >= 3 && (
-          <View style={styles.streakBanner}>
-            <Text style={styles.streakText}>
+          <View style={extraStyles.streakBanner}>
+            <Text style={extraStyles.streakText}>
               🔥 {weeklyDrives}-drive week! You're on a streak!
             </Text>
           </View>
         )}
+
+        {/* Drive Photos section */}
+        <View style={styles.photoSection}>
+          <View style={styles.photoSectionHeader}>
+            <Text style={styles.photoSectionTitle}>📸 Drive Photos</Text>
+            <TouchableOpacity onPress={pickFromLibrary} accessibilityLabel="Add drive photos">
+              <Text style={styles.photoAddBtn}>+ Add</Text>
+            </TouchableOpacity>
+          </View>
+          {photos.length === 0 ? (
+            <TouchableOpacity style={styles.photoEmptyState} onPress={pickFromLibrary}>
+              <Text style={styles.photoEmptyIcon}>📷</Text>
+              <Text style={styles.photoEmptyText}>Add photos from today's drive</Text>
+            </TouchableOpacity>
+          ) : (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.photoScroll}>
+              {photos.map((uri, idx) => (
+                <TouchableOpacity key={idx} onPress={() => setPreviewPhoto(uri)}>
+                  <Image source={{ uri }} style={styles.photoThumb} resizeMode="cover" />
+                </TouchableOpacity>
+              ))}
+              <TouchableOpacity style={styles.photoAddThumb} onPress={pickFromLibrary}>
+                <Text style={styles.photoAddThumbIcon}>+</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          )}
+        </View>
 
         {/* Visual share card */}
         <ShareCard
@@ -511,39 +580,39 @@ export default function ConvoyEndScreen() {
         </TouchableOpacity>
 
         {/* Save to Photos + Copy row */}
-        <View style={styles.secondaryRow}>
+        <View style={extraStyles.secondaryRow}>
           <TouchableOpacity
-            style={styles.secondaryBtn}
+            style={extraStyles.secondaryBtn}
             onPress={handleSaveToPhotos}
             accessibilityRole="button"
             accessibilityLabel="Save to Photos"
           >
-            <Text style={styles.secondaryBtnText}>📷 Save</Text>
+            <Text style={extraStyles.secondaryBtnText}>📷 Save</Text>
           </TouchableOpacity>
           <TouchableOpacity
-            style={styles.secondaryBtn}
+            style={extraStyles.secondaryBtn}
             onPress={handleCopy}
             accessibilityRole="button"
             accessibilityLabel={copied ? 'Copied to clipboard' : 'Copy stats to clipboard'}
           >
-            <Text style={styles.secondaryBtnText}>{copied ? '✓ Copied!' : '📋 Copy text'}</Text>
+            <Text style={extraStyles.secondaryBtnText}>{copied ? '✓ Copied!' : '📋 Copy text'}</Text>
           </TouchableOpacity>
         </View>
 
         {/* Post-share social prompt */}
         {shared && (
-          <View style={styles.socialPrompt}>
-            <Text style={styles.socialPromptText}>
+          <View style={extraStyles.socialPrompt}>
+            <Text style={extraStyles.socialPromptText}>
               Tell your crew about CONVOY — invite them to your next drive!
             </Text>
             <TouchableOpacity
-              style={styles.inviteBtn}
+              style={extraStyles.inviteBtn}
               onPress={async () => {
                 await Clipboard.setStringAsync('https://convoy.app/download');
                 Alert.alert('Link Copied!', 'Share convoy.app/download with your friends.');
               }}
             >
-              <Text style={styles.inviteBtnText}>Copy Invite Link</Text>
+              <Text style={extraStyles.inviteBtnText}>Copy Invite Link</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -728,70 +797,6 @@ const styles = StyleSheet.create({
     letterSpacing: 0.2,
   },
 
-  // Streak banner
-  streakBanner: {
-    backgroundColor: '#1A1200',
-    borderWidth: 1,
-    borderColor: '#F59E0B',
-    borderRadius: 10,
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    marginBottom: 4,
-  },
-  streakText: {
-    color: '#F59E0B',
-    fontSize: 13,
-    fontWeight: '700',
-    textAlign: 'center',
-  },
-
-  // Secondary row (Save + Copy)
-  secondaryRow: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-  secondaryBtn: {
-    flex: 1,
-    backgroundColor: T.cardElevated,
-    borderRadius: 10,
-    paddingVertical: 12,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: T.border,
-  },
-  secondaryBtnText: {
-    color: T.muted,
-    fontSize: 13,
-    fontWeight: '600',
-  },
-
-  // Post-share social prompt
-  socialPrompt: {
-    backgroundColor: T.card,
-    borderRadius: 12,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: T.border,
-    gap: 10,
-  },
-  socialPromptText: {
-    color: T.muted,
-    fontSize: 13,
-    textAlign: 'center',
-    lineHeight: 18,
-  },
-  inviteBtn: {
-    backgroundColor: T.accent,
-    borderRadius: 8,
-    paddingVertical: 10,
-    alignItems: 'center',
-  },
-  inviteBtnText: {
-    color: T.text,
-    fontSize: 13,
-    fontWeight: '700',
-  },
-
   // Copy text — small muted link below share button (kept for backwards compat)
   copyLink: {
     alignItems: 'center',
@@ -842,5 +847,100 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 2,
+  },
+
+  // Drive Photos section
+  photoSection: {
+    backgroundColor: T.card,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: T.border,
+    padding: 14,
+    marginBottom: 4,
+  },
+  photoSectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  photoSectionTitle: {
+    color: T.text,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  photoAddBtn: {
+    color: T.accent,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  photoEmptyState: {
+    alignItems: 'center',
+    paddingVertical: 16,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: T.border,
+    borderStyle: 'dashed',
+    gap: 6,
+  },
+  photoEmptyIcon: {
+    fontSize: 24,
+  },
+  photoEmptyText: {
+    color: T.muted,
+    fontSize: 13,
+  },
+  photoScroll: {
+    flexDirection: 'row',
+  },
+  photoThumb: {
+    width: 80,
+    height: 80,
+    borderRadius: 8,
+    marginRight: 8,
+  },
+  photoAddThumb: {
+    width: 80,
+    height: 80,
+    borderRadius: 8,
+    backgroundColor: T.cardElevated,
+    borderWidth: 1,
+    borderColor: T.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  photoAddThumbIcon: {
+    color: T.muted,
+    fontSize: 28,
+    fontWeight: '300',
+  },
+
+  // Photo preview modal
+  photoModalBg: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.95)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  photoModalClose: {
+    position: 'absolute',
+    top: 56,
+    right: 20,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 10,
+  },
+  photoModalCloseText: {
+    color: T.text,
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  photoModalImage: {
+    width: SCREEN_W,
+    height: SCREEN_H * 0.8,
   },
 });
