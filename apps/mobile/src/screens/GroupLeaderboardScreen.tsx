@@ -144,7 +144,7 @@ function MemberRow({
   return (
     <View style={[styles.row, isFirst && styles.rowFirst]}>
       <RankBadge rank={rank} />
-      <Avatar uri={member.avatarUrl} name={member.displayName} />
+      <Avatar uri={member.avatarUrl ?? undefined} name={member.displayName} />
       <View style={styles.memberInfo}>
         <Text style={styles.displayName} numberOfLines={1}>
           {member.displayName}
