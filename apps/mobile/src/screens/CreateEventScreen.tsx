@@ -59,14 +59,17 @@ export default function CreateEventScreen() {
     if (!isValid || !groupId) return;
     setLoading(true);
     try {
-      await apiClient.post(`/api/v1/groups/${groupId}/events`, {
+      const res = await apiClient.post<{ event: { id: string } }>(`/api/v1/groups/${groupId}/events`, {
         title: title.trim(),
         scheduledFor: iso,
         description: description.trim() || undefined,
       });
-      Alert.alert('Convoy Scheduled! 🏁', 'Members will be notified.', [
-        { text: 'OK', onPress: () => router.back() },
-      ]);
+      const eventId = res.data?.event?.id;
+      if (eventId) {
+        router.replace({ pathname: '/event/[id]', params: { id: eventId, groupId } });
+      } else {
+        router.back();
+      }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to schedule event';
       Alert.alert('Error', msg);

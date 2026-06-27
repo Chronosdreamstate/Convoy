@@ -1084,6 +1084,101 @@ async function groupsRoutes(
   );
 
   // -------------------------------------------------------------------------
+  // POST /groups/:id/events/:eventId/rsvp — upsert RSVP for current user
+  // -------------------------------------------------------------------------
+  fastify.post(
+    '/groups/:id/events/:eventId/rsvp',
+    { preHandler: [authenticate, generalLimiter(fastify.redis)] },
+    async (request, reply) => {
+      const userId = (request.user as { sub: string }).sub;
+      const { id, eventId } = request.params as { id: string; eventId: string };
+
+      const { status } = request.body as { status?: string };
+      if (!status || !['going', 'maybe', 'not_going'].includes(status)) {
+        return reply.badRequest('status must be going, maybe, or not_going');
+      }
+
+      const member = await getActiveMember(id, userId, fastify.db);
+      if (!member) return reply.forbidden('You are not a member of this group');
+
+      const eventCheck = await fastify.db.query<{ id: string }>(
+        `SELECT id FROM group_events WHERE id = $1 AND group_id = $2 AND status = 'upcoming'`,
+        [eventId, id],
+      );
+      if (!eventCheck.rows[0]) return reply.notFound('Event not found or no longer upcoming');
+
+      await fastify.db.query(
+        `INSERT INTO event_rsvps (event_id, user_id, status)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (event_id, user_id)
+         DO UPDATE SET status = EXCLUDED.status, updated_at = NOW()`,
+        [eventId, userId, status],
+      );
+
+      const counts = await fastify.db.query<{ status: string; count: string }>(
+        `SELECT status, COUNT(*) AS count FROM event_rsvps WHERE event_id = $1 GROUP BY status`,
+        [eventId],
+      );
+
+      const countMap: Record<string, number> = { going: 0, maybe: 0, not_going: 0 };
+      for (const row of counts.rows) countMap[row.status] = parseInt(row.count, 10);
+
+      fastify.io.to(`group:${id}`).emit('event:rsvp_updated', { groupId: id, eventId, counts: countMap });
+
+      return reply.send({ rsvp: { eventId, userId, status }, counts: countMap });
+    },
+  );
+
+  // -------------------------------------------------------------------------
+  // GET /groups/:id/events/:eventId/rsvps — list RSVPs for an event
+  // -------------------------------------------------------------------------
+  fastify.get(
+    '/groups/:id/events/:eventId/rsvps',
+    { preHandler: [authenticate, generalLimiter(fastify.redis)] },
+    async (request, reply) => {
+      const userId = (request.user as { sub: string }).sub;
+      const { id, eventId } = request.params as { id: string; eventId: string };
+
+      const member = await getActiveMember(id, userId, fastify.db);
+      if (!member) return reply.forbidden('You are not a member of this group');
+
+      const eventCheck = await fastify.db.query<{ id: string }>(
+        `SELECT id FROM group_events WHERE id = $1 AND group_id = $2`,
+        [eventId, id],
+      );
+      if (!eventCheck.rows[0]) return reply.notFound('Event not found');
+
+      const result = await fastify.db.query<{
+        rsvp_id: string; user_id: string; display_name: string;
+        avatar_url: string | null; ptt_callsign: string | null; status: string;
+      }>(
+        `SELECT r.id AS rsvp_id, r.user_id, u.display_name, u.avatar_url, u.ptt_callsign, r.status
+         FROM event_rsvps r
+         JOIN users u ON u.id = r.user_id
+         WHERE r.event_id = $1
+         ORDER BY r.updated_at DESC`,
+        [eventId],
+      );
+
+      const myRsvp = result.rows.find((r) => r.user_id === userId);
+      const counts: Record<string, number> = { going: 0, maybe: 0, not_going: 0 };
+      for (const row of result.rows) counts[row.status] = (counts[row.status] ?? 0) + 1;
+
+      return reply.send({
+        rsvps: result.rows.map((r) => ({
+          userId: r.user_id,
+          displayName: r.display_name,
+          avatarUrl: r.avatar_url,
+          callsign: r.ptt_callsign,
+          status: r.status,
+        })),
+        counts,
+        myStatus: myRsvp?.status ?? null,
+      });
+    },
+  );
+
+  // -------------------------------------------------------------------------
   // GET /groups/:id/waypoints — list current route waypoints
   // -------------------------------------------------------------------------
   fastify.get(
