@@ -177,7 +177,7 @@ export default function GroupSettingsScreen() {
           style: 'destructive',
           onPress: async () => {
             try {
-              await apiClient.delete(`/api/v1/groups/${groupId}`);
+              await apiClient.post(`/api/v1/groups/${groupId}/end`);
               router.replace('/(tabs)/convoy');
             } catch {
               Alert.alert('Error', 'Failed to end group.');

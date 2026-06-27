@@ -210,7 +210,7 @@ async function vehiclesRoutes(
       );
       const result = await client.query<VehicleRow>(
         `UPDATE vehicles SET is_active = true WHERE id = $1
-         RETURNING id, user_id, year, make, model, color, photo_url, is_active, created_at`,
+         RETURNING id, user_id, name, vehicle_type, year, make, model, color, photo_url, is_active, created_at`,
         [id],
       );
 

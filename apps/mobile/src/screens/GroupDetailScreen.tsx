@@ -135,17 +135,17 @@ export default function GroupDetailScreen() {
   const handleShare = useCallback(async () => {
     if (!group) return;
     try {
-      const res = await apiClient.get<{ inviteLink: string; code: string }>(`/api/v1/groups/${group.id}/invite-link`);
-      const { inviteLink, code } = res.data;
+      const res = await apiClient.get<{ link: string; code: string }>(`/api/v1/groups/${group.id}/invite-link`);
+      const { link, code } = res.data;
       await Share.share({
         message: [
           `Join "${group.name}" on CONVOY! 🏎️`,
           `${group.memberCount} riders and counting.`,
           ``,
-          `Tap to join: ${inviteLink}`,
+          `Tap to join: ${link}`,
           code ? `Or use code: ${code}` : '',
         ].filter(Boolean).join('\n'),
-        url: inviteLink,
+        url: link,
         title: `Join ${group.name} on CONVOY`,
       });
     } catch {
