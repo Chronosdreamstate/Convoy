@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Animated,
@@ -98,7 +98,7 @@ function haversineDistanceM(lat1: number, lng1: number, lat2: number, lng2: numb
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-function MemberMarkerView({ member, isStale, distanceM }: { member: MemberLocation; isStale: boolean; distanceM?: number }) {
+const MemberMarkerView = React.memo(function MemberMarkerView({ member, isStale, distanceM }: { member: MemberLocation; isStale: boolean; distanceM?: number }) {
   const name = member.displayName ?? `M${member.userId.slice(0, 4)}`;
   const initials = memberInitials(name).slice(0, 2);
   const ringScale = useRef(new Animated.Value(1)).current;
@@ -168,7 +168,49 @@ function MemberMarkerView({ member, isStale, distanceM }: { member: MemberLocati
       </View>
     </View>
   );
+});
+
+interface MemberMarkerProps {
+  member: MemberLocation;
+  myLat: number | null;
+  myLng: number | null;
+  staleMs: number;
+  vehicleMap: React.MutableRefObject<Record<string, string>>;
 }
+
+const MemberMarker = React.memo(
+  function MemberMarker({ member: m, myLat, myLng, staleMs, vehicleMap }: MemberMarkerProps) {
+    const isStale = Date.now() - m.receivedAt > staleMs;
+    const vehicle = vehicleMap.current[m.userId];
+    const speedLine = isStale ? `Last seen ${formatElapsed(m.receivedAt)}` : `${m.speedKph.toFixed(0)} km/h`;
+    const description = vehicle ? `${speedLine} · ${vehicle}` : speedLine;
+    const memberName = m.displayName ?? `Member ${m.userId.slice(0, 6)}`;
+    const distM = myLat != null && myLng != null
+      ? haversineDistanceM(myLat, myLng, m.lat, m.lng)
+      : undefined;
+    const markerLabel = distM != null
+      ? `${memberName}, ${distM >= 1000 ? `${(distM / 1000).toFixed(1)} km away` : `${Math.round(distM)} m away`}`
+      : memberName;
+    return (
+      <Marker
+        coordinate={{ latitude: m.lat, longitude: m.lng }}
+        title={memberName}
+        description={description}
+        anchor={{ x: 0.5, y: 1 }}
+        accessibilityLabel={markerLabel}
+      >
+        <MemberMarkerView member={m} isStale={isStale} distanceM={distM} />
+      </Marker>
+    );
+  },
+  (prev, next) =>
+    prev.member.lat === next.member.lat &&
+    prev.member.lng === next.member.lng &&
+    prev.member.speedKph === next.member.speedKph &&
+    prev.member.receivedAt === next.member.receivedAt &&
+    prev.myLat === next.myLat &&
+    prev.myLng === next.myLng,
+);
 
 const motionStateService = new MotionStateService();
 
@@ -258,6 +300,7 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
   const driveServiceRef = useRef(new DriveService());
   const memberCountRef  = useRef(0);
   const lastEmitRef     = useRef<number>(-3000); // throttle own-location emits to 1/3 s
+  const lastRecvRef     = useRef<Record<string, number>>({}); // throttle incoming per-userId to 800ms
 
   // Auto-center: fit map to all convoy members; user tap disables
   const [autoCenterAll, setAutoCenterAll] = useState(true);
@@ -283,7 +326,8 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
     }).start();
   }, [sheetExpanded, sheetHeight]);
 
-  // Fit map bounds to all convoy members when autoCenterAll is active
+  // Fit map bounds to all convoy members only when count changes or auto-center re-enabled
+  const memberCount = Object.keys(memberLocations).length;
   useEffect(() => {
     if (!autoCenterAll || !groupId) return;
     const memberCoords = Object.values(memberLocations).map((m) => ({
@@ -299,11 +343,12 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
       edgePadding: { top: 80, right: 40, bottom: 200, left: 40 },
       animated: true,
     });
-  }, [memberLocations, myLocation, autoCenterAll, groupId]);
+  // memberCount gates re-center; myLocation dep intentionally omitted to avoid every GPS tick
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [memberCount, autoCenterAll, groupId]);
 
   // Sync CarPlay + AndroidAuto with current convoy state
   useEffect(() => {
-    const memberCount = Object.keys(memberLocations).length;
     const state = {
       groupId: groupId ?? null,
       memberCount,
@@ -316,6 +361,12 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
       transmittingMemberCallsign: transmittingCallsign,
       nextWaypointName: null,
       nextWaypointEtaMinutes: null,
+      gapToCarAheadM: null,
+      speedKph: 0,
+      speedLimitKph: null,
+      isOverSpeedLimit: false,
+      positionInConvoy: 1,
+      convoyTotalCars: Object.keys(memberLocations).length + 1,
     };
     if (Platform.OS === 'ios') carPlayService.syncStateIfChanged(state);
     else if (Platform.OS === 'android') androidAutoService.syncStateIfChanged(state);
@@ -573,7 +624,10 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
 
     socket.on('location:update', (d: { userId: string; lat: number; lng: number; heading: number; speed_kph: number; ts: number }) => {
       if (d.userId === user?.id) return;
-      const loc: MemberLocation = { userId: d.userId, displayName: memberNamesRef.current[d.userId], lat: d.lat, lng: d.lng, heading: d.heading, speedKph: d.speed_kph, ts: d.ts, receivedAt: Date.now() };
+      const now = Date.now();
+      if (now - (lastRecvRef.current[d.userId] ?? 0) < 800) return;
+      lastRecvRef.current[d.userId] = now;
+      const loc: MemberLocation = { userId: d.userId, displayName: memberNamesRef.current[d.userId], lat: d.lat, lng: d.lng, heading: d.heading, speedKph: d.speed_kph, ts: d.ts, receivedAt: now };
       updateMemberLocation(loc);
       // Persist for offline fallback
       void offlineDBReady.then((ready) => {
@@ -873,13 +927,40 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
     }
   }, [groupId]);
 
+  const renderMemberRow = useCallback(({ item: m }: { item: MemberLocation }) => {
+    const isStale = Date.now() - m.receivedAt > 30_000;
+    const memberName = m.displayName ?? `Member ${m.userId.slice(0, 6)}`;
+    return (
+      <View style={styles.memberRow}>
+        <View style={[styles.dot, isStale ? styles.dotOffline : styles.dotOnline]} />
+        <Text style={styles.memberText}>{memberName}</Text>
+        <Text style={styles.memberDetail}>{isStale ? formatElapsed(m.receivedAt) : `${m.speedKph.toFixed(0)} km/h`}</Text>
+        {groupId && (
+          <TouchableOpacity
+            style={styles.rowSosBtn}
+            onPress={() => handlePickSosTarget(memberName, m.lat, m.lng)}
+            accessibilityRole="button"
+            accessibilityLabel={`SOS for ${memberName}`}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Text style={styles.rowSosText}>🆘</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+    );
+  }, [groupId, handlePickSosTarget]);
+
+  const staleMs = 30_000;
+
   // When disconnected, merge stale (cached) positions for members not in live data
-  const liveMemberIds = new Set(Object.keys(memberLocations));
-  const staleFallback = Object.values(stalePositions).filter((p) => !liveMemberIds.has(p.userId));
-  const members    = [...Object.values(memberLocations), ...staleFallback];
-  const rallies      = Array.from(rallyPoints.values());
-  const sosPinList   = Array.from(sosPins.values());
-  const staleMs    = 30_000;
+  const members = useMemo(() => {
+    const liveMemberIds = new Set(Object.keys(memberLocations));
+    const staleFallback = Object.values(stalePositions).filter((p) => !liveMemberIds.has(p.userId));
+    return [...Object.values(memberLocations), ...staleFallback];
+  }, [memberLocations, stalePositions]);
+
+  const rallies = useMemo(() => Array.from(rallyPoints.values()), [rallyPoints]);
+  const sosPinList = useMemo(() => Array.from(sosPins.values()), [sosPins]);
 
   // Safe-area-aware top offset for floating UI elements
   const topBase = insets.top + 8;
@@ -898,29 +979,16 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
         onLongPress={handleLongPress}
         onPress={() => { if (autoCenterAll) setAutoCenterAll(false); }}
       >
-        {members.map((m: MemberLocation) => {
-          const isStale = Date.now() - m.receivedAt > staleMs;
-          const vehicle = memberVehiclesRef.current[m.userId];
-          const speedLine = isStale ? `Last seen ${formatElapsed(m.receivedAt)}` : `${m.speedKph.toFixed(0)} km/h`;
-          const description = vehicle ? `${speedLine} · ${vehicle}` : speedLine;
-          const memberName = m.displayName ?? `Member ${m.userId.slice(0, 6)}`;
-          const distM = myLocation ? haversineDistanceM(myLocation.lat, myLocation.lng, m.lat, m.lng) : undefined;
-          const markerLabel = distM != null
-            ? `${memberName}, ${distM >= 1000 ? `${(distM / 1000).toFixed(1)} km away` : `${Math.round(distM)} m away`}`
-            : memberName;
-          return (
-            <Marker
-              key={m.userId}
-              coordinate={{ latitude: m.lat, longitude: m.lng }}
-              title={memberName}
-              description={description}
-              anchor={{ x: 0.5, y: 1 }}
-              accessibilityLabel={markerLabel}
-            >
-              <MemberMarkerView member={m} isStale={isStale} distanceM={distM} />
-            </Marker>
-          );
-        })}
+        {members.map((m: MemberLocation) => (
+          <MemberMarker
+            key={m.userId}
+            member={m}
+            myLat={myLocation?.lat ?? null}
+            myLng={myLocation?.lng ?? null}
+            staleMs={staleMs}
+            vehicleMap={memberVehiclesRef}
+          />
+        ))}
         {/* Dropped pin (Req 5.1–5.3) */}
         {droppedPin && (
           <Marker
@@ -1322,28 +1390,8 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
                 <FlatList
                   data={mySpeedKph > 5 ? members.slice(0, 4) : members}
                   keyExtractor={(m) => m.userId}
-                  renderItem={({ item: m }) => {
-                    const isStale = Date.now() - m.receivedAt > staleMs;
-                    const memberName = m.displayName ?? `Member ${m.userId.slice(0, 6)}`;
-                    return (
-                      <View style={styles.memberRow}>
-                        <View style={[styles.dot, isStale ? styles.dotOffline : styles.dotOnline]} />
-                        <Text style={styles.memberText}>{memberName}</Text>
-                        <Text style={styles.memberDetail}>{isStale ? formatElapsed(m.receivedAt) : `${m.speedKph.toFixed(0)} km/h`}</Text>
-                        {groupId && (
-                          <TouchableOpacity
-                            style={styles.rowSosBtn}
-                            onPress={() => handlePickSosTarget(memberName, m.lat, m.lng)}
-                            accessibilityRole="button"
-                            accessibilityLabel={`SOS for ${memberName}`}
-                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                          >
-                            <Text style={styles.rowSosText}>🆘</Text>
-                          </TouchableOpacity>
-                        )}
-                      </View>
-                    );
-                  }}
+                  renderItem={renderMemberRow}
+                  removeClippedSubviews
                   ListEmptyComponent={<Text style={styles.emptyText}>No members yet</Text>}
                 />
               )}
