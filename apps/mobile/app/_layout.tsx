@@ -323,8 +323,22 @@ export default function RootLayout() {
 
   const isOffline = isAuthenticated && hasEverConnected && !socketConnected;
 
+  // expo-battery not installed — set to true when package is added and replace with Battery hooks
+  const showLowBatteryWarning = false;
+
   return (
     <SafeAreaProvider>
+      {showLowBatteryWarning && (
+        <View style={{
+          position: 'absolute', top: 0, left: 0, right: 0, zIndex: 9999,
+          backgroundColor: '#F59E0B', paddingTop: 44, paddingBottom: 8,
+          paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center',
+        }}>
+          <Text style={{ fontSize: 14, color: '#000', flex: 1 }}>
+            ⚡ Low battery — convoy members may lose your signal
+          </Text>
+        </View>
+      )}
       <ErrorBoundary>
         <Stack
           screenOptions={{
