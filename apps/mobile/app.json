@@ -24,7 +24,9 @@
         "NSLocationWhenInUseUsageDescription": "CONVOY uses your location to keep your convoy in sync and find nearby groups.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "CONVOY uses background location to update your position in the convoy.",
         "NSMicrophoneUsageDescription": "CONVOY needs microphone access for push-to-talk radio between convoy members.",
-        "NSCameraUsageDescription": "CONVOY uses your camera for profile and vehicle photos."
+        "NSCameraUsageDescription": "CONVOY uses your camera for profile and vehicle photos.",
+        "NSSupportsLiveActivities": true,
+        "NSSupportsLiveActivitiesFrequentUpdates": true
       }
     },
     "android": {

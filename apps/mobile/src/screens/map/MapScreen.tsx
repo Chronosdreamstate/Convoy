@@ -46,6 +46,7 @@ import { carPlayService } from '../../services/CarPlayService';
 import { androidAutoService } from '../../services/AndroidAutoService';
 import { HapticService } from '../../services/HapticService';
 import { LocationService } from '../../services/LocationService';
+import { LiveActivityService } from '../../services/LiveActivityService';
 
 interface GapAlert { memberId: string; distanceM: number }
 interface SosAlert { pin: SosPin; memberName: string }
@@ -574,21 +575,33 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
       // Show transmitting member's display name in CarPlay waveform banner
       const name = memberNamesRef.current[data.userId] ?? null;
       setTransmittingCallsign(name);
+      void LiveActivityService.updateActivity({ transmittingCallsign: name });
     });
 
-    // Clear waveform when transmission ends
-    socket.on('ptt:ended', () => { setTransmittingCallsign(null); });
+    socket.on('ptt:ended', () => {
+      setTransmittingCallsign(null);
+      void LiveActivityService.updateActivity({ transmittingCallsign: null });
+    });
 
     socket.on('connect', () => {
       setIsConnected(true);
       setIsOnline(true);
-      // Clear stale fallback data — live data is flowing again
       clearStalePositions();
+      void LiveActivityService.startActivity({
+        groupName: groupId,
+        memberCount: 1,
+        myPosition: 1,
+        totalCars: 1,
+        gapToCarAheadM: null,
+        transmittingCallsign: null,
+        isLeadCar: true,
+      });
     });
 
     socket.on('disconnect', () => {
       setIsConnected(false);
       setIsOnline(false);
+      void LiveActivityService.endActivity();
       // Load last-known positions from local cache so the map stays populated
       void offlineDBReady.then((ready) => {
         if (!ready) return;
