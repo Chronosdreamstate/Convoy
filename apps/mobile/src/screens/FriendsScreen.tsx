@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   Animated,
+  RefreshControl,
   SectionList,
   Share,
   StyleSheet,
@@ -14,6 +15,7 @@ import {
 } from 'react-native';
 import { apiClient } from '../services/apiClient';
 import { SkeletonRow } from '../components/SkeletonLoader';
+import { useGroupStore } from '../stores/groupStore';
 
 // Types
 interface Friend {
@@ -82,6 +84,7 @@ function FriendRow({
   onRemove: (id: string) => void;
   removing: boolean;
 }) {
+  const activeGroupId = useGroupStore((s) => s.activeGroupId);
   const slideAnim = useRef(new Animated.Value(0)).current;
   const opAnim = useRef(new Animated.Value(1)).current;
 
@@ -99,7 +102,29 @@ function FriendRow({
     ]);
   };
 
+  const handleInviteToConvoy = async () => {
+    if (!activeGroupId) return;
+    try {
+      const res = await fetch(`/api/v1/groups/${activeGroupId}/invite-link`);
+      const { code, link } = await res.json() as { code: string; link: string };
+      await Share.share({ message: `Join my convoy on CONVOY! Code: ${code}\n${link}` });
+    } catch {
+      Alert.alert('Error', 'Could not get invite link.');
+    }
+  };
+
+  const handleTap = () => {
+    const buttons: Array<{ text: string; style?: 'cancel' | 'destructive' | 'default'; onPress?: () => void }> = [
+      { text: '💬 Message', onPress: () => Alert.alert('Coming Soon', 'Messaging will be available soon.') },
+    ];
+    if (activeGroupId) buttons.push({ text: '📨 Invite to Convoy', onPress: () => void handleInviteToConvoy() });
+    buttons.push({ text: '🚫 Remove', style: 'destructive', onPress: handleRemove });
+    buttons.push({ text: 'Cancel', style: 'cancel' });
+    Alert.alert(friend.displayName, friend.callsign ? `📻 ${friend.callsign}` : undefined, buttons);
+  };
+
   return (
+    <TouchableOpacity onPress={handleTap} activeOpacity={0.85}>
     <Animated.View style={[styles.card, { transform: [{ translateX: slideAnim }], opacity: opAnim }]}>
       <Avatar name={friend.displayName} online={friend.isOnline} />
       <View style={styles.cardInfo}>
@@ -131,6 +156,7 @@ function FriendRow({
         </TouchableOpacity>
       </View>
     </Animated.View>
+    </TouchableOpacity>
   );
 }
 
@@ -138,6 +164,7 @@ function FriendRow({
 function FriendsTab({ query }: { query: string }) {
   const [friends, setFriends] = useState<Friend[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [removing, setRemoving] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -151,6 +178,12 @@ function FriendsTab({ query }: { query: string }) {
   }, []);
 
   useEffect(() => { void load(); }, [load]);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await load();
+    setRefreshing(false);
+  }, [load]);
 
   const handleRemove = async (id: string) => {
     setRemoving(id);
@@ -190,6 +223,9 @@ function FriendsTab({ query }: { query: string }) {
       contentContainerStyle={styles.listPad}
       showsVerticalScrollIndicator={false}
       stickySectionHeadersEnabled={false}
+      refreshControl={
+        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#DC143C" colors={['#DC143C']} />
+      }
       ListHeaderComponent={error ? <Text style={styles.errorTxt}>{error}</Text> : null}
       renderSectionHeader={({ section }) => (
         <Text style={styles.sectionHeader}>{section.title}</Text>

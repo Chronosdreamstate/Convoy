@@ -1,11 +1,14 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Modal,
   View,
   Text,
   TouchableOpacity,
   StyleSheet,
+  Share,
+  Alert,
 } from 'react-native';
+import { useGroupStore } from '../stores/groupStore';
 
 interface MemberInfo {
   userId: string;
@@ -50,9 +53,42 @@ export default function MemberDetailModal({
   onKick,
   onNavigateTo,
 }: Props) {
+  const activeGroupId = useGroupStore((s) => s.activeGroupId);
+  const [friendSent, setFriendSent] = useState(false);
+  const [inviting, setInviting] = useState(false);
+
   if (!member) return null;
 
   const showAdminControls = isCurrentUserAdmin;
+
+  const handleInviteToConvoy = async () => {
+    if (!activeGroupId) return;
+    setInviting(true);
+    try {
+      const res = await fetch(`/api/v1/groups/${activeGroupId}/invite-link`);
+      const { code, link } = await res.json() as { code: string; link: string };
+      await Share.share({
+        message: `Join my convoy on CONVOY! Code: ${code}\n${link}`,
+      });
+    } catch {
+      Alert.alert('Error', 'Could not get invite link. Try again.');
+    } finally {
+      setInviting(false);
+    }
+  };
+
+  const handleAddFriend = async () => {
+    try {
+      await fetch('/api/v1/friends', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: member.userId }),
+      });
+      setFriendSent(true);
+    } catch {
+      Alert.alert('Error', 'Could not send friend request.');
+    }
+  };
 
   return (
     <Modal
@@ -108,6 +144,34 @@ export default function MemberDetailModal({
               <Text style={styles.statText}>🔇 Muted</Text>
             </View>
           )}
+        </View>
+
+        {/* Social actions */}
+        <View style={styles.socialRow}>
+          {activeGroupId && (
+            <TouchableOpacity
+              style={[styles.inviteBtn, inviting && styles.inviteBtnDisabled]}
+              onPress={handleInviteToConvoy}
+              disabled={inviting}
+              accessibilityRole="button"
+              accessibilityLabel="Invite to convoy"
+            >
+              <Text style={styles.inviteBtnText}>
+                {inviting ? 'Getting link...' : '📨 Invite to Convoy'}
+              </Text>
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity
+            style={[styles.addFriendBtn, friendSent && styles.addFriendSent]}
+            onPress={handleAddFriend}
+            disabled={friendSent}
+            accessibilityRole="button"
+            accessibilityLabel={friendSent ? 'Friend request sent' : 'Add friend'}
+          >
+            <Text style={styles.addFriendText}>
+              {friendSent ? '✓ Request Sent' : '🤝 Add Friend'}
+            </Text>
+          </TouchableOpacity>
         </View>
 
         {/* Admin controls */}
@@ -282,6 +346,44 @@ const styles = StyleSheet.create({
   closeBtnText: {
     color: '#888888',
     fontSize: 15,
+    fontWeight: '600',
+  },
+  socialRow: {
+    width: '100%',
+    gap: 10,
+    marginBottom: 16,
+  },
+  inviteBtn: {
+    width: '100%',
+    borderWidth: 1.5,
+    borderColor: '#DC143C',
+    borderRadius: 12,
+    paddingVertical: 13,
+    alignItems: 'center',
+  },
+  inviteBtnDisabled: {
+    opacity: 0.5,
+  },
+  inviteBtnText: {
+    color: '#DC143C',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  addFriendBtn: {
+    width: '100%',
+    borderWidth: 1,
+    borderColor: '#2A2A2A',
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  addFriendSent: {
+    borderColor: '#22C55E',
+    opacity: 0.7,
+  },
+  addFriendText: {
+    color: '#FFFFFF',
+    fontSize: 14,
     fontWeight: '600',
   },
 });

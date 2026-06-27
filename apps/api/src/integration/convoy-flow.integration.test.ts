@@ -611,3 +611,172 @@ describe('IT-5: Gap alert fires when member exceeds threshold distance from admi
     expect(gapAlert).toBeUndefined();
   });
 });
+
+// ---------------------------------------------------------------------------
+// IT-6 & IT-7: convoy:alert relay
+// Mirrors the logic in socket.handler.ts convoy:alert handler.
+// ---------------------------------------------------------------------------
+
+interface ConvoyAlertParams {
+  /** The groupId the socket is authenticated to (from join event). */
+  groupId: string;
+  /** The groupId included in the payload — must match groupId to pass guard. */
+  alertGroupId: string;
+  type: 'stopping' | 'regroup' | 'incident';
+  message: string;
+  senderId: string;
+  db: Pool;
+  io: IoBroadcaster;
+}
+
+interface ConvoyAlertRow {
+  ptt_callsign: string | null;
+  display_name: string;
+}
+
+async function simulateConvoyAlert(params: ConvoyAlertParams): Promise<void> {
+  const { groupId, alertGroupId, type, message, senderId, db, io } = params;
+  // Guard: payload groupId must match socket's authenticated groupId
+  if (!type || !message || alertGroupId !== groupId) return;
+
+  const result = await db.query<ConvoyAlertRow>(
+    'SELECT ptt_callsign, display_name FROM users WHERE id = $1',
+    [senderId],
+  );
+  const user = result.rows[0];
+  const senderCallsign = user?.ptt_callsign ?? user?.display_name ?? 'Unknown';
+
+  io.to(`group:${groupId}`).emit('convoy:alert', {
+    type,
+    message,
+    senderCallsign,
+    senderId,
+    timestamp: new Date().toISOString(),
+  });
+}
+
+function makeAlertDb(callsign: string | null, displayName: string): Pool {
+  return {
+    query: jest.fn(async (sql: string) => {
+      if (sql.includes('ptt_callsign')) {
+        return { rows: [{ ptt_callsign: callsign, display_name: displayName }], rowCount: 1 };
+      }
+      return { rows: [], rowCount: 0 };
+    }),
+  } as unknown as Pool;
+}
+
+// ---------------------------------------------------------------------------
+// IT-6: convoy:alert fans out to group room with sender callsign
+// ---------------------------------------------------------------------------
+
+describe('IT-6: convoy:alert broadcasts to group room with sender callsign', () => {
+  it('emits convoy:alert to group room for any valid alert type and sender', async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        fc.uuid(),
+        fc.uuid(),
+        fc.constantFrom('stopping', 'regroup', 'incident') as fc.Arbitrary<'stopping' | 'regroup' | 'incident'>,
+        fc.string({ minLength: 1, maxLength: 40 }).filter((s) => s.trim().length > 0),
+        async (groupId, senderId, type, callsign) => {
+          const db = makeAlertDb(callsign, 'Display Name');
+          const { io, emitted } = makeIo();
+
+          await simulateConvoyAlert({
+            groupId,
+            alertGroupId: groupId, // matches — guard passes
+            type,
+            message: `${type} message`,
+            senderId,
+            db,
+            io,
+          });
+
+          const alert = emitted.find((e) => e.event === 'convoy:alert');
+          expect(alert).toBeDefined();
+          expect(alert?.room).toBe(`group:${groupId}`);
+          const data = alert?.data as { senderCallsign: string; type: string; senderId: string };
+          expect(data.senderCallsign).toBe(callsign);
+          expect(data.type).toBe(type);
+          expect(data.senderId).toBe(senderId);
+        },
+      ),
+      { numRuns: 25 },
+    );
+  });
+
+  it('falls back to display_name when ptt_callsign is null', async () => {
+    const groupId = 'g-alert-001';
+    const senderId = 'u-sender-001';
+    const db = makeAlertDb(null, 'John Doe');
+    const { io, emitted } = makeIo();
+
+    await simulateConvoyAlert({
+      groupId,
+      alertGroupId: groupId,
+      type: 'stopping',
+      message: '🚦 Stopping',
+      senderId,
+      db,
+      io,
+    });
+
+    const data = emitted[0]?.data as { senderCallsign: string };
+    expect(data.senderCallsign).toBe('John Doe');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// IT-7: convoy:alert is dropped when alertGroupId !== socket's groupId
+// ---------------------------------------------------------------------------
+
+describe('IT-7: convoy:alert cross-group injection is blocked by guard', () => {
+  it('does not emit when alertGroupId does not match the socket groupId', async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        fc.uuid(),
+        fc.uuid().filter((id) => id !== 'g-attacker-001'), // different groupId
+        fc.uuid(),
+        async (socketGroupId, injectedGroupId, senderId) => {
+          fc.pre(socketGroupId !== injectedGroupId);
+          const db = makeAlertDb('ATTACKER', 'Attacker');
+          const { io, emitted } = makeIo();
+
+          await simulateConvoyAlert({
+            groupId: socketGroupId,       // socket is authenticated to this group
+            alertGroupId: injectedGroupId, // payload claims a different group
+            type: 'incident',
+            message: '⚠️ Injected alert',
+            senderId,
+            db,
+            io,
+          });
+
+          // Guard must block — no events emitted
+          expect(emitted).toHaveLength(0);
+          // DB should not be queried either (guard returns before fetch)
+          expect((db.query as jest.Mock).mock.calls).toHaveLength(0);
+        },
+      ),
+      { numRuns: 30 },
+    );
+  });
+
+  it('does not emit when type is missing', async () => {
+    const { io, emitted } = makeIo();
+    const db = makeAlertDb('CALL', 'Name');
+
+    // Pass empty string as type — guard catches falsy check
+    await simulateConvoyAlert({
+      groupId: 'g-guard-001',
+      alertGroupId: 'g-guard-001',
+      type: '' as 'stopping',
+      message: 'msg',
+      senderId: 'u-001',
+      db,
+      io,
+    });
+
+    expect(emitted).toHaveLength(0);
+  });
+});
