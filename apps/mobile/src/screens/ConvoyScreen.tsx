@@ -810,7 +810,7 @@ export default function ConvoyScreen({ userId }: Props) {
           <Text style={styles.subtitle}>Start or join a driving group</Text>
         </View>
         <View style={styles.homeActions}>
-          <TouchableOpacity style={styles.primaryBtn} onPress={() => setView('create')} accessibilityRole="button" accessibilityLabel="Create a new convoy group">
+          <TouchableOpacity style={styles.primaryBtn} onPress={() => router.push('/create-group' as never)} accessibilityRole="button" accessibilityLabel="Create a new convoy group">
             <Text style={styles.primaryBtnText}>Create Group</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.secondaryBtn} onPress={() => setView('join')} accessibilityRole="button" accessibilityLabel="Join a convoy with a code">

@@ -383,6 +383,10 @@ export default function RootLayout() {
           <Stack.Screen name="event/[id]" />
           <Stack.Screen name="leaderboard" />
           <Stack.Screen name="group-leaderboard" />
+          <Stack.Screen
+            name="create-group"
+            options={{ animation: 'slide_from_bottom', presentation: 'modal' }}
+          />
           <Stack.Screen name="group-chat" options={{ headerShown: false }} />
           <Stack.Screen name="privacy" />
           <Stack.Screen name="terms" />
