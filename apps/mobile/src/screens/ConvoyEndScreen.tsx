@@ -387,6 +387,39 @@ export default function ConvoyEndScreen() {
     incrementWeeklyDrives().then(setWeeklyDrives);
   }, []);
 
+  // App Store review prompt — shown after 3rd completed convoy
+  useEffect(() => {
+    async function maybeAskForReview() {
+      try {
+        const raw = await AsyncStorage.getItem('convoy:completed_count');
+        const count = (parseInt(raw ?? '0', 10) || 0) + 1;
+        await AsyncStorage.setItem('convoy:completed_count', String(count));
+        const hasReviewed = await AsyncStorage.getItem('convoy:has_reviewed');
+        if (count === 3 && !hasReviewed) {
+          setTimeout(() => {
+            Alert.alert(
+              '❤️ Loving CONVOY?',
+              'A quick rating helps us grow the community of drivers.',
+              [
+                {
+                  text: '⭐ Rate 5 Stars',
+                  onPress: async () => {
+                    await AsyncStorage.setItem('convoy:has_reviewed', 'true');
+                    // Opens App Store page — replace with real app ID before launch
+                    const { Linking } = require('react-native');
+                    Linking.openURL('https://apps.apple.com/app/id000000000');
+                  },
+                },
+                { text: 'Maybe Later', style: 'cancel' },
+              ],
+            );
+          }, 3000);
+        }
+      } catch {}
+    }
+    maybeAskForReview();
+  }, []);
+
   // Load persisted photos for this drive
   useEffect(() => {
     AsyncStorage.getItem(`convoy:drive:${driveId}:photos`)
