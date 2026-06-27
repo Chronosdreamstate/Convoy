@@ -14,6 +14,8 @@ import {
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { apiClient } from '../services/apiClient';
+import { SkeletonBox } from '../components/SkeletonLoader';
+import { NetworkError } from '../components/NetworkError';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -216,8 +218,19 @@ export default function GroupSettingsScreen() {
   if (loading) {
     return (
       <SafeAreaView style={styles.container}>
-        <View style={styles.centered}>
-          <ActivityIndicator color="#DC143C" size="large" />
+        <View style={styles.header}>
+          <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} accessibilityRole="button">
+            <Text style={styles.backBtnText}>‹ Back</Text>
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Group Settings</Text>
+        </View>
+        <View style={{ padding: 16, gap: 14 }}>
+          {[0, 1, 2, 3].map((i) => (
+            <View key={i} style={{ gap: 8 }}>
+              <SkeletonBox width="30%" height={11} />
+              <SkeletonBox width="100%" height={48} borderRadius={10} />
+            </View>
+          ))}
         </View>
       </SafeAreaView>
     );
@@ -227,12 +240,13 @@ export default function GroupSettingsScreen() {
   if (error) {
     return (
       <SafeAreaView style={styles.container}>
-        <View style={styles.centered}>
-          <Text style={styles.errorText}>{error}</Text>
-          <TouchableOpacity style={styles.retryBtn} onPress={() => { void loadSettings(); }}>
-            <Text style={styles.retryBtnText}>Retry</Text>
+        <View style={styles.header}>
+          <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} accessibilityRole="button">
+            <Text style={styles.backBtnText}>‹ Back</Text>
           </TouchableOpacity>
+          <Text style={styles.headerTitle}>Group Settings</Text>
         </View>
+        <NetworkError onRetry={() => void loadSettings()} message={error} />
       </SafeAreaView>
     );
   }
