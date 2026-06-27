@@ -309,6 +309,7 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
   // Reactive socket and settings from shared stores
   const { socket } = useSocketStore();
   const mapStyle = useSettingsStore((s) => s.mapStyle);
+  const setSettings = useSettingsStore((s) => s.setSettings);
   const scenicRouting = useSettingsStore((s) => s.scenicRouting);
   const pttMaxSeconds = useSettingsStore((s) => s.pttMaxSeconds);
   const pttVolumePercent = useSettingsStore((s) => s.pttVolumePercent);
