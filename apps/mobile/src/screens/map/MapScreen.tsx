@@ -786,6 +786,11 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
     };
   }, [token, groupId, socketUrl, updateMemberLocation, user?.id, clearGroup, setStalePositions, clearStalePositions]);
 
+  const cycleMapType = useCallback(() => {
+    const next = mapStyle === 'standard' ? 'satellite' : mapStyle === 'satellite' ? 'hybrid' : 'standard';
+    setSettings({ mapStyle: next });
+  }, [mapStyle, setSettings]);
+
   const recenter = useCallback(() => {
     if (!mapRef.current) return;
     if (!myLocation) {
@@ -1215,6 +1220,18 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
       <View style={[styles.badge, isConnected ? styles.badgeOnline : styles.badgeOffline, { top: topBase }]}>
         <Text style={styles.badgeText}>{isConnected ? 'LIVE' : 'OFFLINE'}</Text>
       </View>
+
+      {/* Map style cycle button — top-right, below LIVE badge */}
+      <TouchableOpacity
+        style={[styles.mapTypeBtn, { top: topBase + 40 }]}
+        onPress={cycleMapType}
+        accessibilityRole="button"
+        accessibilityLabel={`Map style: ${mapStyle}. Tap to cycle.`}
+      >
+        <Text style={{ fontSize: 18 }}>
+          {mapStyle === 'standard' ? '🗺️' : mapStyle === 'satellite' ? '🛰️' : '🌍'}
+        </Text>
+      </TouchableOpacity>
 
       {/* Re-center — top-left, below safe area */}
       <TouchableOpacity
@@ -1846,6 +1863,20 @@ const styles = StyleSheet.create({
   badgeOnline: { backgroundColor: '#22C55E' },
   badgeOffline: { backgroundColor: '#444444' },
   badgeText: { color: '#fff', fontSize: 11, fontWeight: '700' },
+
+  mapTypeBtn: {
+    position: 'absolute',
+    right: 12,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(28,28,28,0.92)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    zIndex: 10,
+  },
 
   // Re-center — top-left
   recenterBtn: {

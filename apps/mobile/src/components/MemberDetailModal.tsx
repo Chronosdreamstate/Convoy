@@ -56,6 +56,7 @@ export default function MemberDetailModal({
   onKick,
   onNavigateTo,
 }: Props) {
+  const router = useRouter();
   const activeGroupId = useGroupStore((s) => s.activeGroupId);
   const [friendSent, setFriendSent] = useState(false);
   const [inviting, setInviting] = useState(false);
@@ -176,6 +177,14 @@ export default function MemberDetailModal({
             <Text style={styles.addFriendText}>
               {friendSent ? '✓ Request Sent' : '🤝 Add Friend'}
             </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.viewProfileBtn}
+            onPress={() => { onClose(); router.push(`/profile/${member.userId}`); }}
+            accessibilityRole="button"
+            accessibilityLabel="View full profile"
+          >
+            <Text style={styles.viewProfileText}>View Profile</Text>
           </TouchableOpacity>
         </View>
 
@@ -441,6 +450,19 @@ const styles = StyleSheet.create({
   },
   addFriendText: {
     color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  viewProfileBtn: {
+    width: '100%',
+    borderWidth: 1,
+    borderColor: '#2A2A2A',
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  viewProfileText: {
+    color: '#888888',
     fontSize: 14,
     fontWeight: '600',
   },

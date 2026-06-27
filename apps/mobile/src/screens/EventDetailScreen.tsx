@@ -4,6 +4,7 @@ import {
   Alert,
   RefreshControl,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -135,6 +136,19 @@ export default function EventDetailScreen() {
       setMyStatus(res.data.rsvp.status as RsvpStatus);
       setCounts(res.data.counts);
       void load();
+      if (status === 'going' && event) {
+        setTimeout(() => {
+          void Share.share({
+            message: [
+              `I'm going to "${event.title}" on CONVOY! 🏎️`,
+              `📅 ${formatEventDate(event.scheduledFor)}`,
+              '',
+              'Join us: convoy.app',
+            ].join('\n'),
+            title: event.title,
+          });
+        }, 600);
+      }
     } catch (err: unknown) {
       Alert.alert('Error', err instanceof Error ? err.message : 'Could not update RSVP');
     } finally {

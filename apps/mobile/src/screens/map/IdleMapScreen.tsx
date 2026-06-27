@@ -15,6 +15,7 @@ import { useRouter } from 'expo-router';
 import LocationPermissionPrescreen from '../../components/LocationPermissionPrescreen';
 import { apiClient } from '../../services/apiClient';
 import { useAuthStore } from '../../stores/authStore';
+import { useSettingsStore } from '../../stores/settingsStore';
 
 const DEFAULT_REGION = {
   latitude: 37.7749,
@@ -44,6 +45,7 @@ export default function IdleMapScreen() {
   const insets = useSafeAreaInsets();
   const mapRef = useRef<MapView>(null);
   const user = useAuthStore((s) => s.user);
+  const mapStyle = useSettingsStore((s) => s.mapStyle);
 
   const [initialRegion, setInitialRegion] = useState(DEFAULT_REGION);
   const [locating, setLocating] = useState(true);
@@ -235,6 +237,7 @@ export default function IdleMapScreen() {
         style={StyleSheet.absoluteFill}
         initialRegion={initialRegion}
         showsUserLocation
+        mapType={mapStyle}
       >
         {/* Nearby convoy markers */}
         {nearbyGroups.map((group) =>

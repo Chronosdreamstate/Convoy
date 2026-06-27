@@ -6,6 +6,7 @@ import {
   Modal,
   SafeAreaView,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   TextInput,
@@ -207,6 +208,20 @@ export default function ProfileScreen() {
     setShowAvatarModal(false);
   };
 
+  const handleShareProfile = async () => {
+    const name = displayName || profile?.displayName || 'a CONVOY rider';
+    const callsign = pttCallsign || profile?.pttCallsign;
+    const lines = [
+      `${name} is on CONVOY! 🏎️`,
+      callsign ? `📻 Callsign: ${callsign}` : '',
+      '',
+      'Join the convoy: convoy.app',
+    ].filter(Boolean);
+    try {
+      await Share.share({ message: lines.join('\n'), title: `${name} on CONVOY` });
+    } catch { /* dismissed */ }
+  };
+
   const handleSignOut = () => {
     Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
       { text: 'Cancel', style: 'cancel' },
@@ -373,6 +388,20 @@ export default function ProfileScreen() {
           <View style={styles.friendsBtnInner}>
             <Text style={styles.friendsBtnIcon}>👥</Text>
             <Text style={styles.friendsBtnText}>Friends</Text>
+          </View>
+          <Text style={styles.friendsChevron}>›</Text>
+        </TouchableOpacity>
+
+        {/* Share Profile */}
+        <TouchableOpacity
+          style={styles.friendsBtn}
+          onPress={() => { void handleShareProfile(); }}
+          accessibilityRole="button"
+          accessibilityLabel="Share profile"
+        >
+          <View style={styles.friendsBtnInner}>
+            <Text style={styles.friendsBtnIcon}>📤</Text>
+            <Text style={styles.friendsBtnText}>Share Profile</Text>
           </View>
           <Text style={styles.friendsChevron}>›</Text>
         </TouchableOpacity>

@@ -5,6 +5,7 @@ import {
   RefreshControl,
   SafeAreaView,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -119,6 +120,31 @@ export default function GroupDetailScreen() {
 
   useEffect(() => { void fetchGroup(); }, [fetchGroup]);
 
+  const handleShare = useCallback(async () => {
+    if (!group) return;
+    try {
+      const res = await apiClient.get<{ inviteLink: string; code: string }>(`/api/v1/groups/${group.id}/invite-link`);
+      const { inviteLink, code } = res.data;
+      await Share.share({
+        message: [
+          `Join "${group.name}" on CONVOY! 🏎️`,
+          `${group.memberCount} riders and counting.`,
+          ``,
+          `Tap to join: ${inviteLink}`,
+          code ? `Or use code: ${code}` : '',
+        ].filter(Boolean).join('\n'),
+        url: inviteLink,
+        title: `Join ${group.name} on CONVOY`,
+      });
+    } catch {
+      // fallback share without invite link
+      await Share.share({
+        message: `Check out "${group.name}" on CONVOY — the car enthusiast convoy app! convoy.app`,
+        title: `Join ${group.name} on CONVOY`,
+      });
+    }
+  }, [group]);
+
   const handleJoin = async () => {
     if (!id) return;
     setJoining(true);
@@ -177,6 +203,9 @@ export default function GroupDetailScreen() {
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
           <Text style={styles.backText}>‹ Back</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={handleShare} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} accessibilityLabel="Share group">
+          <Text style={styles.shareHeaderBtn}>📤</Text>
         </TouchableOpacity>
       </View>
 
@@ -322,7 +351,8 @@ export default function GroupDetailScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0A0A0A' },
-  header: { paddingHorizontal: 20, paddingTop: 12, paddingBottom: 4 },
+  header: { paddingHorizontal: 20, paddingTop: 12, paddingBottom: 4, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  shareHeaderBtn: { fontSize: 22 },
   backBtn: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 8 },
   backText: { color: '#DC143C', fontSize: 17, fontWeight: '600' },
   content: { paddingHorizontal: 20, paddingTop: 16 },

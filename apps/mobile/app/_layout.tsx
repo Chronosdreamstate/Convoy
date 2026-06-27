@@ -393,6 +393,7 @@ export default function RootLayout() {
           <Stack.Screen name="terms" />
           <Stack.Screen name="search" options={{ animation: 'fade' }} />
           <Stack.Screen name="convoy-history/[groupId]" />
+          <Stack.Screen name="profile/[userId]" />
         </Stack>
       </ErrorBoundary>
       <OfflineIndicator isOffline={isOffline} />

@@ -133,25 +133,78 @@ async function usersRoutes(
   // -------------------------------------------------------------------------
   fastify.get('/users/:id', { preHandler: [authenticate, generalLimiter(fastify.redis)] }, async (request, reply) => {
     const { id } = request.params as { id: string };
+    const viewerId = (request.user as { sub: string }).sub;
 
-    const result = await fastify.db.query<
-      Pick<UserRow, 'id' | 'display_name' | 'avatar_url' | 'ptt_callsign'>
-    >(
-      `SELECT id, display_name, avatar_url, ptt_callsign
-       FROM users WHERE id = $1`,
+    interface PublicProfileRow {
+      id: string;
+      display_name: string;
+      avatar_url: string | null;
+      ptt_callsign: string | null;
+      bio: string | null;
+      created_at: Date;
+      vehicle_type: string | null;
+      vehicle_make: string | null;
+      vehicle_model: string | null;
+      vehicle_year: number | null;
+      vehicle_color: string | null;
+      mods: string[] | null;
+      total_drives: string;
+      total_distance_km: string;
+    }
+
+    const result = await fastify.db.query<PublicProfileRow>(
+      `SELECT u.id, u.display_name, u.avatar_url, u.ptt_callsign, u.bio, u.created_at,
+              v.vehicle_type, v.make AS vehicle_make, v.model AS vehicle_model,
+              v.year AS vehicle_year, v.color AS vehicle_color, v.mods,
+              COALESCE(ds.total_drives, 0)::text AS total_drives,
+              COALESCE(ROUND(ds.total_distance_m / 1000.0), 0)::text AS total_distance_km
+       FROM users u
+       LEFT JOIN LATERAL (
+         SELECT vehicle_type, make, model, year, color, mods
+         FROM vehicles WHERE user_id = u.id AND is_main = true LIMIT 1
+       ) v ON true
+       LEFT JOIN LATERAL (
+         SELECT COUNT(*) AS total_drives, SUM(distance_m) AS total_distance_m
+         FROM drives WHERE user_id = u.id
+       ) ds ON true
+       WHERE u.id = $1`,
       [id],
     );
 
     const u = result.rows[0];
-    if (!u) {
-      return reply.notFound('User not found');
-    }
+    if (!u) return reply.notFound('User not found');
+
+    // Check mutual friend count
+    const mutualRes = await fastify.db.query<{ count: string }>(
+      `SELECT COUNT(*) AS count FROM friends f1
+       JOIN friends f2 ON f1.friend_id = f2.user_id AND f2.friend_id = f1.user_id
+       WHERE f1.user_id = $1 AND f1.friend_id = $2`,
+      [viewerId, id],
+    ).catch(() => ({ rows: [{ count: '0' }] }));
+
+    // Check if viewer follows/friends this user
+    const friendRes = await fastify.db.query<{ status: string }>(
+      `SELECT status FROM friends WHERE user_id = $1 AND friend_id = $2 LIMIT 1`,
+      [viewerId, id],
+    ).catch(() => ({ rows: [] }));
 
     return reply.send({
       id: u.id,
       displayName: u.display_name,
       avatarUrl: u.avatar_url,
-      pttCallsign: u.ptt_callsign,
+      callsign: u.ptt_callsign,
+      bio: u.bio,
+      memberSince: u.created_at,
+      vehicleType: u.vehicle_type,
+      vehicleMake: u.vehicle_make,
+      vehicleModel: u.vehicle_model,
+      vehicleYear: u.vehicle_year,
+      vehicleColor: u.vehicle_color,
+      mods: u.mods ?? [],
+      totalDrives: parseInt(u.total_drives, 10),
+      totalDistanceKm: parseInt(u.total_distance_km, 10),
+      mutualFriends: parseInt(mutualRes.rows[0]?.count ?? '0', 10),
+      friendStatus: friendRes.rows[0]?.status ?? null,
     });
   });
 

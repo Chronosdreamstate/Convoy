@@ -593,7 +593,24 @@ export default function DriveHistoryScreen() {
   }, [hasMore, loading, loadingMore, page, fetchDrives]);
 
   const handleShare = useCallback(async (driveId: string) => {
+    const drive = drives.find((d) => d.id === driveId);
     setSharingId(driveId);
+
+    const distanceKm = drive ? (drive.distanceM / 1000).toFixed(1) : '?';
+    const duration = drive ? formatDuration(drive.durationS) : null;
+    const maxSpeedKph = drive?.topSpeedKph ? Math.round(drive.topSpeedKph) : null;
+    const memberCount = drive?.memberCount ?? 1;
+    const groupName = drive?.groupName ?? null;
+
+    const shareText = [
+      `Just drove ${distanceKm}km${groupName ? ` with ${groupName}` : ''} on CONVOY! 🏁`,
+      duration ? `⏱ ${duration}` : '',
+      maxSpeedKph ? `⚡ Top speed: ${maxSpeedKph}km/h` : '',
+      memberCount > 1 ? `👥 ${memberCount} cars` : '',
+      '',
+      'Join us on CONVOY: convoy.app',
+    ].filter(Boolean).join('\n');
+
     try {
       const res = await apiClient.post<{ summaryCardUrl: string }>(
         `/api/v1/drives/${driveId}/summary-card`,
@@ -603,16 +620,19 @@ export default function DriveHistoryScreen() {
       try {
         await Share.share(
           Platform.OS === 'ios'
-            ? { url: summaryCardUrl, message: 'Check out my CONVOY drive!' }
-            : { message: `Check out my CONVOY drive! ${summaryCardUrl}` },
+            ? { url: summaryCardUrl, message: shareText }
+            : { message: `${shareText}\n${summaryCardUrl}` },
         );
-      } catch { /* user cancelled the share sheet */ }
+      } catch { /* user cancelled */ }
     } catch {
-      Alert.alert('Error', 'Could not generate summary card.');
+      // Summary card endpoint failed — share text-only
+      try {
+        await Share.share({ message: shareText, title: 'My CONVOY Drive' });
+      } catch { /* cancelled */ }
     } finally {
       setSharingId(null);
     }
-  }, []);
+  }, [drives]);
 
   const handleDelete = useCallback((driveId: string) => {
     Alert.alert(
