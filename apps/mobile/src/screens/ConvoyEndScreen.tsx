@@ -13,6 +13,7 @@ import {
   View,
 } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
+import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -524,12 +525,22 @@ export default function ConvoyEndScreen() {
     } catch {}
   };
 
-  const pickFromLibrary = () => {
-    Alert.alert(
-      'Add Drive Photos',
-      'Photo upload coming soon! You\'ll be able to add photos from your drive in the next update.',
-      [{ text: 'Got it', style: 'default' }],
-    );
+  const pickFromLibrary = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission Required', 'Please allow access to your photo library to add drive photos.');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.8,
+      allowsEditing: false,
+    });
+    if (result.canceled) return;
+    const uri = result.assets[0].uri;
+    const newPhotos = [...photos, uri];
+    setPhotos(newPhotos);
+    await savePhotos(newPhotos);
   };
 
   const handleShare = async () => {

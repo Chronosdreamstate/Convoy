@@ -43,6 +43,10 @@ const envSchema = z.object({
 
   // Nominatim (OpenStreetMap geocoding) — contact email required by usage policy
   NOMINATIM_CONTACT_EMAIL: z.string().email().default('support@convoy.app'),
+
+  // File uploads
+  BASE_URL: z.string().url().default('http://localhost:3000'),
+  UPLOADS_DIR: z.string().default('./uploads'),
 });
 
 const INSECURE_JWT_DEFAULTS = new Set([

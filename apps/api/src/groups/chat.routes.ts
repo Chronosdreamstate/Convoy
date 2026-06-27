@@ -7,9 +7,16 @@ import { generalLimiter } from '../middleware/rateLimiter';
 // Schemas
 // ---------------------------------------------------------------------------
 
-const sendMessageSchema = z.object({
-  text: z.string().min(1, 'Message cannot be empty').max(500, 'Message exceeds 500 characters'),
-});
+const sendMessageSchema = z
+  .object({
+    type: z.enum(['text', 'voice']).default('text'),
+    text: z.string().min(1, 'Message cannot be empty').max(500, 'Message exceeds 500 characters').optional(),
+    audioUrl: z.string().url().optional(),
+  })
+  .refine(
+    (d) => (d.type === 'voice' ? !!d.audioUrl : !!d.text),
+    { message: 'Text messages require text; voice messages require audioUrl' },
+  );
 
 const fetchMessagesSchema = z.object({
   before: z.string().optional(),
@@ -30,7 +37,9 @@ interface MessageRow {
   user_id: string;
   display_name: string;
   avatar_url: string | null;
-  text: string;
+  text: string | null;
+  type: string;
+  audio_url: string | null;
   created_at: Date;
   reactions: { emoji: string; user_ids: string[] }[] | null;
 }
@@ -39,7 +48,9 @@ interface InsertedMessageRow {
   id: string;
   group_id: string;
   user_id: string;
-  text: string;
+  text: string | null;
+  type: string;
+  audio_url: string | null;
   created_at: Date;
 }
 
@@ -97,7 +108,7 @@ async function chatRoutes(
         const result = await fastify.db.query<MessageRow>(
           `SELECT gm.id, gm.group_id, gm.user_id,
                   u.display_name, u.avatar_url,
-                  gm.text, gm.created_at,
+                  gm.text, gm.type, gm.audio_url, gm.created_at,
                   ${reactionsSubquery}
            FROM group_messages gm
            JOIN users u ON u.id = gm.user_id
@@ -112,7 +123,7 @@ async function chatRoutes(
         const result = await fastify.db.query<MessageRow>(
           `SELECT gm.id, gm.group_id, gm.user_id,
                   u.display_name, u.avatar_url,
-                  gm.text, gm.created_at,
+                  gm.text, gm.type, gm.audio_url, gm.created_at,
                   ${reactionsSubquery}
            FROM group_messages gm
            JOIN users u ON u.id = gm.user_id
@@ -129,7 +140,9 @@ async function chatRoutes(
         userId: row.user_id,
         displayName: row.display_name,
         avatarUrl: row.avatar_url ?? null,
-        text: row.text,
+        text: row.text ?? null,
+        type: row.type,
+        audioUrl: row.audio_url ?? null,
         createdAt: row.created_at,
         reactions: (row.reactions ?? []).map((r) => ({
           emoji: r.emoji,
@@ -161,7 +174,7 @@ async function chatRoutes(
       const parsed = sendMessageSchema.safeParse(request.body);
       if (!parsed.success) return reply.badRequest(parsed.error.errors[0].message);
 
-      const { text } = parsed.data;
+      const { type, text, audioUrl } = parsed.data;
 
       // Verify requesting user is an active member of this group
       const memberCheck = await fastify.db.query(
@@ -174,10 +187,10 @@ async function chatRoutes(
 
       // Insert the message
       const insertResult = await fastify.db.query<InsertedMessageRow>(
-        `INSERT INTO group_messages (group_id, user_id, text)
-         VALUES ($1, $2, $3)
-         RETURNING id, group_id, user_id, text, created_at`,
-        [id, userId, text],
+        `INSERT INTO group_messages (group_id, user_id, text, type, audio_url)
+         VALUES ($1, $2, $3, $4, $5)
+         RETURNING id, group_id, user_id, text, type, audio_url, created_at`,
+        [id, userId, text ?? null, type, audioUrl ?? null],
       );
       const msg = insertResult.rows[0];
 
@@ -194,7 +207,9 @@ async function chatRoutes(
         userId: msg.user_id,
         displayName: sender?.display_name ?? '',
         avatarUrl: sender?.avatar_url ?? null,
-        text: msg.text,
+        text: msg.text ?? null,
+        type: msg.type,
+        audioUrl: msg.audio_url ?? null,
         createdAt: msg.created_at,
       };
 

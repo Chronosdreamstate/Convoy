@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Dimensions,
   FlatList,
   Image,
@@ -13,6 +14,8 @@ import {
 } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { apiClient } from '../services/apiClient';
+import { useAuthStore } from '../stores/authStore';
+import { pickAndUploadPhoto } from '../services/PhotoUploadService';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const CELL_SIZE = (SCREEN_WIDTH - 3) / 2;
@@ -42,9 +45,13 @@ function PhotoCell({ photo }: { photo: Photo }) {
 
 export default function GroupPhotoLibraryScreen() {
   const { groupId } = useLocalSearchParams<{ groupId: string }>();
+  const { accessToken } = useAuthStore();
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+
+  const apiUrl = process.env.EXPO_PUBLIC_API_URL ?? '';
 
   const load = useCallback(async () => {
     if (!groupId) return;
@@ -64,6 +71,21 @@ export default function GroupPhotoLibraryScreen() {
     setRefreshing(false);
   }, [load]);
 
+  const handleUpload = useCallback(async () => {
+    if (!groupId || !accessToken || uploadingPhoto) return;
+    setUploadingPhoto(true);
+    try {
+      const result = await pickAndUploadPhoto(groupId, accessToken, apiUrl);
+      if (result) {
+        await load();
+      }
+    } catch {
+      Alert.alert('Upload Failed', 'Something went wrong. Please try again.');
+    } finally {
+      setUploadingPhoto(false);
+    }
+  }, [groupId, accessToken, apiUrl, uploadingPhoto, load]);
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
@@ -71,7 +93,20 @@ export default function GroupPhotoLibraryScreen() {
           <Text style={styles.back}>‹ Back</Text>
         </TouchableOpacity>
         <Text style={styles.title}>📷 Photos</Text>
-        <View style={{ width: 60 }} />
+        <TouchableOpacity
+          onPress={handleUpload}
+          disabled={uploadingPhoto}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          accessibilityRole="button"
+          accessibilityLabel="Add photo"
+          style={{ width: 60, alignItems: 'flex-end' }}
+        >
+          {uploadingPhoto ? (
+            <ActivityIndicator size="small" color="#DC143C" />
+          ) : (
+            <Text style={styles.uploadBtn}>+ Add</Text>
+          )}
+        </TouchableOpacity>
       </View>
 
       {loading ? (
@@ -132,4 +167,5 @@ const styles = StyleSheet.create({
   },
   cellName: { fontSize: 11, fontWeight: '600', color: '#FFFFFF' },
   cellCaption: { fontSize: 10, color: '#CCCCCC', marginTop: 2 },
+  uploadBtn: { fontSize: 15, color: '#DC143C', fontWeight: '700' },
 });

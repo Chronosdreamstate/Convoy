@@ -29,6 +29,7 @@ import notificationsRoutes from './notifications/notifications.routes';
 import analyticsRoutes from './analytics/analytics.routes';
 import speedCamerasRoutes from './speed-cameras/speed-cameras.routes';
 import photosRoutes from './groups/photos.routes';
+import uploadsRoutes from './uploads/uploads.routes';
 import socketioPlugin from './plugins/socketio';
 import notificationsPlugin from './plugins/notifications';
 import { healthRoutes } from './health/health.routes';
@@ -201,6 +202,9 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   // Speed camera community reports
   await app.register(speedCamerasRoutes, { prefix: '/api/v1' });
+
+  // File uploads (photo + audio) — served back via GET /api/v1/uploads/:filename
+  await app.register(uploadsRoutes, { prefix: '/api/v1' });
 
   // WebSocket server (socket.io, must be last so db/redis decorators are available)
   await app.register(socketioPlugin);

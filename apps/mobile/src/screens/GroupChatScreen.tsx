@@ -23,6 +23,8 @@ import {
   View,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { Audio } from 'expo-av';
+import * as FileSystem from 'expo-file-system';
 import { useAuthStore } from '../stores/authStore';
 import { useSocketStore } from '../stores/socketStore';
 import { SkeletonRow } from '../components/SkeletonLoader';
@@ -42,9 +44,10 @@ interface Message {
   userId: string;
   displayName: string;
   avatarUrl: string | null;
-  text: string;
+  text: string | null;
+  audioUrl?: string | null;
   createdAt: string;
-  type?: 'message' | 'system';
+  type?: 'message' | 'system' | 'text' | 'voice';
   reactions?: Reaction[];
 }
 
@@ -184,6 +187,78 @@ const sysStyles = StyleSheet.create({
 });
 
 // ---------------------------------------------------------------------------
+// VoiceMessageBubble
+// ---------------------------------------------------------------------------
+
+function VoiceMessageBubble({ audioUrl, isOwn }: { audioUrl: string; isOwn: boolean }) {
+  const [playing, setPlaying] = useState(false);
+  const soundRef = useRef<Audio.Sound | null>(null);
+
+  const togglePlay = async () => {
+    if (playing) {
+      await soundRef.current?.pauseAsync();
+      setPlaying(false);
+    } else {
+      if (!soundRef.current) {
+        const { sound } = await Audio.Sound.createAsync({ uri: audioUrl });
+        soundRef.current = sound;
+        sound.setOnPlaybackStatusUpdate((status) => {
+          if (status.isLoaded && status.didJustFinish) {
+            setPlaying(false);
+            soundRef.current = null;
+          }
+        });
+      }
+      await soundRef.current?.playAsync();
+      setPlaying(true);
+    }
+  };
+
+  useEffect(() => () => { void soundRef.current?.unloadAsync(); }, []);
+
+  return (
+    <TouchableOpacity
+      onPress={() => void togglePlay()}
+      accessibilityRole="button"
+      accessibilityLabel={playing ? 'Pause voice message' : 'Play voice message'}
+      style={[voiceStyles.bubble, isOwn ? voiceStyles.bubbleOwn : voiceStyles.bubbleOther]}
+    >
+      <Text style={voiceStyles.icon}>{playing ? '⏸' : '▶'}</Text>
+      <Text style={[voiceStyles.label, isOwn && voiceStyles.labelOwn]}>Voice message</Text>
+    </TouchableOpacity>
+  );
+}
+
+const voiceStyles = StyleSheet.create({
+  bubble: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    minWidth: 140,
+  },
+  bubbleOwn: {
+    backgroundColor: 'rgba(255,255,255,0.15)',
+  },
+  bubbleOther: {
+    backgroundColor: 'rgba(255,255,255,0.08)',
+  },
+  icon: {
+    fontSize: 18,
+  },
+  label: {
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.85)',
+    fontWeight: '500',
+  },
+  labelOwn: {
+    color: '#FFFFFF',
+  },
+});
+
+// ---------------------------------------------------------------------------
 // MessageBubble
 // ---------------------------------------------------------------------------
 
@@ -197,7 +272,7 @@ interface BubbleProps {
 
 function MessageBubble({ item, isOwn, currentUserId, onLongPress, onReact }: BubbleProps) {
   if (item.type === 'system') {
-    return <SystemMessage text={item.text} />;
+    return <SystemMessage text={item.text ?? ''} />;
   }
 
   const hasReactions = item.reactions && item.reactions.length > 0;
@@ -227,9 +302,13 @@ function MessageBubble({ item, isOwn, currentUserId, onLongPress, onReact }: Bub
             {!isOwn && (
               <Text style={styles.senderName}>{item.displayName}</Text>
             )}
-            <Text style={[styles.bubbleText, isOwn ? styles.bubbleTextOwn : styles.bubbleTextOther]}>
-              {item.text}
-            </Text>
+            {item.type === 'voice' ? (
+              <VoiceMessageBubble audioUrl={item.audioUrl ?? ''} isOwn={isOwn} />
+            ) : (
+              <Text style={[styles.bubbleText, isOwn ? styles.bubbleTextOwn : styles.bubbleTextOther]}>
+                {item.text}
+              </Text>
+            )}
           </View>
         </TouchableOpacity>
         {hasReactions && (
@@ -274,10 +353,14 @@ export default function GroupChatScreen() {
   const [sending, setSending] = useState(false);
   const [reactionTarget, setReactionTarget] = useState<string | null>(null);
   const [typingUser, setTypingUser] = useState<string | null>(null);
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingDuration, setRecordingDuration] = useState(0);
 
   const flatListRef = useRef<FlatList<Message>>(null);
   const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const typingClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const recordingRef = useRef<Audio.Recording | null>(null);
+  const durationIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const currentUserId = user?.id ?? '';
 
@@ -380,11 +463,13 @@ export default function GroupChatScreen() {
     };
   }, [socket, currentUserId]);
 
-  // Cleanup timers on unmount
+  // Cleanup timers and recording on unmount
   useEffect(() => {
     return () => {
       if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
       if (typingClearTimerRef.current) clearTimeout(typingClearTimerRef.current);
+      if (durationIntervalRef.current) clearInterval(durationIntervalRef.current);
+      void recordingRef.current?.stopAndUnloadAsync().catch(() => {});
     };
   }, []);
 
@@ -416,6 +501,69 @@ export default function GroupChatScreen() {
   const handleSend = useCallback(() => sendMessage(inputText), [inputText, sendMessage]);
 
   const handleQuickReply = useCallback((text: string) => sendMessage(text), [sendMessage]);
+
+  // ---------------------------------------------------------------------------
+  // Voice recording
+  // ---------------------------------------------------------------------------
+
+  const startRecording = useCallback(async () => {
+    const { granted } = await Audio.requestPermissionsAsync();
+    if (!granted) {
+      Alert.alert('Permission Required', 'Microphone access is required to send voice messages.');
+      return;
+    }
+    await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
+    const { recording } = await Audio.Recording.createAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
+    recordingRef.current = recording;
+    setIsRecording(true);
+    setRecordingDuration(0);
+    durationIntervalRef.current = setInterval(() => setRecordingDuration((d) => d + 1), 1000);
+  }, []);
+
+  const stopAndSendRecording = useCallback(async () => {
+    if (!recordingRef.current) return;
+    if (durationIntervalRef.current) clearInterval(durationIntervalRef.current);
+    setIsRecording(false);
+    setRecordingDuration(0);
+    const recording = recordingRef.current;
+    recordingRef.current = null;
+    await recording.stopAndUnloadAsync();
+    await Audio.setAudioModeAsync({ allowsRecordingIOS: false });
+    const uri = recording.getURI();
+    if (!uri || !groupId || !accessToken) return;
+    setSending(true);
+    try {
+      const uploadResult = await FileSystem.uploadAsync(
+        `${apiUrl}/api/v1/uploads/audio`,
+        uri,
+        {
+          httpMethod: 'POST',
+          uploadType: FileSystem.FileSystemUploadType.MULTIPART,
+          fieldName: 'file',
+          mimeType: 'audio/m4a',
+          headers: { Authorization: `Bearer ${accessToken}` },
+        },
+      );
+      const { url: audioUrl } = JSON.parse(uploadResult.body) as { url: string };
+      await fetch(`${apiUrl}/api/v1/groups/${groupId}/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ type: 'voice', audioUrl }),
+      });
+    } catch {
+      Alert.alert('Failed', 'Could not send voice message. Please try again.');
+    } finally {
+      setSending(false);
+    }
+  }, [groupId, accessToken, apiUrl]);
+
+  const handleVoicePress = useCallback(() => {
+    if (isRecording) {
+      void stopAndSendRecording();
+    } else {
+      void startRecording();
+    }
+  }, [isRecording, startRecording, stopAndSendRecording]);
 
   // ---------------------------------------------------------------------------
   // Typing indicator
@@ -582,14 +730,18 @@ export default function GroupChatScreen() {
             )}
           </View>
 
-          {/* Voice placeholder */}
+          {/* Voice recording button */}
           <TouchableOpacity
-            style={styles.voiceBtn}
-            onPress={() => Alert.alert('🎤 Voice Messages', 'Voice messages coming soon!')}
+            style={[styles.voiceBtn, isRecording && styles.voiceBtnActive]}
+            onPress={handleVoicePress}
+            disabled={sending}
             accessibilityRole="button"
-            accessibilityLabel="Voice message (coming soon)"
+            accessibilityLabel={isRecording ? 'Stop recording and send voice message' : 'Record voice message'}
           >
-            <Text style={styles.voiceBtnIcon}>🎤</Text>
+            <Text style={styles.voiceBtnIcon}>{isRecording ? '⏹' : '🎤'}</Text>
+            {isRecording && recordingDuration > 0 && (
+              <Text style={styles.recordingTimer}>{recordingDuration}s</Text>
+            )}
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -889,7 +1041,7 @@ const styles = StyleSheet.create({
 
   // Voice button
   voiceBtn: {
-    width: 44,
+    minWidth: 44,
     height: 44,
     borderRadius: 22,
     backgroundColor: theme.colors.card,
@@ -898,9 +1050,21 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     flexShrink: 0,
+    flexDirection: 'row',
+    paddingHorizontal: 8,
+    gap: 4,
+  },
+  voiceBtnActive: {
+    backgroundColor: 'rgba(220,20,60,0.15)',
+    borderColor: theme.colors.accent,
   },
   voiceBtnIcon: {
     fontSize: 18,
+  },
+  recordingTimer: {
+    color: theme.colors.accent,
+    fontSize: 12,
+    fontWeight: '700',
   },
 
   // Send button
