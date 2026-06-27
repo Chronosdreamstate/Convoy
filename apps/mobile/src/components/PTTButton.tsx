@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { Animated, Pressable, StyleSheet, Text, View, ViewStyle } from 'react-native';
+import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 import { HapticService } from '../services/HapticService';
 
 export const PTT_BUTTON_SIZE = 80;
@@ -179,7 +179,25 @@ function PTTButton({
             isTransmitting && styles.buttonTransmitting,
           ]}
         >
-          <Text style={[styles.mic, { fontSize: size * 0.4 }]}>{icon}</Text>
+          <Text style={[styles.mic, { fontSize: isTransmitting ? size * 0.3 : size * 0.4 }]}>{icon}</Text>
+          {isTransmitting && (
+            <View style={styles.waveform}>
+              {waveAnims.map((anim, i) => (
+                <Animated.View
+                  key={i}
+                  style={[
+                    styles.waveBar,
+                    {
+                      height: anim.interpolate({
+                        inputRange: [0.2, 1],
+                        outputRange: [4, 16],
+                      }),
+                    },
+                  ]}
+                />
+              ))}
+            </View>
+          )}
         </Animated.View>
       </Pressable>
 
@@ -215,6 +233,18 @@ const styles = StyleSheet.create({
   },
   mic: {
     lineHeight: undefined,
+  },
+  waveform: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 3,
+    height: 18,
+    marginTop: 4,
+  },
+  waveBar: {
+    width: 3,
+    borderRadius: 2,
+    backgroundColor: 'rgba(255,255,255,0.9)',
   },
   label: {
     fontSize: 10,
