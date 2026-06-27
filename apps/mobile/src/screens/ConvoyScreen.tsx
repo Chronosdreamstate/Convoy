@@ -23,6 +23,7 @@ import {
 import * as Clipboard from 'expo-clipboard';
 import * as ExpoLocation from 'expo-location';
 import { router } from 'expo-router';
+import ConvoyInviteCard from '../components/ConvoyInviteCard';
 import { apiClient } from '../services/apiClient';
 import { haversineDistanceM } from '../services/DriveService';
 import { useGroupStore } from '../stores/groupStore';
@@ -840,6 +841,14 @@ export default function ConvoyScreen({ userId }: Props) {
             <Text style={styles.memberCountText}>{members.length} RIDERS</Text>
           </View>
           <TouchableOpacity
+            onPress={() => setShowInvite(true)}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityRole="button"
+            accessibilityLabel="Invite friends to this convoy"
+          >
+            <Text style={{ fontSize: 20 }}>📤</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
             onPress={() => router.push({ pathname: '/group-chat' as never, params: { groupId: activeGroupId } })}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             accessibilityRole="button"
@@ -993,7 +1002,12 @@ export default function ConvoyScreen({ userId }: Props) {
 
       {/* Convoy starting banner */}
       {convoyStarting && (
-        <View style={styles.startingBanner}>
+        <View
+          style={styles.startingBanner}
+          accessible={true}
+          accessibilityRole="alert"
+          accessibilityLabel="Convoy is starting now"
+        >
           <Text style={styles.startingBannerText}>🏁 Convoy starting!</Text>
         </View>
       )}
@@ -1208,66 +1222,13 @@ export default function ConvoyScreen({ userId }: Props) {
       </View>
 
       {/* Invite Friends modal */}
-      <Modal
+      <ConvoyInviteCard
         visible={showInvite}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setShowInvite(false)}
-        accessibilityViewIsModal
-      >
-        <TouchableOpacity
-          style={styles.qrOverlay}
-          activeOpacity={1}
-          onPress={() => setShowInvite(false)}
-          accessibilityRole="button"
-          accessibilityLabel="Close invite modal"
-        >
-          <TouchableOpacity activeOpacity={1} onPress={() => {}}>
-            <View style={styles.inviteModal}>
-              <View style={styles.inviteModalHandle} />
-              <Text style={styles.inviteModalTitle}>📨 Invite Friends</Text>
-              <Text style={styles.inviteModalGroupName}>{group?.name}</Text>
-              <Text style={styles.inviteModalHint}>Share this code to invite riders</Text>
-
-              <View style={styles.inviteCodeBox}>
-                <Text style={styles.inviteCodeText} accessibilityLabel={`Join code: ${group?.joinCode ?? ''}`}>
-                  {group?.joinCode ?? '------'}
-                </Text>
-              </View>
-
-              <View style={styles.inviteActions}>
-                <TouchableOpacity
-                  style={[styles.inviteCopyBtn, inviteCopyFeedback && styles.inviteCopyBtnSuccess]}
-                  onPress={() => void handleInviteCopy()}
-                  accessibilityRole="button"
-                  accessibilityLabel="Copy join code"
-                >
-                  <Text style={styles.inviteCopyBtnText}>
-                    {inviteCopyFeedback ? '✓ Copied!' : '📋 Copy Code'}
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.inviteShareBtn}
-                  onPress={() => void handleInviteShare()}
-                  accessibilityRole="button"
-                  accessibilityLabel="Share join code via share sheet"
-                >
-                  <Text style={styles.inviteShareBtnText}>↑ Share</Text>
-                </TouchableOpacity>
-              </View>
-
-              <TouchableOpacity
-                style={styles.inviteQrLink}
-                onPress={() => { setShowInvite(false); setShowQR(true); }}
-                accessibilityRole="button"
-                accessibilityLabel="Show QR code"
-              >
-                <Text style={styles.inviteQrLinkText}>Show QR Code instead</Text>
-              </TouchableOpacity>
-            </View>
-          </TouchableOpacity>
-        </TouchableOpacity>
-      </Modal>
+        groupName={group.name}
+        joinCode={group.joinCode}
+        inviteLink={`https://convoy.app/join/${group.joinCode}`}
+        onClose={() => setShowInvite(false)}
+      />
 
       {/* QR code modal (Req 7.3) */}
       <Modal
