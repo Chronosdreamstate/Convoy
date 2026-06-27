@@ -89,6 +89,12 @@ function handleNotificationNavigation(
       router.push('/join');
       break;
     case 'group_event':
+      if (data?.eventId && data?.groupId) {
+        router.push({ pathname: '/event/[id]' as never, params: { id: data.eventId, groupId: data.groupId } });
+      } else {
+        router.push('/(tabs)/convoy');
+      }
+      break;
     case 'rally_point':
       router.push('/(tabs)/convoy');
       break;

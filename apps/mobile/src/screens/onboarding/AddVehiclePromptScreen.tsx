@@ -54,7 +54,7 @@ export default function AddVehiclePromptScreen() {
     setLoading(true);
     try {
       await apiClient.post('/api/v1/vehicles', {
-        model: vehicleName.trim(),
+        name: vehicleName.trim(),
         type: selectedType,
       });
     } catch {

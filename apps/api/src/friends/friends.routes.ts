@@ -192,10 +192,19 @@ async function friendsRoutes(
     const userId = (request.user as { sub: string }).sub;
 
     const result = await fastify.db.query<
-      FriendshipRow & { display_name: string; avatar_url: string | null }
+      FriendshipRow & { display_name: string; avatar_url: string | null; ptt_callsign: string | null; mutual_count: string }
     >(
       `SELECT f.id, f.requester_id, f.addressee_id, f.status, f.created_at,
-              u.display_name, u.avatar_url
+              u.display_name, u.avatar_url, u.ptt_callsign,
+              (
+                SELECT COUNT(*) FROM (
+                  SELECT CASE WHEN a.requester_id = u.id THEN a.addressee_id ELSE a.requester_id END AS uid
+                  FROM friendships a WHERE a.status = 'accepted' AND (a.requester_id = u.id OR a.addressee_id = u.id)
+                  INTERSECT
+                  SELECT CASE WHEN b.requester_id = $1 THEN b.addressee_id ELSE b.requester_id END
+                  FROM friendships b WHERE b.status = 'accepted' AND (b.requester_id = $1 OR b.addressee_id = $1)
+                ) shared
+              )::text AS mutual_count
        FROM friendships f
        JOIN users u ON u.id = f.requester_id
        WHERE f.addressee_id = $1 AND f.status = 'pending'
@@ -209,6 +218,8 @@ async function friendsRoutes(
         requesterId: r.requester_id,
         displayName: r.display_name,
         avatarUrl: r.avatar_url,
+        callsign: r.ptt_callsign,
+        mutualCount: parseInt(r.mutual_count, 10),
         createdAt: r.created_at,
       })),
     });
@@ -302,7 +313,7 @@ async function friendsRoutes(
         userId: r.id,
         displayName: r.display_name,
         avatarUrl: r.avatar_url,
-        pttCallsign: r.ptt_callsign,
+        callsign: r.ptt_callsign,
         privacy: r.privacy,
         friendsSince: r.created_at,
       })),
