@@ -1,8 +1,10 @@
 ﻿import { useEffect, useRef, useState } from 'react';
-import { Animated, AppState, Linking, Platform, StyleSheet, Text, View } from 'react-native';
+import { Alert, Animated, AppState, Linking, Platform, StyleSheet, Text, View } from 'react-native';
 import PushPermissionModal from '../src/components/PushPermissionModal';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Stack, useRouter } from 'expo-router';
+import * as Updates from 'expo-updates';
+import Constants from 'expo-constants';
 import ErrorBoundary from '../src/components/ErrorBoundary';
 import type { Router } from 'expo-router';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -25,6 +27,8 @@ import type { OfflineHazard, OfflineDrive } from '../src/services/OfflineCacheSe
 // Set up foreground notification display behaviour at module load time,
 // before any notifications can arrive.
 setupNotificationHandler();
+
+export const APP_VERSION = Constants.expoConfig?.version ?? '1.0.0';
 
 // ---------------------------------------------------------------------------
 // Offline sync — drains SQLite queue when the app comes to foreground
@@ -262,6 +266,30 @@ export default function RootLayout() {
     }).catch(() => {
       // Non-fatal — silently ignore if getLastNotificationResponseAsync fails
     });
+  }, []);
+
+  // OTA update check — silent in dev, prompts user in production
+  useEffect(() => {
+    async function checkForUpdate() {
+      if (__DEV__) return;
+      try {
+        const update = await Updates.checkForUpdateAsync();
+        if (update.isAvailable) {
+          await Updates.fetchUpdateAsync();
+          Alert.alert(
+            'Update Available',
+            'A new version of CONVOY is ready. Restart to get the latest features.',
+            [
+              { text: 'Later', style: 'cancel' },
+              { text: 'Restart Now', onPress: () => void Updates.reloadAsync() },
+            ],
+          );
+        }
+      } catch {
+        // Non-fatal — silently ignore network errors or update check failures
+      }
+    }
+    void checkForUpdate();
   }, []);
 
   // Cold-start deep link: app was closed and opened via convoy:// URL
