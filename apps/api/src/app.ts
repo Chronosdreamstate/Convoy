@@ -26,6 +26,7 @@ import fuelRoutes from './fuel/fuel.routes';
 import accountRoutes from './account/account.routes';
 import placesRoutes from './places/places.routes';
 import notificationsRoutes from './notifications/notifications.routes';
+import analyticsRoutes from './analytics/analytics.routes';
 import socketioPlugin from './plugins/socketio';
 import notificationsPlugin from './plugins/notifications';
 

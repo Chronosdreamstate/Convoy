@@ -60,6 +60,7 @@ interface GroupRow {
   status: 'active' | 'ended';
   gap_threshold_m: number;
   ptt_max_seconds: number;
+  vehicle_focus: string | null;
   created_at: Date;
   ended_at: Date | null;
 }

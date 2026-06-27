@@ -1385,6 +1385,17 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
         </View>
       )}
 
+      {/* Admin announcement banner — slides in from top, crimson */}
+      {announcementText != null && (
+        <Animated.View
+          style={[styles.announcementBanner, { transform: [{ translateY: announcementAnim }] }]}
+          accessibilityLiveRegion="polite"
+          accessibilityLabel={announcementText}
+        >
+          <Text style={styles.announcementBannerText} numberOfLines={2}>{announcementText}</Text>
+        </Animated.View>
+      )}
+
       {/* Quick-action alert toast — slides in from top */}
       {quickAlertText != null && (
         <Animated.View
