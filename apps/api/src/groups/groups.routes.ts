@@ -1094,6 +1094,15 @@ async function groupsRoutes(
       const member = await getActiveMember(id, userId, fastify.db);
       if (!member) return reply.forbidden('You are not a member of this group');
 
+      const parsedQuery = leaderboardSchema.safeParse(request.query);
+      if (!parsedQuery.success) return reply.badRequest(parsedQuery.error.errors[0].message);
+      const { metric, limit } = parsedQuery.data;
+
+      const orderCol =
+        metric === 'convoys' ? 'total_drives' :
+        metric === 'time'    ? 'total_duration_s' :
+                               'total_distance_m';
+
       interface LeaderboardRow {
         id: string;
         display_name: string;
@@ -1101,7 +1110,9 @@ async function groupsRoutes(
         ptt_callsign: string | null;
         total_distance_m: string;
         total_drives: string;
+        total_duration_s: string;
         top_speed_kmh: string;
+        last_drive_at: Date | null;
       }
 
       const result = await fastify.db.query<LeaderboardRow>(
@@ -1109,27 +1120,41 @@ async function groupsRoutes(
            u.id, u.display_name, u.avatar_url, u.ptt_callsign,
            COALESCE(SUM(dh.distance_m), 0)::BIGINT AS total_distance_m,
            COUNT(dh.id)::INT AS total_drives,
-           COALESCE(MAX(dh.top_speed_kph), 0)::INT AS top_speed_kmh
+           COALESCE(SUM(dh.duration_s), 0)::INT AS total_duration_s,
+           COALESCE(MAX(dh.top_speed_kph), 0)::INT AS top_speed_kmh,
+           MAX(dh.ended_at) AS last_drive_at
          FROM convoy_members cm
          JOIN users u ON u.id = cm.user_id
          LEFT JOIN drive_history dh ON dh.user_id = cm.user_id AND dh.group_id = $1
          WHERE cm.group_id = $1 AND cm.left_at IS NULL
          GROUP BY u.id, u.display_name, u.avatar_url, u.ptt_callsign
-         ORDER BY total_distance_m DESC
-         LIMIT 10`,
-        [id],
+         ORDER BY ${orderCol} DESC
+         LIMIT $2`,
+        [id, limit],
       );
 
-      const leaderboard = result.rows.map((row, index) => ({
-        rank: index + 1,
-        id: row.id,
-        displayName: row.display_name,
-        avatarUrl: row.avatar_url ?? null,
-        pttCallsign: row.ptt_callsign ?? null,
-        totalDistanceM: parseInt(row.total_distance_m, 10),
-        totalDrives: parseInt(row.total_drives, 10),
-        topSpeedKmh: parseInt(row.top_speed_kmh, 10),
-      }));
+      const leaderboard = result.rows.map((row, index) => {
+        const totalDistanceKm = Math.round(parseInt(row.total_distance_m, 10) / 100) / 10;
+        const driveCount = parseInt(row.total_drives, 10);
+        const totalDurationMin = Math.round(parseInt(row.total_duration_s, 10) / 60);
+        const value =
+          metric === 'convoys' ? driveCount :
+          metric === 'time'    ? totalDurationMin :
+                                 totalDistanceKm;
+        return {
+          rank: index + 1,
+          userId: row.id,
+          displayName: row.display_name,
+          avatarUrl: row.avatar_url ?? null,
+          callsign: row.ptt_callsign ?? null,
+          totalDistanceKm,
+          driveCount,
+          totalDurationMin,
+          topSpeedKmh: parseInt(row.top_speed_kmh, 10),
+          lastDriveAt: row.last_drive_at?.toISOString() ?? null,
+          value,
+        };
+      });
 
       return reply.send({ leaderboard });
     },
@@ -1501,51 +1526,6 @@ async function groupsRoutes(
     },
   );
 
-  // -------------------------------------------------------------------------
-  // GET /groups/:id/drives — shared convoy drive history (members only)
-  // -------------------------------------------------------------------------
-  fastify.get(
-    '/groups/:id/drives',
-    { preHandler: [authenticate, generalLimiter(fastify.redis)] },
-    async (request, reply) => {
-      const userId = (request.user as { sub: string }).sub;
-      const { id } = request.params as { id: string };
-
-      const memberCheck = await fastify.db.query<{ id: string }>(
-        `SELECT id FROM convoy_members WHERE group_id = $1 AND user_id = $2 AND left_at IS NULL`,
-        [id, userId],
-      );
-      if (!memberCheck.rows[0]) return reply.forbidden('Not a member of this group');
-
-      const result = await fastify.db.query<{
-        id: string; group_id: string; distance_m: number; duration_s: number;
-        avg_speed_kph: number | null; top_speed_kph: number | null;
-        member_count: number; started_at: string; ended_at: string;
-      }>(
-        `SELECT id, group_id, distance_m, duration_s, avg_speed_kph, top_speed_kph,
-                member_count, started_at, ended_at
-         FROM drive_history
-         WHERE group_id = $1
-         ORDER BY started_at DESC
-         LIMIT 20`,
-        [id],
-      );
-
-      return reply.send({
-        drives: result.rows.map(r => ({
-          id: r.id,
-          groupId: r.group_id,
-          distanceM: r.distance_m,
-          durationS: r.duration_s,
-          avgSpeedKph: r.avg_speed_kph,
-          topSpeedKph: r.top_speed_kph,
-          memberCount: r.member_count,
-          startedAt: r.started_at,
-          endedAt: r.ended_at,
-        })),
-      });
-    },
-  );
 }
 
 export default groupsRoutes;
@@ -1590,11 +1570,11 @@ export async function registerGroupStatsRoute(fastify: FastifyInstance, _opts: F
       }>(
         `SELECT
            COUNT(*)::int AS total_drives,
-           COALESCE(SUM(distance_km), 0)::float AS total_km,
-           COALESCE(AVG(EXTRACT(EPOCH FROM (ended_at - started_at)) / 60), 0)::float AS avg_duration_min,
-           COALESCE(MAX(distance_km), 0)::float AS longest_km
-         FROM drives
-         WHERE group_id = $1 AND ended_at IS NOT NULL`,
+           COALESCE(SUM(distance_m) / 1000.0, 0)::float AS total_km,
+           COALESCE(SUM(duration_s) / 60.0, 0)::float AS avg_duration_min,
+           COALESCE(MAX(distance_m) / 1000.0, 0)::float AS longest_km
+         FROM drive_history
+         WHERE group_id = $1`,
         [id],
       );
       const agg = driveAgg.rows[0] ?? { total_drives: 0, total_km: 0, avg_duration_min: 0, longest_km: 0 };
@@ -1608,11 +1588,11 @@ export async function registerGroupStatsRoute(fastify: FastifyInstance, _opts: F
         distance_km: number;
       }>(
         `SELECT u.id AS user_id, u.display_name, u.ptt_callsign,
-                COUNT(d.id)::int AS drives_count,
-                COALESCE(SUM(d.distance_km), 0)::float AS distance_km
+                COUNT(dh.id)::int AS drives_count,
+                COALESCE(SUM(dh.distance_m) / 1000.0, 0)::float AS distance_km
          FROM convoy_members m
          JOIN users u ON u.id = m.user_id
-         LEFT JOIN drives d ON d.user_id = m.user_id AND d.group_id = $1
+         LEFT JOIN drive_history dh ON dh.user_id = m.user_id AND dh.group_id = $1
          WHERE m.group_id = $1
          GROUP BY u.id, u.display_name, u.ptt_callsign
          ORDER BY distance_km DESC
@@ -1624,7 +1604,7 @@ export async function registerGroupStatsRoute(fastify: FastifyInstance, _opts: F
       const monthlyRes = await fastify.db.query<{ month: string; count: number }>(
         `SELECT TO_CHAR(DATE_TRUNC('month', started_at), 'Mon YYYY') AS month,
                 COUNT(*)::int AS count
-         FROM drives
+         FROM drive_history
          WHERE group_id = $1
            AND started_at >= NOW() - INTERVAL '6 months'
          GROUP BY DATE_TRUNC('month', started_at)

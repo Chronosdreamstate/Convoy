@@ -1,5 +1,6 @@
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { apiClient } from './apiClient';
 
 export type AnalyticsEvent =
   | { name: 'convoy_started'; props: { groupSize: number } }
@@ -21,7 +22,6 @@ const ANON_ID_KEY = '@convoy/anon_id';
 const MAX_QUEUE = 50;
 const FLUSH_AT = 10;
 
-const BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
 
 class Analytics {
   private queue: Array<{ event: string; props: Record<string, unknown>; ts: number }> = [];
@@ -67,18 +67,10 @@ class Analytics {
     this.flushing = true;
     const batch = this.queue.splice(0, 20);
     try {
-      const token = await AsyncStorage.getItem('@convoy/access_token');
-      await fetch(`${BASE_URL}/api/v1/analytics/events`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({
-          anonymousId: this.anonymousId,
-          platform: Platform.OS,
-          events: batch,
-        }),
+      await apiClient.post('/api/v1/analytics/events', {
+        anonymousId: this.anonymousId,
+        platform: Platform.OS,
+        events: batch,
       });
       await AsyncStorage.setItem(QUEUE_KEY, JSON.stringify(this.queue));
     } catch {

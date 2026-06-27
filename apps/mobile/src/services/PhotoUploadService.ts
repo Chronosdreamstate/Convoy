@@ -2,6 +2,7 @@ import { Alert } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
 import { FileSystemUploadType } from 'expo-file-system';
+import { apiClient } from './apiClient';
 
 export async function pickAndUploadPhoto(
   groupId: string,
@@ -43,20 +44,16 @@ export async function pickAndUploadPhoto(
 
   const { url } = JSON.parse(uploadResult.body) as { url: string };
 
-  const photoRes = await fetch(`${apiUrl}/api/v1/groups/${groupId}/photos`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${accessToken}`,
-    },
-    body: JSON.stringify({ photoUrl: url }),
-  });
-
-  if (!photoRes.ok) {
+  let photo: { id: string };
+  try {
+    const res = await apiClient.post<{ photo: { id: string } }>(
+      `/api/v1/groups/${groupId}/photos`,
+      { photoUrl: url },
+    );
+    photo = res.data.photo;
+  } catch {
     Alert.alert('Upload Failed', 'Could not save the photo to the group. Please try again.');
     return null;
   }
-
-  const { photo } = (await photoRes.json()) as { photo: { id: string } };
   return { id: photo.id, photoUrl: url };
 }

@@ -8,6 +8,7 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AppState, AppStateStatus } from 'react-native';
+import { apiClient } from './apiClient';
 
 const QUEUE_KEY = '@convoy/offline_request_queue';
 const MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
@@ -103,23 +104,23 @@ class OfflineQueueService {
       }
 
       try {
-        const res = await fetch(item.url, {
-          method: item.method,
-          headers: { 'Content-Type': 'application/json', ...item.headers },
-          body: item.body != null ? JSON.stringify(item.body) : undefined,
-        });
-        // 2xx or 409 Conflict (already exists) = success
-        if (res.ok || res.status === 409) {
+        // Extract path+query from stored full URL so apiClient can attach a fresh token
+        const parsed = new URL(item.url);
+        const path = parsed.pathname + parsed.search;
+        await apiClient.request({ method: item.method, url: path, data: item.body ?? undefined });
+        this.queue = this.queue.filter((q) => q.id !== item.id);
+      } catch (err: unknown) {
+        const status = (err as { response?: { status?: number } }).response?.status;
+        if (status != null && status === 409) {
+          // Conflict = already applied, treat as success
           this.queue = this.queue.filter((q) => q.id !== item.id);
-        } else if (res.status >= 400 && res.status < 500) {
-          // Client error — won't succeed on retry, drop it
+        } else if (status != null && status >= 400 && status < 500) {
+          // Non-retriable client error — drop
           this.queue = this.queue.filter((q) => q.id !== item.id);
         } else {
+          // Network error or 5xx — keep, backoff handled by apiClient retry interceptor
           item.attempts++;
         }
-      } catch {
-        // Network error — keep in queue, increment attempts
-        item.attempts++;
       }
     }
 

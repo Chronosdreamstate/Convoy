@@ -28,6 +28,7 @@ import * as FileSystem from 'expo-file-system';
 import { FileSystemUploadType } from 'expo-file-system';
 import { useAuthStore } from '../stores/authStore';
 import { useSocketStore } from '../stores/socketStore';
+import { apiClient } from '../services/apiClient';
 import { SkeletonRow } from '../components/SkeletonLoader';
 import { theme } from '../theme';
 
@@ -373,12 +374,9 @@ export default function GroupChatScreen() {
     if (!groupId || !accessToken) return;
     setLoading(true);
     try {
-      const res = await fetch(
-        `${apiUrl}/api/v1/groups/${groupId}/messages?limit=50`,
-        { headers: { Authorization: `Bearer ${accessToken}` } },
+      const { data } = await apiClient.get<{ messages: Message[]; nextCursor: string | null }>(
+        `/api/v1/groups/${groupId}/messages?limit=50`,
       );
-      if (!res.ok) throw new Error('Failed to load messages');
-      const data = (await res.json()) as { messages: Message[]; nextCursor: string | null };
       setMessages(data.messages);
       setNextCursor(data.nextCursor);
     } catch {
@@ -386,7 +384,7 @@ export default function GroupChatScreen() {
     } finally {
       setLoading(false);
     }
-  }, [groupId, accessToken, apiUrl]);
+  }, [groupId, accessToken]);
 
   useEffect(() => {
     void loadInitialMessages();
@@ -396,12 +394,9 @@ export default function GroupChatScreen() {
     if (!groupId || !accessToken || !nextCursor || loadingMore) return;
     setLoadingMore(true);
     try {
-      const res = await fetch(
-        `${apiUrl}/api/v1/groups/${groupId}/messages?before=${encodeURIComponent(nextCursor)}&limit=50`,
-        { headers: { Authorization: `Bearer ${accessToken}` } },
+      const { data } = await apiClient.get<{ messages: Message[]; nextCursor: string | null }>(
+        `/api/v1/groups/${groupId}/messages?before=${encodeURIComponent(nextCursor)}&limit=50`,
       );
-      if (!res.ok) throw new Error('Failed to load older messages');
-      const data = (await res.json()) as { messages: Message[]; nextCursor: string | null };
       setMessages((prev) => [...prev, ...data.messages]);
       setNextCursor(data.nextCursor);
     } catch {
@@ -409,7 +404,7 @@ export default function GroupChatScreen() {
     } finally {
       setLoadingMore(false);
     }
-  }, [groupId, accessToken, nextCursor, loadingMore, apiUrl]);
+  }, [groupId, accessToken, nextCursor, loadingMore]);
 
   // ---------------------------------------------------------------------------
   // Socket: real-time updates
@@ -484,20 +479,13 @@ export default function GroupChatScreen() {
     setSending(true);
     setInputText('');
     try {
-      await fetch(`${apiUrl}/api/v1/groups/${groupId}/messages`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({ text: trimmed }),
-      });
+      await apiClient.post(`/api/v1/groups/${groupId}/messages`, { text: trimmed });
     } catch {
       setInputText(trimmed);
     } finally {
       setSending(false);
     }
-  }, [sending, groupId, accessToken, apiUrl]);
+  }, [sending, groupId, accessToken]);
 
   const handleSend = useCallback(() => sendMessage(inputText), [inputText, sendMessage]);
 
@@ -546,11 +534,7 @@ export default function GroupChatScreen() {
         },
       );
       const { url: audioUrl } = JSON.parse(uploadResult.body) as { url: string };
-      await fetch(`${apiUrl}/api/v1/groups/${groupId}/messages`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
-        body: JSON.stringify({ type: 'voice', audioUrl }),
-      });
+      await apiClient.post(`/api/v1/groups/${groupId}/messages`, { type: 'voice', audioUrl });
     } catch {
       Alert.alert('Failed', 'Could not send voice message. Please try again.');
     } finally {

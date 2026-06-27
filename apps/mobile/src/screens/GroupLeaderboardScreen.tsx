@@ -29,15 +29,19 @@ import { theme } from '../theme';
 type Metric = 'distance' | 'convoys' | 'time';
 
 interface LeaderboardMember {
+  rank: number;
   userId: string;
   displayName: string;
-  callsign: string;
-  avatarUrl?: string;
+  callsign: string | null;
+  avatarUrl?: string | null;
+  totalDistanceKm: number;
+  driveCount: number;
+  totalDurationMin: number;
   value: number;
 }
 
 interface LeaderboardResponse {
-  members: LeaderboardMember[];
+  leaderboard: LeaderboardMember[];
 }
 
 // ---------------------------------------------------------------------------
@@ -239,7 +243,7 @@ export default function GroupLeaderboardScreen() {
           `/api/v1/groups/${groupId}/leaderboard`,
           { params: { metric, limit: 20 } },
         );
-        setMembers(res.data.members ?? []);
+        setMembers(res.data.leaderboard ?? []);
       } catch {
         // Silently fail — list stays empty or stale
       } finally {
