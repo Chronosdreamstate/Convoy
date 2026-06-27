@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
+  RefreshControl,
   SafeAreaView,
   ScrollView,
   Share,
@@ -11,6 +11,8 @@ import {
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { apiClient } from '../services/apiClient';
+import SkeletonCard, { SkeletonBox } from '../components/SkeletonLoader';
+import { NetworkError } from '../components/NetworkError';
 
 interface TopMember {
   userId: string;
@@ -73,16 +75,29 @@ export default function GroupStatsScreen() {
   const router = useRouter();
   const [stats, setStats] = useState<GroupStats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const load = useCallback(async () => {
     if (!id) return;
-    apiClient
-      .get<GroupStats>(`/api/v1/groups/${id}/stats`)
-      .then((r) => setStats(r.data))
-      .catch(() => setError('Could not load stats.'))
-      .finally(() => setLoading(false));
+    setError(null);
+    try {
+      const r = await apiClient.get<GroupStats>(`/api/v1/groups/${id}/stats`);
+      setStats(r.data);
+    } catch {
+      setError('Could not load stats.');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
   }, [id]);
+
+  useEffect(() => { void load(); }, [load]);
+
+  const handleRefresh = useCallback(() => {
+    setRefreshing(true);
+    void load();
+  }, [load]);
 
   const handleShare = () => {
     if (!stats) return;
@@ -94,10 +109,24 @@ export default function GroupStatsScreen() {
   if (loading) {
     return (
       <SafeAreaView style={styles.container}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
-          <Text style={styles.backText}>‹ Back</Text>
-        </TouchableOpacity>
-        <ActivityIndicator color="#DC143C" style={{ marginTop: 40 }} />
+        <View style={styles.header}>
+          <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+            <Text style={styles.backText}>‹ Back</Text>
+          </TouchableOpacity>
+          <Text style={styles.title}>Group Stats</Text>
+          <View style={styles.backBtn} />
+        </View>
+        <View style={styles.skeletonPad}>
+          <View style={styles.skeletonRow}>
+            {[0, 1, 2].map((i) => (
+              <View key={i} style={styles.skeletonBigCard}>
+                <SkeletonBox height={32} width="60%" />
+                <SkeletonBox height={12} width="80%" />
+              </View>
+            ))}
+          </View>
+          {[0, 1, 2, 3].map((i) => <SkeletonCard key={i} />)}
+        </View>
       </SafeAreaView>
     );
   }
@@ -105,10 +134,14 @@ export default function GroupStatsScreen() {
   if (error || !stats) {
     return (
       <SafeAreaView style={styles.container}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
-          <Text style={styles.backText}>‹ Back</Text>
-        </TouchableOpacity>
-        <Text style={styles.errorText}>{error ?? 'No stats available.'}</Text>
+        <View style={styles.header}>
+          <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+            <Text style={styles.backText}>‹ Back</Text>
+          </TouchableOpacity>
+          <Text style={styles.title}>Group Stats</Text>
+          <View style={styles.backBtn} />
+        </View>
+        <NetworkError onRetry={() => { setLoading(true); void load(); }} message={error ?? 'No stats available.'} />
       </SafeAreaView>
     );
   }

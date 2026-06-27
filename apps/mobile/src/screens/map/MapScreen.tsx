@@ -16,6 +16,7 @@ import {
 import MapView, { Marker, Callout, Polyline, LongPressEvent, PROVIDER_DEFAULT } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ExpoLocation from 'expo-location';
+import { router } from 'expo-router';
 import { Socket } from 'socket.io-client';
 import { WebSocketService } from '../../services/WebSocketService';
 import { useAuthStore } from '../../stores/authStore';

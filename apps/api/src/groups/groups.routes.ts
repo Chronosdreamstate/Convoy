@@ -792,15 +792,32 @@ async function groupsRoutes(
       client.release();
     }
 
+    // Read drive stats from Redis before deleting the keys
+    const [startedAtRaw, distanceMRaw, memberCountResult] = await Promise.all([
+      fastify.redis.get(`group:${id}:started_at`),
+      fastify.redis.get(`group:${id}:distance_m`),
+      fastify.db.query<{ count: string }>(
+        `SELECT COUNT(*) AS count FROM convoy_members WHERE group_id = $1`,
+        [id],
+      ),
+    ]);
+
+    const startedAtMs = startedAtRaw ? parseInt(startedAtRaw, 10) : null;
+    const durationS = startedAtMs ? Math.round((Date.now() - startedAtMs) / 1000) : 0;
+    const distanceM = distanceMRaw ? Math.round(parseFloat(distanceMRaw)) : 0;
+    const memberCount = parseInt(memberCountResult.rows[0]?.count ?? '1', 10);
+
     // Clean up fuel-tracking Redis keys
     fastify.redis
       .del(`group:${id}:started_at`, `group:${id}:distance_m`)
       .catch((err: unknown) => fastify.log.error({ err }, 'Failed to delete group Redis keys on end'));
 
-    // Notify all members in the group room that the group has ended (Req 7.9)
-    fastify.io.to(`group:${id}`).emit('group:ended', { endedBy: userId, groupId: id });
+    const endPayload = { endedBy: userId, groupId: id, durationS, distanceM, memberCount };
 
-    return reply.status(200).send({ message: 'Group ended' });
+    // Notify all members in the group room that the group has ended (Req 7.9)
+    fastify.io.to(`group:${id}`).emit('group:ended', endPayload);
+
+    return reply.status(200).send({ message: 'Group ended', durationS, distanceM, memberCount });
   });
 
   // -------------------------------------------------------------------------

@@ -19,16 +19,24 @@
       "bundleIdentifier": "app.convoy.mobile",
       "buildNumber": "1",
       "usesAppleSignIn": true,
-      "associatedDomains": ["applinks:convoy.app"],
+      "associatedDomains": [
+        "applinks:convoy.app",
+        "applinks:convoy.app"
+      ],
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "CONVOY uses your location to keep your convoy in sync and find nearby groups.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "CONVOY uses background location to update your position in the convoy.",
         "NSMicrophoneUsageDescription": "CONVOY needs microphone access for push-to-talk radio between convoy members.",
         "NSCameraUsageDescription": "CONVOY uses your camera for profile and vehicle photos.",
         "NSSupportsLiveActivities": true,
-        "NSSupportsLiveActivitiesFrequentUpdates": true
+        "NSSupportsLiveActivitiesFrequentUpdates": true,
+        "ITSAppUsesNonExemptEncryption": false
       },
       "NSUserActivityTypes": [
+        "com.convoy.startConvoy",
+        "com.convoy.joinConvoy",
+        "com.convoy.ptt",
+        "com.convoy.checkGap",
         "com.convoy.startConvoy",
         "com.convoy.joinConvoy",
         "com.convoy.ptt",
@@ -47,12 +55,29 @@
           "action": "VIEW",
           "autoVerify": true,
           "data": [
-            { "scheme": "https", "host": "convoy.app", "pathPrefix": "/join" },
-            { "scheme": "https", "host": "convoy.app", "pathPrefix": "/invite" },
-            { "scheme": "https", "host": "convoy.app", "pathPrefix": "/group" },
-            { "scheme": "convoy" }
+            {
+              "scheme": "https",
+              "host": "convoy.app",
+              "pathPrefix": "/join"
+            },
+            {
+              "scheme": "https",
+              "host": "convoy.app",
+              "pathPrefix": "/invite"
+            },
+            {
+              "scheme": "https",
+              "host": "convoy.app",
+              "pathPrefix": "/group"
+            },
+            {
+              "scheme": "convoy"
+            }
           ],
-          "category": ["BROWSABLE", "DEFAULT"]
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
         }
       ],
       "permissions": [
@@ -61,7 +86,14 @@
         "ACCESS_BACKGROUND_LOCATION",
         "RECORD_AUDIO",
         "CAMERA",
-        "VIBRATE"
+        "VIBRATE",
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_BACKGROUND_LOCATION",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_LOCATION"
       ]
     },
     "web": {

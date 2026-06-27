@@ -195,13 +195,13 @@ export default function ConvoyLobbyScreen({ groupId, groupName, onConvoyStart }:
     };
 
     socket.on('convoy:member_ready', handleMemberReady);
-    socket.on('convoy:start', handleConvoyStart);
+    socket.on('convoy:started', handleConvoyStart);
     socket.on('member:joined', handleMemberJoined);
     socket.on('member:left', handleMemberLeft);
 
     return () => {
       socket.off('convoy:member_ready', handleMemberReady);
-      socket.off('convoy:start', handleConvoyStart);
+      socket.off('convoy:started', handleConvoyStart);
       socket.off('member:joined', handleMemberJoined);
       socket.off('member:left', handleMemberLeft);
     };

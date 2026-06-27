@@ -532,8 +532,9 @@ export default function ConvoyScreen({ userId }: Props) {
         style: 'destructive',
         onPress: async () => {
           try {
-            await apiClient.post(`/api/v1/groups/${currentGroup.id}/end`);
-            const memberCount = members.length;
+            const res = await apiClient.post<{ message: string; durationS: number; distanceM: number; memberCount: number }>(
+              `/api/v1/groups/${currentGroup.id}/end`,
+            );
             setGroup(null);
             setMembers([]);
             setView('home');
@@ -541,10 +542,9 @@ export default function ConvoyScreen({ userId }: Props) {
               pathname: '/convoy-end' as never,
               params: {
                 groupName: currentGroup.name,
-                memberCount: String(memberCount),
-                durationMinutes: '0',
-                distanceM: '0',
-                adminName: 'You',
+                memberCount: String(res.data.memberCount ?? members.length),
+                durationMinutes: String(Math.round((res.data.durationS ?? 0) / 60)),
+                distanceM: String(res.data.distanceM ?? 0),
               },
             });
           } catch {

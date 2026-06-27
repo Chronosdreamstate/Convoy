@@ -5,17 +5,24 @@ export async function healthRoutes(fastify: FastifyInstance) {
   // Public health check (no auth)
   fastify.get('/health', async (req, reply) => {
     let dbOk = false;
+    let redisOk = false;
     try {
       await fastify.db.query('SELECT 1');
       dbOk = true;
     } catch {}
+    try {
+      await fastify.redis.ping();
+      redisOk = true;
+    } catch {}
     const uptime = process.uptime();
     const mem = process.memoryUsage();
+    const allOk = dbOk && redisOk;
     reply.send({
-      status: dbOk ? 'ok' : 'degraded',
+      status: allOk ? 'ok' : 'degraded',
       uptime: Math.floor(uptime),
       timestamp: new Date().toISOString(),
       db: dbOk ? 'ok' : 'error',
+      redis: redisOk ? 'ok' : 'error',
       memory: {
         heapUsedMb: Math.round(mem.heapUsed / 1024 / 1024),
         heapTotalMb: Math.round(mem.heapTotal / 1024 / 1024),

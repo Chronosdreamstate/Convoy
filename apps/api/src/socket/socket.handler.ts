@@ -744,6 +744,8 @@ export function registerSocketHandlers(
           [payloadGroupId],
         );
         if (group.rows[0]?.admin_id !== userId) return;
+        // Record convoy start time so /end can compute duration
+        await fastify.redis.set(`group:${payloadGroupId}:started_at`, String(Date.now()), 'EX', 86400);
         io.to(`group:${payloadGroupId}`).emit('convoy:started', { groupId: payloadGroupId, startedBy: userId });
       } catch (err) {
         fastify.log.error({ err }, 'convoy start error');
