@@ -89,6 +89,12 @@ function getVehicleEmoji(vehicleType: string | undefined): string {
   return map[vehicleType?.toLowerCase() ?? ''] ?? '🚗';
 }
 
+function formatEventDate(scheduledFor: string): string {
+  const d = new Date(scheduledFor);
+  return d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' }) +
+    ' · ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+}
+
 // Pulsing online indicator — uses Animated so it only runs for online members
 function PulsingDot({ online }: { online: boolean }) {
   const anim = useRef(new Animated.Value(1)).current;
@@ -236,11 +242,27 @@ export default function ConvoyScreen({ userId }: Props) {
 
   // Fetch upcoming event for the group
   useEffect(() => {
-    if (!group) { setUpcomingEvent(null); return; }
-    apiClient.get<{ events: Array<{ title: string; scheduledFor: string }> }>(`/api/v1/groups/${group.id}/events`)
-      .then((res) => setUpcomingEvent(res.data.events[0] ?? null))
+    if (!group) { setUpcomingEvent(null); setEventRsvp({ going: 0, maybe: 0, notGoing: 0, myStatus: null }); return; }
+    apiClient.get<{ events: Array<{ id: string; title: string; scheduledFor: string }> }>(`/api/v1/groups/${group.id}/events`)
+      .then(async (res) => {
+        const ev = res.data.events[0] ?? null;
+        setUpcomingEvent(ev);
+        if (!ev) return;
+        try {
+          const rsvpRes = await apiClient.get<{ rsvps: Array<{ userId: string; status: string }> }>(
+            `/api/v1/groups/${group.id}/events/${ev.id}/rsvps`
+          );
+          const rsvps = rsvpRes.data.rsvps ?? [];
+          setEventRsvp({
+            going: rsvps.filter((r) => r.status === 'going').length,
+            maybe: rsvps.filter((r) => r.status === 'maybe').length,
+            notGoing: rsvps.filter((r) => r.status === 'not_going').length,
+            myStatus: rsvps.find((r) => r.userId === userId)?.status ?? null,
+          });
+        } catch { /* RSVP fetch is non-fatal */ }
+      })
       .catch(() => {});
-  }, [group?.id]);
+  }, [group?.id, userId]);
 
   // Update countdown every second
   useEffect(() => {
@@ -976,32 +998,60 @@ export default function ConvoyScreen({ userId }: Props) {
         </View>
       )}
 
-      {/* Upcoming event countdown card */}
-      {upcomingEvent && eventCountdown && (
-        <View style={styles.eventCard}>
+      {/* Upcoming event card */}
+      {upcomingEvent && (
+        <TouchableOpacity
+          style={styles.eventCard}
+          onPress={() => router.push({ pathname: '/event/[id]' as never, params: { id: upcomingEvent.id } })}
+          accessibilityRole="button"
+          accessibilityLabel={`Event: ${upcomingEvent.title}. Tap for details.`}
+        >
           <View style={styles.eventStrip} />
           <View style={{ flex: 1, padding: 12 }}>
             <Text style={styles.eventTitle}>📅 {upcomingEvent.title}</Text>
-            <Text style={styles.eventCountdownLabel}>Starts in</Text>
-            <View style={styles.countdownRow}>
-              {[
-                { value: eventCountdown.hours, label: 'HH' },
-                { value: eventCountdown.minutes, label: 'MM' },
-                { value: eventCountdown.seconds, label: 'SS' },
-              ].map((unit, i) => {
-                const isUrgent = eventCountdown.hours < 1;
-                return (
-                  <React.Fragment key={unit.label}>
-                    {i > 0 && <Text style={[styles.countdownColon, isUrgent && styles.countdownColonUrgent]}>:</Text>}
-                    <Text style={[styles.countdownNum, isUrgent && styles.countdownNumUrgent]}>
-                      {String(unit.value).padStart(2, '0')}
-                    </Text>
-                  </React.Fragment>
-                );
-              })}
+            <Text style={styles.eventDate}>{formatEventDate(upcomingEvent.scheduledFor)}</Text>
+
+            {/* RSVP summary */}
+            <Text style={styles.eventRsvpSummary}>
+              {eventRsvp.going > 0 ? `✅ ${eventRsvp.going} going` : ''}
+              {eventRsvp.maybe > 0 ? `  🤔 ${eventRsvp.maybe} maybe` : ''}
+              {(eventRsvp.going === 0 && eventRsvp.maybe === 0) ? 'No RSVPs yet' : ''}
+            </Text>
+
+            {/* User RSVP status + action */}
+            <View style={styles.eventRsvpRow}>
+              {eventRsvp.myStatus === 'going' ? (
+                <Text style={styles.eventRsvpGoing}>✅ You're going</Text>
+              ) : eventRsvp.myStatus === 'maybe' ? (
+                <Text style={styles.eventRsvpMaybe}>🤔 You're maybe going</Text>
+              ) : (
+                <Text style={styles.eventRsvpCta}>Tap to RSVP →</Text>
+              )}
+              <Text style={styles.eventViewDetails}>View Details ›</Text>
             </View>
+
+            {/* Countdown if event is soon */}
+            {eventCountdown && (
+              <View style={styles.countdownRow}>
+                {[
+                  { value: eventCountdown.hours, label: 'HH' },
+                  { value: eventCountdown.minutes, label: 'MM' },
+                  { value: eventCountdown.seconds, label: 'SS' },
+                ].map((unit, i) => {
+                  const isUrgent = eventCountdown.hours < 1;
+                  return (
+                    <React.Fragment key={unit.label}>
+                      {i > 0 && <Text style={[styles.countdownColon, isUrgent && styles.countdownColonUrgent]}>:</Text>}
+                      <Text style={[styles.countdownNum, isUrgent && styles.countdownNumUrgent]}>
+                        {String(unit.value).padStart(2, '0')}
+                      </Text>
+                    </React.Fragment>
+                  );
+                })}
+              </View>
+            )}
           </View>
-        </View>
+        </TouchableOpacity>
       )}
 
       {/* Schedule event — admin only */}
@@ -1711,6 +1761,13 @@ const styles = StyleSheet.create({
   },
   eventStrip: { width: 4, backgroundColor: '#F59E0B' },
   eventTitle: { color: '#F0F0F0', fontSize: 14, fontWeight: '700', marginBottom: 2 },
+  eventDate: { color: '#888888', fontSize: 12, marginBottom: 6 },
+  eventRsvpSummary: { color: '#888888', fontSize: 12, marginBottom: 4 },
+  eventRsvpRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 },
+  eventRsvpGoing: { color: '#22C55E', fontSize: 12, fontWeight: '600' },
+  eventRsvpMaybe: { color: '#F59E0B', fontSize: 12, fontWeight: '600' },
+  eventRsvpCta: { color: '#DC143C', fontSize: 12, fontWeight: '600' },
+  eventViewDetails: { color: '#555555', fontSize: 11 },
   eventCountdownLabel: { color: '#888888', fontSize: 11, marginBottom: 4 },
   countdownRow: { flexDirection: 'row', alignItems: 'center', gap: 2 },
   countdownNum: {
