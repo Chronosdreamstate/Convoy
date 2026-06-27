@@ -23,6 +23,7 @@ import {
 import MapView, { Polyline, PROVIDER_DEFAULT } from 'react-native-maps';
 import { useRouter } from 'expo-router';
 import SkeletonCard from '../components/SkeletonLoader';
+import { NetworkError } from '../components/NetworkError';
 import { apiClient } from '../services/apiClient';
 
 const MAPBOX_TOKEN = process.env.EXPO_PUBLIC_MAPBOX_TOKEN ?? '';
@@ -532,6 +533,7 @@ function DriveDetail({ drive, onBack, onShare, onDelete, sharing, deleting }: De
 export default function DriveHistoryScreen() {
   const [drives, setDrives] = useState<DriveRecord[]>([]);
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [page, setPage] = useState(1);
@@ -557,6 +559,7 @@ export default function DriveHistoryScreen() {
   }, [expandedId, expandAnim]);
 
   const fetchDrives = useCallback(async (pageNum: number, replace: boolean) => {
+    if (replace) setFetchError(null);
     try {
       const res = await apiClient.get<{
         drives: DriveRecord[];
@@ -566,7 +569,7 @@ export default function DriveHistoryScreen() {
       setHasMore(pageNum < res.data.pagination.pages);
       if (replace) setPage(1);
     } catch {
-      Alert.alert('Error', 'Could not load drive history.');
+      if (replace) setFetchError('Could not load drive history. Check your connection.');
     } finally {
       setLoading(false);
     }
@@ -678,6 +681,14 @@ export default function DriveHistoryScreen() {
         <View style={styles.skeletonPad}>
           {[0, 1, 2, 3].map((i) => <SkeletonCard key={i} />)}
         </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (fetchError && drives.length === 0) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <NetworkError onRetry={() => { setLoading(true); fetchDrives(1, true); }} message={fetchError} />
       </SafeAreaView>
     );
   }

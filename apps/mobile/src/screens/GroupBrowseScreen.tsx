@@ -18,6 +18,7 @@ import * as ExpoLocation from 'expo-location';
 import { apiClient } from '../services/apiClient';
 import { haversineDistanceM } from '../services/DriveService';
 import SkeletonCard, { SkeletonRow } from '../components/SkeletonLoader';
+import { NetworkError } from '../components/NetworkError';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -212,6 +213,7 @@ export default function GroupBrowseScreen() {
   const [featuredGroups, setFeaturedGroups] = useState<PublicGroup[]>([]);
   const [nearbyQuick, setNearbyQuick] = useState<PublicGroup[]>([]);
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [search, setSearch] = useState('');
   const [activeFilter, setActiveFilter] = useState<FilterTab>('All');
@@ -229,6 +231,7 @@ export default function GroupBrowseScreen() {
     silent?: boolean;
   } = {}) => {
     if (!opts.silent) setLoading(true);
+    setFetchError(null);
     try {
       const params: Record<string, unknown> = { accessType: 'open', limit: 40 };
       if (opts.lat !== undefined) params.lat = opts.lat;
@@ -252,7 +255,7 @@ export default function GroupBrowseScreen() {
 
       setGroups(fetched);
     } catch {
-      Alert.alert('Error', 'Could not load public groups. Please try again.');
+      setFetchError('Could not load groups. Check your connection.');
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -512,6 +515,8 @@ export default function GroupBrowseScreen() {
         <View style={styles.skeletonList}>
           {[0, 1, 2, 3].map((i) => <SkeletonCard key={i} />)}
         </View>
+      ) : fetchError ? (
+        <NetworkError onRetry={() => fetchGroups()} message={fetchError} />
       ) : (
         <FlatList
           data={filtered}

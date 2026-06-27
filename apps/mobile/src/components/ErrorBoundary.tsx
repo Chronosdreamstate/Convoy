@@ -1,5 +1,5 @@
 import React from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Linking, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 interface Props {
   children: React.ReactNode;
@@ -41,6 +41,13 @@ export default class ErrorBoundary extends React.Component<Props, State> {
           accessibilityLabel="Try Again"
         >
           <Text style={styles.buttonText}>Try Again</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.supportLink}
+          onPress={() => Linking.openURL('mailto:support@convoy.app')}
+          accessibilityRole="link"
+        >
+          <Text style={styles.supportText}>Contact Support</Text>
         </TouchableOpacity>
       </View>
     );
@@ -103,5 +110,14 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '700',
+  },
+  supportLink: {
+    marginTop: 16,
+    padding: 8,
+  },
+  supportText: {
+    color: '#888888',
+    fontSize: 14,
+    textDecorationLine: 'underline',
   },
 });
