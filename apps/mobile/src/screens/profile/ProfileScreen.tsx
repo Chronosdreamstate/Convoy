@@ -21,6 +21,7 @@ import * as FileSystem from 'expo-file-system';
 import { FileSystemUploadType } from 'expo-file-system';
 import ProfileCompletionBar from '../../components/ProfileCompletionBar';
 import { apiClient } from '../../services/apiClient';
+import { SkeletonBox } from '../../components/SkeletonLoader';
 import { authService } from '../../services/AuthService';
 import { useAuthStore } from '../../stores/authStore';
 
@@ -296,9 +297,20 @@ export default function ProfileScreen() {
   if (isLoading) {
     return (
       <SafeAreaView style={styles.container}>
-        <View style={styles.centered}>
-          <ActivityIndicator color="#DC143C" size="large" />
-        </View>
+        <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+          <Text style={styles.pageTitle}>Profile</Text>
+          <View style={[styles.avatarSection, { gap: 12 }]}>
+            <SkeletonBox width={104} height={104} borderRadius={52} />
+            <SkeletonBox width="45%" height={22} />
+            <SkeletonBox width="35%" height={30} borderRadius={20} />
+          </View>
+          {[0, 1].map((i) => (
+            <View key={i} style={[styles.card, { gap: 10 }]}>
+              <SkeletonBox width="25%" height={11} />
+              <SkeletonBox width="100%" height={44} borderRadius={8} />
+            </View>
+          ))}
+        </ScrollView>
       </SafeAreaView>
     );
   }
