@@ -4,6 +4,7 @@ import helmet from '@fastify/helmet';
 import cookie from '@fastify/cookie';
 import jwt from '@fastify/jwt';
 import sensible from '@fastify/sensible';
+import rateLimit from '@fastify/rate-limit';
 import { env } from './config/env';
 import dbPlugin from './plugins/db';
 import redisPlugin from './plugins/redis';
@@ -37,6 +38,22 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   // Security headers
   await app.register(helmet, { contentSecurityPolicy: false });
+
+  // IP-level burst protection (200 req/min per IP globally; individual routes use
+  // the Redis-backed rateLimiter middleware for per-user limits).
+  // Disabled in test to avoid interfering with property test suites.
+  if (env.NODE_ENV !== 'test') {
+    await app.register(rateLimit, {
+      global: true,
+      max: 200,
+      timeWindow: '1 minute',
+      keyGenerator: (request) => request.ip,
+      errorResponseBuilder: (_request, context) => ({
+        error: 'Too many requests',
+        retryAfter: context.after,
+      }),
+    });
+  }
 
   // CORS
   await app.register(cors, {
