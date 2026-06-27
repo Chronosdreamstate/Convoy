@@ -414,6 +414,29 @@ export default function GroupBrowseScreen() {
         <View style={styles.backButton} />
       </View>
 
+      {/* Featured Groups horizontal scroll */}
+      {featuredGroups.length >= 3 && (
+        <View style={styles.featuredSection}>
+          <Text style={styles.featuredTitle}>🔥 Featured Groups</Text>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.featuredContent}
+          >
+            {featuredGroups.map((group) => (
+              <FeaturedCard
+                key={group.id}
+                group={group}
+                onJoin={handleJoin}
+                onView={(id) => router.push(`/group/${id}` as never)}
+                joining={joiningId === group.id}
+                eventCountdown={eventCountdowns[group.id]}
+              />
+            ))}
+          </ScrollView>
+        </View>
+      )}
+
       {/* Search bar */}
       <View style={styles.searchRow}>
         <View style={styles.searchBox}>
@@ -504,6 +527,30 @@ export default function GroupBrowseScreen() {
             />
           )}
           contentContainerStyle={filtered.length === 0 ? styles.emptyContainer : styles.listContent}
+          ListHeaderComponent={
+            nearbyQuick.length > 0 && activeFilter !== 'Nearby' ? (
+              <View style={styles.nearbySection}>
+                <Text style={styles.nearbyTitle}>📍 Nearby</Text>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.nearbyContent}
+                >
+                  {nearbyQuick.map((group) => (
+                    <TouchableOpacity
+                      key={group.id}
+                      style={styles.nearbyChip}
+                      onPress={() => router.push(`/group/${group.id}` as never)}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={styles.nearbyChipName} numberOfLines={1}>{group.name}</Text>
+                      <Text style={styles.nearbyChipMeta}>{group.memberCount} members</Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
+            ) : null
+          }
           ListEmptyComponent={
             <View style={styles.emptyState}>
               <Text style={styles.emptyEmoji}>{locationError ? '📍' : '🔍'}</Text>
@@ -685,6 +732,95 @@ const styles = StyleSheet.create({
     fontSize: 14,
     textAlign: 'center',
     lineHeight: 20,
+  },
+  // Featured section
+  featuredSection: {
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+  },
+  featuredTitle: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '700',
+    marginBottom: 10,
+  },
+  featuredContent: {
+    gap: 10,
+    paddingRight: 4,
+  },
+  featCard: {
+    width: 140,
+    minHeight: 110,
+    backgroundColor: '#1C1C1C',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#2A2A2A',
+    padding: 12,
+  },
+  featName: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '700',
+    marginBottom: 4,
+    lineHeight: 18,
+  },
+  featMeta: {
+    color: '#888888',
+    fontSize: 12,
+    marginBottom: 4,
+  },
+  featEvent: {
+    color: '#F59E0B',
+    fontSize: 11,
+    marginBottom: 6,
+  },
+  featJoinBtn: {
+    borderWidth: 1,
+    borderColor: '#DC143C',
+    borderRadius: 6,
+    paddingVertical: 5,
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  featJoinText: {
+    color: '#DC143C',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  // Nearby quick row
+  nearbySection: {
+    marginBottom: 12,
+  },
+  nearbyTitle: {
+    color: '#888888',
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+    marginBottom: 8,
+  },
+  nearbyContent: {
+    gap: 8,
+    paddingRight: 4,
+  },
+  nearbyChip: {
+    backgroundColor: '#1C1C1C',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#2A2A2A',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    minWidth: 120,
+  },
+  nearbyChipName: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '600',
+    marginBottom: 2,
+  },
+  nearbyChipMeta: {
+    color: '#888888',
+    fontSize: 11,
   },
   // Card
   card: {
