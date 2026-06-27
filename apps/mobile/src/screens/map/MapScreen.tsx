@@ -13,7 +13,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import MapView, { Marker, Polyline, LongPressEvent, PROVIDER_DEFAULT } from 'react-native-maps';
+import MapView, { Marker, Callout, Polyline, LongPressEvent, PROVIDER_DEFAULT } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ExpoLocation from 'expo-location';
 import { io, Socket } from 'socket.io-client';
@@ -50,7 +50,16 @@ import { LiveActivityService } from '../../services/LiveActivityService';
 
 interface GapAlert { memberId: string; distanceM: number }
 interface SosAlert { pin: SosPin; memberName: string }
-interface HazardPin { id: string; type: string; lat: number; lng: number }
+interface HazardPin {
+  id: string;
+  type: string;
+  lat: number;
+  lng: number;
+  reportedBy?: string;
+  reportedAt?: number;
+  thumbsUp: number;
+  thumbsDown: number;
+}
 
 const HAZARD_EMOJI: Record<string, string> = {
   pothole: '🕳️', accident: '🚗', roadwork: '🚧', debris: '🪨',
@@ -59,6 +68,13 @@ const HAZARD_EMOJI: Record<string, string> = {
 function hazardLabel(type: string): string {
   return (type.charAt(0).toUpperCase() + type.slice(1)).replace('_', ' ');
 }
+function formatTimeAgo(ts: number): string {
+  const mins = Math.floor((Date.now() - ts) / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  return `${Math.floor(mins / 60)}h ago`;
+}
+const HAZARD_EXPIRY_MS = 2 * 60 * 60 * 1000; // 2 hours
 interface RouteAlternative {
   distance: number;       // metres (matches backend Route shape)
   duration: number;       // seconds
@@ -523,6 +539,22 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
     showQuickAlert(`You: ${message}`);
   }, [groupId, showQuickAlert]);
 
+  const voteHazard = useCallback((hazardId: string, vote: 'up' | 'down') => {
+    if (!socketRef.current || !groupId) return;
+    socketRef.current.emit('hazard:vote', { hazardId, vote, groupId });
+    setHazardPins((prev) => {
+      const m = new Map(prev);
+      const h = m.get(hazardId);
+      if (!h) return prev;
+      m.set(hazardId, {
+        ...h,
+        thumbsUp: vote === 'up' ? h.thumbsUp + 1 : h.thumbsUp,
+        thumbsDown: vote === 'down' ? h.thumbsDown + 1 : h.thumbsDown,
+      });
+      return m;
+    });
+  }, [groupId]);
+
   // Traffic refresh — re-calculate active route every 60 s (Req 6.3)
   useEffect(() => {
     if (routeCoords.length === 0) return;
@@ -678,12 +710,22 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
     socket.on('gap:alert', (a: GapAlert) => setGapAlerts((p) => [...p.filter((x) => x.memberId !== a.memberId), a]));
 
     // Hazard pins: add new reports to the map, alert user on proximity, remove on expiry
-    socket.on('hazard:new', (h: HazardPin) => {
-      setHazardPins((p) => new Map(p).set(h.id, h));
+    socket.on('hazard:new', (h: Omit<HazardPin, 'thumbsUp' | 'thumbsDown'> & { thumbsUp?: number; thumbsDown?: number }) => {
+      const pin: HazardPin = { thumbsUp: 0, thumbsDown: 0, reportedAt: Date.now(), ...h };
+      setHazardPins((p) => new Map(p).set(pin.id, pin));
     });
-    socket.on('hazard:nearby', (h: HazardPin) => {
-      setHazardPins((p) => new Map(p).set(h.id, h));
-      setHazardAlerts((prev) => prev.some((a) => a.id === h.id) ? prev : [...prev, h]);
+    socket.on('hazard:nearby', (h: Omit<HazardPin, 'thumbsUp' | 'thumbsDown'> & { thumbsUp?: number; thumbsDown?: number }) => {
+      const pin: HazardPin = { thumbsUp: 0, thumbsDown: 0, reportedAt: Date.now(), ...h };
+      setHazardPins((p) => new Map(p).set(pin.id, pin));
+      setHazardAlerts((prev) => prev.some((a) => a.id === pin.id) ? prev : [...prev, pin]);
+    });
+    socket.on('hazard:vote', ({ hazardId, thumbsUp, thumbsDown }: { hazardId: string; thumbsUp: number; thumbsDown: number }) => {
+      setHazardPins((p) => {
+        const m = new Map(p);
+        const h = m.get(hazardId);
+        if (h) m.set(hazardId, { ...h, thumbsUp, thumbsDown });
+        return m;
+      });
     });
     socket.on('hazard:expired', ({ id }: { id: string }) => {
       setHazardPins((p) => { const n = new Map(p); n.delete(id); return n; });
@@ -1101,13 +1143,44 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
         {sosPinList.map((s) => (
           <Marker key={s.id} coordinate={{ latitude: s.lat, longitude: s.lng }} title="SOS" pinColor="#DC143C" />
         ))}
-        {Array.from(hazardPins.values()).map((h) => (
+        {Array.from(hazardPins.values())
+          .filter((h) => !h.reportedAt || Date.now() - h.reportedAt < HAZARD_EXPIRY_MS)
+          .map((h) => (
           <Marker
             key={h.id}
             coordinate={{ latitude: h.lat, longitude: h.lng }}
-            title={`${HAZARD_EMOJI[h.type] ?? '⚠️'} ${hazardLabel(h.type)}`}
             pinColor="#f59e0b"
-          />
+          >
+            <Callout tooltip onPress={() => {}}>
+              <View style={overlayStyles.hazardCallout}>
+                <Text style={overlayStyles.hazardCalloutTitle}>
+                  {HAZARD_EMOJI[h.type] ?? '⚠️'} {hazardLabel(h.type)}
+                </Text>
+                {h.reportedBy ? (
+                  <Text style={overlayStyles.hazardCalloutSub}>Reported by {h.reportedBy}</Text>
+                ) : null}
+                {h.reportedAt ? (
+                  <Text style={overlayStyles.hazardCalloutSub}>{formatTimeAgo(h.reportedAt)}</Text>
+                ) : null}
+                <View style={overlayStyles.hazardVoteRow}>
+                  <TouchableOpacity
+                    style={overlayStyles.hazardVoteBtn}
+                    onPress={() => voteHazard(h.id, 'up')}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <Text style={overlayStyles.hazardVoteText}>👍 {h.thumbsUp}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={overlayStyles.hazardVoteBtn}
+                    onPress={() => voteHazard(h.id, 'down')}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <Text style={overlayStyles.hazardVoteText}>👎 {h.thumbsDown}</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </Callout>
+          </Marker>
         ))}
         {routeCoords.length > 0 && (
           <Polyline
@@ -1284,23 +1357,35 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
 
       {/* Quick-action alert pills — above PTT button, only when in a group */}
       {groupId && pttChannelId && !drivingModeActive && (
-        <View style={[styles.quickActionRow, { bottom: insets.bottom + 190 }]}>
-          {([
-            { type: 'stopping', label: '🚦 Stopping' },
-            { type: 'regroup',  label: '🔄 Regrouping' },
-            { type: 'incident', label: '⚠️ Incident' },
-          ] as const).map(({ type, label }) => (
+        <>
+          <View style={[styles.quickActionRow, { bottom: insets.bottom + 228 }]}>
+            {([
+              { type: 'stopping', label: '🚦 Stopping' },
+              { type: 'regroup',  label: '🔄 Regrouping' },
+              { type: 'incident', label: '⚠️ Incident' },
+            ] as const).map(({ type, label }) => (
+              <TouchableOpacity
+                key={type}
+                style={styles.quickActionPill}
+                onPress={() => sendQuickAlert(type, label)}
+                accessibilityRole="button"
+                accessibilityLabel={`Send ${label} alert to convoy`}
+              >
+                <Text style={styles.quickActionPillText}>{label}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+          <View style={[styles.quickActionRow, { bottom: insets.bottom + 190 }]}>
             <TouchableOpacity
-              key={type}
-              style={styles.quickActionPill}
-              onPress={() => sendQuickAlert(type, label)}
+              style={[styles.quickActionPill, overlayStyles.hazardQuickPill]}
+              onPress={() => setShowHazardPicker(true)}
               accessibilityRole="button"
-              accessibilityLabel={`Send ${label} alert to convoy`}
+              accessibilityLabel="Report a hazard on the road"
             >
-              <Text style={styles.quickActionPillText}>{label}</Text>
+              <Text style={styles.quickActionPillText}>🚨 Report Hazard</Text>
             </TouchableOpacity>
-          ))}
-        </View>
+          </View>
+        </>
       )}
 
       {/* Standalone PTT button — always accessible without opening FAB */}
@@ -2377,5 +2462,58 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 12,
     fontWeight: '600',
+  },
+});
+
+const overlayStyles = StyleSheet.create({
+  hazardCallout: {
+    backgroundColor: '#1C1C1C',
+    borderRadius: 10,
+    padding: 12,
+    minWidth: 160,
+    borderWidth: 1,
+    borderColor: '#F59E0B44',
+    shadowColor: '#000',
+    shadowOpacity: 0.5,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 8,
+  },
+  hazardCalloutTitle: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  hazardCalloutSub: {
+    color: '#888888',
+    fontSize: 11,
+    marginBottom: 2,
+  },
+  hazardVoteRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#2A2A2A',
+  },
+  hazardVoteBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: '#0A0A0A',
+    borderWidth: 1,
+    borderColor: '#2A2A2A',
+  },
+  hazardVoteText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  hazardQuickPill: {
+    borderColor: '#F59E0B',
+    backgroundColor: '#1C1000',
+    flex: 1,
   },
 });
