@@ -184,15 +184,28 @@ async function usersRoutes(
 
     // Check mutual friend count
     const mutualRes = await fastify.db.query<{ count: string }>(
-      `SELECT COUNT(*) AS count FROM friends f1
-       JOIN friends f2 ON f1.friend_id = f2.user_id AND f2.friend_id = f1.user_id
-       WHERE f1.user_id = $1 AND f1.friend_id = $2`,
+      `SELECT COUNT(*) AS count
+       FROM (
+         SELECT CASE WHEN requester_id = $1 THEN addressee_id ELSE requester_id END AS uid
+         FROM friendships WHERE status = 'accepted' AND (requester_id = $1 OR addressee_id = $1)
+           AND requester_id != $2 AND addressee_id != $2
+         INTERSECT
+         SELECT CASE WHEN requester_id = $2 THEN addressee_id ELSE requester_id END
+         FROM friendships WHERE status = 'accepted' AND (requester_id = $2 OR addressee_id = $2)
+           AND requester_id != $1 AND addressee_id != $1
+       ) shared`,
       [viewerId, id],
     ).catch(() => ({ rows: [{ count: '0' }] }));
 
-    // Check if viewer follows/friends this user
+    // Check if viewer is friends with / has pending request to this user
     const friendRes = await fastify.db.query<{ status: string }>(
-      `SELECT status FROM friends WHERE user_id = $1 AND friend_id = $2 LIMIT 1`,
+      `SELECT status FROM friendships
+       WHERE status != 'blocked'
+         AND (
+           (requester_id = $1 AND addressee_id = $2)
+           OR (requester_id = $2 AND addressee_id = $1)
+         )
+       LIMIT 1`,
       [viewerId, id],
     ).catch(() => ({ rows: [] }));
 
@@ -239,21 +252,29 @@ async function usersRoutes(
 
       interface SearchRow extends Pick<UserRow, 'id' | 'display_name' | 'avatar_url' | 'ptt_callsign'> {
         total_count: string;
+        friendship_status: string | null;
+        friendship_requester_id: string | null;
       }
 
       const result = await fastify.db.query<SearchRow>(
-        `SELECT id, display_name, avatar_url, ptt_callsign,
+        `SELECT u.id, u.display_name, u.avatar_url, u.ptt_callsign,
+                f.status AS friendship_status,
+                f.requester_id AS friendship_requester_id,
                 COUNT(*) OVER() AS total_count
-         FROM users
-         WHERE id != $1
-           AND privacy = 'open'
+         FROM users u
+         LEFT JOIN friendships f ON (
+           (f.requester_id = $1 AND f.addressee_id = u.id)
+           OR (f.requester_id = u.id AND f.addressee_id = $1)
+         ) AND f.status != 'blocked'
+         WHERE u.id != $1
+           AND u.privacy = 'open'
            AND (
-             display_name ILIKE $2
-             OR ptt_callsign ILIKE $2
+             u.display_name ILIKE $2
+             OR u.ptt_callsign ILIKE $2
            )
          ORDER BY
-           CASE WHEN LOWER(ptt_callsign) = LOWER($3) THEN 0 ELSE 1 END,
-           display_name
+           CASE WHEN LOWER(u.ptt_callsign) = LOWER($3) THEN 0 ELSE 1 END,
+           u.display_name
          LIMIT $4 OFFSET $5`,
         [userId, `%${q}%`, q, limit, offset],
       );
@@ -265,7 +286,9 @@ async function usersRoutes(
           id: u.id,
           displayName: u.display_name,
           avatarUrl: u.avatar_url,
-          pttCallsign: u.ptt_callsign,
+          callsign: u.ptt_callsign,
+          isFriend: u.friendship_status === 'accepted',
+          requestSent: u.friendship_status === 'pending' && u.friendship_requester_id === userId,
         })),
         total,
         page,
