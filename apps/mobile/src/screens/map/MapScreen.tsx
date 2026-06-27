@@ -343,6 +343,11 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
   // Quick-action alert toast
   const quickAlertAnim = useRef(new Animated.Value(-60)).current;
   const quickAlertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Admin announcement banner
+  const [announcementText, setAnnouncementText] = useState<string | null>(null);
+  const announcementAnim = useRef(new Animated.Value(-80)).current;
+  const announcementTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [quickAlertText, setQuickAlertText] = useState<string | null>(null);
 
   // Keep mySosIdRef in sync so the socket handler closure always sees the current value
@@ -533,6 +538,18 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
       );
     }, 4000);
   }, [quickAlertAnim]);
+
+  const showAnnouncement = useCallback((text: string) => {
+    if (announcementTimerRef.current) clearTimeout(announcementTimerRef.current);
+    setAnnouncementText(text);
+    announcementAnim.setValue(-80);
+    Animated.spring(announcementAnim, { toValue: 0, useNativeDriver: true, damping: 14, stiffness: 180 }).start();
+    announcementTimerRef.current = setTimeout(() => {
+      Animated.timing(announcementAnim, { toValue: -80, duration: 300, useNativeDriver: true }).start(
+        () => setAnnouncementText(null),
+      );
+    }, 6000);
+  }, [announcementAnim]);
 
   const sendQuickAlert = useCallback((type: string, message: string) => {
     if (!socketRef.current || !groupId) return;
@@ -758,6 +775,11 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
 
     socket.on('convoy:alert', ({ message, senderCallsign }: { message: string; senderCallsign: string }) => {
       showQuickAlert(`${senderCallsign}: ${message}`);
+      HapticService.trigger("warning");
+    });
+
+    socket.on('group:announcement', ({ message }: { message: string; senderId: string; sentAt: string }) => {
+      showAnnouncement(`📢 ${message}`);
       HapticService.trigger("warning");
     });
 

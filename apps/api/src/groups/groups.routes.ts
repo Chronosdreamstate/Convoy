@@ -40,6 +40,7 @@ const browseGroupsSchema = z.object({
   q: z.string().max(100).optional().default(''),
   limit: z.coerce.number().int().min(1).max(50).optional().default(20),
   offset: z.coerce.number().int().min(0).optional().default(0),
+  vehicleType: z.string().max(50).optional(),
 });
 
 const leaderboardSchema = z.object({

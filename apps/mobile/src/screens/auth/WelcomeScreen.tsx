@@ -54,6 +54,7 @@ const TERMS_URL = 'https://convoy.app/terms';
 export default function WelcomeScreen() {
   const router = useRouter();
   const { setUser, setAccessToken } = useAuthStore();
+  const { reduceMotion } = useAccessibilitySettings();
 
   // Hero fade-in + slide-up on mount
   const heroOpacity = useRef(new Animated.Value(0)).current;
