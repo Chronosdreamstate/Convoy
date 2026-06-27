@@ -169,11 +169,11 @@ async function usersRoutes(
        FROM users u
        LEFT JOIN LATERAL (
          SELECT vehicle_type, make, model, year, color, mods
-         FROM vehicles WHERE user_id = u.id AND is_main = true LIMIT 1
+         FROM vehicles WHERE user_id = u.id AND is_active = true LIMIT 1
        ) v ON true
        LEFT JOIN LATERAL (
          SELECT COUNT(*) AS total_drives, SUM(distance_m) AS total_distance_m
-         FROM drives WHERE user_id = u.id
+         FROM drive_history WHERE user_id = u.id
        ) ds ON true
        WHERE u.id = $1`,
       [id],
