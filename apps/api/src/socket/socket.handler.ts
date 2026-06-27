@@ -621,6 +621,46 @@ export function registerSocketHandlers(
       })().catch((err: unknown) => fastify.log.error({ err }, 'ptt admin mute error'));
     });
 
+    // Relay typing indicator to group room (excludes sender)
+    socket.on('chat:typing', (data: unknown) => {
+      const { displayName } = (data as { displayName?: string }) ?? {};
+      if (!displayName) return;
+      socket.to(`group:${groupId}`).emit('chat:typing', { displayName });
+    });
+
+    // Persist and broadcast emoji reaction on a group message
+    socket.on('chat:react', (data: unknown) => {
+      const { messageId, emoji, action } =
+        (data as { messageId?: string; emoji?: string; action?: string }) ?? {};
+      if (!messageId || !emoji || (action !== 'add' && action !== 'remove')) return;
+
+      (async () => {
+        // Verify the message belongs to this group before touching the DB
+        const msgCheck = await fastify.db.query<{ id: string }>(
+          'SELECT id FROM group_messages WHERE id = $1 AND group_id = $2',
+          [messageId, groupId],
+        );
+        if ((msgCheck.rowCount ?? 0) === 0) return;
+
+        if (action === 'add') {
+          await fastify.db.query(
+            `INSERT INTO message_reactions (message_id, user_id, emoji)
+             VALUES ($1, $2, $3)
+             ON CONFLICT DO NOTHING`,
+            [messageId, userId, emoji],
+          );
+        } else {
+          await fastify.db.query(
+            `DELETE FROM message_reactions
+             WHERE message_id = $1 AND user_id = $2 AND emoji = $3`,
+            [messageId, userId, emoji],
+          );
+        }
+
+        io.to(`group:${groupId}`).emit('group:reaction', { messageId, userId, emoji, action });
+      })().catch((err: unknown) => fastify.log.error({ err }, 'chat react error'));
+    });
+
     // Notify group on disconnect and clean up Redis presence (Req 8.3)
     socket.on('disconnect', () => {
       lastLocUpdate.delete(socket.id);

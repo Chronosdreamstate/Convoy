@@ -1,4 +1,4 @@
-import { FastifyInstance, FastifyPluginOptions } from 'fastify';
+import { FastifyInstance, FastifyPluginOptions, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { authenticate } from '../middleware/authenticate';
 import { generalLimiter } from '../middleware/rateLimiter';
@@ -16,6 +16,10 @@ const fetchMessagesSchema = z.object({
   limit: z.coerce.number().int().min(1).max(50).optional().default(50),
 });
 
+const reactSchema = z.object({
+  emoji: z.string().min(1).max(8),
+});
+
 // ---------------------------------------------------------------------------
 // Row types
 // ---------------------------------------------------------------------------
@@ -28,6 +32,7 @@ interface MessageRow {
   avatar_url: string | null;
   text: string;
   created_at: Date;
+  reactions: { emoji: string; user_ids: string[] }[] | null;
 }
 
 interface InsertedMessageRow {
@@ -74,6 +79,16 @@ async function chatRoutes(
 
       let rows: MessageRow[];
 
+      const reactionsSubquery = `
+        (SELECT COALESCE(json_agg(json_build_object('emoji', r.emoji, 'user_ids', r.uids)), '[]'::json)
+         FROM (
+           SELECT emoji, json_agg(user_id::text) AS uids
+           FROM message_reactions
+           WHERE message_id = gm.id
+           GROUP BY emoji
+         ) r
+        ) AS reactions`;
+
       if (before) {
         const beforeDate = new Date(before);
         if (isNaN(beforeDate.getTime())) {
@@ -82,7 +97,8 @@ async function chatRoutes(
         const result = await fastify.db.query<MessageRow>(
           `SELECT gm.id, gm.group_id, gm.user_id,
                   u.display_name, u.avatar_url,
-                  gm.text, gm.created_at
+                  gm.text, gm.created_at,
+                  ${reactionsSubquery}
            FROM group_messages gm
            JOIN users u ON u.id = gm.user_id
            WHERE gm.group_id = $1
@@ -96,7 +112,8 @@ async function chatRoutes(
         const result = await fastify.db.query<MessageRow>(
           `SELECT gm.id, gm.group_id, gm.user_id,
                   u.display_name, u.avatar_url,
-                  gm.text, gm.created_at
+                  gm.text, gm.created_at,
+                  ${reactionsSubquery}
            FROM group_messages gm
            JOIN users u ON u.id = gm.user_id
            WHERE gm.group_id = $1
@@ -114,6 +131,10 @@ async function chatRoutes(
         avatarUrl: row.avatar_url ?? null,
         text: row.text,
         createdAt: row.created_at,
+        reactions: (row.reactions ?? []).map((r) => ({
+          emoji: r.emoji,
+          userIds: r.user_ids,
+        })),
       }));
 
       // Provide a cursor to the oldest returned message so the client can page back
@@ -182,6 +203,66 @@ async function chatRoutes(
 
       return reply.status(201).send(payload);
     },
+  );
+
+  // -------------------------------------------------------------------------
+  // POST /groups/:id/messages/:messageId/react — add reaction
+  // DELETE /groups/:id/messages/:messageId/react — remove reaction
+  // -------------------------------------------------------------------------
+  async function handleReact(
+    request: FastifyRequest,
+    reply: FastifyReply,
+    action: 'add' | 'remove',
+  ) {
+    const userId = (request.user as { sub: string }).sub;
+    const { id, messageId } = request.params as { id: string; messageId: string };
+
+    const parsed = reactSchema.safeParse(request.body);
+    if (!parsed.success) return reply.badRequest(parsed.error.errors[0].message);
+    const { emoji } = parsed.data;
+
+    // Verify membership
+    const memberCheck = await fastify.db.query(
+      `SELECT 1 FROM convoy_members WHERE group_id = $1 AND user_id = $2 AND left_at IS NULL`,
+      [id, userId],
+    );
+    if ((memberCheck.rowCount ?? 0) === 0) return reply.forbidden('You are not a member of this group');
+
+    // Verify message belongs to this group
+    const msgCheck = await fastify.db.query(
+      'SELECT id FROM group_messages WHERE id = $1 AND group_id = $2',
+      [messageId, id],
+    );
+    if ((msgCheck.rowCount ?? 0) === 0) return reply.notFound('Message not found');
+
+    if (action === 'add') {
+      await fastify.db.query(
+        `INSERT INTO message_reactions (message_id, user_id, emoji)
+         VALUES ($1, $2, $3)
+         ON CONFLICT DO NOTHING`,
+        [messageId, userId, emoji],
+      );
+    } else {
+      await fastify.db.query(
+        `DELETE FROM message_reactions WHERE message_id = $1 AND user_id = $2 AND emoji = $3`,
+        [messageId, userId, emoji],
+      );
+    }
+
+    fastify.io.to(`group:${id}`).emit('group:reaction', { messageId, userId, emoji, action });
+    return reply.status(204).send();
+  }
+
+  fastify.post(
+    '/groups/:id/messages/:messageId/react',
+    { preHandler: [authenticate, generalLimiter(fastify.redis)] },
+    (req, reply) => handleReact(req, reply, 'add'),
+  );
+
+  fastify.delete(
+    '/groups/:id/messages/:messageId/react',
+    { preHandler: [authenticate, generalLimiter(fastify.redis)] },
+    (req, reply) => handleReact(req, reply, 'remove'),
   );
 }
 
