@@ -5,12 +5,16 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  Alert,
+  Animated,
   FlatList,
   Image,
   Keyboard,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   SafeAreaView,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -28,6 +32,11 @@ import { theme } from '../theme';
 // Types
 // ---------------------------------------------------------------------------
 
+interface Reaction {
+  emoji: string;
+  userIds: string[];
+}
+
 interface Message {
   id: string;
   userId: string;
@@ -35,7 +44,18 @@ interface Message {
   avatarUrl: string | null;
   text: string;
   createdAt: string;
+  type?: 'message' | 'system';
+  reactions?: Reaction[];
 }
+
+const QUICK_REPLIES = [
+  { label: '👍 Got it', text: '👍 Got it' },
+  { label: '⚠️ Slow down', text: '⚠️ Slow down' },
+  { label: '🅿️ Need to stop', text: '🅿️ Need to stop' },
+  { label: '✅ On my way', text: '✅ On my way' },
+];
+
+const REACTION_EMOJIS = ['👍', '❤️', '😂', '😮', '⚠️'];
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -52,15 +72,136 @@ function avatarInitials(name: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// ReactionPicker
+// ---------------------------------------------------------------------------
+
+interface ReactionPickerProps {
+  visible: boolean;
+  onSelect: (emoji: string) => void;
+  onDismiss: () => void;
+}
+
+function ReactionPicker({ visible, onSelect, onDismiss }: ReactionPickerProps) {
+  const scale = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.spring(scale, {
+      toValue: visible ? 1 : 0,
+      useNativeDriver: true,
+      tension: 120,
+      friction: 8,
+    }).start();
+  }, [visible, scale]);
+
+  if (!visible) return null;
+
+  return (
+    <Modal transparent animationType="none" onRequestClose={onDismiss}>
+      <TouchableWithoutFeedback onPress={onDismiss}>
+        <View style={pickerStyles.overlay}>
+          <TouchableWithoutFeedback>
+            <Animated.View style={[pickerStyles.container, { transform: [{ scale }] }]}>
+              {REACTION_EMOJIS.map((emoji) => (
+                <TouchableOpacity
+                  key={emoji}
+                  style={pickerStyles.emojiBtn}
+                  onPress={() => { onSelect(emoji); onDismiss(); }}
+                  accessibilityLabel={`React with ${emoji}`}
+                >
+                  <Text style={pickerStyles.emoji}>{emoji}</Text>
+                </TouchableOpacity>
+              ))}
+            </Animated.View>
+          </TouchableWithoutFeedback>
+        </View>
+      </TouchableWithoutFeedback>
+    </Modal>
+  );
+}
+
+const pickerStyles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  container: {
+    flexDirection: 'row',
+    backgroundColor: theme.colors.cardElevated,
+    borderRadius: 32,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  emojiBtn: {
+    padding: 8,
+  },
+  emoji: {
+    fontSize: 26,
+  },
+});
+
+// ---------------------------------------------------------------------------
+// SystemMessage
+// ---------------------------------------------------------------------------
+
+function SystemMessage({ text }: { text: string }) {
+  return (
+    <View style={sysStyles.row}>
+      <View style={sysStyles.line} />
+      <Text style={sysStyles.text}>{text}</Text>
+    </View>
+  );
+}
+
+const sysStyles = StyleSheet.create({
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginVertical: 6,
+    paddingHorizontal: 16,
+    gap: 8,
+  },
+  line: {
+    width: 3,
+    height: 14,
+    backgroundColor: theme.colors.accent,
+    borderRadius: 2,
+  },
+  text: {
+    color: theme.colors.textMuted,
+    fontSize: 12,
+    fontStyle: 'italic',
+    textAlign: 'center',
+  },
+});
+
+// ---------------------------------------------------------------------------
 // MessageBubble
 // ---------------------------------------------------------------------------
 
 interface BubbleProps {
   item: Message;
   isOwn: boolean;
+  currentUserId: string;
+  onLongPress: (messageId: string) => void;
+  onReact: (messageId: string, emoji: string) => void;
 }
 
-function MessageBubble({ item, isOwn }: BubbleProps) {
+function MessageBubble({ item, isOwn, currentUserId, onLongPress, onReact }: BubbleProps) {
+  if (item.type === 'system') {
+    return <SystemMessage text={item.text} />;
+  }
+
+  const hasReactions = item.reactions && item.reactions.length > 0;
+
   return (
     <View style={[styles.messageRow, isOwn ? styles.messageRowRight : styles.messageRowLeft]}>
       {!isOwn && (
@@ -76,13 +217,39 @@ function MessageBubble({ item, isOwn }: BubbleProps) {
           )}
         </View>
       )}
-      <View style={[styles.bubble, isOwn ? styles.bubbleOwn : styles.bubbleOther]}>
-        {!isOwn && (
-          <Text style={styles.senderName}>{item.displayName}</Text>
+      <View style={isOwn ? styles.bubbleWrapRight : styles.bubbleWrapLeft}>
+        <TouchableOpacity
+          onLongPress={() => onLongPress(item.id)}
+          activeOpacity={0.85}
+          delayLongPress={350}
+        >
+          <View style={[styles.bubble, isOwn ? styles.bubbleOwn : styles.bubbleOther]}>
+            {!isOwn && (
+              <Text style={styles.senderName}>{item.displayName}</Text>
+            )}
+            <Text style={[styles.bubbleText, isOwn ? styles.bubbleTextOwn : styles.bubbleTextOther]}>
+              {item.text}
+            </Text>
+          </View>
+        </TouchableOpacity>
+        {hasReactions && (
+          <View style={[styles.reactionsRow, isOwn && styles.reactionsRowRight]}>
+            {item.reactions!.map((r) => (
+              <TouchableOpacity
+                key={r.emoji}
+                style={[
+                  styles.reactionPill,
+                  r.userIds.includes(currentUserId) && styles.reactionPillOwn,
+                ]}
+                onPress={() => onReact(item.id, r.emoji)}
+                accessibilityLabel={`${r.emoji} ${r.userIds.length}`}
+              >
+                <Text style={styles.reactionEmoji}>{r.emoji}</Text>
+                <Text style={styles.reactionCount}>{r.userIds.length}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
         )}
-        <Text style={[styles.bubbleText, isOwn ? styles.bubbleTextOwn : styles.bubbleTextOther]}>
-          {item.text}
-        </Text>
       </View>
     </View>
   );
@@ -105,8 +272,14 @@ export default function GroupChatScreen() {
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [inputText, setInputText] = useState('');
   const [sending, setSending] = useState(false);
+  const [reactionTarget, setReactionTarget] = useState<string | null>(null);
+  const [typingUser, setTypingUser] = useState<string | null>(null);
 
   const flatListRef = useRef<FlatList<Message>>(null);
+  const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const typingClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const currentUserId = user?.id ?? '';
 
   // ---------------------------------------------------------------------------
   // Data fetching
@@ -145,7 +318,6 @@ export default function GroupChatScreen() {
       );
       if (!res.ok) throw new Error('Failed to load older messages');
       const data = (await res.json()) as { messages: Message[]; nextCursor: string | null };
-      // Append older messages to the tail of the inverted list (i.e. the top visually)
       setMessages((prev) => [...prev, ...data.messages]);
       setNextCursor(data.nextCursor);
     } catch {
@@ -156,30 +328,74 @@ export default function GroupChatScreen() {
   }, [groupId, accessToken, nextCursor, loadingMore, apiUrl]);
 
   // ---------------------------------------------------------------------------
-  // Socket: real-time new messages
+  // Socket: real-time updates
   // ---------------------------------------------------------------------------
 
   useEffect(() => {
     if (!socket) return;
+
     const handleMessage = (msg: Message) => {
-      // Prepend to front so newest appears at bottom of inverted list
       setMessages((prev) => [msg, ...prev]);
     };
+
+    const handleReaction = (payload: { messageId: string; emoji: string; userId: string; action: 'add' | 'remove' }) => {
+      setMessages((prev) =>
+        prev.map((m) => {
+          if (m.id !== payload.messageId) return m;
+          const reactions = m.reactions ? [...m.reactions] : [];
+          const idx = reactions.findIndex((r) => r.emoji === payload.emoji);
+          if (payload.action === 'add') {
+            if (idx >= 0) {
+              reactions[idx] = { ...reactions[idx], userIds: [...new Set([...reactions[idx].userIds, payload.userId])] };
+            } else {
+              reactions.push({ emoji: payload.emoji, userIds: [payload.userId] });
+            }
+          } else {
+            if (idx >= 0) {
+              const userIds = reactions[idx].userIds.filter((id) => id !== payload.userId);
+              if (userIds.length === 0) reactions.splice(idx, 1);
+              else reactions[idx] = { ...reactions[idx], userIds };
+            }
+          }
+          return { ...m, reactions };
+        }),
+      );
+    };
+
+    const handleTyping = (payload: { userId: string; displayName: string }) => {
+      if (payload.userId === currentUserId) return;
+      setTypingUser(payload.displayName);
+      if (typingClearTimerRef.current) clearTimeout(typingClearTimerRef.current);
+      typingClearTimerRef.current = setTimeout(() => setTypingUser(null), 3000);
+    };
+
     socket.on('group:message', handleMessage);
+    socket.on('chat:react', handleReaction);
+    socket.on('chat:typing', handleTyping);
+
     return () => {
       socket.off('group:message', handleMessage);
+      socket.off('chat:react', handleReaction);
+      socket.off('chat:typing', handleTyping);
     };
-  }, [socket]);
+  }, [socket, currentUserId]);
+
+  // Cleanup timers on unmount
+  useEffect(() => {
+    return () => {
+      if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+      if (typingClearTimerRef.current) clearTimeout(typingClearTimerRef.current);
+    };
+  }, []);
 
   // ---------------------------------------------------------------------------
   // Send
   // ---------------------------------------------------------------------------
 
-  const handleSend = useCallback(async () => {
-    const trimmed = inputText.trim();
+  const sendMessage = useCallback(async (text: string) => {
+    const trimmed = text.trim();
     if (!trimmed || trimmed.length > 500 || sending || !groupId || !accessToken) return;
     setSending(true);
-    const snapshot = trimmed;
     setInputText('');
     try {
       await fetch(`${apiUrl}/api/v1/groups/${groupId}/messages`, {
@@ -188,32 +404,76 @@ export default function GroupChatScreen() {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${accessToken}`,
         },
-        body: JSON.stringify({ text: snapshot }),
+        body: JSON.stringify({ text: trimmed }),
       });
-      // The server will emit the socket event which updates the list
     } catch {
-      // Restore on failure
-      setInputText(snapshot);
+      setInputText(trimmed);
     } finally {
       setSending(false);
     }
-  }, [inputText, sending, groupId, accessToken, apiUrl]);
+  }, [sending, groupId, accessToken, apiUrl]);
+
+  const handleSend = useCallback(() => sendMessage(inputText), [inputText, sendMessage]);
+
+  const handleQuickReply = useCallback((text: string) => sendMessage(text), [sendMessage]);
+
+  // ---------------------------------------------------------------------------
+  // Typing indicator
+  // ---------------------------------------------------------------------------
+
+  const handleInputChange = useCallback((text: string) => {
+    setInputText(text);
+    if (!socket || !groupId || !user) return;
+    if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+    typingTimerRef.current = setTimeout(() => {
+      socket.emit('chat:typing', { groupId, displayName: user.displayName ?? 'Someone' });
+    }, 1000);
+  }, [socket, groupId, user]);
+
+  // ---------------------------------------------------------------------------
+  // Reactions
+  // ---------------------------------------------------------------------------
+
+  const handleLongPress = useCallback((messageId: string) => {
+    setReactionTarget(messageId);
+  }, []);
+
+  const handleReact = useCallback((messageId: string, emoji: string) => {
+    if (!socket || !groupId) return;
+    const msg = messages.find((m) => m.id === messageId);
+    const reaction = msg?.reactions?.find((r) => r.emoji === emoji);
+    const alreadyReacted = reaction?.userIds.includes(currentUserId) ?? false;
+    socket.emit('chat:react', {
+      messageId,
+      groupId,
+      emoji,
+      userId: currentUserId,
+      action: alreadyReacted ? 'remove' : 'add',
+    });
+  }, [socket, groupId, messages, currentUserId]);
+
+  const handleReactionSelect = useCallback((emoji: string) => {
+    if (reactionTarget) handleReact(reactionTarget, emoji);
+  }, [reactionTarget, handleReact]);
 
   // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
 
-  const currentUserId = user?.id ?? '';
-
   const renderMessage = useCallback(
     ({ item }: { item: Message }) => (
-      <MessageBubble item={item} isOwn={item.userId === currentUserId} />
+      <MessageBubble
+        item={item}
+        isOwn={item.userId === currentUserId}
+        currentUserId={currentUserId}
+        onLongPress={handleLongPress}
+        onReact={handleReact}
+      />
     ),
-    [currentUserId],
+    [currentUserId, handleLongPress, handleReact],
   );
 
   const keyExtractor = useCallback((item: Message) => item.id, []);
-
   const canSend = inputText.trim().length > 0 && inputText.length <= 500 && !sending;
 
   return (
@@ -258,21 +518,48 @@ export default function GroupChatScreen() {
                 onEndReachedThreshold={0.4}
                 ListFooterComponent={
                   loadingMore ? (
-                    <View style={styles.loadingMoreContainer}>
-                      <SkeletonRow />
-                    </View>
+                    <View style={styles.loadingMoreContainer}><SkeletonRow /></View>
                   ) : null
                 }
                 ListEmptyComponent={
                   <View style={styles.emptyContainer}>
+                    <Text style={styles.emptyIcon}>💬</Text>
                     <Text style={styles.emptyText}>No messages yet. Say hi!</Text>
                   </View>
                 }
                 keyboardShouldPersistTaps="handled"
               />
             )}
+
+            {/* Typing indicator */}
+            {typingUser !== null && (
+              <View style={styles.typingBar}>
+                <Text style={styles.typingText}>{typingUser} is typing…</Text>
+              </View>
+            )}
           </View>
         </TouchableWithoutFeedback>
+
+        {/* Quick replies */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.quickRepliesContainer}
+          contentContainerStyle={styles.quickRepliesContent}
+          keyboardShouldPersistTaps="always"
+        >
+          {QUICK_REPLIES.map((qr) => (
+            <TouchableOpacity
+              key={qr.label}
+              style={styles.quickReplyPill}
+              onPress={() => handleQuickReply(qr.text)}
+              accessibilityRole="button"
+              accessibilityLabel={qr.label}
+            >
+              <Text style={styles.quickReplyText}>{qr.label}</Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
 
         {/* Input bar */}
         <View style={styles.inputBar}>
@@ -280,7 +567,7 @@ export default function GroupChatScreen() {
             <TextInput
               style={styles.textInput}
               value={inputText}
-              onChangeText={setInputText}
+              onChangeText={handleInputChange}
               placeholder="Type a message..."
               placeholderTextColor={theme.colors.textSubtle}
               multiline
@@ -294,6 +581,17 @@ export default function GroupChatScreen() {
               </Text>
             )}
           </View>
+
+          {/* Voice placeholder */}
+          <TouchableOpacity
+            style={styles.voiceBtn}
+            onPress={() => Alert.alert('🎤 Voice Messages', 'Voice messages coming soon!')}
+            accessibilityRole="button"
+            accessibilityLabel="Voice message (coming soon)"
+          >
+            <Text style={styles.voiceBtnIcon}>🎤</Text>
+          </TouchableOpacity>
+
           <TouchableOpacity
             style={[styles.sendBtn, !canSend && styles.sendBtnDisabled]}
             onPress={handleSend}
@@ -308,6 +606,13 @@ export default function GroupChatScreen() {
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
+
+      {/* Reaction picker modal */}
+      <ReactionPicker
+        visible={reactionTarget !== null}
+        onSelect={handleReactionSelect}
+        onDismiss={() => setReactionTarget(null)}
+      />
     </SafeAreaView>
   );
 }
@@ -380,6 +685,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 64,
+    gap: 12,
+  },
+  emptyIcon: {
+    fontSize: 40,
   },
   emptyText: {
     color: theme.colors.textSubtle,
@@ -390,7 +699,7 @@ const styles = StyleSheet.create({
   messageRow: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    marginBottom: theme.spacing.sm,
+    marginBottom: 4,
     gap: theme.spacing.sm,
   },
   messageRowLeft: {
@@ -398,6 +707,14 @@ const styles = StyleSheet.create({
   },
   messageRowRight: {
     justifyContent: 'flex-end',
+  },
+  bubbleWrapLeft: {
+    alignItems: 'flex-start',
+    maxWidth: '78%',
+  },
+  bubbleWrapRight: {
+    alignItems: 'flex-end',
+    maxWidth: '78%',
   },
 
   // Avatar
@@ -425,7 +742,6 @@ const styles = StyleSheet.create({
 
   // Bubbles
   bubble: {
-    maxWidth: '75%',
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderRadius: BUBBLE_RADIUS,
@@ -459,11 +775,84 @@ const styles = StyleSheet.create({
     color: theme.colors.text,
   },
 
+  // Reactions
+  reactionsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 4,
+    marginTop: 4,
+    marginLeft: 4,
+  },
+  reactionsRowRight: {
+    justifyContent: 'flex-end',
+    marginLeft: 0,
+    marginRight: 4,
+  },
+  reactionPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: theme.colors.card,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  reactionPillOwn: {
+    borderColor: theme.colors.accent,
+    backgroundColor: 'rgba(220,20,60,0.12)',
+  },
+  reactionEmoji: {
+    fontSize: 13,
+  },
+  reactionCount: {
+    color: theme.colors.textMuted,
+    fontSize: 11,
+    fontWeight: '700',
+  },
+
+  // Typing indicator
+  typingBar: {
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: 4,
+  },
+  typingText: {
+    color: theme.colors.textMuted,
+    fontSize: 12,
+    fontStyle: 'italic',
+  },
+
+  // Quick replies
+  quickRepliesContainer: {
+    flexShrink: 0,
+    borderTopWidth: 1,
+    borderTopColor: theme.colors.border,
+  },
+  quickRepliesContent: {
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: 8,
+    gap: 8,
+  },
+  quickReplyPill: {
+    backgroundColor: theme.colors.card,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  quickReplyText: {
+    color: theme.colors.text,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+
   // Input bar
   inputBar: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    gap: theme.spacing.sm,
+    gap: 8,
     paddingHorizontal: theme.spacing.md,
     paddingVertical: theme.spacing.sm,
     borderTopWidth: 1,
@@ -496,6 +885,22 @@ const styles = StyleSheet.create({
   },
   charCounterOver: {
     color: theme.colors.error,
+  },
+
+  // Voice button
+  voiceBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: theme.colors.card,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  voiceBtnIcon: {
+    fontSize: 18,
   },
 
   // Send button
