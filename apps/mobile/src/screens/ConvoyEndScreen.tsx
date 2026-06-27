@@ -369,9 +369,15 @@ export default function ConvoyEndScreen() {
   const iconOpacity = useRef(new Animated.Value(0)).current;
   const contentOpacity = useRef(new Animated.Value(0)).current;
 
-  // Copy toast state
+  // State
   const [copied, setCopied] = useState(false);
+  const [shared, setShared] = useState(false);
+  const [weeklyDrives, setWeeklyDrives] = useState(0);
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    incrementWeeklyDrives().then(setWeeklyDrives);
+  }, []);
 
   useEffect(() => {
     Animated.parallel([
@@ -414,14 +420,22 @@ export default function ConvoyEndScreen() {
   const distanceKmText =
     distance >= 1000 ? `${(distance / 1000).toFixed(1)}km` : `${distance}m`;
 
-  const shareText = buildShareText(distanceKmText, formatDuration(duration), members, topSpeed);
+  const shareText = buildShareText(distanceKmText, formatDuration(duration), members, topSpeed, displayGroup);
 
   const handleShare = async () => {
     try {
-      await Share.share({ message: shareText });
+      await Share.share({
+        title: 'My CONVOY drive',
+        message: shareText,
+      });
+      setShared(true);
     } catch {
-      // User cancelled or share sheet unavailable — swallow silently
+      // User cancelled — swallow silently
     }
+  };
+
+  const handleSaveToPhotos = () => {
+    Alert.alert('Coming Soon', 'Screenshot sharing will be available in the next update.');
   };
 
   const handleCopy = async () => {
@@ -468,6 +482,24 @@ export default function ConvoyEndScreen() {
 
       {/* Anchored footer */}
       <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 16) }]}>
+        {/* Weekly streak banner */}
+        {weeklyDrives >= 3 && (
+          <View style={styles.streakBanner}>
+            <Text style={styles.streakText}>
+              🔥 {weeklyDrives}-drive week! You're on a streak!
+            </Text>
+          </View>
+        )}
+
+        {/* Visual share card */}
+        <ShareCard
+          groupName={displayGroup}
+          distanceText={distanceKmText}
+          duration={formatDuration(duration)}
+          members={members}
+          topSpeed={topSpeed}
+        />
+
         {/* Share Your Ride — full-width crimson share button */}
         <TouchableOpacity
           style={styles.shareBtn}
@@ -478,15 +510,43 @@ export default function ConvoyEndScreen() {
           <Text style={styles.shareBtnText}>Share Your Ride 🚀</Text>
         </TouchableOpacity>
 
-        {/* Copy text link — small muted link, shows Copied! toast for 2s */}
-        <TouchableOpacity
-          style={styles.copyLink}
-          onPress={handleCopy}
-          accessibilityRole="button"
-          accessibilityLabel={copied ? 'Copied to clipboard' : 'Copy stats to clipboard'}
-        >
-          <Text style={styles.copyLinkText}>{copied ? 'Copied!' : 'Copy text'}</Text>
-        </TouchableOpacity>
+        {/* Save to Photos + Copy row */}
+        <View style={styles.secondaryRow}>
+          <TouchableOpacity
+            style={styles.secondaryBtn}
+            onPress={handleSaveToPhotos}
+            accessibilityRole="button"
+            accessibilityLabel="Save to Photos"
+          >
+            <Text style={styles.secondaryBtnText}>📷 Save</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.secondaryBtn}
+            onPress={handleCopy}
+            accessibilityRole="button"
+            accessibilityLabel={copied ? 'Copied to clipboard' : 'Copy stats to clipboard'}
+          >
+            <Text style={styles.secondaryBtnText}>{copied ? '✓ Copied!' : '📋 Copy text'}</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Post-share social prompt */}
+        {shared && (
+          <View style={styles.socialPrompt}>
+            <Text style={styles.socialPromptText}>
+              Tell your crew about CONVOY — invite them to your next drive!
+            </Text>
+            <TouchableOpacity
+              style={styles.inviteBtn}
+              onPress={async () => {
+                await Clipboard.setStringAsync('https://convoy.app/download');
+                Alert.alert('Link Copied!', 'Share convoy.app/download with your friends.');
+              }}
+            >
+              <Text style={styles.inviteBtnText}>Copy Invite Link</Text>
+            </TouchableOpacity>
+          </View>
+        )}
 
         {/* Drive Again — crimson primary */}
         <TouchableOpacity
@@ -668,12 +728,76 @@ const styles = StyleSheet.create({
     letterSpacing: 0.2,
   },
 
-  // Copy text — small muted link below share button
+  // Streak banner
+  streakBanner: {
+    backgroundColor: '#1A1200',
+    borderWidth: 1,
+    borderColor: '#F59E0B',
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    marginBottom: 4,
+  },
+  streakText: {
+    color: '#F59E0B',
+    fontSize: 13,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+
+  // Secondary row (Save + Copy)
+  secondaryRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  secondaryBtn: {
+    flex: 1,
+    backgroundColor: T.cardElevated,
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: T.border,
+  },
+  secondaryBtnText: {
+    color: T.muted,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+
+  // Post-share social prompt
+  socialPrompt: {
+    backgroundColor: T.card,
+    borderRadius: 12,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: T.border,
+    gap: 10,
+  },
+  socialPromptText: {
+    color: T.muted,
+    fontSize: 13,
+    textAlign: 'center',
+    lineHeight: 18,
+  },
+  inviteBtn: {
+    backgroundColor: T.accent,
+    borderRadius: 8,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  inviteBtnText: {
+    color: T.text,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+
+  // Copy text — small muted link below share button (kept for backwards compat)
   copyLink: {
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 2,
-    marginTop: -4, // tighten gap with share button
+    marginTop: -4,
   },
   copyLinkText: {
     color: T.muted,
