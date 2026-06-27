@@ -73,8 +73,11 @@
       [
         "expo-location",
         {
-          "locationAlwaysAndWhenInUsePermission": "CONVOY uses background location to update your position in the convoy.",
-          "locationWhenInUsePermission": "CONVOY uses your location to keep your convoy in sync and find nearby groups."
+          "locationAlwaysAndWhenInUsePermission": "CONVOY needs your location to track your position in the convoy and alert your crew if you fall behind.",
+          "locationAlwaysPermission": "CONVOY tracks your location in the background so your convoy can see you even when your screen is off.",
+          "locationWhenInUsePermission": "CONVOY uses your location to keep your convoy in sync and find nearby groups.",
+          "isIosBackgroundLocationEnabled": true,
+          "isAndroidBackgroundLocationEnabled": true
         }
       ],
       [

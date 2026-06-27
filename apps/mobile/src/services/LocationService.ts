@@ -1,177 +1,98 @@
-import * as ExpoLocation from 'expo-location';
-import * as SQLite from 'expo-sqlite';
-import { Socket } from 'socket.io-client';
-import { useLocationStore } from '../stores/locationStore';
+import * as Location from 'expo-location';
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
+export const LOCATION_TASK_NAME = 'convoy-background-location';
 
-export interface LocationData {
-  lat: number;
-  lng: number;
-  heading: number;
-  speed_kph: number;
-  ts: number;
-}
+type LocationCallback = (loc: { lat: number; lng: number; heading: number; speedKph: number; ts: number }) => void;
+let _onLocation: LocationCallback | null = null;
 
-/** Thin abstraction over SQLite so the service is testable without expo-sqlite. */
-export interface ILocationDB {
-  init(): Promise<void>;
-  saveLastKnownLocation(userId: string, location: LocationData): Promise<void>;
-  getAllLastKnownLocations(): Promise<Map<string, LocationData>>;
-}
+/*
+ * Background tracking via expo-task-manager (not yet installed).
+ * Install with: npx expo install expo-task-manager
+ * Then uncomment:
+ *
+ * import * as TaskManager from 'expo-task-manager';
+ * TaskManager.defineTask(LOCATION_TASK_NAME, ({ data, error }) => {
+ *   if (error || !data || !_onLocation) return;
+ *   const { locations } = data as { locations: Location.LocationObject[] };
+ *   const loc = locations[locations.length - 1];
+ *   _onLocation({
+ *     lat: loc.coords.latitude, lng: loc.coords.longitude,
+ *     heading: loc.coords.heading ?? 0,
+ *     speedKph: (loc.coords.speed ?? 0) * 3.6,
+ *     ts: loc.timestamp,
+ *   });
+ * });
+ */
 
-// ---------------------------------------------------------------------------
-// SQLite implementation
-// ---------------------------------------------------------------------------
+let _foregroundSub: Location.LocationSubscription | null = null;
+let _backgroundStarted = false;
 
-export class SQLiteLocationDB implements ILocationDB {
-  private db: SQLite.SQLiteDatabase | null = null;
-  private readonly dbName: string;
+export const LocationService = {
+  setCallback(cb: LocationCallback) { _onLocation = cb; },
+  clearCallback() { _onLocation = null; },
 
-  constructor(dbName = 'convoy.db') {
-    this.dbName = dbName;
-  }
-
-  async init(): Promise<void> {
-    this.db = await SQLite.openDatabaseAsync(this.dbName);
-    await this.db.execAsync(`
-      CREATE TABLE IF NOT EXISTS offline_locations (
-        user_id   TEXT PRIMARY KEY,
-        lat       REAL NOT NULL,
-        lng       REAL NOT NULL,
-        heading   REAL NOT NULL,
-        speed_kph REAL NOT NULL,
-        ts        INTEGER NOT NULL
-      );
-    `);
-  }
-
-  async saveLastKnownLocation(userId: string, location: LocationData): Promise<void> {
-    if (!this.db) throw new Error('LocationDB not initialised — call init() first');
-    // Always keep the latest position; overwrite unconditionally so the offline
-    // view shows where the member was last seen, regardless of arrival order.
-    await this.db.runAsync(
-      `INSERT INTO offline_locations (user_id, lat, lng, heading, speed_kph, ts)
-       VALUES (?, ?, ?, ?, ?, ?)
-       ON CONFLICT(user_id) DO UPDATE SET
-         lat       = excluded.lat,
-         lng       = excluded.lng,
-         heading   = excluded.heading,
-         speed_kph = excluded.speed_kph,
-         ts        = excluded.ts`,
-      [userId, location.lat, location.lng, location.heading, location.speed_kph, location.ts],
-    );
-  }
-
-  async getAllLastKnownLocations(): Promise<Map<string, LocationData>> {
-    if (!this.db) throw new Error('LocationDB not initialised — call init() first');
-    const rows = await this.db.getAllAsync<{
-      user_id: string;
-      lat: number;
-      lng: number;
-      heading: number;
-      speed_kph: number;
-      ts: number;
-    }>('SELECT * FROM offline_locations');
-    const map = new Map<string, LocationData>();
-    for (const row of rows) {
-      map.set(row.user_id, {
-        lat: row.lat,
-        lng: row.lng,
-        heading: row.heading,
-        speed_kph: row.speed_kph,
-        ts: row.ts,
-      });
+  async startTracking(): Promise<void> {
+    const bg = await Location.requestBackgroundPermissionsAsync().catch(() => ({ status: 'denied' as const }));
+    if (bg.status === 'granted') {
+      await this._startBackground();
+    } else {
+      await this._startForeground();
     }
-    return map;
-  }
-}
+  },
 
-// ---------------------------------------------------------------------------
-// LocationService
-// ---------------------------------------------------------------------------
+  async _startBackground(): Promise<void> {
+    /*
+     * When expo-task-manager is installed, replace this block:
+     * const isRunning = await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME).catch(() => false);
+     * if (!isRunning) {
+     *   await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME, {
+     *     accuracy: Location.Accuracy.Balanced,
+     *     timeInterval: 3000,
+     *     distanceInterval: 10,
+     *     foregroundService: {
+     *       notificationTitle: 'CONVOY is tracking your location',
+     *       notificationBody: 'Your crew can see you on the map',
+     *       notificationColor: '#DC143C',
+     *     },
+     *     pausesUpdatesAutomatically: false,
+     *   });
+     *   _backgroundStarted = true;
+     * }
+     */
+    await this._startForeground();
+  },
 
-const THROTTLE_MS = 3_000; // max 1 socket emit per 3 seconds (Property 13)
-const GPS_UPDATE_INTERVAL_MS = 1_000; // 1 Hz
-
-export class LocationService {
-  private lastEmitTime = -THROTTLE_MS; // ensures first call always emits
-  private subscription: ExpoLocation.LocationSubscription | null = null;
-
-  constructor(
-    private readonly socket: Pick<Socket, 'emit' | 'connected'>,
-    private readonly locationDB: ILocationDB,
-    private readonly userId: string,
-  ) {}
-
-  /**
-   * Returns true if the emit should be skipped (throttled).
-   * When returning false (not throttled), records `now` as the last emit time.
-   * Exposed for property testing.
-   */
-  shouldThrottle(now: number): boolean {
-    if (now - this.lastEmitTime < THROTTLE_MS) return true;
-    this.lastEmitTime = now;
-    return false;
-  }
-
-  /** Process a single GPS fix: update store, persist offline cache, maybe emit. */
-  async handleGPSUpdate(location: LocationData): Promise<void> {
-    // Always update the Zustand store (1 Hz)
-    useLocationStore.getState().updateMyLocation({
-      lat: location.lat,
-      lng: location.lng,
-      heading: location.heading,
-      speedKph: location.speed_kph,
-      ts: location.ts,
-      receivedAt: Date.now(),
-    });
-
-    // Always persist last-known position to SQLite
-    await this.locationDB.saveLastKnownLocation(this.userId, location);
-
-    // Emit to socket at most once per 3 seconds (Req 8.1)
-    const now = Date.now();
-    if (this.socket.connected && !this.shouldThrottle(now)) {
-      this.socket.emit('location:update', location);
-    }
-  }
-
-  /** Start watching the device GPS. Call stop() to clean up. */
-  async start(): Promise<'granted' | 'denied'> {
-    if (this.subscription) return 'granted'; // already running
-
-    await this.locationDB.init();
-
-    const { status } = await ExpoLocation.requestForegroundPermissionsAsync();
-    if (status !== 'granted') return 'denied';
-
-    this.subscription = await ExpoLocation.watchPositionAsync(
-      {
-        accuracy: ExpoLocation.Accuracy.BestForNavigation,
-        timeInterval: GPS_UPDATE_INTERVAL_MS,
-        distanceInterval: 0,
-      },
-      (pos) => {
-        this.handleGPSUpdate({
-          lat: pos.coords.latitude,
-          lng: pos.coords.longitude,
-          heading: pos.coords.heading ?? 0,
-          speed_kph: (pos.coords.speed ?? 0) * 3.6, // m/s → km/h
-          ts: pos.timestamp,
-        }).catch((err: unknown) => {
-          // GPS callback errors are non-fatal (e.g. SQLite disk full), but log for observability
-          if (__DEV__) console.error('[LocationService] GPS callback error:', err);
+  async _startForeground(): Promise<void> {
+    if (_foregroundSub) return;
+    const { status } = await Location.requestForegroundPermissionsAsync();
+    if (status !== 'granted') return;
+    _foregroundSub = await Location.watchPositionAsync(
+      { accuracy: Location.Accuracy.High, distanceInterval: 10 },
+      (loc) => {
+        if (!_onLocation) return;
+        _onLocation({
+          lat: loc.coords.latitude,
+          lng: loc.coords.longitude,
+          heading: loc.coords.heading ?? 0,
+          speedKph: (loc.coords.speed ?? 0) * 3.6,
+          ts: loc.timestamp,
         });
       },
     );
-    return 'granted';
-  }
+  },
 
-  stop(): void {
-    this.subscription?.remove();
-    this.subscription = null;
-  }
-}
+  async stopTracking(): Promise<void> {
+    if (_backgroundStarted) {
+      // When expo-task-manager is installed, uncomment:
+      // const isRunning = await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME).catch(() => false);
+      // if (isRunning) await Location.stopLocationUpdatesAsync(LOCATION_TASK_NAME);
+      _backgroundStarted = false;
+    }
+    if (_foregroundSub) { _foregroundSub.remove(); _foregroundSub = null; }
+    _onLocation = null;
+  },
+
+  get isTracking(): boolean {
+    return _backgroundStarted || _foregroundSub !== null;
+  },
+};

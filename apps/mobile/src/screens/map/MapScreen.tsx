@@ -45,6 +45,7 @@ import { DriveService } from '../../services/DriveService';
 import { carPlayService } from '../../services/CarPlayService';
 import { androidAutoService } from '../../services/AndroidAutoService';
 import { HapticService } from '../../services/HapticService';
+import { LocationService } from '../../services/LocationService';
 
 interface GapAlert { memberId: string; distanceM: number }
 interface SosAlert { pin: SosPin; memberName: string }
@@ -441,41 +442,26 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
     driveServiceRef.current.startSession();
   }, [groupId]);
 
-  // Track own location — update local state, feed drive recorder, and broadcast to group
+  // Track own location via LocationService (supports background tracking when expo-task-manager is added)
   useEffect(() => {
-    let sub: ExpoLocation.LocationSubscription | null = null;
-    let mounted = true;
-    (async () => {
-      const { status } = await ExpoLocation.requestForegroundPermissionsAsync();
-      if (status !== 'granted' || !mounted) return;
-      sub = await ExpoLocation.watchPositionAsync(
-        { accuracy: ExpoLocation.Accuracy.High, distanceInterval: 10 },
-        (loc) => {
-          const speedKph = (loc.coords.speed ?? 0) * 3.6;
-          const pos = { lat: loc.coords.latitude, lng: loc.coords.longitude };
-          myLocationRef.current = pos;
-          setMyLocation(pos);
-          setMySpeedKph(speedKph);
-          motionStateService.update(speedKph);
-          setIsInMotion(motionStateService.state === 'in_motion');
-          driveServiceRef.current.addPoint(loc.coords.latitude, loc.coords.longitude, speedKph);
-          // Broadcast own position to group (throttled to ≤1 emit per 3 s)
-          const now = Date.now();
-          if (socketRef.current?.connected && now - lastEmitRef.current >= 3000) {
-            socketRef.current.emit('location:update', {
-              lat: loc.coords.latitude,
-              lng: loc.coords.longitude,
-              heading: loc.coords.heading ?? 0,
-              speed_kph: speedKph,
-              ts: loc.timestamp,
-            });
-            lastEmitRef.current = now;
-          }
-        },
-      );
-      if (!mounted) sub.remove();
-    })();
-    return () => { mounted = false; sub?.remove(); };
+    LocationService.setCallback(({ lat, lng, heading, speedKph, ts }) => {
+      const pos = { lat, lng };
+      myLocationRef.current = pos;
+      setMyLocation(pos);
+      setMySpeedKph(speedKph);
+      motionStateService.update(speedKph);
+      setIsInMotion(motionStateService.state === 'in_motion');
+      driveServiceRef.current.addPoint(lat, lng, speedKph);
+      const now = Date.now();
+      if (socketRef.current?.connected && now - lastEmitRef.current >= 3000) {
+        socketRef.current.emit('location:update', {
+          lat, lng, heading, speed_kph: speedKph, ts,
+        });
+        lastEmitRef.current = now;
+      }
+    });
+    LocationService.startTracking();
+    return () => { LocationService.stopTracking(); };
   }, []);
 
   // PTTService lifecycle — create/destroy when socket or active channel changes
