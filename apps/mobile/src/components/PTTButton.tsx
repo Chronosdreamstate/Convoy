@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
+import { HapticService } from '../services/HapticService';
 
 export const PTT_BUTTON_SIZE = 80;
 
@@ -69,11 +70,7 @@ function PTTButton({
   const handlePressIn = () => {
     if (disabled || isMuted) return;
     Animated.spring(scale, { toValue: 0.92, useNativeDriver: true }).start();
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      const Haptics = require('expo-haptics');
-      void Haptics.impactAsync('medium');
-    } catch { /* non-fatal */ }
+    HapticService.pttStart();
     onHoldStart();
   };
 
@@ -82,6 +79,7 @@ function PTTButton({
     if (!isTransmitting) {
       Animated.spring(scale, { toValue: 1, useNativeDriver: true }).start();
     }
+    HapticService.pttEnd();
     onHoldEnd();
   };
 
@@ -138,9 +136,9 @@ function PTTButton({
         onPressOut={handlePressOut}
         disabled={disabled}
         accessibilityRole="button"
-        accessibilityLabel={isTransmitting ? 'Transmitting voice' : 'Push to Talk'}
-        accessibilityHint="Hold to speak to your convoy"
-        accessibilityState={{ busy: isTransmitting, disabled: disabled || isMuted }}
+        accessibilityLabel={isTransmitting ? 'Release to stop transmitting' : isMuted ? 'Push to talk — muted' : 'Hold to talk'}
+        accessibilityHint="Hold down to broadcast your voice to all convoy members"
+        accessibilityState={{ selected: isTransmitting, disabled: disabled || isMuted }}
       >
         <Animated.View
           style={[
