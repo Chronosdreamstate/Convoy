@@ -66,7 +66,7 @@ export default function CreateEventScreen() {
       });
       const eventId = res.data?.event?.id;
       if (eventId) {
-        router.replace({ pathname: '/event/[id]', params: { id: eventId, groupId } });
+        router.replace({ pathname: '/event/[id]' as any, params: { id: eventId, groupId } });
       } else {
         router.back();
       }

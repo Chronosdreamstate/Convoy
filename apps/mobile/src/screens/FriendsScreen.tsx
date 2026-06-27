@@ -392,7 +392,7 @@ export default function FriendsScreen() {
   const [inviting, setInviting] = useState(false);
   const tabAnim = useRef(new Animated.Value(0)).current;
   const [tabBarW, setTabBarW] = useState(0);
-  const searchTimer = useRef<ReturnType<typeof setTimeout>>();
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const switchTab = (idx: number) => {
     setTab(idx === 0 ? 'friends' : 'requests');

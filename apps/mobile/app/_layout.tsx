@@ -1,5 +1,6 @@
 ﻿import { useEffect, useRef, useState } from 'react';
-import { Alert, Animated, AppState, Linking, Platform, StyleSheet, Text, View } from 'react-native';
+import { Animated, AppState, Linking, Platform, StyleSheet, Text, View } from 'react-native';
+import PushPermissionModal from '../src/components/PushPermissionModal';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Stack, useRouter } from 'expo-router';
 import ErrorBoundary from '../src/components/ErrorBoundary';
@@ -185,6 +186,7 @@ export default function RootLayout() {
 
   // Guard: push registration must only run once per session, after auth confirms
   const pushRegisteredRef = useRef(false);
+  const [showPushModal, setShowPushModal] = useState(false);
 
   // Startup: load stored token, refresh it, then fetch /me to hydrate the user
   useEffect(() => {
@@ -238,33 +240,7 @@ export default function RootLayout() {
 
     void AsyncStorage.getItem('push_permission_asked').then((asked) => {
       if (asked) return;
-      setTimeout(() => {
-        Alert.alert(
-          "Stay in the loop 🚗",
-          "Get notified when your convoy starts moving and road hazards are reported.",
-          [
-            { text: "Not now", style: "cancel" },
-            {
-              text: "Enable",
-              onPress: () => {
-                void AsyncStorage.setItem('push_permission_asked', '1');
-                if (pushRegisteredRef.current) return;
-                pushRegisteredRef.current = true;
-                registerForPushNotificationsAsync()
-                  .then((pushToken) => {
-                    if (pushToken) {
-                      return apiClient.post('/api/v1/devices', {
-                        pushToken,
-                        platform: Platform.OS === 'ios' ? 'ios' : 'android',
-                      });
-                    }
-                  })
-                  .catch(() => {});
-              },
-            },
-          ],
-        );
-      }, 3000);
+      setTimeout(() => setShowPushModal(true), 3000);
     });
   }, [isAuthenticated, isLoading, activeGroupId]);
 
@@ -385,6 +361,29 @@ export default function RootLayout() {
         </Stack>
       </ErrorBoundary>
       <OfflineIndicator isOffline={isOffline} />
+      <PushPermissionModal
+        visible={showPushModal}
+        onEnable={() => {
+          setShowPushModal(false);
+          void AsyncStorage.setItem('push_permission_asked', '1');
+          if (pushRegisteredRef.current) return;
+          pushRegisteredRef.current = true;
+          registerForPushNotificationsAsync()
+            .then((pushToken) => {
+              if (pushToken) {
+                return apiClient.post('/api/v1/devices', {
+                  pushToken,
+                  platform: Platform.OS === 'ios' ? 'ios' : 'android',
+                });
+              }
+            })
+            .catch(() => {});
+        }}
+        onSkip={() => {
+          setShowPushModal(false);
+          void AsyncStorage.setItem('push_permission_asked', '1');
+        }}
+      />
     </SafeAreaProvider>
   );
 }

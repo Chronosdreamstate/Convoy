@@ -164,12 +164,53 @@ function GroupCard({ group, onJoin, onView, joining, showDistance, eventCountdow
 }
 
 // ---------------------------------------------------------------------------
+// FeaturedCard — compact 140px card for horizontal featured scroll
+// ---------------------------------------------------------------------------
+
+interface FeaturedCardProps {
+  group: PublicGroup;
+  onJoin: (id: string) => void;
+  onView: (id: string) => void;
+  joining: boolean;
+  eventCountdown?: EventCountdown | null;
+}
+
+function FeaturedCard({ group, onJoin, onView, joining, eventCountdown }: FeaturedCardProps) {
+  return (
+    <TouchableOpacity
+      style={styles.featCard}
+      onPress={() => onView(group.id)}
+      activeOpacity={0.8}
+      accessibilityLabel={`Featured: ${group.name}, ${group.memberCount} members`}
+      accessibilityRole="button"
+    >
+      <Text style={styles.featName} numberOfLines={2}>{group.name}</Text>
+      <Text style={styles.featMeta}>👥 {group.memberCount}</Text>
+      {eventCountdown && (
+        <Text style={styles.featEvent} numberOfLines={1}>{eventCountdown.label}</Text>
+      )}
+      <TouchableOpacity
+        style={[styles.featJoinBtn, joining && { opacity: 0.5 }]}
+        onPress={(e) => { e.stopPropagation?.(); onJoin(group.id); }}
+        disabled={joining}
+        accessibilityRole="button"
+        accessibilityLabel={`Join ${group.name}`}
+      >
+        <Text style={styles.featJoinText}>{joining ? '...' : 'Join →'}</Text>
+      </TouchableOpacity>
+    </TouchableOpacity>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // GroupBrowseScreen
 // ---------------------------------------------------------------------------
 
 export default function GroupBrowseScreen() {
   const router = useRouter();
   const [groups, setGroups] = useState<PublicGroup[]>([]);
+  const [featuredGroups, setFeaturedGroups] = useState<PublicGroup[]>([]);
+  const [nearbyQuick, setNearbyQuick] = useState<PublicGroup[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [search, setSearch] = useState('');
@@ -218,10 +259,42 @@ export default function GroupBrowseScreen() {
     }
   }, []);
 
-  // Initial load
+  const fetchFeatured = useCallback(async () => {
+    try {
+      const res = await apiClient.get<{ groups: PublicGroup[] }>('/groups/featured');
+      setFeaturedGroups(res.data.groups ?? []);
+    } catch {
+      // silent — featured is a nice-to-have
+    }
+  }, []);
+
+  // Initial load — parallel fetch of main groups + featured
   useEffect(() => {
     void fetchGroups();
-  }, [fetchGroups]);
+    void fetchFeatured();
+  }, [fetchGroups, fetchFeatured]);
+
+  // Auto-fetch nearby quick list if location permission already granted (no request)
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { status } = await ExpoLocation.getForegroundPermissionsAsync();
+        if (status !== 'granted' || cancelled) return;
+        const loc = await ExpoLocation.getCurrentPositionAsync({ accuracy: ExpoLocation.Accuracy.Balanced });
+        if (cancelled) return;
+        const coords = { lat: loc.coords.latitude, lng: loc.coords.longitude };
+        userCoordsRef.current = coords;
+        const res = await apiClient.get<{ groups: PublicGroup[] }>('/groups', {
+          params: { accessType: 'open', nearby: true, lat: coords.lat, lng: coords.lng, limit: 5 },
+        });
+        if (!cancelled) setNearbyQuick(res.data.groups ?? []);
+      } catch {
+        // silent
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   // Fetch upcoming events for the first 5 visible groups
   useEffect(() => {

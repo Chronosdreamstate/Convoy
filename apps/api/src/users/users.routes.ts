@@ -40,8 +40,9 @@ async function usersRoutes(
     const userId = (request.user as { sub: string }).sub;
 
     const result = await fastify.db.query<UserRow>(
-      `SELECT id, display_name, phone_number, email, avatar_url, ptt_callsign, privacy, created_at
-       FROM users WHERE id = $1`,
+      `SELECT u.id, u.display_name, u.phone_number, u.email, u.avatar_url, u.ptt_callsign, u.privacy, u.created_at,
+              (SELECT vehicle_type FROM vehicles WHERE user_id = u.id AND is_main = true LIMIT 1) AS primary_vehicle_type
+       FROM users u WHERE u.id = $1`,
       [userId],
     );
 

@@ -13,7 +13,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import { theme } from '../theme';
 import { apiClient } from '../services/apiClient';
-import { SkeletonCard } from '../components/SkeletonLoader';
+import SkeletonCard from '../components/SkeletonLoader';
 import { useSocketStore } from '../stores/socketStore';
 
 // ---------------------------------------------------------------------------

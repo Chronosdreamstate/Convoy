@@ -944,3 +944,64 @@ const styles = StyleSheet.create({
     height: SCREEN_H * 0.8,
   },
 });
+
+const extraStyles = StyleSheet.create({
+  streakBanner: {
+    backgroundColor: '#1A1200',
+    borderWidth: 1,
+    borderColor: '#F59E0B',
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    marginBottom: 4,
+  },
+  streakText: {
+    color: '#F59E0B',
+    fontSize: 13,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  secondaryRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  secondaryBtn: {
+    flex: 1,
+    backgroundColor: '#242424',
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: 'center' as const,
+    borderWidth: 1,
+    borderColor: '#2A2A2A',
+  },
+  secondaryBtnText: {
+    color: '#888888',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  socialPrompt: {
+    backgroundColor: '#1C1C1C',
+    borderRadius: 12,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#2A2A2A',
+    gap: 10,
+  },
+  socialPromptText: {
+    color: '#888888',
+    fontSize: 13,
+    textAlign: 'center',
+    lineHeight: 18,
+  },
+  inviteBtn: {
+    backgroundColor: '#DC143C',
+    borderRadius: 8,
+    paddingVertical: 10,
+    alignItems: 'center' as const,
+  },
+  inviteBtnText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+});

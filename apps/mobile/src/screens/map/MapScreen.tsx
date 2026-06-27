@@ -98,9 +98,11 @@ function haversineDistanceM(lat1: number, lng1: number, lat2: number, lng2: numb
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-const MemberMarkerView = React.memo(function MemberMarkerView({ member, isStale, distanceM }: { member: MemberLocation; isStale: boolean; distanceM?: number }) {
+const MemberMarkerView = React.memo(function MemberMarkerView({ member, isStale, distanceM, callsign, gapStatus }: { member: MemberLocation; isStale: boolean; distanceM?: number; callsign?: string; gapStatus?: 'ok' | 'warning' | 'alert' }) {
   const name = member.displayName ?? `M${member.userId.slice(0, 4)}`;
-  const initials = memberInitials(name).slice(0, 2);
+  // Prefer callsign on map markers — more meaningful to car enthusiasts than initials
+  const displayLabel = callsign ? callsign.slice(0, 6).toUpperCase() : memberInitials(name).slice(0, 2) || '?';
+  const gapDotColor = gapStatus === 'alert' ? '#DC143C' : gapStatus === 'warning' ? '#F59E0B' : '#22C55E';
   const ringScale = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
@@ -126,7 +128,7 @@ const MemberMarkerView = React.memo(function MemberMarkerView({ member, isStale,
             height: 40,
             borderRadius: 20,
             borderWidth: 1.5,
-            borderColor: '#22C55E',
+            borderColor: gapDotColor,
             opacity: 0.5,
             transform: [{ scale: ringScale }],
           }}
@@ -145,11 +147,12 @@ const MemberMarkerView = React.memo(function MemberMarkerView({ member, isStale,
           opacity: isStale ? 0.45 : 1,
         }}
       >
-        <Text style={{ color: '#fff', fontSize: 11, fontWeight: '800' }}>{initials || '?'}</Text>
+        <Text style={{ color: '#fff', fontSize: 11, fontWeight: '800' }}>{displayLabel}</Text>
       </View>
+      <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: isStale ? '#555' : gapDotColor, marginTop: 1 }} />
       <View
         style={{
-          marginTop: 3,
+          marginTop: 2,
           backgroundColor: 'rgba(10,10,10,0.85)',
           borderRadius: 6,
           paddingHorizontal: 5,
@@ -158,11 +161,11 @@ const MemberMarkerView = React.memo(function MemberMarkerView({ member, isStale,
         }}
       >
         <Text style={{ color: '#FFFFFF', fontSize: 9, fontWeight: '600' }} numberOfLines={1}>
-          {name.split(' ')[0]}
+          {callsign ?? name.split(' ')[0]}
         </Text>
         {distanceM != null && (
-          <Text style={{ color: '#DC143C', fontSize: 8, fontWeight: '700' }} numberOfLines={1}>
-            📏 {distanceM >= 1000 ? `${(distanceM / 1000).toFixed(1)}km` : `${Math.round(distanceM)}m`}
+          <Text style={{ color: gapDotColor, fontSize: 8, fontWeight: '700' }} numberOfLines={1}>
+            {distanceM >= 1000 ? `${(distanceM / 1000).toFixed(1)}km` : `${Math.round(distanceM)}m`}
           </Text>
         )}
       </View>
@@ -176,10 +179,12 @@ interface MemberMarkerProps {
   myLng: number | null;
   staleMs: number;
   vehicleMap: React.MutableRefObject<Record<string, string>>;
+  callsign?: string;
+  gapStatus?: 'ok' | 'warning' | 'alert';
 }
 
 const MemberMarker = React.memo(
-  function MemberMarker({ member: m, myLat, myLng, staleMs, vehicleMap }: MemberMarkerProps) {
+  function MemberMarker({ member: m, myLat, myLng, staleMs, vehicleMap, callsign, gapStatus }: MemberMarkerProps) {
     const isStale = Date.now() - m.receivedAt > staleMs;
     const vehicle = vehicleMap.current[m.userId];
     const speedLine = isStale ? `Last seen ${formatElapsed(m.receivedAt)}` : `${m.speedKph.toFixed(0)} km/h`;
@@ -189,17 +194,17 @@ const MemberMarker = React.memo(
       ? haversineDistanceM(myLat, myLng, m.lat, m.lng)
       : undefined;
     const markerLabel = distM != null
-      ? `${memberName}, ${distM >= 1000 ? `${(distM / 1000).toFixed(1)} km away` : `${Math.round(distM)} m away`}`
-      : memberName;
+      ? `${callsign ?? memberName}, ${distM >= 1000 ? `${(distM / 1000).toFixed(1)} km away` : `${Math.round(distM)} m away`}`
+      : (callsign ?? memberName);
     return (
       <Marker
         coordinate={{ latitude: m.lat, longitude: m.lng }}
-        title={memberName}
+        title={callsign ?? memberName}
         description={description}
         anchor={{ x: 0.5, y: 1 }}
         accessibilityLabel={markerLabel}
       >
-        <MemberMarkerView member={m} isStale={isStale} distanceM={distM} />
+        <MemberMarkerView member={m} isStale={isStale} distanceM={distM} callsign={callsign} gapStatus={gapStatus} />
       </Marker>
     );
   },
@@ -209,7 +214,9 @@ const MemberMarker = React.memo(
     prev.member.speedKph === next.member.speedKph &&
     prev.member.receivedAt === next.member.receivedAt &&
     prev.myLat === next.myLat &&
-    prev.myLng === next.myLng,
+    prev.myLng === next.myLng &&
+    prev.callsign === next.callsign &&
+    prev.gapStatus === next.gapStatus,
 );
 
 const motionStateService = new MotionStateService();
@@ -297,6 +304,7 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
   const activeDestRef = useRef<{ lat: number; lng: number } | null>(null); // dest of active route
   const memberNamesRef  = useRef<Record<string, string>>({});
   const memberVehiclesRef = useRef<Record<string, string>>({});
+  const memberCallsignsRef = useRef<Record<string, string>>({});
   const driveServiceRef = useRef(new DriveService());
   const memberCountRef  = useRef(0);
   const lastEmitRef     = useRef<number>(-3000); // throttle own-location emits to 1/3 s
@@ -958,10 +966,28 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
   const renderMemberRow = useCallback(({ item: m }: { item: MemberLocation }) => {
     const isStale = Date.now() - m.receivedAt > 30_000;
     const memberName = m.displayName ?? `Member ${m.userId.slice(0, 6)}`;
+    const callsign = memberCallsignsRef.current[m.userId];
+    const gapAlert = gapAlerts.find(a => a.memberId === m.userId);
+    const dotColor = isStale ? '#444444' : gapAlert ? (gapAlert.distanceM > 3000 ? '#DC143C' : '#F59E0B') : '#22C55E';
+    const distM = myLocation ? haversineDistanceM(myLocation.lat, myLocation.lng, m.lat, m.lng) : null;
+    const distLabel = distM != null ? (distM >= 1000 ? `📍 ${(distM / 1000).toFixed(1)} km` : `📍 ${Math.round(distM)} m`) : null;
+    const battery = (m as any).batteryPercent as number | undefined;
     return (
       <View style={styles.memberRow}>
-        <View style={[styles.dot, isStale ? styles.dotOffline : styles.dotOnline]} />
-        <Text style={styles.memberText}>{memberName}</Text>
+        <View style={[styles.dot, { backgroundColor: dotColor }]} />
+        <View style={{ flex: 1 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+            <Text style={styles.memberText} numberOfLines={1}>
+              {callsign ? `${callsign} · ${memberName}` : memberName}
+            </Text>
+            {battery != null && battery < 20 && (
+              <Text style={{ color: '#DC143C', fontSize: 12 }}>⚡</Text>
+            )}
+          </View>
+          {distLabel && (
+            <Text style={{ color: dotColor, fontSize: 11 }} numberOfLines={1}>{distLabel}</Text>
+          )}
+        </View>
         <Text style={styles.memberDetail}>{isStale ? formatElapsed(m.receivedAt) : `${m.speedKph.toFixed(0)} km/h`}</Text>
         {groupId && (
           <TouchableOpacity
@@ -976,7 +1002,7 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
         )}
       </View>
     );
-  }, [groupId, handlePickSosTarget]);
+  }, [groupId, handlePickSosTarget, gapAlerts, myLocation]);
 
   const staleMs = 30_000;
 
@@ -986,6 +1012,16 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
     const staleFallback = Object.values(stalePositions).filter((p) => !liveMemberIds.has(p.userId));
     return [...Object.values(memberLocations), ...staleFallback];
   }, [memberLocations, stalePositions]);
+
+  // Sort members by distance from my location (closest first) for easy gap scanning
+  const sortedMembers = useMemo(() => {
+    if (!myLocation) return members;
+    return [...members].sort((a, b) => {
+      const da = haversineDistanceM(myLocation.lat, myLocation.lng, a.lat, a.lng);
+      const db = haversineDistanceM(myLocation.lat, myLocation.lng, b.lat, b.lng);
+      return da - db;
+    });
+  }, [members, myLocation]);
 
   const rallies = useMemo(() => Array.from(rallyPoints.values()), [rallyPoints]);
   const sosPinList = useMemo(() => Array.from(sosPins.values()), [sosPins]);
@@ -1007,16 +1043,22 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
         onLongPress={handleLongPress}
         onPress={() => { if (autoCenterAll) setAutoCenterAll(false); }}
       >
-        {members.map((m: MemberLocation) => (
-          <MemberMarker
-            key={m.userId}
-            member={m}
-            myLat={myLocation?.lat ?? null}
-            myLng={myLocation?.lng ?? null}
-            staleMs={staleMs}
-            vehicleMap={memberVehiclesRef}
-          />
-        ))}
+        {members.map((m: MemberLocation) => {
+          const ga = gapAlerts.find(a => a.memberId === m.userId);
+          const gapStatus = ga ? (ga.distanceM > 3000 ? 'alert' : 'warning') as const : 'ok' as const;
+          return (
+            <MemberMarker
+              key={m.userId}
+              member={m}
+              myLat={myLocation?.lat ?? null}
+              myLng={myLocation?.lng ?? null}
+              staleMs={staleMs}
+              vehicleMap={memberVehiclesRef}
+              callsign={memberCallsignsRef.current[m.userId]}
+              gapStatus={gapStatus}
+            />
+          );
+        })}
         {/* Dropped pin (Req 5.1–5.3) */}
         {droppedPin && (
           <Marker
@@ -1449,7 +1491,7 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
                   : <View style={styles.panelConnecting}><Text style={styles.emptyText}>Connecting…</Text></View>
               ) : (
                 <FlatList
-                  data={mySpeedKph > 5 ? members.slice(0, 4) : members}
+                  data={mySpeedKph > 5 ? sortedMembers.slice(0, 4) : sortedMembers}
                   keyExtractor={(m) => m.userId}
                   renderItem={renderMemberRow}
                   removeClippedSubviews

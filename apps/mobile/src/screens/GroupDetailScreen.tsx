@@ -32,7 +32,7 @@ interface GroupDetail {
   accessType: 'open' | 'invite_only';
   status: string;
   createdAt: string;
-  members: Array<{ userId: string; displayName: string; isAdmin: boolean }>;
+  members: Array<{ userId: string; displayName: string; isAdmin: boolean; vehicleType?: string }>;
   upcomingEvent?: GroupEvent;
   isMember?: boolean;
 }
@@ -48,6 +48,14 @@ function initials(name: string): string {
     .slice(0, 2)
     .join('')
     .toUpperCase();
+}
+
+function getVehicleEmoji(vehicleType: string | undefined): string {
+  const map: Record<string, string> = {
+    car: '🚗', sports_car: '🏎️', suv: '🚙',
+    truck: '🛻', motorcycle: '🏍️', van: '🚐', track_car: '🏎️',
+  };
+  return map[vehicleType?.toLowerCase() ?? ''] ?? '🚗';
 }
 
 function formatDate(iso: string): string {
@@ -205,8 +213,11 @@ export default function GroupDetailScreen() {
             <Text style={styles.sectionLabel}>MEMBERS</Text>
             <View style={styles.avatarRow}>
               {visibleMembers.map((m, i) => (
-                <View key={m.userId} style={[styles.avatar, { marginLeft: i > 0 ? -8 : 0, zIndex: 10 - i }]}>
-                  <Text style={styles.avatarText}>{initials(m.displayName)}</Text>
+                <View key={m.userId} style={{ alignItems: 'center', marginLeft: i > 0 ? -8 : 0, zIndex: 10 - i }}>
+                  <View style={styles.avatar}>
+                    <Text style={styles.avatarText}>{initials(m.displayName)}</Text>
+                  </View>
+                  <Text style={{ fontSize: 10, marginTop: 2 }}>{getVehicleEmoji(m.vehicleType)}</Text>
                 </View>
               ))}
               {extraCount > 0 && (

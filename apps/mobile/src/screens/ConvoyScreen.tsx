@@ -68,11 +68,25 @@ interface GroupMember {
   distanceM?: number;
   callsign: string | null;
   isGroupAdmin: boolean;
+  vehicleType?: string;
 }
 
 // Initials from a display name (up to 2 chars)
 function memberInitials(name: string): string {
   return name.trim().split(/\s+/).slice(0, 2).map((w) => w[0] ?? '').join('').toUpperCase();
+}
+
+function getVehicleEmoji(vehicleType: string | undefined): string {
+  const map: Record<string, string> = {
+    car: '🚗',
+    sports_car: '🏎️',
+    suv: '🚙',
+    truck: '🛻',
+    motorcycle: '🏍️',
+    van: '🚐',
+    track_car: '🏎️',
+  };
+  return map[vehicleType?.toLowerCase() ?? ''] ?? '🚗';
 }
 
 // Pulsing online indicator — uses Animated so it only runs for online members
@@ -305,6 +319,7 @@ export default function ConvoyScreen({ userId }: Props) {
           isMuted: m.isMuted,
           callsign: m.pttCallsign ?? null,
           isGroupAdmin: m.isAdmin,
+          vehicleType: (m as unknown as { vehicleType?: string }).vehicleType,
         }));
         setMembers(normalised);
         setGroupMeta({ memberCount: res.data.members.length });
@@ -1048,6 +1063,7 @@ export default function ConvoyScreen({ userId }: Props) {
                 accessibilityLabel={`${m.displayName}${m.callsign ? ` ${m.callsign}` : ''}, ${isLive ? 'online' : 'offline'}`}
               >
                 <View style={memberStyles.nameRow}>
+                  <Text style={memberStyles.vehicleEmoji}>{getVehicleEmoji(m.vehicleType)}</Text>
                   <Text style={memberStyles.name}>{m.displayName}</Text>
                   {memberIsAdmin && <Text style={memberStyles.adminBadge}>ADMIN</Text>}
                   {m.isMuted && <Text style={memberStyles.mutedIcon}>🔇</Text>}
@@ -1264,6 +1280,10 @@ const memberStyles = StyleSheet.create({
   },
   mutedIcon: {
     fontSize: 13,
+  },
+  vehicleEmoji: {
+    fontSize: 14,
+    marginRight: 4,
   },
   callsign: {
     color: '#555555',
