@@ -119,6 +119,12 @@ export default function EventDetailScreen() {
 
   useEffect(() => { void load(); }, [load]);
 
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await load();
+    setRefreshing(false);
+  }, [load]);
+
   async function handleRsvp(status: RsvpStatus) {
     if (!resolvedGroupId || !eventId) return;
     setRsvpLoading(true);

@@ -404,6 +404,9 @@ export default function RootLayout() {
           <Stack.Screen name="search" options={{ animation: 'fade' }} />
           <Stack.Screen name="convoy-history/[groupId]" />
           <Stack.Screen name="profile/[userId]" />
+          <Stack.Screen name="achievements" />
+          <Stack.Screen name="fuel" />
+          <Stack.Screen name="group-photos/[groupId]" />
         </Stack>
       </ErrorBoundary>
       <OfflineIndicator isOffline={isOffline} />

@@ -110,12 +110,6 @@ export default function GroupDetailScreen() {
   const [joining, setJoining] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
-  const onRefresh = useCallback(async () => {
-    setRefreshing(true);
-    await fetchGroup();
-    setRefreshing(false);
-  }, [fetchGroup]);
-
   const fetchGroup = useCallback(async () => {
     if (!id) return;
     setLoading(true);
@@ -129,6 +123,12 @@ export default function GroupDetailScreen() {
       setLoading(false);
     }
   }, [id]);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await fetchGroup();
+    setRefreshing(false);
+  }, [fetchGroup]);
 
   useEffect(() => { void fetchGroup(); }, [fetchGroup]);
 

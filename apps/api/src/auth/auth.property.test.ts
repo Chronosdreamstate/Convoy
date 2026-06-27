@@ -362,3 +362,54 @@ describe('Property 3: Auth error messages are credential-agnostic', () => {
     await app.close();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Property P128: Expired/invalid token returns 4xx from POST /auth/refresh
+// Property P129: Fastify JWT sign produces an accessToken of length > 20
+// Property P130: Missing refresh token cookie returns non-2xx
+// ---------------------------------------------------------------------------
+describe('Property P128-P130: Token refresh behaviour', () => {
+  it('P128: any random string as refresh token returns 4xx', async () => {
+    const app = buildTestApp();
+    await app.ready();
+
+    await fc.assert(
+      fc.asyncProperty(fc.string({ minLength: 1 }), async (token) => {
+        const res = await app.inject({
+          method: 'POST',
+          url: '/api/v1/auth/refresh',
+          cookies: { refreshToken: token },
+        });
+        expect(res.statusCode).toBeGreaterThanOrEqual(400);
+      }),
+      { numRuns: 20 },
+    );
+
+    await app.close();
+  });
+
+  it('P129: signed JWT access token has length greater than 20 characters', async () => {
+    const app = buildTestApp();
+    await app.ready();
+
+    const token: string = (app as unknown as { jwt: { sign: (p: object) => string } }).jwt.sign({
+      sub: 'user-abc',
+      displayName: 'Rider',
+    });
+
+    expect(typeof token).toBe('string');
+    expect(token.length).toBeGreaterThan(20);
+
+    await app.close();
+  });
+
+  it('P130: missing refresh token cookie returns 400 or 401', async () => {
+    const app = buildTestApp();
+    await app.ready();
+
+    const res = await app.inject({ method: 'POST', url: '/api/v1/auth/refresh' });
+    expect(res.statusCode).toBeGreaterThanOrEqual(400);
+
+    await app.close();
+  });
+});
