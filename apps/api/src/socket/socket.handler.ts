@@ -546,6 +546,53 @@ export function registerSocketHandlers(
       }).catch((err: unknown) => fastify.log.error({ err }, 'ptt end error'));
     });
 
+    // Quick-action convoy alerts (Stopping / Regrouping / Incident)
+    socket.on('convoy:alert', (data: unknown) => {
+      const { type, message, groupId: alertGroupId } = (data as {
+        type?: 'stopping' | 'regroup' | 'incident';
+        message?: string;
+        groupId?: string;
+      }) ?? {};
+      if (!type || !message || alertGroupId !== groupId) return;
+
+      (async () => {
+        const result = await fastify.db.query<{ ptt_callsign: string | null; display_name: string }>(
+          'SELECT ptt_callsign, display_name FROM users WHERE id = $1',
+          [userId],
+        );
+        const user = result.rows[0];
+        const senderCallsign = user?.ptt_callsign ?? user?.display_name ?? 'Unknown';
+
+        io.to(`group:${groupId}`).emit('convoy:alert', {
+          type,
+          message,
+          senderCallsign,
+          senderId: userId,
+          timestamp: new Date().toISOString(),
+        });
+
+        // Non-fatal: persist alert to notification_history for offline members
+        try {
+          const members = await fastify.db.query<{ user_id: string }>(
+            'SELECT user_id FROM convoy_members WHERE group_id = $1 AND user_id != $2 AND left_at IS NULL',
+            [groupId, userId],
+          );
+          for (const m of members.rows) {
+            await fastify.db.query(
+              'INSERT INTO notification_history (user_id, type, title, body, data) VALUES ($1, $2, $3, $4, $5)',
+              [m.user_id, 'convoy_alert', `${senderCallsign}: ${type}`, message, JSON.stringify({ groupId })],
+            );
+          }
+        } catch { /* non-fatal */ }
+      })().catch((err: unknown) => fastify.log.error({ err }, 'convoy alert error'));
+    });
+
+    // PTT replay request — logs the intent (audio storage not yet implemented)
+    socket.on('ptt:replay_request', (data: unknown) => {
+      const { messageId } = (data as { messageId?: string }) ?? {};
+      fastify.log.info({ messageId, groupId, userId }, 'ptt replay requested');
+    });
+
     // Admin mute/unmute a member's PTT (Req 10.11)
     socket.on('ptt:admin_mute', (data: unknown) => {
       const { targetUserId, muted } = (data as { targetUserId?: string; muted?: boolean }) ?? {};
