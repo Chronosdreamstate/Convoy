@@ -379,12 +379,12 @@ export default function SettingsScreen() {
           <SettingRow
             icon="🔐"
             label="Privacy Policy"
-            onPress={() => Linking.openURL(PRIVACY_POLICY_URL).catch(() => {})}
+            onPress={() => router.push('/privacy')}
           />
           <SettingRow
             icon="📄"
             label="Terms of Service"
-            onPress={() => Linking.openURL(TERMS_URL).catch(() => {})}
+            onPress={() => router.push('/terms')}
             last
           />
         </View>
@@ -606,7 +606,7 @@ export default function SettingsScreen() {
           <SettingRow
             icon="🔒"
             label="Privacy Policy"
-            onPress={() => Linking.openURL(PRIVACY_POLICY_URL).catch(() => {})}
+            onPress={() => router.push('/privacy')}
           />
           <SettingRow
             icon="ℹ️"
