@@ -1,9 +1,9 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   Animated,
   FlatList,
   Modal,
+  RefreshControl,
   SafeAreaView,
   StyleSheet,
   Text,
@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { theme } from '../theme';
 import { apiClient } from '../services/apiClient';
+import { SkeletonBox } from '../components/SkeletonLoader';
 
 // ---------------------------------------------------------------------------
 // Achievement definitions
@@ -184,20 +185,31 @@ interface AchievementProgress { id: string; unlocked: boolean; progress: number;
 export default function AchievementsScreen() {
   const [achievements, setAchievements] = useState<Achievement[]>(ACHIEVEMENTS);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [selected, setSelected] = useState<Achievement | null>(null);
 
-  useEffect(() => {
-    apiClient.get<{ achievements: AchievementProgress[] }>('/api/v1/users/me/achievements')
-      .then((res) => {
-        const progressMap = new Map(res.data.achievements.map((a) => [a.id, a]));
-        setAchievements(ACHIEVEMENTS.map((a) => {
-          const p = progressMap.get(a.id);
-          return p ? { ...a, unlocked: p.unlocked, progress: p.progress, total: p.total } : a;
-        }));
-      })
-      .catch(() => { /* keep static fallback */ })
-      .finally(() => setLoading(false));
+  const fetchAchievements = useCallback(async () => {
+    try {
+      const res = await apiClient.get<{ achievements: AchievementProgress[] }>('/api/v1/users/me/achievements');
+      const progressMap = new Map(res.data.achievements.map((a) => [a.id, a]));
+      setAchievements(ACHIEVEMENTS.map((a) => {
+        const p = progressMap.get(a.id);
+        return p ? { ...a, unlocked: p.unlocked, progress: p.progress, total: p.total } : a;
+      }));
+    } catch {
+      // keep static fallback
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
   }, []);
+
+  useEffect(() => { void fetchAchievements(); }, [fetchAchievements]);
+
+  const handleRefresh = useCallback(() => {
+    setRefreshing(true);
+    void fetchAchievements();
+  }, [fetchAchievements]);
 
   const unlockedCount = achievements.filter((a) => a.unlocked).length;
 
@@ -207,7 +219,6 @@ export default function AchievementsScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Header */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Achievements</Text>
         <View style={styles.headerBadge}>
@@ -216,8 +227,13 @@ export default function AchievementsScreen() {
       </View>
 
       {loading ? (
-        <View style={styles.centered}>
-          <ActivityIndicator color={theme.colors.accent} size="large" />
+        <View style={styles.skeletonGrid}>
+          {Array.from({ length: 9 }).map((_, i) => (
+            <View key={i} style={styles.skeletonCard}>
+              <SkeletonBox width={40} height={40} borderRadius={10} />
+              <SkeletonBox width="70%" height={10} />
+            </View>
+          ))}
         </View>
       ) : (
         <FlatList
@@ -228,10 +244,17 @@ export default function AchievementsScreen() {
           columnWrapperStyle={styles.row}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+              tintColor={theme.colors.accent}
+              colors={[theme.colors.accent]}
+            />
+          }
         />
       )}
 
-      {/* Detail modal */}
       <DetailModal item={selected} onClose={() => setSelected(null)} />
     </SafeAreaView>
   );
@@ -248,10 +271,22 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: theme.colors.bg,
   },
-  centered: {
-    flex: 1,
+  skeletonGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    paddingHorizontal: 12,
+    gap: 10,
+  },
+  skeletonCard: {
+    width: CARD_SIZE,
+    aspectRatio: 0.9,
+    backgroundColor: theme.colors.card,
+    borderRadius: theme.radius.md,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 10,
   },
 
   // Header

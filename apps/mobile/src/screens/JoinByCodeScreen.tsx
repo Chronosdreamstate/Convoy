@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Clipboard,
+  KeyboardAvoidingView,
   Platform,
   Pressable,
   SafeAreaView,
@@ -74,6 +75,7 @@ export default function JoinByCodeScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity
@@ -158,6 +160,7 @@ export default function JoinByCodeScreen() {
           )}
         </TouchableOpacity>
       </View>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }

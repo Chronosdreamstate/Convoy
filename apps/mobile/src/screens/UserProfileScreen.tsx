@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
   Animated,
   ScrollView,
   Share,
@@ -12,6 +11,8 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { apiClient } from '../services/apiClient';
+import { SkeletonBox } from '../components/SkeletonLoader';
+import { NetworkError } from '../components/NetworkError';
 
 interface UserProfile {
   id: string;
@@ -95,19 +96,46 @@ export default function UserProfileScreen() {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.centered}>
-        <ActivityIndicator size="large" color="#DC143C" />
+      <SafeAreaView style={styles.root} edges={['top']}>
+        <View style={styles.header}>
+          <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+            <Text style={styles.backIcon}>‹</Text>
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Profile</Text>
+          <View style={styles.backBtn} />
+        </View>
+        <View style={styles.skeletonWrap}>
+          <View style={styles.skeletonHeroCard}>
+            <SkeletonBox width={80} height={80} borderRadius={40} />
+            <SkeletonBox width="50%" height={22} />
+            <SkeletonBox width="35%" height={14} />
+            <SkeletonBox width="90%" height={40} />
+          </View>
+          <View style={styles.skeletonStatsCard}>
+            <SkeletonBox width="30%" height={28} />
+            <View style={styles.statDivider} />
+            <SkeletonBox width="30%" height={28} />
+          </View>
+          <View style={{ marginHorizontal: 16, marginTop: 20, gap: 10 }}>
+            <SkeletonBox width="20%" height={11} />
+            <SkeletonBox width="100%" height={72} borderRadius={16} />
+          </View>
+        </View>
       </SafeAreaView>
     );
   }
 
   if (error || !profile) {
     return (
-      <SafeAreaView style={styles.centered}>
-        <Text style={styles.errorText}>{error ?? 'User not found.'}</Text>
-        <TouchableOpacity style={styles.retryBtn} onPress={() => void load()}>
-          <Text style={styles.retryText}>Retry</Text>
-        </TouchableOpacity>
+      <SafeAreaView style={styles.root} edges={['top']}>
+        <View style={styles.header}>
+          <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+            <Text style={styles.backIcon}>‹</Text>
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Profile</Text>
+          <View style={styles.backBtn} />
+        </View>
+        <NetworkError onRetry={() => void load()} message={error ?? 'User not found.'} />
       </SafeAreaView>
     );
   }
@@ -216,8 +244,18 @@ export default function UserProfileScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#0A0A0A' },
-  centered: { flex: 1, backgroundColor: '#0A0A0A', alignItems: 'center', justifyContent: 'center' },
   scroll: { paddingBottom: 40 },
+  skeletonWrap: { flex: 1 },
+  skeletonHeroCard: {
+    backgroundColor: '#1C1C1C', marginHorizontal: 16, marginTop: 20,
+    borderRadius: 20, padding: 24, alignItems: 'center', gap: 12,
+    borderWidth: 1, borderColor: '#2A2A2A',
+  },
+  skeletonStatsCard: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around',
+    backgroundColor: '#1C1C1C', marginHorizontal: 16, marginTop: 12,
+    borderRadius: 16, paddingVertical: 20, borderWidth: 1, borderColor: '#2A2A2A',
+  },
 
   header: {
     flexDirection: 'row',
@@ -331,12 +369,4 @@ const styles = StyleSheet.create({
   },
   modText: { color: '#CCCCCC', fontSize: 13 },
 
-  errorText: { color: '#888888', fontSize: 15, marginBottom: 16 },
-  retryBtn: {
-    backgroundColor: '#DC143C',
-    borderRadius: 12,
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-  },
-  retryText: { color: '#FFFFFF', fontWeight: '700', fontSize: 14 },
 });

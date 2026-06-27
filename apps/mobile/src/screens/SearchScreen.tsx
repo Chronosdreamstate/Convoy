@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
+  KeyboardAvoidingView,
+  Platform,
   StyleSheet,
   Text,
   TextInput,
@@ -175,7 +177,10 @@ export default function SearchScreen() {
   const showRecent = !query.trim() && recentSearches.length > 0;
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
+    <KeyboardAvoidingView
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      style={[styles.container, { paddingTop: insets.top }]}
+    >
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
@@ -251,7 +256,7 @@ export default function SearchScreen() {
           />
         )
       ) : null}
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 

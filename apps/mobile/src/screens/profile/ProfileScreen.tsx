@@ -3,7 +3,9 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   SafeAreaView,
   ScrollView,
   Share,
@@ -303,6 +305,10 @@ export default function ProfileScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={{ flex: 1 }}
+      >
       <ScrollView
         contentContainerStyle={styles.scroll}
         keyboardShouldPersistTaps="handled"
@@ -487,6 +493,8 @@ export default function ProfileScreen() {
           <Text style={styles.signOutBtnText}>Sign Out</Text>
         </TouchableOpacity>
       </ScrollView>
+
+      </KeyboardAvoidingView>
 
       {/* Avatar URL input modal */}
       <Modal

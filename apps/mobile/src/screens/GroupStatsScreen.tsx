@@ -149,14 +149,22 @@ export default function GroupStatsScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()}>
+        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
           <Text style={styles.backText}>‹ Back</Text>
         </TouchableOpacity>
         <Text style={styles.title}>{stats.groupName}</Text>
-        <Text style={styles.badge}>📊 Stats</Text>
+        <TouchableOpacity style={styles.backBtn} onPress={handleShare}>
+          <Text style={styles.shareIcon}>📤</Text>
+        </TouchableOpacity>
       </View>
 
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor="#DC143C" colors={['#DC143C']} />
+        }
+      >
         {/* Big 3 stats */}
         <View style={styles.bigRow}>
           <View style={styles.bigCard}>
@@ -213,11 +221,6 @@ export default function GroupStatsScreen() {
           </View>
         )}
 
-        {/* Share button */}
-        <TouchableOpacity style={styles.shareBtn} onPress={handleShare}>
-          <Text style={styles.shareBtnText}>📤 Share Stats</Text>
-        </TouchableOpacity>
-
         <View style={{ height: 32 }} />
       </ScrollView>
     </SafeAreaView>
@@ -226,13 +229,21 @@ export default function GroupStatsScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0A0A0A' },
-  header: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 12 },
-  backBtn: { paddingVertical: 8 },
+  header: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 16, paddingTop: 8, paddingBottom: 12,
+  },
+  backBtn: { minWidth: 48, paddingVertical: 8 },
   backText: { color: '#DC143C', fontSize: 16 },
-  title: { color: '#FFFFFF', fontSize: 20, fontWeight: '700', marginTop: 4 },
-  badge: { color: '#888888', fontSize: 13, marginTop: 2 },
+  shareIcon: { fontSize: 18, textAlign: 'right' },
+  title: { flex: 1, color: '#FFFFFF', fontSize: 18, fontWeight: '700', textAlign: 'center' },
   content: { paddingHorizontal: 16, paddingTop: 8 },
-  errorText: { color: '#888', textAlign: 'center', marginTop: 40, fontSize: 15 },
+  skeletonPad: { paddingHorizontal: 16, paddingTop: 8 },
+  skeletonRow: { flexDirection: 'row', gap: 8, marginBottom: 12 },
+  skeletonBigCard: {
+    flex: 1, backgroundColor: '#1C1C1C', borderRadius: 12, padding: 14,
+    alignItems: 'center', gap: 8,
+  },
 
   bigRow: { flexDirection: 'row', gap: 8, marginBottom: 8 },
   bigCard: {
@@ -275,9 +286,4 @@ const styles = StyleSheet.create({
   bar: { width: 16, backgroundColor: '#DC143C', borderRadius: 3, marginBottom: 6 },
   barLabel: { color: '#888888', fontSize: 10 },
 
-  shareBtn: {
-    backgroundColor: '#1C1C1C', borderWidth: 1, borderColor: '#DC143C',
-    borderRadius: 10, padding: 14, alignItems: 'center', marginTop: 8,
-  },
-  shareBtnText: { color: '#DC143C', fontSize: 15, fontWeight: '600' },
 });
