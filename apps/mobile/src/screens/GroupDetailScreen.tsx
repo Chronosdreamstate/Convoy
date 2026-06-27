@@ -283,6 +283,18 @@ export default function GroupDetailScreen() {
             style={styles.leaderboardBtn}
             onPress={() =>
               router.push({
+                pathname: '/convoy-history/[groupId]',
+                params: { groupId: group.id, groupName: group.name },
+              } as never)
+            }
+            accessibilityLabel="View convoy history"
+          >
+            <Text style={styles.leaderboardIcon}>📜</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.leaderboardBtn}
+            onPress={() =>
+              router.push({
                 pathname: '/leaderboard',
                 params: { groupId: group.id, groupName: group.name },
               } as never)

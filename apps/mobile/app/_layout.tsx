@@ -392,6 +392,7 @@ export default function RootLayout() {
           <Stack.Screen name="privacy" />
           <Stack.Screen name="terms" />
           <Stack.Screen name="search" options={{ animation: 'fade' }} />
+          <Stack.Screen name="convoy-history/[groupId]" />
         </Stack>
       </ErrorBoundary>
       <OfflineIndicator isOffline={isOffline} />
