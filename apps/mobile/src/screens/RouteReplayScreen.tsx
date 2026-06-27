@@ -12,6 +12,8 @@ import {
 import MapView, { Marker, Polyline } from 'react-native-maps';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { apiClient } from '../services/apiClient';
+import { SkeletonBox } from '../components/SkeletonLoader';
+import { NetworkError } from '../components/NetworkError';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -192,8 +194,14 @@ export default function RouteReplayScreen() {
   // ── Render states ──────────────────────────────────────────────────────────
   if (loading) {
     return (
-      <SafeAreaView style={styles.center}>
-        <Text style={styles.muted}>Loading drive…</Text>
+      <SafeAreaView style={styles.skeletonContainer}>
+        <SkeletonBox width="100%" height={300} borderRadius={0} />
+        <View style={styles.skeletonStats}>
+          <SkeletonBox width="45%" height={56} borderRadius={12} />
+          <SkeletonBox width="45%" height={56} borderRadius={12} />
+          <SkeletonBox width="45%" height={56} borderRadius={12} />
+          <SkeletonBox width="45%" height={56} borderRadius={12} />
+        </View>
       </SafeAreaView>
     );
   }
@@ -201,10 +209,10 @@ export default function RouteReplayScreen() {
   if (error || !drive) {
     return (
       <SafeAreaView style={styles.center}>
-        <Text style={styles.muted}>{error ?? 'Drive not found.'}</Text>
-        <Pressable style={styles.backBtn} onPress={() => router.back()}>
-          <Text style={styles.backBtnText}>← Back</Text>
-        </Pressable>
+        <NetworkError
+          onRetry={() => { router.back(); }}
+          message={error ?? 'Drive not found.'}
+        />
       </SafeAreaView>
     );
   }
@@ -357,6 +365,8 @@ export default function RouteReplayScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0A0A0A' },
   center: { flex: 1, backgroundColor: '#0A0A0A', alignItems: 'center', justifyContent: 'center', padding: 24 },
+  skeletonContainer: { flex: 1, backgroundColor: '#0A0A0A' },
+  skeletonStats: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, padding: 16, justifyContent: 'space-between' },
 
   // Header
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12 },

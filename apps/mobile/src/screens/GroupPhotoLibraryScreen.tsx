@@ -16,6 +16,8 @@ import { useLocalSearchParams, router } from 'expo-router';
 import { apiClient } from '../services/apiClient';
 import { useAuthStore } from '../stores/authStore';
 import { pickAndUploadPhoto } from '../services/PhotoUploadService';
+import { SkeletonBox } from '../components/SkeletonLoader';
+import { NetworkError } from '../components/NetworkError';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const CELL_SIZE = (SCREEN_WIDTH - 3) / 2;
@@ -48,6 +50,7 @@ export default function GroupPhotoLibraryScreen() {
   const { accessToken } = useAuthStore();
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
 
@@ -55,10 +58,11 @@ export default function GroupPhotoLibraryScreen() {
 
   const load = useCallback(async () => {
     if (!groupId) return;
+    setError(null);
     try {
       const res = await apiClient.get<{ photos: Photo[] }>(`/api/v1/groups/${groupId}/photos`);
       setPhotos(res.data.photos);
-    } catch { /* keep existing */ } finally {
+    } catch { setError('Could not load photos.'); } finally {
       setLoading(false);
     }
   }, [groupId]);
@@ -110,9 +114,13 @@ export default function GroupPhotoLibraryScreen() {
       </View>
 
       {loading ? (
-        <View style={styles.centered}>
-          <ActivityIndicator color="#DC143C" size="large" />
+        <View style={styles.skeletonGrid}>
+          {[0, 1, 2, 3, 4, 5].map((i) => (
+            <SkeletonBox key={i} width={CELL_SIZE} height={CELL_SIZE} borderRadius={0} />
+          ))}
         </View>
+      ) : error ? (
+        <NetworkError onRetry={() => { setLoading(true); void load(); }} message={error} />
       ) : photos.length === 0 ? (
         <View style={styles.centered}>
           <Text style={styles.emptyIcon}>📷</Text>
@@ -153,6 +161,7 @@ const styles = StyleSheet.create({
   emptyIcon: { fontSize: 48 },
   emptyTitle: { fontSize: 18, fontWeight: '700', color: '#FFFFFF' },
   emptySubtitle: { fontSize: 14, color: '#888888' },
+  skeletonGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 1, padding: 1 },
   list: { padding: 1 },
   row: { gap: 1 },
   cell: { width: CELL_SIZE, height: CELL_SIZE, backgroundColor: '#1C1C1C', marginBottom: 1 },

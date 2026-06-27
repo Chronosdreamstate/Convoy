@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
-  View, Text, TouchableOpacity, StyleSheet, SafeAreaView,
-  ScrollView, ActivityIndicator, TextInput, Modal, Alert, RefreshControl, Switch,
+  View, Text, TouchableOpacity, StyleSheet, SafeAreaView, Platform,
+  ScrollView, ActivityIndicator, TextInput, Modal, Alert, RefreshControl, Switch, KeyboardAvoidingView,
 } from 'react-native';
 import { apiClient } from '../../services/apiClient';
 import SkeletonCard from '../../components/SkeletonLoader';
@@ -373,6 +373,7 @@ export default function GarageScreen() {
 
       {/* Add / Edit modal */}
       <Modal visible={modalVisible} animationType="slide" transparent onRequestClose={closeModal}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalSheet}>
             <View style={styles.modalHandle} />
@@ -513,6 +514,7 @@ export default function GarageScreen() {
             </ScrollView>
           </View>
         </View>
+        </KeyboardAvoidingView>
       </Modal>
     </SafeAreaView>
   );
