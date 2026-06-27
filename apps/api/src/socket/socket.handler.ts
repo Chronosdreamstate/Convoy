@@ -398,6 +398,16 @@ export async function handleCentroidGapAlert(params: {
 }
 
 // ---------------------------------------------------------------------------
+// Global presence store (in-memory, per-process)
+// ---------------------------------------------------------------------------
+interface PresenceEntry {
+  isOnline: boolean;
+  lastSeen: Date;
+  socketId: string;
+}
+const presence = new Map<string, PresenceEntry>();
+
+// ---------------------------------------------------------------------------
 // Socket.io connection handler factory
 // ---------------------------------------------------------------------------
 export function registerSocketHandlers(
@@ -440,6 +450,9 @@ export function registerSocketHandlers(
       return;
     }
 
+    // Track presence
+    presence.set(userId, { isOnline: true, lastSeen: new Date(), socketId: socket.id });
+
     // Join group room and personal room — must be awaited before broadcasting
     await socket.join(`group:${groupId}`);
     await socket.join(`user:${userId}`);
@@ -448,6 +461,32 @@ export function registerSocketHandlers(
     socket.to(`group:${groupId}`).emit('member:joined', { userId });
     // Presence: broadcast online status with timestamp to the full group room
     io.to(`group:${groupId}`).emit('member:online', { userId, ts: Date.now() });
+    // Emit presence snapshot for all current group members to the joining user
+    io.to(`group:${groupId}`).emit('presence:update', {
+      userId,
+      isOnline: true,
+      lastSeen: new Date().toISOString(),
+    });
+
+    // Bulk presence query handler — client sends list of userIds, gets back online status
+    socket.on('presence:get', (
+      data: unknown,
+      callback: (result: { id: string; isOnline: boolean; lastSeen: string | null }[]) => void,
+    ) => {
+      if (typeof callback !== 'function') return;
+      const { userIds } = (data as { userIds?: string[] }) ?? {};
+      if (!Array.isArray(userIds)) { callback([]); return; }
+      callback(
+        userIds.slice(0, 100).map((id) => {
+          const entry = presence.get(id);
+          return {
+            id,
+            isOnline: entry?.isOnline ?? false,
+            lastSeen: entry?.lastSeen.toISOString() ?? null,
+          };
+        }),
+      );
+    });
 
     // Handle real-time location updates (Req 8.1, 8.2)
     socket.on('location:update', (data: unknown) => {
@@ -537,8 +576,17 @@ export function registerSocketHandlers(
     // Notify group on disconnect and clean up Redis presence (Req 8.3)
     socket.on('disconnect', () => {
       lastLocUpdate.delete(socket.id);
+      // Only mark offline if this is the user's current socket (guard against multi-tab)
+      const entry = presence.get(userId);
+      if (entry?.socketId === socket.id) {
+        presence.set(userId, { isOnline: false, lastSeen: new Date(), socketId: socket.id });
+        io.to(`group:${groupId}`).emit('presence:update', {
+          userId,
+          isOnline: false,
+          lastSeen: new Date().toISOString(),
+        });
+      }
       io.to(`group:${groupId}`).emit('member:left', { userId });
-      // Presence: broadcast offline status with timestamp to the full group room
       io.to(`group:${groupId}`).emit('member:offline', { userId, ts: Date.now() });
       fastify.redis.del(`loc:${groupId}:${userId}`).catch((err: unknown) => fastify.log.error({ err }, 'redis del error'));
     });
