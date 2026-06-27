@@ -69,7 +69,7 @@ export class LocationService {
   async handleGPSUpdate(location: LocationData): Promise<void> {
     await this.db.saveLastKnownLocation(this.userId, location);
     if (!this.shouldThrottle(location.ts) && this.socket.connected) {
-      this.socket.emit('location_update', location);
+      this.socket.emit('location:update', location);
     }
   }
 

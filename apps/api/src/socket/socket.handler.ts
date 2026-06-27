@@ -661,6 +661,110 @@ export function registerSocketHandlers(
       })().catch((err: unknown) => fastify.log.error({ err }, 'chat react error'));
     });
 
+    // hazard:vote — confirm or dismiss a hazard (up=confirm, down=dismiss)
+    socket.on('hazard:vote', (data: unknown) => {
+      const { hazardId, vote } = (data as { hazardId?: string; vote?: string }) ?? {};
+      if (!hazardId || (vote !== 'up' && vote !== 'down')) return;
+      const dbVote = vote === 'up' ? 'confirm' : 'dismiss';
+      const countCol = vote === 'up' ? 'confirmation_count' : 'dismissal_count';
+      const reverseCol = vote === 'up' ? 'dismissal_count' : 'confirmation_count';
+
+      (async () => {
+        // Check hazard exists and is active
+        const hazard = await fastify.db.query<{ id: string; confirmation_count: number; dismissal_count: number }>(
+          `SELECT id, confirmation_count, dismissal_count FROM hazard_reports WHERE id = $1 AND status = 'active'`,
+          [hazardId],
+        );
+        if (!hazard.rows[0]) return;
+
+        // Upsert vote (user may change their mind)
+        const existing = await fastify.db.query<{ vote: string }>(
+          `SELECT vote FROM hazard_votes WHERE hazard_id = $1 AND user_id = $2`,
+          [hazardId, userId],
+        );
+
+        if (existing.rows[0]) {
+          if (existing.rows[0].vote === dbVote) return; // same vote, no-op
+          // Changed vote — decrement old, increment new
+          await fastify.db.query(
+            `UPDATE hazard_votes SET vote = $3 WHERE hazard_id = $1 AND user_id = $2`,
+            [hazardId, userId, dbVote],
+          );
+          await fastify.db.query(
+            `UPDATE hazard_reports
+             SET ${countCol} = ${countCol} + 1, ${reverseCol} = GREATEST(${reverseCol} - 1, 0)
+             WHERE id = $1`,
+            [hazardId],
+          );
+        } else {
+          await fastify.db.query(
+            `INSERT INTO hazard_votes (hazard_id, user_id, vote) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
+            [hazardId, userId, dbVote],
+          );
+          await fastify.db.query(
+            `UPDATE hazard_reports SET ${countCol} = ${countCol} + 1 WHERE id = $1`,
+            [hazardId],
+          );
+        }
+
+        // Auto-dismiss when dismissal votes exceed 3
+        const updated = await fastify.db.query<{ confirmation_count: number; dismissal_count: number }>(
+          `SELECT confirmation_count, dismissal_count FROM hazard_reports WHERE id = $1`,
+          [hazardId],
+        );
+        if ((updated.rows[0]?.dismissal_count ?? 0) >= 3) {
+          await fastify.db.query(
+            `UPDATE hazard_reports SET status = 'dismissed' WHERE id = $1`,
+            [hazardId],
+          );
+        }
+
+        io.to(`group:${groupId}`).emit('hazard:vote_updated', {
+          hazardId,
+          thumbsUp: updated.rows[0]?.confirmation_count ?? 0,
+          thumbsDown: updated.rows[0]?.dismissal_count ?? 0,
+        });
+      })().catch((err: unknown) => fastify.log.error({ err }, 'hazard vote error'));
+    });
+
+    // convoy:member_ready — relay lobby ready-state to group
+    socket.on('convoy:member_ready', (data: unknown) => {
+      const { userId: readyUserId } = (data as { userId?: string }) ?? {};
+      if (!readyUserId) return;
+      socket.to(`group:${groupId}`).emit('convoy:member_ready', { userId: readyUserId });
+    });
+
+    // convoy:start — admin starts the convoy from lobby
+    socket.on('convoy:start', async (data: unknown) => {
+      const { groupId: payloadGroupId } = (data as { groupId?: string }) ?? {};
+      if (!payloadGroupId) return;
+      try {
+        const group = await fastify.db.query<{ admin_id: string }>(
+          `SELECT admin_id FROM convoy_groups WHERE id = $1`,
+          [payloadGroupId],
+        );
+        if (group.rows[0]?.admin_id !== userId) return;
+        io.to(`group:${payloadGroupId}`).emit('convoy:started', { groupId: payloadGroupId, startedBy: userId });
+      } catch (err) {
+        fastify.log.error({ err }, 'convoy start error');
+      }
+    });
+
+    // sos:acknowledge — relay SOS acknowledgment to group
+    socket.on('sos:acknowledge', (data: unknown) => {
+      const { sosId, memberName } = (data as { sosId?: string; memberName?: string }) ?? {};
+      if (!sosId) return;
+      socket.to(`group:${groupId}`).emit('sos:acknowledged', { sosId, memberName, acknowledgedBy: userId });
+    });
+
+    // waypoint:reached — relay waypoint arrival notification to group
+    socket.on('waypoint:reached', (data: unknown) => {
+      const { waypointId, type, message } =
+        (data as { waypointId?: string; type?: string; message?: string }) ?? {};
+      if (!waypointId) return;
+      socket.to(`group:${groupId}`).emit('waypoint:reached', { waypointId, type, message, userId });
+    });
+
     // Notify group on disconnect and clean up Redis presence (Req 8.3)
     socket.on('disconnect', () => {
       lastLocUpdate.delete(socket.id);
