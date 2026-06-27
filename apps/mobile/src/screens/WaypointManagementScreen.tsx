@@ -50,6 +50,122 @@ function getTypeConfig(type?: WaypointType) {
 let _nextId = 1;
 function makeId() { return String(_nextId++); }
 
+// ─── WaypointRow ─────────────────────────────────────────────────────────────
+// Extracted so that useFuelPrice (a hook) can be called per-item.
+
+interface WaypointRowProps {
+  item: Waypoint;
+  index: number;
+  total: number;
+  reachedIds: Set<string>;
+  onMoveUp: (i: number) => void;
+  onMoveDown: (i: number) => void;
+  onRemove: (id: string) => void;
+  onMarkReached: (w: Waypoint) => void;
+}
+
+function WaypointRow({
+  item,
+  index,
+  total,
+  reachedIds,
+  onMoveUp,
+  onMoveDown,
+  onRemove,
+  onMarkReached,
+}: WaypointRowProps) {
+  const typeConfig = getTypeConfig(item.type);
+  const reached    = reachedIds.has(item.id);
+  const fuelPrice  = useFuelPrice(item.type ?? '');
+
+  return (
+    <View style={[styles.row, { backgroundColor: typeConfig.tint || theme.colors.card }]}>
+      {/* Order badge */}
+      <View style={styles.indexBadge}>
+        <Text style={styles.indexText}>{index + 1}</Text>
+      </View>
+
+      {/* Type icon badge */}
+      <View style={styles.typeBadge}>
+        <Text style={styles.typeBadgeIcon}>{typeConfig.icon}</Text>
+      </View>
+
+      {/* Info */}
+      <View style={styles.rowInfo}>
+        <Text style={[styles.rowName, reached && styles.rowNameReached]} numberOfLines={1}>
+          {typeConfig.icon} {item.name}
+        </Text>
+        <Text style={[styles.rowTypeLabel, { color: theme.colors.accent }]}>
+          {typeConfig.label}
+        </Text>
+
+        {/* Fuel price pill */}
+        {fuelPrice ? (
+          <View style={styles.fuelPill}>
+            <Text style={styles.fuelPillText}>
+              ⛽ ~${fuelPrice.pricePerLitre}/L (est.)
+            </Text>
+          </View>
+        ) : null}
+
+        {item.address ? (
+          <Text style={styles.rowAddress} numberOfLines={1}>
+            {item.address}
+          </Text>
+        ) : null}
+
+        {/* Fuel price disclaimer */}
+        {fuelPrice ? (
+          <Text style={styles.fuelNote}>Fuel prices are estimates</Text>
+        ) : null}
+
+        {/* Mark Reached button */}
+        <TouchableOpacity
+          onPress={() => onMarkReached(item)}
+          disabled={reached}
+          style={[styles.reachedBtn, reached && styles.reachedBtnDone]}
+          accessibilityRole="button"
+          accessibilityLabel={reached ? 'Waypoint reached' : 'Mark as reached'}
+        >
+          <Text style={styles.reachedBtnText}>
+            {reached ? '✓ Reached' : 'Mark Reached'}
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Reorder / delete controls */}
+      <View style={styles.controls}>
+        <TouchableOpacity
+          onPress={() => onMoveUp(index)}
+          disabled={index === 0}
+          style={[styles.arrowBtn, index === 0 && styles.arrowDisabled]}
+          accessibilityRole="button"
+          accessibilityLabel="Move up"
+        >
+          <Text style={styles.arrowText}>↑</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={() => onMoveDown(index)}
+          disabled={index === total - 1}
+          style={[styles.arrowBtn, index === total - 1 && styles.arrowDisabled]}
+          accessibilityRole="button"
+          accessibilityLabel="Move down"
+        >
+          <Text style={styles.arrowText}>↓</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={() => onRemove(item.id)}
+          style={styles.removeBtn}
+          accessibilityRole="button"
+          accessibilityLabel={`Remove ${item.name}`}
+        >
+          <Text style={styles.removeText}>✕</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
 export default function WaypointManagementScreen() {

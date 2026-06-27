@@ -34,10 +34,22 @@ interface GroupDetail {
   accessType: 'open' | 'invite_only';
   status: string;
   createdAt: string;
+  vehicleFocus?: string | null;
   members: Array<{ userId: string; displayName: string; isAdmin: boolean; vehicleType?: string }>;
   upcomingEvent?: GroupEvent;
   isMember?: boolean;
 }
+
+const VEHICLE_FOCUS_LABELS: Record<string, string> = {
+  sports_car: '🏎️ Sports Cars',
+  truck: '🛻 Trucks',
+  suv: '🚙 SUVs',
+  jdm: '🎌 JDM',
+  muscle: '🇺🇸 Muscle Cars',
+  ev: '⚡ EV',
+  track_car: '🏁 Track Cars',
+  motorcycle: '🏍️ Motorcycles',
+};
 
 // ---------------------------------------------------------------------------
 // Helpers

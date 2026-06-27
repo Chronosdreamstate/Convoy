@@ -47,6 +47,7 @@ import { androidAutoService } from '../../services/AndroidAutoService';
 import { HapticService } from '../../services/HapticService';
 import { LocationService } from '../../services/LocationService';
 import { LiveActivityService } from '../../services/LiveActivityService';
+import { useWeather } from '../../hooks/useWeather';
 
 interface GapAlert { memberId: string; distanceM: number }
 interface SosAlert { pin: SosPin; memberName: string }
@@ -1098,6 +1099,9 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
   // Safe-area-aware top offset for floating UI elements
   const topBase = insets.top + 8;
 
+  // Weather data for the HUD pill (non-critical — silently omitted when unavailable)
+  const weather = useWeather({ latitude: myLocation?.lat ?? null, longitude: myLocation?.lng ?? null });
+
   return (
     <View style={styles.container}>
       <MapView
@@ -1275,6 +1279,15 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
         >
           <Text style={styles.recenterText}>🎯</Text>
         </TouchableOpacity>
+      )}
+
+      {/* Weather pill — top-left, below re-center / auto-center buttons */}
+      {!weather.isLoading && weather.tempC != null && (
+        <View style={[styles.weatherPill, { top: topBase + 104 }]}>
+          <Text style={styles.weatherPillText}>
+            {weather.emoji} {Math.round(weather.tempC)}°C {Math.round(weather.windspeedKmh ?? 0)}km/h
+          </Text>
+        </View>
       )}
 
       {/* Speed limit HUD — bottom-left, above member panel (Req 23) */}

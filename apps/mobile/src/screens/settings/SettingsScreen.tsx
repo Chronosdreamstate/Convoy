@@ -398,6 +398,12 @@ export default function SettingsScreen() {
             onPress={() => router.push('/(tabs)/profile')}
           />
           <SettingRow
+            icon="🏆"
+            label="Achievements"
+            subtitle="Track your convoy milestones"
+            onPress={() => router.push('/achievements' as any)}
+          />
+          <SettingRow
             icon="📤"
             label="Export My Data"
             subtitle="Receive a copy of your data"

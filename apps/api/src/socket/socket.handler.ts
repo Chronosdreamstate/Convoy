@@ -262,6 +262,7 @@ export async function handlePttEnd(params: {
   const maxSeconds = groupResult.rows[0]?.ptt_max_seconds ?? 30;
 
   const exceeded = isDurationExceeded(log.started_at.getTime(), now, maxSeconds);
+  const durationMs = now - log.started_at.getTime();
 
   // Build recipient list (same logic as start)
   let recipientIds: string[];
@@ -288,7 +289,7 @@ export async function handlePttEnd(params: {
     recipientIds = [userId];
   }
 
-  const payload = { logId, userId, groupId, durationExceeded: exceeded };
+  const payload = { logId, userId, groupId, durationExceeded: exceeded, durationMs };
   for (const recipientId of recipientIds) {
     io.to(`user:${recipientId}`).emit('ptt:ended', payload);
   }

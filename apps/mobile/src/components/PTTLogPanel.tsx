@@ -14,6 +14,7 @@ import {
   View,
 } from 'react-native';
 import { Socket } from 'socket.io-client';
+import { pttAnalytics, PttStat } from '../services/PTTAnalyticsService';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -199,6 +200,11 @@ function PTTLogPanel({ socket, initialEntries = [], groupId }: Props) {
   const [collapsed, setCollapsed] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [unread, setUnread] = useState(0);
+  const [leaderboard, setLeaderboard] = useState<PttStat[]>([]);
+
+  // Synchronous ref so handlePttEnded can read entries without a stale closure
+  const entriesRef = useRef(entries);
+  useEffect(() => { entriesRef.current = entries; }, [entries]);
 
   // Tick every second for relative timestamps
   useEffect(() => {
@@ -225,13 +231,20 @@ function PTTLogPanel({ socket, initialEntries = [], groupId }: Props) {
   );
 
   const handlePttEnded = useCallback(
-    (data?: { logId?: string }) => {
+    (data?: { logId?: string; userId?: string; durationMs?: number }) => {
       setActiveUserId(null);
       if (data?.logId) {
         const endedAt = new Date().toISOString();
         setEntries((prev) =>
           prev.map((e) => (e.id === data.logId ? { ...e, endedAt } : e)),
         );
+        // Record analytics using durationMs supplied by the server
+        if (data.userId != null && data.durationMs != null && data.durationMs > 0) {
+          const entry = entriesRef.current.find((e) => e.id === data.logId);
+          const callsign = entry?.callsign ?? entry?.displayName ?? data.userId;
+          pttAnalytics.recordTransmit(data.userId, callsign, data.durationMs);
+          setLeaderboard(pttAnalytics.getLeaderboard());
+        }
       }
     },
     [],
@@ -241,6 +254,8 @@ function PTTLogPanel({ socket, initialEntries = [], groupId }: Props) {
     setEntries([]);
     setActiveUserId(null);
     setUnread(0);
+    pttAnalytics.reset();
+    setLeaderboard([]);
   }, []);
 
   useEffect(() => {
@@ -317,20 +332,54 @@ function PTTLogPanel({ socket, initialEntries = [], groupId }: Props) {
             <Text style={styles.emptyText}>No transmissions yet</Text>
           </View>
         ) : (
-          <ScrollView style={styles.list} showsVerticalScrollIndicator={false}>
-            {entries.map((entry) => (
-              <LogRow
-                key={entry.id}
-                entry={entry}
-                isActive={entry.userId === activeUserId}
-                tick={tick}
-                isExpanded={expandedId === entry.id}
-                onPress={() => handleRowPress(entry.id)}
-                onReplayRequest={handleReplayRequest}
-              />
-            ))}
-          </ScrollView>
+          <>
+            {entries.length > 0 && (
+              <TouchableOpacity
+                onPress={() => socket.emit('ptt:replay_request', { groupId, userId: lastEntry?.userId })}
+                style={styles.replayLastBtn}
+                accessibilityLabel="Replay last transmission"
+              >
+                <Text style={styles.replayLastBtnText}>🔁 Replay Last</Text>
+              </TouchableOpacity>
+            )}
+            <ScrollView style={styles.list} showsVerticalScrollIndicator={false}>
+              {entries.map((entry) => (
+                <LogRow
+                  key={entry.id}
+                  entry={entry}
+                  isActive={entry.userId === activeUserId}
+                  tick={tick}
+                  isExpanded={expandedId === entry.id}
+                  onPress={() => handleRowPress(entry.id)}
+                  onReplayRequest={handleReplayRequest}
+                />
+              ))}
+            </ScrollView>
+          </>
         )
+      )}
+
+      {/* Stats footer — top 3 speakers, shown only when expanded and data exists */}
+      {!collapsed && leaderboard.length > 0 && (
+        <View style={styles.statsFooter}>
+          <Text style={styles.statsTitle}>TOP SPEAKERS</Text>
+          {leaderboard.slice(0, 3).map((stat, index) => (
+            <View key={stat.userId} style={styles.statsRow}>
+              <Text style={styles.statsMedal}>
+                {(['🥇', '🥈', '🥉'] as const)[index]}
+              </Text>
+              <Text style={styles.statsCallsign} numberOfLines={1}>
+                {stat.callsign}
+              </Text>
+              <View style={styles.statsValues}>
+                <Text style={styles.statsCount}>{stat.transmitCount}×</Text>
+                <Text style={styles.statsDuration}>
+                  {pttAnalytics.formatDuration(stat.totalDurationMs)}
+                </Text>
+              </View>
+            </View>
+          ))}
+        </View>
       )}
     </View>
   );
@@ -520,5 +569,25 @@ const styles = StyleSheet.create({
   replayBtnText: {
     fontSize: 11,
     color: '#AAAAAA',
+  },
+
+  // "Replay Last" panel-level button
+  replayLastBtn: {
+    flexDirection: 'row',
+    alignSelf: 'flex-end',
+    marginBottom: 8,
+    marginTop: 8,
+    marginRight: 12,
+    backgroundColor: 'rgba(220,20,60,0.15)',
+    borderColor: '#DC143C',
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+  },
+  replayLastBtnText: {
+    color: '#DC143C',
+    fontSize: 12,
+    fontWeight: '600',
   },
 });

@@ -21,6 +21,7 @@ export class ExpoPushGateway implements IPushGateway {
       body: string;
       data?: Record<string, string>;
       priority: 'normal' | 'high';
+      categoryIdentifier?: string;
     },
   ): Promise<void> {
     let res: Response;
@@ -38,6 +39,7 @@ export class ExpoPushGateway implements IPushGateway {
           data: payload.data,
           priority: payload.priority === 'high' ? 'high' : 'default',
           sound: 'default',
+          ...(payload.categoryIdentifier ? { categoryId: payload.categoryIdentifier } : {}),
         }),
       });
     } catch {

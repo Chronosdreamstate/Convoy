@@ -420,6 +420,53 @@ export default function ConvoyEndScreen() {
     maybeAskForReview();
   }, []);
 
+  // First-convoy achievement unlock
+  const [showFirstConvoyAchievement, setShowFirstConvoyAchievement] = useState(false);
+  const achievementScale = useRef(new Animated.Value(0)).current;
+  const achievementOpacity = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    async function checkFirstConvoy() {
+      try {
+        const raw = await AsyncStorage.getItem('convoy:completed_count');
+        const convoyCount = parseInt(raw ?? '0', 10) || 0;
+        // convoyCount was already incremented in maybeAskForReview; treat convoyCount===1 as first
+        if (convoyCount === 1) {
+          const alreadyGranted = await AsyncStorage.getItem('achievement:first_convoy');
+          if (!alreadyGranted) {
+            await AsyncStorage.setItem('achievement:first_convoy', 'true');
+            setTimeout(() => {
+              setShowFirstConvoyAchievement(true);
+              Animated.spring(achievementScale, {
+                toValue: 1,
+                useNativeDriver: true,
+                tension: 140,
+                friction: 7,
+              }).start();
+              Animated.timing(achievementOpacity, {
+                toValue: 1,
+                duration: 200,
+                useNativeDriver: true,
+              }).start();
+            }, 1800);
+          }
+        }
+      } catch {}
+    }
+    checkFirstConvoy();
+  }, []);
+
+  const dismissFirstConvoyAchievement = () => {
+    Animated.parallel([
+      Animated.timing(achievementScale, { toValue: 0.8, duration: 150, useNativeDriver: true }),
+      Animated.timing(achievementOpacity, { toValue: 0, duration: 150, useNativeDriver: true }),
+    ]).start(() => {
+      setShowFirstConvoyAchievement(false);
+      achievementScale.setValue(0);
+      achievementOpacity.setValue(0);
+    });
+  };
+
   // Load persisted photos for this drive
   useEffect(() => {
     AsyncStorage.getItem(`convoy:drive:${driveId}:photos`)
@@ -511,6 +558,37 @@ export default function ConvoyEndScreen() {
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <Confetti />
+
+      {/* First-convoy achievement unlock modal */}
+      {showFirstConvoyAchievement && (
+        <Modal visible transparent animationType="none" onRequestClose={dismissFirstConvoyAchievement}>
+          <TouchableOpacity
+            style={achievementStyles.backdrop}
+            activeOpacity={1}
+            onPress={dismissFirstConvoyAchievement}
+          >
+            <Animated.View
+              style={[
+                achievementStyles.card,
+                { transform: [{ scale: achievementScale }], opacity: achievementOpacity },
+              ]}
+            >
+              <Text style={achievementStyles.badge}>🏁</Text>
+              <Text style={achievementStyles.unlockLabel}>Achievement Unlocked!</Text>
+              <Text style={achievementStyles.achievementName}>First Convoy</Text>
+              <Text style={achievementStyles.achievementDesc}>You completed your very first convoy. The journey begins!</Text>
+              <TouchableOpacity
+                style={achievementStyles.doneBtn}
+                onPress={dismissFirstConvoyAchievement}
+                accessibilityRole="button"
+                accessibilityLabel="Dismiss achievement"
+              >
+                <Text style={achievementStyles.doneBtnText}>Awesome!</Text>
+              </TouchableOpacity>
+            </Animated.View>
+          </TouchableOpacity>
+        </Modal>
+      )}
 
       {/* Full-screen photo preview modal */}
       <Modal visible={previewPhoto !== null} transparent animationType="fade" onRequestClose={() => setPreviewPhoto(null)}>
@@ -975,6 +1053,64 @@ const styles = StyleSheet.create({
   photoModalImage: {
     width: SCREEN_W,
     height: SCREEN_H * 0.8,
+  },
+});
+
+const achievementStyles = StyleSheet.create({
+  backdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.75)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 32,
+  },
+  card: {
+    backgroundColor: '#1C1C1C',
+    borderRadius: 20,
+    borderWidth: 1.5,
+    borderColor: '#F59E0B',
+    padding: 28,
+    alignItems: 'center',
+    width: '100%',
+    maxWidth: 340,
+  },
+  badge: {
+    fontSize: 64,
+    marginBottom: 12,
+  },
+  unlockLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#F59E0B',
+    textTransform: 'uppercase',
+    letterSpacing: 2,
+    marginBottom: 6,
+  },
+  achievementName: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  achievementDesc: {
+    fontSize: 14,
+    color: '#888888',
+    textAlign: 'center',
+    lineHeight: 20,
+    marginBottom: 24,
+  },
+  doneBtn: {
+    backgroundColor: '#DC143C',
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 40,
+    alignItems: 'center',
+  },
+  doneBtnText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '700',
   },
 });
 

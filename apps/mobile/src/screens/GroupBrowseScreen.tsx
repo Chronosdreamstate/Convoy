@@ -287,6 +287,11 @@ export default function GroupBrowseScreen() {
     }
   }, []);
 
+  // Re-fetch when vehicleFilter changes
+  useEffect(() => {
+    void fetchGroups();
+  }, [vehicleFilter]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Initial load — parallel fetch of main groups + featured
   useEffect(() => {
     void fetchGroups();
@@ -497,6 +502,29 @@ export default function GroupBrowseScreen() {
           >
             <Text style={[styles.filterPillText, activeFilter === tab && styles.filterPillTextActive]}>
               {tab === 'Nearby' ? '📍 Nearby' : tab}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
+
+      {/* Vehicle type filter chips */}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.filterRow}
+        contentContainerStyle={styles.filterContent}
+      >
+        {VEHICLE_FILTERS.map((vf) => (
+          <TouchableOpacity
+            key={String(vf.key)}
+            style={[styles.filterPill, vehicleFilter === vf.key && styles.filterPillActive]}
+            onPress={() => setVehicleFilter(vf.key)}
+            accessibilityRole="button"
+            accessibilityLabel={vf.label}
+            accessibilityState={{ selected: vehicleFilter === vf.key }}
+          >
+            <Text style={[styles.filterPillText, vehicleFilter === vf.key && styles.filterPillTextActive]}>
+              {vf.label}
             </Text>
           </TouchableOpacity>
         ))}

@@ -93,12 +93,6 @@ export default function EventDetailScreen() {
 
   const isAdmin = event?.createdBy === user?.id;
 
-  const onRefresh = useCallback(async () => {
-    setRefreshing(true);
-    await load();
-    setRefreshing(false);
-  }, [load]);
-
   const load = useCallback(async () => {
     if (!resolvedGroupId || !eventId) return;
     setLoading(true);

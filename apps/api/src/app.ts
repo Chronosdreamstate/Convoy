@@ -27,6 +27,7 @@ import accountRoutes from './account/account.routes';
 import placesRoutes from './places/places.routes';
 import notificationsRoutes from './notifications/notifications.routes';
 import analyticsRoutes from './analytics/analytics.routes';
+import speedCamerasRoutes from './speed-cameras/speed-cameras.routes';
 import socketioPlugin from './plugins/socketio';
 import notificationsPlugin from './plugins/notifications';
 
@@ -175,6 +176,9 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   // Notification history (read/mark-read)
   await app.register(notificationsRoutes, { prefix: '/api/v1' });
+
+  // Analytics event ingestion (optional auth — stores anonymousId)
+  await app.register(analyticsRoutes, { prefix: '/api/v1' });
 
   // WebSocket server (socket.io, must be last so db/redis decorators are available)
   await app.register(socketioPlugin);
