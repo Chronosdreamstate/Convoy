@@ -313,6 +313,11 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
   const pttRingScale   = useRef(new Animated.Value(1)).current;
   const pttRingOpacity = useRef(new Animated.Value(0)).current;
 
+  // Quick-action alert toast
+  const quickAlertAnim = useRef(new Animated.Value(-60)).current;
+  const quickAlertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [quickAlertText, setQuickAlertText] = useState<string | null>(null);
+
   // Keep mySosIdRef in sync so the socket handler closure always sees the current value
   useEffect(() => { mySosIdRef.current = mySosId; }, [mySosId]);
 
@@ -505,6 +510,24 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
     pttServiceRef.current?.setUserVolume(pttVolumePercent);
   }, [pttVolumePercent]);
 
+  const showQuickAlert = useCallback((text: string) => {
+    if (quickAlertTimerRef.current) clearTimeout(quickAlertTimerRef.current);
+    setQuickAlertText(text);
+    quickAlertAnim.setValue(-60);
+    Animated.spring(quickAlertAnim, { toValue: 0, useNativeDriver: true, damping: 15, stiffness: 200 }).start();
+    quickAlertTimerRef.current = setTimeout(() => {
+      Animated.timing(quickAlertAnim, { toValue: -60, duration: 300, useNativeDriver: true }).start(
+        () => setQuickAlertText(null),
+      );
+    }, 4000);
+  }, [quickAlertAnim]);
+
+  const sendQuickAlert = useCallback((type: string, message: string) => {
+    if (!socketRef.current || !groupId) return;
+    socketRef.current.emit('convoy:alert', { type, message, groupId });
+    showQuickAlert(`You: ${message}`);
+  }, [groupId, showQuickAlert]);
+
   // Traffic refresh — re-calculate active route every 60 s (Req 6.3)
   useEffect(() => {
     if (routeCoords.length === 0) return;
@@ -682,6 +705,11 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
       });
     });
     socket.on('sos:cancelled', ({ sosId }: { sosId: string }) => { setSosPins((p) => { const n = new Map(p); n.delete(sosId); return n; }); setSosAlerts((p) => p.filter((a) => a.pin.id !== sosId)); if (mySosIdRef.current === sosId) setMySosId(null); });
+
+    socket.on('convoy:alert', ({ message, senderCallsign }: { message: string; senderCallsign: string }) => {
+      showQuickAlert(`${senderCallsign}: ${message}`);
+      HapticService.warning();
+    });
 
     socket.on('group:ended', () => {
       void driveServiceRef.current.finishSession({
@@ -1200,6 +1228,37 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
           >
             <Text style={styles.fabMainIcon}>{fabOpen ? '✕' : '⚡'}</Text>
           </TouchableOpacity>
+        </View>
+      )}
+
+      {/* Quick-action alert toast — slides in from top */}
+      {quickAlertText != null && (
+        <Animated.View
+          style={[styles.quickAlertBanner, { transform: [{ translateY: quickAlertAnim }] }]}
+          accessibilityLiveRegion="polite"
+        >
+          <Text style={styles.quickAlertText} numberOfLines={1}>{quickAlertText}</Text>
+        </Animated.View>
+      )}
+
+      {/* Quick-action alert pills — above PTT button, only when in a group */}
+      {groupId && pttChannelId && !drivingModeActive && (
+        <View style={[styles.quickActionRow, { bottom: insets.bottom + 190 }]}>
+          {([
+            { type: 'stopping', label: '🚦 Stopping' },
+            { type: 'regroup',  label: '🔄 Regrouping' },
+            { type: 'incident', label: '⚠️ Incident' },
+          ] as const).map(({ type, label }) => (
+            <TouchableOpacity
+              key={type}
+              style={styles.quickActionPill}
+              onPress={() => sendQuickAlert(type, label)}
+              accessibilityRole="button"
+              accessibilityLabel={`Send ${label} alert to convoy`}
+            >
+              <Text style={styles.quickActionPillText}>{label}</Text>
+            </TouchableOpacity>
+          ))}
         </View>
       )}
 
@@ -2224,5 +2283,58 @@ const styles = StyleSheet.create({
   },
   pttStandaloneLabelActive: {
     color: '#FF4040',
+  },
+
+  // Quick-action alert toast
+  quickAlertBanner: {
+    position: 'absolute',
+    top: 0,
+    left: 16,
+    right: 16,
+    backgroundColor: '#1C1C1C',
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderColor: '#F59E0B44',
+    borderLeftWidth: 4,
+    borderLeftColor: '#F59E0B',
+    zIndex: 25,
+    shadowColor: '#000',
+    shadowOpacity: 0.5,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 12,
+  },
+  quickAlertText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+
+  // Quick-action pill row
+  quickActionRow: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    flexDirection: 'row',
+    gap: 8,
+    zIndex: 10,
+  },
+  quickActionPill: {
+    flex: 1,
+    height: 36,
+    backgroundColor: '#1C1C1C',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#2A2A2A',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+  },
+  quickActionPillText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '600',
   },
 });
