@@ -15,6 +15,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { apiClient } from '../services/apiClient';
 import { useAuthStore } from '../stores/authStore';
 import { useGroupStore } from '../stores/groupStore';
+import { SkeletonBox } from '../components/SkeletonLoader';
+import { NetworkError } from '../components/NetworkError';
 
 type RsvpStatus = 'going' | 'maybe' | 'not_going';
 
@@ -170,19 +172,28 @@ export default function EventDetailScreen() {
 
   if (loading) {
     return (
-      <View style={styles.center}>
-        <ActivityIndicator color="#DC143C" size="large" />
+      <View style={[styles.root, { paddingTop: insets.top }]}>
+        <TouchableOpacity style={styles.backRow} onPress={() => router.back()}>
+          <Text style={styles.backLink}>‹ Back</Text>
+        </TouchableOpacity>
+        <View style={{ padding: 16, gap: 16 }}>
+          <SkeletonBox width="70%" height={28} />
+          <SkeletonBox width="40%" height={16} />
+          <SkeletonBox width="100%" height={100} borderRadius={12} />
+          <SkeletonBox width="100%" height={60} borderRadius={12} />
+          <SkeletonBox width="100%" height={44} borderRadius={12} />
+        </View>
       </View>
     );
   }
 
   if (!event) {
     return (
-      <View style={styles.center}>
-        <Text style={styles.emptyText}>Event not found</Text>
-        <TouchableOpacity onPress={() => router.back()}>
-          <Text style={styles.backLink}>← Go back</Text>
+      <View style={[styles.root, { paddingTop: insets.top }]}>
+        <TouchableOpacity style={styles.backRow} onPress={() => router.back()}>
+          <Text style={styles.backLink}>‹ Back</Text>
         </TouchableOpacity>
+        <NetworkError onRetry={() => void load()} message="Event not found." />
       </View>
     );
   }
@@ -316,6 +327,7 @@ export default function EventDetailScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#0A0A0A' },
   center: { flex: 1, backgroundColor: '#0A0A0A', alignItems: 'center', justifyContent: 'center', gap: 12 },
+  backRow: { paddingHorizontal: 16, paddingVertical: 12 },
   content: { paddingHorizontal: 16 },
 
   headerRow: {
