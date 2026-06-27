@@ -107,9 +107,10 @@ function FriendRow({
   const handleInviteToConvoy = async () => {
     if (!activeGroupId) return;
     try {
-      const res = await fetch(`/api/v1/groups/${activeGroupId}/invite-link`);
-      const { code, link } = await res.json() as { code: string; link: string };
-      await Share.share({ message: `Join my convoy on CONVOY! Code: ${code}\n${link}` });
+      const res = await apiClient.get<{ code: string; link: string }>(
+        `/api/v1/groups/${activeGroupId}/invite-link`,
+      );
+      await Share.share({ message: `Join my convoy on CONVOY! Code: ${res.data.code}\n${res.data.link}` });
     } catch {
       Alert.alert('Error', 'Could not get invite link.');
     }
@@ -118,7 +119,7 @@ function FriendRow({
   const handleOpenDM = async () => {
     try {
       const res = await apiClient.post<{ groupId: string }>('/api/v1/dm', { friendId: friend.id });
-      router.push({ pathname: '/group-chat', params: { groupId: res.data.groupId } });
+      (router.push as (href: { pathname: string; params?: Record<string, string> }) => void)({ pathname: '/group-chat', params: { groupId: res.data.groupId } });
     } catch {
       Alert.alert('Error', 'Could not open message thread.');
     }

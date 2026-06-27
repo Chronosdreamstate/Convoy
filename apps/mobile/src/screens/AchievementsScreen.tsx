@@ -217,7 +217,7 @@ export default function AchievementsScreen() {
 
       {loading ? (
         <View style={styles.centered}>
-          <ActivityIndicator color={theme.colors.primary ?? '#DC143C'} size="large" />
+          <ActivityIndicator color={theme.colors.accent} size="large" />
         </View>
       ) : (
         <FlatList

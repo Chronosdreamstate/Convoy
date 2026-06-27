@@ -25,6 +25,7 @@ import {
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Audio } from 'expo-av';
 import * as FileSystem from 'expo-file-system';
+import { FileSystemUploadType } from 'expo-file-system';
 import { useAuthStore } from '../stores/authStore';
 import { useSocketStore } from '../stores/socketStore';
 import { SkeletonRow } from '../components/SkeletonLoader';
@@ -202,7 +203,7 @@ function VoiceMessageBubble({ audioUrl, isOwn }: { audioUrl: string; isOwn: bool
       if (!soundRef.current) {
         const { sound } = await Audio.Sound.createAsync({ uri: audioUrl });
         soundRef.current = sound;
-        sound.setOnPlaybackStatusUpdate((status) => {
+        sound.setOnPlaybackStatusUpdate((status: { isLoaded: boolean; didJustFinish?: boolean }) => {
           if (status.isLoaded && status.didJustFinish) {
             setPlaying(false);
             soundRef.current = null;
@@ -538,7 +539,7 @@ export default function GroupChatScreen() {
         uri,
         {
           httpMethod: 'POST',
-          uploadType: FileSystem.FileSystemUploadType.MULTIPART,
+          uploadType: FileSystemUploadType.MULTIPART,
           fieldName: 'file',
           mimeType: 'audio/m4a',
           headers: { Authorization: `Bearer ${accessToken}` },

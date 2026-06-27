@@ -71,10 +71,11 @@ export default function MemberDetailModal({
     if (!activeGroupId) return;
     setInviting(true);
     try {
-      const res = await fetch(`/api/v1/groups/${activeGroupId}/invite-link`);
-      const { code, link } = await res.json() as { code: string; link: string };
+      const res = await apiClient.get<{ code: string; link: string }>(
+        `/api/v1/groups/${activeGroupId}/invite-link`,
+      );
       await Share.share({
-        message: `Join my convoy on CONVOY! Code: ${code}\n${link}`,
+        message: `Join my convoy on CONVOY! Code: ${res.data.code}\n${res.data.link}`,
       });
     } catch {
       Alert.alert('Error', 'Could not get invite link. Try again.');
@@ -85,11 +86,7 @@ export default function MemberDetailModal({
 
   const handleAddFriend = async () => {
     try {
-      await fetch('/api/v1/friends', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: member.userId }),
-      });
+      await apiClient.post('/api/v1/friends/requests', { addresseeId: member.userId });
       setFriendSent(true);
     } catch {
       Alert.alert('Error', 'Could not send friend request.');

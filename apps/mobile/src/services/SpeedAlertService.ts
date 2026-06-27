@@ -1,3 +1,5 @@
+import { apiClient } from './apiClient';
+
 export interface SpeedCamera {
   id: string;
   lat: number;
@@ -32,13 +34,10 @@ class SpeedAlertService {
 
   async loadCamerasNear(lat: number, lng: number, radiusKm = 10): Promise<void> {
     try {
-      const res = await fetch(
+      const res = await apiClient.get<{ cameras?: SpeedCamera[] }>(
         `/api/v1/speed-cameras?lat=${lat}&lng=${lng}&radius=${radiusKm}`,
       );
-      if (res.ok) {
-        const data = await res.json() as { cameras?: SpeedCamera[] };
-        this.cameras = data.cameras ?? [];
-      }
+      this.cameras = res.data.cameras ?? [];
     } catch { /* use cached cameras */ }
   }
 
@@ -56,21 +55,13 @@ class SpeedAlertService {
 
   async reportCamera(lat: number, lng: number, type: SpeedCamera['type']): Promise<void> {
     try {
-      await fetch('/api/v1/speed-cameras', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ lat, lng, type, source: 'community' }),
-      });
+      await apiClient.post('/api/v1/speed-cameras', { lat, lng, type, source: 'community' });
     } catch { /* fire-and-forget */ }
   }
 
   async voteOnCamera(id: string, vote: 'confirm' | 'deny'): Promise<void> {
     try {
-      await fetch(`/api/v1/speed-cameras/${id}/vote`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ vote }),
-      });
+      await apiClient.post(`/api/v1/speed-cameras/${id}/vote`, { vote });
     } catch { /* fire-and-forget */ }
   }
 }

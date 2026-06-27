@@ -16,6 +16,7 @@ import {
 import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
+import { FileSystemUploadType } from 'expo-file-system';
 import ProfileCompletionBar from '../../components/ProfileCompletionBar';
 import { apiClient } from '../../services/apiClient';
 import { authService } from '../../services/AuthService';
@@ -213,7 +214,7 @@ export default function ProfileScreen() {
         asset.uri,
         {
           httpMethod: 'POST',
-          uploadType: FileSystem.FileSystemUploadType.MULTIPART,
+          uploadType: FileSystemUploadType.MULTIPART,
           fieldName: 'file',
           mimeType: asset.mimeType ?? 'image/jpeg',
           headers: { Authorization: `Bearer ${accessToken ?? ''}` },

@@ -1,6 +1,7 @@
 import { Alert } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
+import { FileSystemUploadType } from 'expo-file-system';
 
 export async function pickAndUploadPhoto(
   groupId: string,
@@ -28,7 +29,7 @@ export async function pickAndUploadPhoto(
     asset.uri,
     {
       httpMethod: 'POST',
-      uploadType: FileSystem.FileSystemUploadType.MULTIPART,
+      uploadType: FileSystemUploadType.MULTIPART,
       fieldName: 'file',
       mimeType: asset.mimeType ?? 'image/jpeg',
       headers: { Authorization: `Bearer ${accessToken}` },
