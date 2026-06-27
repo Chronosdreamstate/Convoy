@@ -400,7 +400,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#2A2A2A',
     overflow: 'hidden',
-    maxHeight: 280,
+    maxHeight: 400,
   },
 
   // Header
@@ -589,5 +589,55 @@ const styles = StyleSheet.create({
     color: '#DC143C',
     fontSize: 12,
     fontWeight: '600',
+  },
+
+  // Stats footer
+  statsFooter: {
+    backgroundColor: '#1C1C1C',
+    borderTopWidth: 1,
+    borderTopColor: '#2A2A2A',
+    paddingHorizontal: 12,
+    paddingTop: 8,
+    paddingBottom: 10,
+    gap: 6,
+  },
+  statsTitle: {
+    color: '#555555',
+    fontSize: 9,
+    fontWeight: '700',
+    letterSpacing: 2,
+    marginBottom: 2,
+  },
+  statsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  statsMedal: {
+    fontSize: 14,
+    width: 20,
+  },
+  statsCallsign: {
+    flex: 1,
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  statsValues: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  statsCount: {
+    fontSize: 11,
+    color: '#888888',
+    minWidth: 24,
+    textAlign: 'right',
+  },
+  statsDuration: {
+    fontSize: 11,
+    color: '#888888',
+    minWidth: 44,
+    textAlign: 'right',
   },
 });
