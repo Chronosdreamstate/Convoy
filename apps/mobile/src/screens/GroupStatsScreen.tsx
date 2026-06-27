@@ -1,0 +1,250 @@
+import React, { useEffect, useState } from 'react';
+import {
+  ActivityIndicator,
+  SafeAreaView,
+  ScrollView,
+  Share,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { apiClient } from '../services/apiClient';
+
+interface TopMember {
+  userId: string;
+  displayName: string;
+  callsign: string | null;
+  drivesCount: number;
+  distanceKm: number;
+}
+
+interface MonthlyDrive {
+  month: string;
+  count: number;
+}
+
+interface GroupStats {
+  groupName: string;
+  totalDriveKm: number;
+  totalDrives: number;
+  totalMembers: number;
+  avgConvoyDurationMin: number;
+  longestConvoyKm: number;
+  topMembers: TopMember[];
+  monthlyDrives: MonthlyDrive[];
+}
+
+const RANK_COLORS: Record<number, string> = {
+  1: '#FFD700',
+  2: '#C0C0C0',
+  3: '#CD7F32',
+};
+
+function RankCircle({ rank }: { rank: number }) {
+  const bg = RANK_COLORS[rank] ?? '#2A2A2A';
+  return (
+    <View style={[styles.rankCircle, { backgroundColor: bg }]}>
+      <Text style={[styles.rankText, rank <= 3 ? { color: '#000' } : { color: '#fff' }]}>
+        {rank}
+      </Text>
+    </View>
+  );
+}
+
+function BarChart({ data }: { data: MonthlyDrive[] }) {
+  const max = Math.max(...data.map((d) => d.count), 1);
+  return (
+    <View style={styles.chartContainer}>
+      {data.map((d) => (
+        <View key={d.month} style={styles.barWrapper}>
+          <Text style={styles.barCount}>{d.count}</Text>
+          <View style={[styles.bar, { height: Math.max(4, (d.count / max) * 80) }]} />
+          <Text style={styles.barLabel}>{d.month.slice(0, 3)}</Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+export default function GroupStatsScreen() {
+  const { id } = useLocalSearchParams<{ id: string }>();
+  const router = useRouter();
+  const [stats, setStats] = useState<GroupStats | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!id) return;
+    apiClient
+      .get<GroupStats>(`/api/v1/groups/${id}/stats`)
+      .then((r) => setStats(r.data))
+      .catch(() => setError('Could not load stats.'))
+      .finally(() => setLoading(false));
+  }, [id]);
+
+  const handleShare = () => {
+    if (!stats) return;
+    Share.share({
+      message: `Our crew has driven ${stats.totalDriveKm.toFixed(0)} km together in ${stats.totalDrives} convoys! 🏁 convoy.app`,
+    });
+  };
+
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+          <Text style={styles.backText}>‹ Back</Text>
+        </TouchableOpacity>
+        <ActivityIndicator color="#DC143C" style={{ marginTop: 40 }} />
+      </SafeAreaView>
+    );
+  }
+
+  if (error || !stats) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+          <Text style={styles.backText}>‹ Back</Text>
+        </TouchableOpacity>
+        <Text style={styles.errorText}>{error ?? 'No stats available.'}</Text>
+      </SafeAreaView>
+    );
+  }
+
+  return (
+    <SafeAreaView style={styles.container}>
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => router.back()}>
+          <Text style={styles.backText}>‹ Back</Text>
+        </TouchableOpacity>
+        <Text style={styles.title}>{stats.groupName}</Text>
+        <Text style={styles.badge}>📊 Stats</Text>
+      </View>
+
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        {/* Big 3 stats */}
+        <View style={styles.bigRow}>
+          <View style={styles.bigCard}>
+            <Text style={styles.bigValue}>{stats.totalDrives}</Text>
+            <Text style={styles.bigLabel}>Total Drives</Text>
+          </View>
+          <View style={styles.bigCard}>
+            <Text style={styles.bigValue}>{stats.totalDriveKm.toFixed(0)}</Text>
+            <Text style={styles.bigLabel}>km Driven</Text>
+          </View>
+          <View style={styles.bigCard}>
+            <Text style={styles.bigValue}>{stats.totalMembers}</Text>
+            <Text style={styles.bigLabel}>Members</Text>
+          </View>
+        </View>
+
+        {/* Secondary stats */}
+        <View style={styles.secondaryRow}>
+          <View style={styles.secondaryCard}>
+            <Text style={styles.secondaryValue}>{stats.longestConvoyKm.toFixed(1)} km</Text>
+            <Text style={styles.secondaryLabel}>Longest convoy</Text>
+          </View>
+          <View style={styles.secondaryCard}>
+            <Text style={styles.secondaryValue}>{Math.round(stats.avgConvoyDurationMin)} min</Text>
+            <Text style={styles.secondaryLabel}>Avg duration</Text>
+          </View>
+        </View>
+
+        {/* Top Drivers leaderboard */}
+        {stats.topMembers.length > 0 && (
+          <View style={styles.section}>
+            <Text style={styles.sectionLabel}>🏆 TOP DRIVERS</Text>
+            {stats.topMembers.map((m, i) => (
+              <View key={m.userId} style={styles.leaderRow}>
+                <RankCircle rank={i + 1} />
+                <View style={styles.leaderInfo}>
+                  <Text style={styles.leaderName}>{m.displayName}</Text>
+                  {m.callsign ? <Text style={styles.leaderCallsign}>{m.callsign}</Text> : null}
+                </View>
+                <View style={styles.leaderStats}>
+                  <Text style={styles.leaderDistance}>{m.distanceKm.toFixed(0)} km</Text>
+                  <Text style={styles.leaderDrives}>{m.drivesCount} drives</Text>
+                </View>
+              </View>
+            ))}
+          </View>
+        )}
+
+        {/* Monthly activity chart */}
+        {stats.monthlyDrives.length > 0 && (
+          <View style={styles.section}>
+            <Text style={styles.sectionLabel}>📈 MONTHLY ACTIVITY</Text>
+            <BarChart data={stats.monthlyDrives} />
+          </View>
+        )}
+
+        {/* Share button */}
+        <TouchableOpacity style={styles.shareBtn} onPress={handleShare}>
+          <Text style={styles.shareBtnText}>📤 Share Stats</Text>
+        </TouchableOpacity>
+
+        <View style={{ height: 32 }} />
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: '#0A0A0A' },
+  header: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 12 },
+  backBtn: { paddingVertical: 8 },
+  backText: { color: '#DC143C', fontSize: 16 },
+  title: { color: '#FFFFFF', fontSize: 20, fontWeight: '700', marginTop: 4 },
+  badge: { color: '#888888', fontSize: 13, marginTop: 2 },
+  content: { paddingHorizontal: 16, paddingTop: 8 },
+  errorText: { color: '#888', textAlign: 'center', marginTop: 40, fontSize: 15 },
+
+  bigRow: { flexDirection: 'row', gap: 8, marginBottom: 8 },
+  bigCard: {
+    flex: 1, backgroundColor: '#1C1C1C', borderRadius: 12, padding: 14, alignItems: 'center',
+  },
+  bigValue: { color: '#DC143C', fontSize: 28, fontWeight: '800' },
+  bigLabel: { color: '#888888', fontSize: 11, marginTop: 2, textAlign: 'center' },
+
+  secondaryRow: { flexDirection: 'row', gap: 8, marginBottom: 20 },
+  secondaryCard: {
+    flex: 1, backgroundColor: '#1C1C1C', borderRadius: 10, padding: 12, alignItems: 'center',
+  },
+  secondaryValue: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
+  secondaryLabel: { color: '#888888', fontSize: 11, marginTop: 2 },
+
+  section: { marginBottom: 24 },
+  sectionLabel: { color: '#888888', fontSize: 11, fontWeight: '600', letterSpacing: 1, marginBottom: 12 },
+
+  leaderRow: {
+    flexDirection: 'row', alignItems: 'center', backgroundColor: '#1C1C1C',
+    borderRadius: 10, padding: 12, marginBottom: 8,
+  },
+  rankCircle: {
+    width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center',
+  },
+  rankText: { fontSize: 14, fontWeight: '700' },
+  leaderInfo: { flex: 1, marginLeft: 12 },
+  leaderName: { color: '#FFFFFF', fontSize: 14, fontWeight: '600' },
+  leaderCallsign: { color: '#888888', fontSize: 12, marginTop: 1 },
+  leaderStats: { alignItems: 'flex-end' },
+  leaderDistance: { color: '#DC143C', fontSize: 14, fontWeight: '700' },
+  leaderDrives: { color: '#888888', fontSize: 11, marginTop: 1 },
+
+  chartContainer: {
+    flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between',
+    backgroundColor: '#1C1C1C', borderRadius: 12, padding: 16, height: 130,
+  },
+  barWrapper: { flex: 1, alignItems: 'center', justifyContent: 'flex-end' },
+  barCount: { color: '#888888', fontSize: 10, marginBottom: 3 },
+  bar: { width: 16, backgroundColor: '#DC143C', borderRadius: 3, marginBottom: 6 },
+  barLabel: { color: '#888888', fontSize: 10 },
+
+  shareBtn: {
+    backgroundColor: '#1C1C1C', borderWidth: 1, borderColor: '#DC143C',
+    borderRadius: 10, padding: 14, alignItems: 'center', marginTop: 8,
+  },
+  shareBtnText: { color: '#DC143C', fontSize: 15, fontWeight: '600' },
+});

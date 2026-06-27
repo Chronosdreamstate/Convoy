@@ -1295,6 +1295,52 @@ async function groupsRoutes(
       return reply.send({ waypoints });
     },
   );
+
+  // -------------------------------------------------------------------------
+  // GET /groups/:id/drives — shared convoy drive history (members only)
+  // -------------------------------------------------------------------------
+  fastify.get(
+    '/groups/:id/drives',
+    { preHandler: [authenticate, generalLimiter(fastify.redis)] },
+    async (request, reply) => {
+      const userId = (request.user as { sub: string }).sub;
+      const { id } = request.params as { id: string };
+
+      const memberCheck = await fastify.db.query<{ id: string }>(
+        `SELECT id FROM convoy_members WHERE group_id = $1 AND user_id = $2 AND left_at IS NULL`,
+        [id, userId],
+      );
+      if (!memberCheck.rows[0]) return reply.forbidden('Not a member of this group');
+
+      const result = await fastify.db.query<{
+        id: string; group_id: string; distance_m: number; duration_s: number;
+        avg_speed_kph: number | null; top_speed_kph: number | null;
+        member_count: number; started_at: string; ended_at: string;
+      }>(
+        `SELECT id, group_id, distance_m, duration_s, avg_speed_kph, top_speed_kph,
+                member_count, started_at, ended_at
+         FROM drive_history
+         WHERE group_id = $1
+         ORDER BY started_at DESC
+         LIMIT 20`,
+        [id],
+      );
+
+      return reply.send({
+        drives: result.rows.map(r => ({
+          id: r.id,
+          groupId: r.group_id,
+          distanceM: r.distance_m,
+          durationS: r.duration_s,
+          avgSpeedKph: r.avg_speed_kph,
+          topSpeedKph: r.top_speed_kph,
+          memberCount: r.member_count,
+          startedAt: r.started_at,
+          endedAt: r.ended_at,
+        })),
+      });
+    },
+  );
 }
 
 export default groupsRoutes;
@@ -1305,5 +1351,99 @@ export async function cleanupGroupPttLog(
   client: { query(text: string, values: unknown[]): Promise<unknown> },
 ): Promise<void> {
   await client.query('DELETE FROM ptt_log WHERE group_id = $1', [groupId]);
+}
+
+// ---------------------------------------------------------------------------
+// Inline registration: GET /groups/:id/stats
+// (Called from groupsRoutes via fastify.register or directly registered)
+// ---------------------------------------------------------------------------
+export async function registerGroupStatsRoute(fastify: FastifyInstance, _opts: FastifyPluginOptions) {
+  fastify.get(
+    '/groups/:id/stats',
+    { preHandler: [authenticate, generalLimiter(fastify.redis)] },
+    async (request, reply) => {
+      const { id } = request.params as { id: string };
+
+      // Basic group info
+      const groupRes = await fastify.db.query<{ name: string; member_count: number }>(
+        `SELECT g.name, COUNT(m.user_id)::int AS member_count
+         FROM convoy_groups g
+         LEFT JOIN convoy_members m ON m.group_id = g.id AND m.left_at IS NULL
+         WHERE g.id = $1
+         GROUP BY g.id, g.name`,
+        [id],
+      );
+      if (!groupRes.rows[0]) return reply.notFound('Group not found');
+      const { name, member_count } = groupRes.rows[0];
+
+      // Drive aggregates — drives that reference this group
+      const driveAgg = await fastify.db.query<{
+        total_drives: number;
+        total_km: number;
+        avg_duration_min: number;
+        longest_km: number;
+      }>(
+        `SELECT
+           COUNT(*)::int AS total_drives,
+           COALESCE(SUM(distance_km), 0)::float AS total_km,
+           COALESCE(AVG(EXTRACT(EPOCH FROM (ended_at - started_at)) / 60), 0)::float AS avg_duration_min,
+           COALESCE(MAX(distance_km), 0)::float AS longest_km
+         FROM drives
+         WHERE group_id = $1 AND ended_at IS NOT NULL`,
+        [id],
+      );
+      const agg = driveAgg.rows[0] ?? { total_drives: 0, total_km: 0, avg_duration_min: 0, longest_km: 0 };
+
+      // Top members by distance
+      const topRes = await fastify.db.query<{
+        user_id: string;
+        display_name: string;
+        ptt_callsign: string | null;
+        drives_count: number;
+        distance_km: number;
+      }>(
+        `SELECT u.id AS user_id, u.display_name, u.ptt_callsign,
+                COUNT(d.id)::int AS drives_count,
+                COALESCE(SUM(d.distance_km), 0)::float AS distance_km
+         FROM convoy_members m
+         JOIN users u ON u.id = m.user_id
+         LEFT JOIN drives d ON d.user_id = m.user_id AND d.group_id = $1
+         WHERE m.group_id = $1
+         GROUP BY u.id, u.display_name, u.ptt_callsign
+         ORDER BY distance_km DESC
+         LIMIT 5`,
+        [id],
+      );
+
+      // Monthly drives (last 6 months)
+      const monthlyRes = await fastify.db.query<{ month: string; count: number }>(
+        `SELECT TO_CHAR(DATE_TRUNC('month', started_at), 'Mon YYYY') AS month,
+                COUNT(*)::int AS count
+         FROM drives
+         WHERE group_id = $1
+           AND started_at >= NOW() - INTERVAL '6 months'
+         GROUP BY DATE_TRUNC('month', started_at)
+         ORDER BY DATE_TRUNC('month', started_at)`,
+        [id],
+      );
+
+      return reply.send({
+        groupName: name,
+        totalDrives: agg.total_drives,
+        totalDriveKm: agg.total_km,
+        totalMembers: member_count,
+        avgConvoyDurationMin: agg.avg_duration_min,
+        longestConvoyKm: agg.longest_km,
+        topMembers: topRes.rows.map((r) => ({
+          userId: r.user_id,
+          displayName: r.display_name,
+          callsign: r.ptt_callsign,
+          drivesCount: r.drives_count,
+          distanceKm: r.distance_km,
+        })),
+        monthlyDrives: monthlyRes.rows,
+      });
+    },
+  );
 }
 

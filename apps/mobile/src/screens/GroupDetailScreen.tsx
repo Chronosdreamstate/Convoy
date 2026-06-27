@@ -291,6 +291,13 @@ export default function GroupDetailScreen() {
           >
             <Text style={styles.leaderboardIcon}>🏆</Text>
           </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.leaderboardBtn}
+            onPress={() => router.push(`/group-stats/${group.id}` as never)}
+            accessibilityLabel="View group stats"
+          >
+            <Text style={styles.leaderboardIcon}>📊</Text>
+          </TouchableOpacity>
         </View>
       </View>
     </SafeAreaView>
