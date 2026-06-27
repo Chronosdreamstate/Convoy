@@ -211,7 +211,7 @@ export default function IdleMapScreen() {
 
   const handleBrowseGroups = () => {
     clearIdleTimer();
-    router.push('/group-browse' as never);
+    router.push('/search' as never);
   };
 
   const handleJoinGroup = (groupId: string) => {
