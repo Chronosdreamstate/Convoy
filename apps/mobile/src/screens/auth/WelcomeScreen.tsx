@@ -9,7 +9,6 @@ import {
   Linking,
   Platform,
   Alert,
-  ScrollView,
   Dimensions,
 } from 'react-native';
 import { useRouter } from 'expo-router';
@@ -23,22 +22,24 @@ const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 const SLIDES = [
   {
-    emoji: '🏎️',
-    title: 'Drive Together',
-    body: 'Real-time tracking keeps your whole crew connected on the road',
-    animated: true,
+    emoji: '🚗',
+    title: 'Welcome to Convoy',
+    body: 'Navigate together. Stay connected.',
   },
   {
-    emoji: '🎙️',
-    title: 'Built-in Radio',
-    body: 'Push-to-talk radio. No phones needed. One button, instant voice.',
-    animated: false,
+    emoji: '📡',
+    title: 'Real-Time Radio',
+    body: 'Push-to-talk like a pro. Hear your crew, hands-free.',
+  },
+  {
+    emoji: '🗺️',
+    title: 'Smart Navigation',
+    body: 'Shared routes, waypoints, and hazard alerts — automatically.',
   },
   {
     emoji: '🏁',
-    title: 'Your Community',
-    body: 'Find car meets, group drives, and events near you',
-    animated: false,
+    title: "You're ready",
+    body: 'Start your first convoy in seconds.',
   },
 ];
 
@@ -56,109 +57,66 @@ export default function WelcomeScreen() {
   const { setUser, setAccessToken } = useAuthStore();
   const { reduceMotion } = useAccessibilitySettings();
 
-  // Hero fade-in + slide-up on mount
-  const heroOpacity = useRef(new Animated.Value(0)).current;
-  const heroTranslate = useRef(new Animated.Value(30)).current;
+  const [currentSlide, setCurrentSlide] = useState(0);
 
-  // Accent pulse loop
-  const accentScale = useRef(new Animated.Value(1)).current;
+  // Per-slide translateX: slide 0 starts visible (0), rest start off-screen right (SCREEN_WIDTH)
+  const slideAnims = useRef(
+    SLIDES.map((_, i) => new Animated.Value(i === 0 ? 0 : SCREEN_WIDTH)),
+  ).current;
 
-  // Animated car for slide 1
-  const carTranslate = useRef(new Animated.Value(-20)).current;
+  // Dot width animations: active = 24, inactive = 8
+  const dotWidths = useRef(
+    SLIDES.map((_, i) => new Animated.Value(i === 0 ? 24 : 8)),
+  ).current;
 
-  // Carousel state
-  const [activeSlide, setActiveSlide] = useState(0);
-  const carouselRef = useRef<ScrollView>(null);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const activeSlideRef = useRef(0);
-
-  // Animated dot widths — spring from 6px to 20px on active
-  const dotWidths = useRef(SLIDES.map((_, i) => new Animated.Value(i === 0 ? 20 : 6))).current;
-
+  // Animate dot widths whenever the active slide changes
   useEffect(() => {
+    SLIDES.forEach((_, i) => {
+      Animated.timing(dotWidths[i], {
+        toValue: i === currentSlide ? 24 : 8,
+        duration: 220,
+        useNativeDriver: false,
+      }).start();
+    });
+  }, [currentSlide, dotWidths]);
+
+  const goToSlide = (nextIndex: number) => {
     if (reduceMotion) {
-      // Skip animations — snap immediately to final state
-      heroOpacity.setValue(1);
-      heroTranslate.setValue(0);
+      slideAnims[currentSlide].setValue(-SCREEN_WIDTH);
+      slideAnims[nextIndex].setValue(0);
+      setCurrentSlide(nextIndex);
       return;
     }
 
+    // Animate current slide out to the left; next slide in from the right
     Animated.parallel([
-      Animated.timing(heroOpacity, {
-        toValue: 1,
-        duration: 700,
+      Animated.spring(slideAnims[currentSlide], {
+        toValue: -SCREEN_WIDTH,
+        tension: 80,
+        friction: 10,
         useNativeDriver: true,
       }),
-      Animated.timing(heroTranslate, {
+      Animated.spring(slideAnims[nextIndex], {
         toValue: 0,
-        duration: 700,
+        tension: 80,
+        friction: 10,
         useNativeDriver: true,
       }),
-    ]).start();
-
-    // Bouncing car on slide 1
-    Animated.loop(
-      Animated.sequence([
-        Animated.spring(carTranslate, { toValue: 24, useNativeDriver: true, speed: 2, bounciness: 10 }),
-        Animated.spring(carTranslate, { toValue: -20, useNativeDriver: true, speed: 2, bounciness: 10 }),
-      ]),
-    ).start();
-
-    const pulse = Animated.loop(
-      Animated.sequence([
-        Animated.timing(accentScale, {
-          toValue: 1.15,
-          duration: 1000,
-          useNativeDriver: true,
-        }),
-        Animated.timing(accentScale, {
-          toValue: 1,
-          duration: 1000,
-          useNativeDriver: true,
-        }),
-      ]),
-    );
-    pulse.start();
-
-    intervalRef.current = setInterval(() => {
-      const next = (activeSlideRef.current + 1) % SLIDES.length;
-      activeSlideRef.current = next;
-      setActiveSlide(next);
-      carouselRef.current?.scrollTo({ x: next * SCREEN_WIDTH, animated: true });
-    }, 4000);
-
-    return () => {
-      pulse.stop();
-      if (intervalRef.current) clearInterval(intervalRef.current);
-    };
-  }, [reduceMotion, heroOpacity, heroTranslate, accentScale]);
-
-  // Spring-animate dot widths whenever active slide changes
-  useEffect(() => {
-    SLIDES.forEach((_, i) => {
-      Animated.spring(dotWidths[i], {
-        toValue: i === activeSlide ? 20 : 6,
-        useNativeDriver: false,
-        tension: 120,
-        friction: 8,
-      }).start();
+    ]).start(() => {
+      setCurrentSlide(nextIndex);
     });
-  }, [activeSlide, dotWidths]);
+  };
 
-  const handleCarouselScroll = (e: { nativeEvent: { contentOffset: { x: number } } }) => {
-    const idx = Math.round(e.nativeEvent.contentOffset.x / SCREEN_WIDTH);
-    if (idx !== activeSlideRef.current) {
-      activeSlideRef.current = idx;
-      setActiveSlide(idx);
-      // Reset timer on manual swipe
-      if (intervalRef.current) clearInterval(intervalRef.current);
-      intervalRef.current = setInterval(() => {
-        const next = (activeSlideRef.current + 1) % SLIDES.length;
-        activeSlideRef.current = next;
-        setActiveSlide(next);
-        carouselRef.current?.scrollTo({ x: next * SCREEN_WIDTH, animated: true });
-      }, 4000);
+  const handleNext = () => {
+    if (currentSlide < SLIDES.length - 1) {
+      goToSlide(currentSlide + 1);
+    } else {
+      router.push('/(auth)/phone');
     }
+  };
+
+  const handleSkip = () => {
+    router.push('/(auth)/phone');
   };
 
   const handleOpenUrl = (url: string) => {
@@ -210,153 +168,153 @@ export default function WelcomeScreen() {
     }
   };
 
+  const isLastSlide = currentSlide === SLIDES.length - 1;
+
   return (
     <SafeAreaView style={styles.container}>
-      {/* CONVOY hero wordmark */}
-      <Animated.View
-        style={[
-          styles.heroSection,
-          { opacity: heroOpacity, transform: [{ translateY: heroTranslate }] },
-        ]}
-        accessibilityLabel="CONVOY app logo"
-        accessibilityRole="image"
-      >
-        <Text style={styles.appName}>CONVOY</Text>
-        <Animated.View style={[styles.logoAccent, { transform: [{ scaleX: accentScale }] }]} />
-      </Animated.View>
+      {/* Top bar — Skip button visible on slides 1–3 only */}
+      <View style={styles.topBar}>
+        {!isLastSlide && (
+          <TouchableOpacity
+            style={styles.skipButton}
+            onPress={handleSkip}
+            accessibilityRole="button"
+            accessibilityLabel="Skip onboarding"
+            hitSlop={theme.hitSlop}
+          >
+            <Text style={styles.skipText}>Skip</Text>
+          </TouchableOpacity>
+        )}
+      </View>
 
-      {/* Value-prop carousel */}
-      <Animated.View style={[styles.carouselWrapper, { opacity: heroOpacity }]}>
-        <ScrollView
-          ref={carouselRef}
-          horizontal
-          pagingEnabled
-          showsHorizontalScrollIndicator={false}
-          onMomentumScrollEnd={handleCarouselScroll}
-          scrollEventThrottle={16}
-          style={styles.carousel}
-        >
-          {SLIDES.map((slide, i) => (
-            <View key={i} style={styles.slide}>
-              {/* Subtle crimson corner glow */}
-              <View style={styles.slideGlow} pointerEvents="none" />
+      {/* Slide stack — absolutely positioned per slide, driven by translateX */}
+      <View style={styles.slidesContainer}>
+        {SLIDES.map((slide, i) => (
+          <Animated.View
+            key={i}
+            style={[styles.slide, { transform: [{ translateX: slideAnims[i] }] }]}
+            accessibilityElementsHidden={i !== currentSlide}
+            importantForAccessibility={i !== currentSlide ? 'no-hide-descendants' : 'yes'}
+          >
+            {/* Large background watermark emoji (opacity 0.06) */}
+            <Text style={styles.watermarkEmoji} accessibilityElementsHidden={true}>
+              {slide.emoji}
+            </Text>
 
-              {/* Hero emoji — animated bounce on slide 1 */}
+            {/* Foreground card content */}
+            <View style={styles.slideContent}>
+              {/* Subtle crimson radial glow behind the emoji */}
+              <View style={styles.glowOrb} pointerEvents="none" />
+
               <View style={styles.emojiWrapper}>
-                {slide.animated ? (
-                  <Animated.Text style={[styles.emojiText, { transform: [{ translateX: carTranslate }] }]}>
-                    {slide.emoji}
-                  </Animated.Text>
-                ) : (
-                  <Text style={styles.emojiText}>{slide.emoji}</Text>
-                )}
+                <Text style={styles.emojiText}>{slide.emoji}</Text>
               </View>
 
               <Text style={styles.slideTitle}>{slide.title}</Text>
               <Text style={styles.slideBody}>{slide.body}</Text>
             </View>
-          ))}
-        </ScrollView>
-
-        {/* Animated dot indicators */}
-        <View style={styles.dotsRow} accessibilityRole="tablist" accessibilityLabel="Slide indicators">
-          {SLIDES.map((_, i) => (
-            <Animated.View
-              key={i}
-              accessible={true}
-              accessibilityRole="tab"
-              accessibilityLabel={`Slide ${i + 1} of ${SLIDES.length}${i === activeSlide ? ', selected' : ''}`}
-              accessibilityState={{ selected: i === activeSlide }}
-              style={[
-                styles.dot,
-                i === activeSlide ? styles.dotActive : styles.dotInactive,
-                { width: dotWidths[i] },
-              ]}
-            />
-          ))}
-        </View>
-      </Animated.View>
-
-      {/* CTA section */}
-      <View style={styles.buttonSection}>
-        {/* Primary CTA */}
-        <TouchableOpacity
-          style={styles.getStartedButton}
-          onPress={() => router.push('/(auth)/phone')}
-          accessibilityRole="button"
-          accessibilityLabel="Get Started"
-          accessibilityHint="Opens phone number entry screen"
-        >
-          <Text style={styles.getStartedText}>Get Started</Text>
-        </TouchableOpacity>
-
-        {/* Already have an account link */}
-        <View style={styles.signInRow}>
-          <Text style={styles.signInHint}>Already have an account? </Text>
-          <TouchableOpacity
-            onPress={() => router.push('/(auth)/email')}
-            accessibilityRole="button"
-            accessibilityLabel="Sign In"
-            hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
-          >
-            <Text style={styles.signInLink}>Sign In</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Social auth divider */}
-        <View style={styles.dividerRow}>
-          <View style={styles.dividerLine} />
-          <Text style={styles.dividerText}>or</Text>
-          <View style={styles.dividerLine} />
-        </View>
-
-        {/* Apple sign-in */}
-        {Platform.OS === 'ios' && (
-          <TouchableOpacity
-            style={styles.appleButton}
-            onPress={() => { void handleAppleSignIn(); }}
-            accessibilityRole="button"
-            accessibilityLabel="Sign in with Apple"
-            accessibilityHint="Signs you in with your Apple ID"
-          >
-            <Text style={styles.appleButtonText}> Sign in with Apple</Text>
-          </TouchableOpacity>
-        )}
-
-        {/* Google sign-in */}
-        <TouchableOpacity
-          style={[styles.googleButton, Platform.OS === 'ios' && styles.googleButtonAfterApple]}
-          onPress={() => { void handleGoogleSignIn(); }}
-          accessibilityRole="button"
-          accessibilityLabel="Sign in with Google"
-          accessibilityHint="Signs you in with your Google account"
-        >
-          <Text style={styles.googleButtonText}>G  Sign in with Google</Text>
-        </TouchableOpacity>
+          </Animated.View>
+        ))}
       </View>
 
-      {/* Legal */}
-      <View style={styles.legalSection}>
-        <Text style={styles.legalText}>By continuing, you agree to our </Text>
-        <View style={styles.legalLinks}>
-          <TouchableOpacity
-            onPress={() => handleOpenUrl(TERMS_URL)}
-            accessibilityRole="link"
-            accessibilityLabel="Terms of Service"
-            hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
-          >
-            <Text style={styles.legalLink}>Terms of Service</Text>
-          </TouchableOpacity>
-          <Text style={styles.legalText}> and </Text>
-          <TouchableOpacity
-            onPress={() => handleOpenUrl(PRIVACY_POLICY_URL)}
-            accessibilityRole="link"
-            accessibilityLabel="Privacy Policy"
-            hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
-          >
-            <Text style={styles.legalLink}>Privacy Policy</Text>
-          </TouchableOpacity>
-        </View>
+      {/* Progress dots — 4 dots, active = crimson pill (24×8), inactive = #444 circle (8×8) */}
+      <View style={styles.dotsRow} accessibilityRole="tablist" accessibilityLabel="Slide indicators">
+        {SLIDES.map((_, i) => (
+          <Animated.View
+            key={i}
+            accessible={true}
+            accessibilityRole="tab"
+            accessibilityLabel={`Slide ${i + 1} of ${SLIDES.length}${i === currentSlide ? ', selected' : ''}`}
+            accessibilityState={{ selected: i === currentSlide }}
+            style={[
+              styles.dot,
+              i === currentSlide ? styles.dotActive : styles.dotInactive,
+              { width: dotWidths[i] },
+            ]}
+          />
+        ))}
+      </View>
+
+      {/* CTA section */}
+      <View style={styles.ctaSection}>
+        {/* Primary button: "Next →" on slides 1–3, "Let's Go →" on slide 4 */}
+        <TouchableOpacity
+          style={styles.ctaButton}
+          onPress={handleNext}
+          accessibilityRole="button"
+          accessibilityLabel={isLastSlide ? "Let's Go" : 'Next slide'}
+          accessibilityHint={isLastSlide ? 'Opens phone number entry screen' : 'Advances to the next slide'}
+        >
+          <Text style={styles.ctaText}>{isLastSlide ? "Let's Go →" : 'Next →'}</Text>
+        </TouchableOpacity>
+
+        {/* On the last slide, surface the full sign-in / social auth options */}
+        {isLastSlide && (
+          <>
+            <View style={styles.signInRow}>
+              <Text style={styles.signInHint}>Already have an account? </Text>
+              <TouchableOpacity
+                onPress={() => router.push('/(auth)/email')}
+                accessibilityRole="button"
+                accessibilityLabel="Sign In"
+                hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
+              >
+                <Text style={styles.signInLink}>Sign In</Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.dividerRow}>
+              <View style={styles.dividerLine} />
+              <Text style={styles.dividerText}>or</Text>
+              <View style={styles.dividerLine} />
+            </View>
+
+            {Platform.OS === 'ios' && (
+              <TouchableOpacity
+                style={styles.appleButton}
+                onPress={() => { void handleAppleSignIn(); }}
+                accessibilityRole="button"
+                accessibilityLabel="Sign in with Apple"
+                accessibilityHint="Signs you in with your Apple ID"
+              >
+                <Text style={styles.appleButtonText}> Sign in with Apple</Text>
+              </TouchableOpacity>
+            )}
+
+            <TouchableOpacity
+              style={[styles.googleButton, Platform.OS === 'ios' && styles.googleButtonAfterApple]}
+              onPress={() => { void handleGoogleSignIn(); }}
+              accessibilityRole="button"
+              accessibilityLabel="Sign in with Google"
+              accessibilityHint="Signs you in with your Google account"
+            >
+              <Text style={styles.googleButtonText}>G  Sign in with Google</Text>
+            </TouchableOpacity>
+
+            <View style={styles.legalSection}>
+              <Text style={styles.legalText}>By continuing, you agree to our </Text>
+              <View style={styles.legalLinks}>
+                <TouchableOpacity
+                  onPress={() => handleOpenUrl(TERMS_URL)}
+                  accessibilityRole="link"
+                  accessibilityLabel="Terms of Service"
+                  hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
+                >
+                  <Text style={styles.legalLink}>Terms of Service</Text>
+                </TouchableOpacity>
+                <Text style={styles.legalText}> and </Text>
+                <TouchableOpacity
+                  onPress={() => handleOpenUrl(PRIVACY_POLICY_URL)}
+                  accessibilityRole="link"
+                  accessibilityLabel="Privacy Policy"
+                  hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
+                >
+                  <Text style={styles.legalLink}>Privacy Policy</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </>
+        )}
       </View>
     </SafeAreaView>
   );
@@ -366,55 +324,64 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: theme.colors.bg,
-    justifyContent: 'space-between',
-    paddingVertical: theme.spacing.xl,
   },
-  heroSection: {
+
+  // ── Top bar ─────────────────────────────────────────────────────────────────
+  topBar: {
+    height: 48,
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
     alignItems: 'center',
-    paddingTop: theme.spacing.md,
     paddingHorizontal: theme.spacing.lg,
   },
-  appName: {
-    fontSize: 32,
-    fontWeight: '900',
-    color: theme.colors.text,
-    letterSpacing: 6,
+  skipButton: {
+    paddingVertical: 6,
+    paddingHorizontal: 4,
   },
-  logoAccent: {
-    width: 80,
-    height: 3,
-    backgroundColor: theme.colors.accent,
-    borderRadius: 2,
-    marginTop: theme.spacing.sm,
+  skipText: {
+    color: theme.colors.textMuted,
+    fontSize: 15,
+    fontWeight: '500',
   },
-  carouselWrapper: {
+
+  // ── Slide stack ─────────────────────────────────────────────────────────────
+  slidesContainer: {
     flex: 1,
-    justifyContent: 'center',
-    marginTop: theme.spacing.lg,
-  },
-  carousel: {
-    flexGrow: 0,
+    overflow: 'hidden',
+    position: 'relative',
   },
   slide: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
     width: SCREEN_WIDTH,
+    height: '100%',
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: theme.spacing.xl,
-    gap: theme.spacing.md,
-    overflow: 'hidden',
   },
-  // Subtle crimson glow orb pinned to top-right of each slide
-  slideGlow: {
+  // Giant background watermark — centered, very faint
+  watermarkEmoji: {
     position: 'absolute',
-    top: -80,
-    right: -60,
+    fontSize: 200,
+    opacity: 0.06,
+    textAlign: 'center',
+  },
+  slideContent: {
+    alignItems: 'center',
+    gap: theme.spacing.md,
+    zIndex: 1,
+  },
+  // Crimson radial glow behind the foreground emoji
+  glowOrb: {
+    position: 'absolute',
     width: 220,
     height: 220,
     borderRadius: 110,
     backgroundColor: theme.colors.accent,
-    opacity: 0.07,
+    opacity: 0.1,
+    top: -80,
   },
-  // Wrapper gives the emoji a crimson drop shadow
   emojiWrapper: {
     shadowColor: theme.colors.accent,
     shadowOffset: { width: 0, height: 4 },
@@ -427,42 +394,46 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   slideTitle: {
-    fontSize: 28,
+    fontSize: 30,
     fontWeight: '800',
     color: theme.colors.text,
     textAlign: 'center',
-    letterSpacing: 0.5,
+    letterSpacing: 0.4,
     marginTop: theme.spacing.sm,
   },
   slideBody: {
-    fontSize: 15,
+    fontSize: 16,
     color: theme.colors.textMuted,
     textAlign: 'center',
-    lineHeight: 22,
+    lineHeight: 24,
   },
+
+  // ── Progress dots ────────────────────────────────────────────────────────────
   dotsRow: {
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
     gap: 8,
-    marginTop: theme.spacing.lg,
+    paddingVertical: theme.spacing.lg,
   },
   dot: {
-    height: 6,
-    borderRadius: 3,
+    height: 8,
+    borderRadius: 4,
   },
   dotActive: {
-    backgroundColor: theme.colors.accent,
+    backgroundColor: theme.colors.accent,   // crimson #DC143C
   },
   dotInactive: {
-    backgroundColor: theme.colors.border,
+    backgroundColor: '#444444',
   },
-  buttonSection: {
-    paddingBottom: theme.spacing.sm,
+
+  // ── CTA section ─────────────────────────────────────────────────────────────
+  ctaSection: {
     paddingHorizontal: theme.spacing.lg,
+    paddingBottom: theme.spacing.lg,
   },
-  // "Get Started" — 56px tall, pill shape (borderRadius 28), crimson with glow
-  getStartedButton: {
+  // Crimson pill button — "Next →" / "Let's Go →"
+  ctaButton: {
     backgroundColor: theme.colors.accent,
     borderRadius: 28,
     height: 56,
@@ -474,12 +445,14 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     elevation: 6,
   },
-  getStartedText: {
+  ctaText: {
     color: theme.colors.text,
     fontSize: 17,
     fontWeight: '700',
     letterSpacing: 0.5,
   },
+
+  // ── Last-slide extras (sign-in row + social auth + legal) ───────────────────
   signInRow: {
     flexDirection: 'row',
     justifyContent: 'center',
@@ -540,7 +513,7 @@ const styles = StyleSheet.create({
     borderColor: '#4285F4',
   },
   googleButtonAfterApple: {
-    // no extra margin needed — appleButton already has marginBottom: 10
+    // appleButton already has marginBottom: 10 — no extra needed
   },
   googleButtonText: {
     color: '#4285F4',
@@ -550,8 +523,7 @@ const styles = StyleSheet.create({
   },
   legalSection: {
     alignItems: 'center',
-    paddingTop: theme.spacing.lg,
-    paddingHorizontal: theme.spacing.lg,
+    paddingTop: theme.spacing.md,
   },
   legalLinks: {
     flexDirection: 'row',

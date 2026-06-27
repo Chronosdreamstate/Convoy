@@ -30,6 +30,7 @@ import analyticsRoutes from './analytics/analytics.routes';
 import speedCamerasRoutes from './speed-cameras/speed-cameras.routes';
 import socketioPlugin from './plugins/socketio';
 import notificationsPlugin from './plugins/notifications';
+import { healthRoutes } from './health/health.routes';
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
@@ -38,6 +39,17 @@ export async function buildApp(): Promise<FastifyInstance> {
         ? { level: 'info', transport: { target: 'pino-pretty' } }
         : { level: 'info' },
     disableRequestLogging: env.NODE_ENV === 'test',
+  });
+
+  // Slow-request logger — warns when a response takes longer than 1 s
+  app.addHook('onResponse', (req, reply, done) => {
+    if (process.env.NODE_ENV !== 'test') {
+      const ms = reply.elapsedTime;
+      if (ms > 1000) {
+        app.log.warn({ url: req.url, ms }, 'Slow request');
+      }
+    }
+    done();
   });
 
   // API documentation â€” available at /docs in non-production environments
@@ -128,6 +140,9 @@ export async function buildApp(): Promise<FastifyInstance> {
   // Push notification queue and worker
   await app.register(notificationsPlugin);
 
+  // Health check and metrics (no prefix — /health and /metrics are top-level)
+  await app.register(healthRoutes);
+
   // Auth routes
   await app.register(authRoutes, { prefix: '/api/v1' });
 
@@ -191,34 +206,6 @@ export async function buildApp(): Promise<FastifyInstance> {
     }
     // All other errors: re-throw so Fastify's default handler runs.
     throw error;
-  });
-
-  // Health check â€” probes DB and Redis so load balancers get a real liveness signal
-  app.get('/health', async (_request, reply) => {
-    const checks: Record<string, 'ok' | 'error'> = {};
-    let healthy = true;
-
-    try {
-      await app.db.query('SELECT 1');
-      checks.db = 'ok';
-    } catch {
-      checks.db = 'error';
-      healthy = false;
-    }
-
-    try {
-      await app.redis.ping();
-      checks.redis = 'ok';
-    } catch {
-      checks.redis = 'error';
-      healthy = false;
-    }
-
-    return reply.status(healthy ? 200 : 503).send({
-      status: healthy ? 'ok' : 'degraded',
-      timestamp: new Date().toISOString(),
-      checks,
-    });
   });
 
   return app;
