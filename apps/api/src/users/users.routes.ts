@@ -339,6 +339,84 @@ async function usersRoutes(
   });
 
   // -------------------------------------------------------------------------
+  // GET /users/me/achievements — compute achievement progress from real data
+  // -------------------------------------------------------------------------
+  fastify.get('/users/me/achievements', { preHandler: [authenticate, generalLimiter(fastify.redis)] }, async (request, reply) => {
+    const userId = (request.user as { sub: string }).sub;
+
+    interface StatsRow {
+      convoy_count: string;
+      total_distance_m: string;
+      night_drives: string;
+      max_streak: string;
+      groups_created: string;
+      photos_shared: string;
+    }
+
+    const result = await fastify.db.query<StatsRow>(
+      `WITH daily_drives AS (
+         SELECT DISTINCT DATE(started_at) AS d
+         FROM drive_history
+         WHERE user_id = $1 AND group_id IS NOT NULL
+       ),
+       streak_groups AS (
+         SELECT d - (ROW_NUMBER() OVER (ORDER BY d))::INTEGER AS grp
+         FROM daily_drives
+       ),
+       max_streak AS (
+         SELECT COALESCE(MAX(cnt), 0) AS val
+         FROM (SELECT COUNT(*) AS cnt FROM streak_groups GROUP BY grp) sub
+       ),
+       drive_stats AS (
+         SELECT
+           COUNT(*) FILTER (WHERE group_id IS NOT NULL)  AS convoy_count,
+           COALESCE(SUM(distance_m), 0)                  AS total_distance_m,
+           COUNT(*) FILTER (
+             WHERE group_id IS NOT NULL
+               AND EXTRACT(HOUR FROM started_at) >= 0
+               AND EXTRACT(HOUR FROM started_at) < 4
+           ) AS night_drives
+         FROM drive_history
+         WHERE user_id = $1
+       )
+       SELECT
+         ds.convoy_count,
+         ds.total_distance_m,
+         ds.night_drives,
+         ms.val AS max_streak,
+         (SELECT COUNT(*) FROM convoy_groups WHERE admin_id = $1) AS groups_created,
+         (SELECT COUNT(*) FROM group_photos  WHERE user_id  = $1) AS photos_shared
+       FROM drive_stats ds, max_streak ms`,
+      [userId],
+    );
+
+    const s = result.rows[0];
+    const convoys   = parseInt(s.convoy_count,    10);
+    const distKm    = parseInt(s.total_distance_m, 10) / 1000;
+    const nightDrives = parseInt(s.night_drives,  10);
+    const streak    = parseInt(s.max_streak,       10);
+    const groupsCreated = parseInt(s.groups_created, 10);
+    const photos    = parseInt(s.photos_shared,    10);
+
+    const achievements = [
+      { id: 'first_convoy',   progress: Math.min(convoys, 1),    total: 1,    unlocked: convoys >= 1 },
+      { id: 'convoy_10',      progress: Math.min(convoys, 10),   total: 10,   unlocked: convoys >= 10 },
+      { id: 'convoy_50',      progress: Math.min(convoys, 50),   total: 50,   unlocked: convoys >= 50 },
+      { id: 'distance_100',   progress: Math.min(distKm, 100),   total: 100,  unlocked: distKm >= 100 },
+      { id: 'distance_1000',  progress: Math.min(distKm, 1000),  total: 1000, unlocked: distKm >= 1000 },
+      { id: 'sos_hero',       progress: 0,                       total: 1,    unlocked: false },
+      { id: 'streak_7',       progress: Math.min(streak, 7),     total: 7,    unlocked: streak >= 7 },
+      { id: 'group_founder',  progress: Math.min(groupsCreated, 1), total: 1, unlocked: groupsCreated >= 1 },
+      { id: 'ptt_master',     progress: 0,                       total: 100,  unlocked: false },
+      { id: 'waypoint_setter',progress: 0,                       total: 10,   unlocked: false },
+      { id: 'night_owl',      progress: Math.min(nightDrives, 1), total: 1,   unlocked: nightDrives >= 1 },
+      { id: 'photo_sharer',   progress: Math.min(photos, 5),     total: 5,    unlocked: photos >= 5 },
+    ];
+
+    return reply.send({ achievements });
+  });
+
+  // -------------------------------------------------------------------------
   // DELETE /devices/:token — deregister a push token on sign-out
   // -------------------------------------------------------------------------
   fastify.delete('/devices/:token', { preHandler: [authenticate, generalLimiter(fastify.redis)] }, async (request, reply) => {

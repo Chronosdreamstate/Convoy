@@ -1,5 +1,6 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Animated,
   FlatList,
   Modal,
@@ -10,6 +11,7 @@ import {
   View,
 } from 'react-native';
 import { theme } from '../theme';
+import { apiClient } from '../services/apiClient';
 
 // ---------------------------------------------------------------------------
 // Achievement definitions
@@ -41,7 +43,6 @@ const ACHIEVEMENTS: Achievement[] = [
 ];
 
 const NUM_COLUMNS = 3;
-const unlockedCount = ACHIEVEMENTS.filter((a) => a.unlocked).length;
 
 // ---------------------------------------------------------------------------
 // Achievement Card (grid cell)
@@ -178,8 +179,27 @@ function DetailModal({ item, onClose }: DetailModalProps) {
 // Main screen
 // ---------------------------------------------------------------------------
 
+interface AchievementProgress { id: string; unlocked: boolean; progress: number; total: number }
+
 export default function AchievementsScreen() {
+  const [achievements, setAchievements] = useState<Achievement[]>(ACHIEVEMENTS);
+  const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Achievement | null>(null);
+
+  useEffect(() => {
+    apiClient.get<{ achievements: AchievementProgress[] }>('/api/v1/users/me/achievements')
+      .then((res) => {
+        const progressMap = new Map(res.data.achievements.map((a) => [a.id, a]));
+        setAchievements(ACHIEVEMENTS.map((a) => {
+          const p = progressMap.get(a.id);
+          return p ? { ...a, unlocked: p.unlocked, progress: p.progress, total: p.total } : a;
+        }));
+      })
+      .catch(() => { /* keep static fallback */ })
+      .finally(() => setLoading(false));
+  }, []);
+
+  const unlockedCount = achievements.filter((a) => a.unlocked).length;
 
   const renderItem = ({ item }: { item: Achievement }) => (
     <AchievementCard item={item} onPress={setSelected} />
@@ -191,20 +211,25 @@ export default function AchievementsScreen() {
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Achievements</Text>
         <View style={styles.headerBadge}>
-          <Text style={styles.headerBadgeText}>{unlockedCount} / {ACHIEVEMENTS.length} unlocked</Text>
+          <Text style={styles.headerBadgeText}>{unlockedCount} / {achievements.length} unlocked</Text>
         </View>
       </View>
 
-      {/* Grid */}
-      <FlatList
-        data={ACHIEVEMENTS}
-        keyExtractor={(item) => item.id}
-        renderItem={renderItem}
-        numColumns={NUM_COLUMNS}
-        columnWrapperStyle={styles.row}
-        contentContainerStyle={styles.listContent}
-        showsVerticalScrollIndicator={false}
-      />
+      {loading ? (
+        <View style={styles.centered}>
+          <ActivityIndicator color={theme.colors.primary ?? '#DC143C'} size="large" />
+        </View>
+      ) : (
+        <FlatList
+          data={achievements}
+          keyExtractor={(item) => item.id}
+          renderItem={renderItem}
+          numColumns={NUM_COLUMNS}
+          columnWrapperStyle={styles.row}
+          contentContainerStyle={styles.listContent}
+          showsVerticalScrollIndicator={false}
+        />
+      )}
 
       {/* Detail modal */}
       <DetailModal item={selected} onClose={() => setSelected(null)} />
@@ -222,6 +247,11 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: theme.colors.bg,
+  },
+  centered: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 
   // Header
