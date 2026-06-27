@@ -17,6 +17,7 @@ import { useRouter } from 'expo-router';
 import Constants from 'expo-constants';
 import { apiClient } from '../../services/apiClient';
 import { authService } from '../../services/AuthService';
+import { SiriShortcutsService } from '../../services/SiriShortcutsService';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { theme } from '../../theme';
 

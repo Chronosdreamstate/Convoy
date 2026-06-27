@@ -160,8 +160,14 @@ function PTTButton({
         onPressOut={handlePressOut}
         disabled={disabled}
         accessibilityRole="button"
-        accessibilityLabel={isTransmitting ? 'Release to stop transmitting' : isMuted ? 'Push to talk — muted' : 'Hold to talk'}
-        accessibilityHint="Hold down to broadcast your voice to all convoy members"
+        accessibilityLabel={
+          isTransmitting
+            ? 'Stop transmitting. Currently broadcasting to convoy.'
+            : isMuted
+            ? 'Push to talk muted. Tap to unmute.'
+            : 'Push to talk. Hold to transmit voice to convoy.'
+        }
+        accessibilityHint="Double tap and hold to transmit voice"
         accessibilityState={{ selected: isTransmitting, disabled: disabled || isMuted }}
       >
         <Animated.View

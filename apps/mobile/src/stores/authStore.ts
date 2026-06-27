@@ -65,7 +65,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   isAuthenticated: false,
   isFirstLogin: false,
 
-  setUser: (user) => set({ user, isAuthenticated: user !== null }),
+  setUser: (user) => {
+    set({ user, isAuthenticated: user !== null });
+    if (user !== null) void SiriShortcutsService.donateAll();
+  },
 
   setAccessToken: (accessToken) => set({ accessToken, token: accessToken }),
 
