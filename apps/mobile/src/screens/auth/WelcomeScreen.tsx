@@ -22,19 +22,22 @@ const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 const SLIDES = [
   {
-    emoji: '🚗',
+    emoji: '🏎️',
     title: 'Drive Together',
-    body: 'Keep your crew in sync with real-time convoy tracking',
+    body: 'Real-time tracking keeps your whole crew connected on the road',
+    animated: true,
   },
   {
     emoji: '🎙️',
     title: 'Built-in Radio',
-    body: 'Crystal-clear push-to-talk between all convoy members',
+    body: 'Push-to-talk radio. No phones needed. One button, instant voice.',
+    animated: false,
   },
   {
     emoji: '🏁',
-    title: 'Find Your Crew',
-    body: 'Browse car meets and convoys happening near you',
+    title: 'Your Community',
+    body: 'Find car meets, group drives, and events near you',
+    animated: false,
   },
 ];
 
@@ -58,6 +61,9 @@ export default function WelcomeScreen() {
   // Accent pulse loop
   const accentScale = useRef(new Animated.Value(1)).current;
 
+  // Animated car for slide 1
+  const carTranslate = useRef(new Animated.Value(-20)).current;
+
   // Carousel state
   const [activeSlide, setActiveSlide] = useState(0);
   const carouselRef = useRef<ScrollView>(null);
@@ -80,6 +86,14 @@ export default function WelcomeScreen() {
         useNativeDriver: true,
       }),
     ]).start();
+
+    // Bouncing car on slide 1
+    Animated.loop(
+      Animated.sequence([
+        Animated.spring(carTranslate, { toValue: 24, useNativeDriver: true, speed: 2, bounciness: 10 }),
+        Animated.spring(carTranslate, { toValue: -20, useNativeDriver: true, speed: 2, bounciness: 10 }),
+      ]),
+    ).start();
 
     const pulse = Animated.loop(
       Animated.sequence([
@@ -218,9 +232,15 @@ export default function WelcomeScreen() {
               {/* Subtle crimson corner glow */}
               <View style={styles.slideGlow} pointerEvents="none" />
 
-              {/* 72px hero emoji with crimson drop shadow */}
+              {/* Hero emoji — animated bounce on slide 1 */}
               <View style={styles.emojiWrapper}>
-                <Text style={styles.emojiText}>{slide.emoji}</Text>
+                {slide.animated ? (
+                  <Animated.Text style={[styles.emojiText, { transform: [{ translateX: carTranslate }] }]}>
+                    {slide.emoji}
+                  </Animated.Text>
+                ) : (
+                  <Text style={styles.emojiText}>{slide.emoji}</Text>
+                )}
               </View>
 
               <Text style={styles.slideTitle}>{slide.title}</Text>

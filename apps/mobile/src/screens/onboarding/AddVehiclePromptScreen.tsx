@@ -14,11 +14,11 @@ import { useRouter } from 'expo-router';
 import { apiClient } from '../../services/apiClient';
 
 const VEHICLE_TYPES = [
-  { key: 'sports', label: '🏎️ Sports' },
-  { key: 'truck', label: '🛻 Truck' },
-  { key: 'suv', label: '🚙 SUV' },
-  { key: 'sedan', label: '🚗 Sedan' },
-  { key: 'moto', label: '🏍️ Moto' },
+  { key: 'sedan', icon: '🚗', label: 'Car' },
+  { key: 'moto', icon: '🏍️', label: 'Motorcycle' },
+  { key: 'suv', icon: '🚙', label: 'SUV/Truck' },
+  { key: 'van', icon: '🚌', label: 'Van/RV' },
+  { key: 'sports', icon: '🏎️', label: 'Track Car' },
 ];
 
 export default function AddVehiclePromptScreen() {
@@ -28,6 +28,7 @@ export default function AddVehiclePromptScreen() {
   const [loading, setLoading] = useState(false);
 
   const scaleAnim = useRef(new Animated.Value(0.8)).current;
+  const pillScales = useRef(VEHICLE_TYPES.map(() => new Animated.Value(1))).current;
 
   useEffect(() => {
     Animated.spring(scaleAnim, {
@@ -37,6 +38,15 @@ export default function AddVehiclePromptScreen() {
       useNativeDriver: true,
     }).start();
   }, []);
+
+  const handleSelectType = (key: string, idx: number) => {
+    setSelectedType(key);
+    Animated.sequence([
+      Animated.spring(pillScales[idx], { toValue: 0.88, useNativeDriver: true, speed: 30, bounciness: 0 }),
+      Animated.spring(pillScales[idx], { toValue: 1.1, useNativeDriver: true, speed: 20, bounciness: 12 }),
+      Animated.spring(pillScales[idx], { toValue: 1, useNativeDriver: true, speed: 20, bounciness: 6 }),
+    ]).start();
+  };
 
   const handleSubmit = async () => {
     if (!vehicleName.trim()) return;
@@ -65,8 +75,8 @@ export default function AddVehiclePromptScreen() {
           🚗
         </Animated.Text>
 
-        <Text style={styles.heading}>Add your ride</Text>
-        <Text style={styles.body}>Tell the convoy what you&apos;re driving</Text>
+        <Text style={styles.heading}>What do you drive?</Text>
+        <Text style={styles.body}>Shown to other convoy members</Text>
 
         <TextInput
           style={styles.input}
@@ -81,17 +91,19 @@ export default function AddVehiclePromptScreen() {
         />
 
         <View style={styles.pillRow}>
-          {VEHICLE_TYPES.map((t) => (
-            <TouchableOpacity
-              key={t.key}
-              style={[styles.pill, selectedType === t.key && styles.pillActive]}
-              onPress={() => setSelectedType(t.key)}
-              activeOpacity={0.8}
-            >
-              <Text style={[styles.pillText, selectedType === t.key && styles.pillTextActive]}>
-                {t.label}
-              </Text>
-            </TouchableOpacity>
+          {VEHICLE_TYPES.map((t, idx) => (
+            <Animated.View key={t.key} style={{ transform: [{ scale: pillScales[idx] }] }}>
+              <TouchableOpacity
+                style={[styles.pill, selectedType === t.key && styles.pillActive]}
+                onPress={() => handleSelectType(t.key, idx)}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.pillIcon}>{t.icon}</Text>
+                <Text style={[styles.pillText, selectedType === t.key && styles.pillTextActive]}>
+                  {t.label}
+                </Text>
+              </TouchableOpacity>
+            </Animated.View>
           ))}
         </View>
 
@@ -149,14 +161,18 @@ const styles = StyleSheet.create({
   },
   pill: {
     backgroundColor: '#1C1C1C',
-    borderRadius: 100,
+    borderRadius: 14,
     paddingHorizontal: 14,
-    paddingVertical: 8,
+    paddingVertical: 10,
     borderWidth: 1,
     borderColor: '#2A2A2A',
+    alignItems: 'center',
+    gap: 4,
+    minWidth: 72,
   },
   pillActive: { backgroundColor: '#DC143C', borderColor: '#DC143C' },
-  pillText: { fontSize: 14, color: '#888888' },
+  pillIcon: { fontSize: 22 },
+  pillText: { fontSize: 11, color: '#888888', textAlign: 'center' },
   pillTextActive: { color: '#FFFFFF', fontWeight: '600' },
   submitBtn: {
     width: '100%',

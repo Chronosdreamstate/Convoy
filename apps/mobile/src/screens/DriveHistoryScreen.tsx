@@ -54,6 +54,7 @@ function buildStaticMapUrl(coords: [number, number][]): string | null {
 interface DriveRecord {
   id: string;
   groupId: string | null;
+  groupName?: string | null;
   distanceM: number;
   durationS: number;
   avgSpeedKph: number | null;
@@ -64,6 +65,8 @@ interface DriveRecord {
   summaryCardUrl: string | null;
   routeTrace?: { type: string; coordinates: [number, number][] } | null;
 }
+
+type DriveFilter = 'all' | 'solo' | 'group' | 'month';
 
 type ListItem =
   | { type: 'header'; label: string; key: string }
@@ -193,6 +196,113 @@ function computeStreak(drives: DriveRecord[]): { current: number; best: number; 
   }
   best = tempBest;
   return { current, best, weekDays };
+}
+
+// ---------------------------------------------------------------------------
+// Monthly summary card
+// ---------------------------------------------------------------------------
+
+function MonthlySummaryCard({ drives }: { drives: DriveRecord[] }) {
+  const now = new Date();
+  const monthDrives = drives.filter((d) => {
+    const t = new Date(d.endedAt);
+    return t.getFullYear() === now.getFullYear() && t.getMonth() === now.getMonth();
+  });
+  if (monthDrives.length === 0) return null;
+
+  const totalDistM = monthDrives.reduce((s, d) => s + d.distanceM, 0);
+  const totalDurS = monthDrives.reduce((s, d) => s + d.durationS, 0);
+  const monthName = now.toLocaleString('default', { month: 'long' });
+
+  // Build simple per-day sparkline (days 1–today, count drives)
+  const daysInMonth = now.getDate();
+  const dayCounts: number[] = Array(daysInMonth).fill(0);
+  monthDrives.forEach((d) => {
+    const day = new Date(d.endedAt).getDate() - 1;
+    if (day >= 0 && day < daysInMonth) dayCounts[day]++;
+  });
+  const maxCount = Math.max(...dayCounts, 1);
+  const sparkH = 24;
+  const sparkW = 4;
+
+  return (
+    <View style={styles.monthCard}>
+      <View style={{ borderTopWidth: 2, borderTopColor: '#DC143C', borderRadius: 12, overflow: 'hidden' }} />
+      <View style={styles.monthCardInner}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.monthTitle}>{monthName}</Text>
+          <Text style={styles.monthStats}>
+            {monthDrives.length} drive{monthDrives.length !== 1 ? 's' : ''} · {formatDistance(totalDistM)} · {formatDuration(totalDurS)}
+          </Text>
+        </View>
+        {/* Sparkline */}
+        <View style={styles.sparkline}>
+          {dayCounts.slice(-14).map((count, i) => {
+            const h = count === 0 ? 3 : Math.max(6, Math.round((count / maxCount) * sparkH));
+            return (
+              <View
+                key={i}
+                style={[
+                  styles.sparkBar,
+                  { height: h, backgroundColor: count > 0 ? '#DC143C' : '#2A2A2A' },
+                ]}
+              />
+            );
+          })}
+        </View>
+      </View>
+    </View>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Filter pills
+// ---------------------------------------------------------------------------
+
+const FILTERS: { id: DriveFilter; label: string }[] = [
+  { id: 'all', label: 'All' },
+  { id: 'solo', label: 'Solo' },
+  { id: 'group', label: 'Group' },
+  { id: 'month', label: 'This Month' },
+];
+
+function FilterPills({ active, onChange }: { active: DriveFilter; onChange: (f: DriveFilter) => void }) {
+  return (
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      style={styles.filterRow}
+      contentContainerStyle={styles.filterRowContent}
+    >
+      {FILTERS.map((f) => (
+        <TouchableOpacity
+          key={f.id}
+          onPress={() => onChange(f.id)}
+          style={[styles.filterPill, active === f.id && styles.filterPillActive]}
+          accessibilityRole="button"
+          accessibilityLabel={`Filter by ${f.label}`}
+          accessibilityState={{ selected: active === f.id }}
+        >
+          <Text style={[styles.filterPillText, active === f.id && styles.filterPillTextActive]}>
+            {f.label}
+          </Text>
+        </TouchableOpacity>
+      ))}
+    </ScrollView>
+  );
+}
+
+function applyFilter(drives: DriveRecord[], filter: DriveFilter): DriveRecord[] {
+  const now = new Date();
+  switch (filter) {
+    case 'solo': return drives.filter((d) => !d.groupId);
+    case 'group': return drives.filter((d) => !!d.groupId);
+    case 'month': return drives.filter((d) => {
+      const t = new Date(d.endedAt);
+      return t.getFullYear() === now.getFullYear() && t.getMonth() === now.getMonth();
+    });
+    default: return drives;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -430,6 +540,7 @@ export default function DriveHistoryScreen() {
   const [sharingId, setSharingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [activeFilter, setActiveFilter] = useState<DriveFilter>('all');
   const expandAnim = useRef(new Animated.Value(0)).current;
   const router = useRouter();
 
@@ -538,12 +649,13 @@ export default function DriveHistoryScreen() {
     } catch { /* cancelled */ }
   }, [drives]);
 
-  const listData = useMemo(() => buildListData(drives), [drives]);
+  const filteredDrives = useMemo(() => applyFilter(drives, activeFilter), [drives, activeFilter]);
+  const listData = useMemo(() => buildListData(filteredDrives), [filteredDrives]);
 
   const longestDriveId = useMemo(() => {
-    if (drives.length < 2) return null;
-    return drives.reduce((best, d) => (d.distanceM > best.distanceM ? d : best)).id;
-  }, [drives]);
+    if (filteredDrives.length < 2) return null;
+    return filteredDrives.reduce((best, d) => (d.distanceM > best.distanceM ? d : best)).id;
+  }, [filteredDrives]);
 
   if (selected) {
     return (
@@ -596,7 +708,9 @@ export default function DriveHistoryScreen() {
           drives.length > 0 ? (
             <View>
               <TotalStatsHeader drives={drives} onExport={handleExport} />
+              <MonthlySummaryCard drives={drives} />
               <WeeklyStreakCard drives={drives} />
+              <FilterPills active={activeFilter} onChange={setActiveFilter} />
               <TouchableOpacity
                 style={styles.leaderboardBtn}
                 onPress={() => router.push('/leaderboard' as never)}
@@ -722,7 +836,9 @@ export default function DriveHistoryScreen() {
                       <Text style={styles.expandStat}>📊 {drive.avgSpeedKph.toFixed(0)} km/h avg</Text>
                     )}
                     <Text style={styles.expandStat}>
-                      {drive.groupId ? `👥 Group · ${drive.memberCount} members` : '🚗 Solo'}
+                      {drive.groupId
+                        ? `👥 ${drive.groupName ?? 'Group'} · ${drive.memberCount} member${drive.memberCount !== 1 ? 's' : ''}`
+                        : '🚗 Solo'}
                     </Text>
                   </View>
 
@@ -766,6 +882,54 @@ export default function DriveHistoryScreen() {
 // ---------------------------------------------------------------------------
 
 const styles = StyleSheet.create({
+  // Monthly summary card
+  monthCard: {
+    backgroundColor: '#1C1C1C',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#2A2A2A',
+    marginBottom: 12,
+    overflow: 'hidden',
+    borderTopWidth: 2,
+    borderTopColor: '#DC143C',
+  },
+  monthCardInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 14,
+    gap: 12,
+  },
+  monthTitle: { color: '#F0F0F0', fontSize: 13, fontWeight: '700', marginBottom: 3 },
+  monthStats: { color: '#888888', fontSize: 12 },
+  sparkline: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 2,
+    height: 28,
+  },
+  sparkBar: {
+    width: 4,
+    borderRadius: 2,
+  },
+
+  // Filter pills
+  filterRow: { marginBottom: 12 },
+  filterRowContent: { paddingHorizontal: 0, gap: 8, flexDirection: 'row' },
+  filterPill: {
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 20,
+    backgroundColor: '#1C1C1C',
+    borderWidth: 1,
+    borderColor: '#2A2A2A',
+  },
+  filterPillActive: {
+    backgroundColor: '#DC143C',
+    borderColor: '#DC143C',
+  },
+  filterPillText: { color: '#888888', fontSize: 13, fontWeight: '600' },
+  filterPillTextActive: { color: '#fff' },
+
   container: { flex: 1, backgroundColor: '#0A0A0A' },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   skeletonPad: { padding: 16, paddingTop: 20 },
