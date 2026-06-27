@@ -716,7 +716,7 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
 
     socket.on('convoy:alert', ({ message, senderCallsign }: { message: string; senderCallsign: string }) => {
       showQuickAlert(`${senderCallsign}: ${message}`);
-      HapticService.warning();
+      HapticService.trigger("warning");
     });
 
     socket.on('group:ended', () => {
