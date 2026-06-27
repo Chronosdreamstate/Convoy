@@ -449,12 +449,12 @@ export default function GroupChatScreen() {
     };
 
     socket.on('group:message', handleMessage);
-    socket.on('chat:react', handleReaction);
+    socket.on('group:reaction', handleReaction);
     socket.on('chat:typing', handleTyping);
 
     return () => {
       socket.off('group:message', handleMessage);
-      socket.off('chat:react', handleReaction);
+      socket.off('group:reaction', handleReaction);
       socket.off('chat:typing', handleTyping);
     };
   }, [socket, currentUserId]);

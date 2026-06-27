@@ -714,7 +714,7 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
       setHazardPins((p) => new Map(p).set(pin.id, pin));
       setHazardAlerts((prev) => prev.some((a) => a.id === pin.id) ? prev : [...prev, pin]);
     });
-    socket.on('hazard:vote', ({ hazardId, thumbsUp, thumbsDown }: { hazardId: string; thumbsUp: number; thumbsDown: number }) => {
+    socket.on('hazard:vote_updated', ({ hazardId, thumbsUp, thumbsDown }: { hazardId: string; thumbsUp: number; thumbsDown: number }) => {
       setHazardPins((p) => {
         const m = new Map(p);
         const h = m.get(hazardId);
