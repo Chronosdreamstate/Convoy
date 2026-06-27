@@ -96,18 +96,35 @@ function handleNotificationNavigation(
   }
 }
 
-/** Route a convoy:// deep link to the appropriate screen. */
+/** Route a convoy:// or https://convoy.app/ deep link to the appropriate screen. */
 function handleDeepLink(router: Router, url: string): void {
   try {
     const parsed = new URL(url);
-    if (parsed.protocol !== 'convoy:') return;
-    const host = parsed.hostname;
-    if (host === 'join') {
-      const code = parsed.searchParams.get('code');
-      if (code) router.push(`/join?prefillCode=${encodeURIComponent(code)}`);
-    } else if (host === 'invite') {
-      const userId = parsed.searchParams.get('userId');
-      if (userId) router.push(`/group/${encodeURIComponent(userId)}`);
+    let path = '';
+    let code: string | null = null;
+    let userId: string | null = null;
+
+    if (parsed.protocol === 'convoy:') {
+      // convoy://join?code=XXX  or  convoy://invite?userId=XXX
+      path = parsed.hostname;
+      code = parsed.searchParams.get('code');
+      userId = parsed.searchParams.get('userId');
+    } else if (parsed.protocol === 'https:' && parsed.hostname === 'convoy.app') {
+      // https://convoy.app/join?code=XXX  or  https://convoy.app/invite/USER_ID
+      const segments = parsed.pathname.replace(/^\//, '').split('/');
+      path = segments[0] ?? '';
+      code = parsed.searchParams.get('code');
+      userId = segments[1] ?? null;
+    } else {
+      return;
+    }
+
+    if (path === 'join' && code) {
+      router.push({ pathname: '/join', params: { prefillCode: code } });
+    } else if (path === 'invite' && userId) {
+      router.push(`/group/${encodeURIComponent(userId)}`);
+    } else if (path === 'group' && userId) {
+      router.push(`/group/${encodeURIComponent(userId)}`);
     }
   } catch {
     // malformed URL — ignore

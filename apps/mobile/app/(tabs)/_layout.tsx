@@ -7,12 +7,14 @@ function AnimatedTabButton({
   onPress,
   onLongPress,
   accessibilityState,
+  accessibilityLabel,
   style,
 }: {
   children: React.ReactNode;
   onPress?: () => void;
   onLongPress?: () => void;
   accessibilityState?: { selected?: boolean };
+  accessibilityLabel?: string;
   style?: object;
 }) {
   const scale = useRef(new Animated.Value(1)).current;
@@ -39,8 +41,10 @@ function AnimatedTabButton({
       onLongPress={onLongPress}
       onPressIn={handlePressIn}
       onPressOut={handlePressOut}
+      accessibilityRole="tab"
       accessibilityState={accessibilityState}
-      style={[{ flex: 1, alignItems: 'center', justifyContent: 'center' }, style]}
+      accessibilityLabel={accessibilityLabel}
+      style={[{ flex: 1, alignItems: 'center', justifyContent: 'center', minHeight: 44 }, style]}
     >
       <Animated.View
         style={{
@@ -98,6 +102,7 @@ export default function TabsLayout() {
         name="map"
         options={{
           title: 'Map',
+          tabBarAccessibilityLabel: 'Map tab',
           tabBarIcon: ({ focused }) => <TabIcon emoji="🗺️" focused={focused} />,
         }}
       />
@@ -105,6 +110,7 @@ export default function TabsLayout() {
         name="convoy"
         options={{
           title: 'Convoy',
+          tabBarAccessibilityLabel: 'Convoy tab',
           tabBarIcon: ({ focused }) => <TabIcon emoji="🚗" focused={focused} />,
         }}
       />
@@ -112,6 +118,7 @@ export default function TabsLayout() {
         name="drives"
         options={{
           title: 'Drives',
+          tabBarAccessibilityLabel: 'Drive history tab',
           tabBarIcon: ({ focused }) => <TabIcon emoji="📍" focused={focused} />,
         }}
       />
@@ -119,6 +126,7 @@ export default function TabsLayout() {
         name="garage"
         options={{
           title: 'Garage',
+          tabBarAccessibilityLabel: 'Garage tab',
           tabBarIcon: ({ focused }) => <TabIcon emoji="🔧" focused={focused} />,
         }}
       />
@@ -126,6 +134,7 @@ export default function TabsLayout() {
         name="profile"
         options={{
           title: 'Profile',
+          tabBarAccessibilityLabel: 'Profile tab',
           tabBarIcon: ({ focused }) => <TabIcon emoji="👤" focused={focused} />,
         }}
       />

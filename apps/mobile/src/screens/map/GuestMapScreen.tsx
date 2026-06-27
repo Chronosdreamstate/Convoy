@@ -205,14 +205,14 @@ export default function GuestMapScreen() {
       </Animated.View>
 
       {/* Map annotation bubbles */}
-      <View style={[styles.annotationBubble, { top: insets.top + 72, left: 16 }]}>
-        <Text style={styles.annotationText}>🎙️ Push-to-talk</Text>
+      <View style={[overlayStyles.annotationBubble, { top: insets.top + 72, left: 16 }]}>
+        <Text style={overlayStyles.annotationText}>🎙️ Push-to-talk</Text>
       </View>
-      <View style={[styles.annotationBubble, { top: insets.top + 120, alignSelf: 'center', left: '35%' }]}>
-        <Text style={styles.annotationText}>⚡ Live gaps</Text>
+      <View style={[overlayStyles.annotationBubble, { top: insets.top + 120, alignSelf: 'center', left: '35%' }]}>
+        <Text style={overlayStyles.annotationText}>⚡ Live gaps</Text>
       </View>
-      <View style={[styles.annotationBubble, { top: insets.top + 72, right: 16 }]}>
-        <Text style={styles.annotationText}>📍 Member tracking</Text>
+      <View style={[overlayStyles.annotationBubble, { top: insets.top + 72, right: 16 }]}>
+        <Text style={overlayStyles.annotationText}>📍 Member tracking</Text>
       </View>
 
       {/* Location denied card */}
@@ -250,14 +250,14 @@ export default function GuestMapScreen() {
           },
         ]}
       >
-        <Text style={styles.headline}>🏁 Drive with your crew</Text>
+        <Text style={overlayStyles.headline}>🏁 Drive with your crew</Text>
         <Text style={styles.logo}>CONVOY</Text>
         <Text style={styles.tagline}>The app built for car enthusiasts.</Text>
 
-        <View style={styles.checkList}>
-          <Text style={styles.checkItem}>✓  Real-time convoy tracking</Text>
-          <Text style={styles.checkItem}>✓  Push-to-talk radio</Text>
-          <Text style={styles.checkItem}>✓  Live gap alerts</Text>
+        <View style={overlayStyles.checkList}>
+          <Text style={overlayStyles.checkItem}>✓  Real-time convoy tracking</Text>
+          <Text style={overlayStyles.checkItem}>✓  Push-to-talk radio</Text>
+          <Text style={overlayStyles.checkItem}>✓  Live gap alerts</Text>
         </View>
 
         <TouchableOpacity
@@ -464,7 +464,9 @@ const styles = StyleSheet.create({
   signInBtn: { paddingVertical: 4 },
   signInText: { color: '#555555', fontSize: 13, fontWeight: '400' },
   signInTextBold: { color: '#999999', fontWeight: '700' },
+});
 
+const overlayStyles = StyleSheet.create({
   headline: {
     color: '#AAAAAA',
     fontSize: 14,

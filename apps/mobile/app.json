@@ -41,7 +41,8 @@
           "data": [
             { "scheme": "https", "host": "convoy.app", "pathPrefix": "/join" },
             { "scheme": "https", "host": "convoy.app", "pathPrefix": "/invite" },
-            { "scheme": "https", "host": "convoy.app", "pathPrefix": "/group" }
+            { "scheme": "https", "host": "convoy.app", "pathPrefix": "/group" },
+            { "scheme": "convoy" }
           ],
           "category": ["BROWSABLE", "DEFAULT"]
         }

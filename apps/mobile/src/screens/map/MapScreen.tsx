@@ -1250,12 +1250,14 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
 
       {/* Gap alerts — use GapAlertBanner for the most recent alert */}
       {gapAlerts.length > 0 && (
-        <GapAlertBanner
-          memberName={memberNamesRef.current[gapAlerts[0].memberId] ?? `Member ${gapAlerts[0].memberId.slice(0, 6)}`}
-          distanceM={gapAlerts[0].distanceM}
-          thresholdM={2000}
-          onDismiss={() => setGapAlerts((p) => p.slice(1))}
-        />
+        <View accessibilityLiveRegion="polite" accessible={false}>
+          <GapAlertBanner
+            memberName={memberNamesRef.current[gapAlerts[0].memberId] ?? `Member ${gapAlerts[0].memberId.slice(0, 6)}`}
+            distanceM={gapAlerts[0].distanceM}
+            thresholdM={2000}
+            onDismiss={() => setGapAlerts((p) => p.slice(1))}
+          />
+        </View>
       )}
 
       {/* Hazard proximity alerts */}

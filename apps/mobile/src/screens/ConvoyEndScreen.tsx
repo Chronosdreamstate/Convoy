@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Alert,
   Animated,
   Dimensions,
   Share,
@@ -9,6 +10,7 @@ import {
   View,
 } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -141,18 +143,159 @@ function buildShareText(
   duration: string,
   members: number,
   topSpeed: number | null,
+  groupName: string,
 ): string {
   const lines: string[] = [
-    '🏁 Just finished a CONVOY ride!',
+    `🏁 Just finished a convoy with ${groupName} on CONVOY!`,
     `📍 ${distanceKm} in ${duration}`,
-    `👥 ${members} rider${members !== 1 ? 's' : ''} strong`,
+    `👥 ${members} car${members !== 1 ? 's' : ''} strong`,
   ];
   if (topSpeed != null) {
     lines.push(`🏎️ Top speed: ${topSpeed} km/h`);
   }
-  lines.push('Download CONVOY and join the fun!');
+  lines.push('');
+  lines.push('Join us at convoy.app');
   return lines.join('\n');
 }
+
+function getWeekKey(): string {
+  const now = new Date();
+  const startOfYear = new Date(now.getFullYear(), 0, 1);
+  const week = Math.ceil(((now.getTime() - startOfYear.getTime()) / 86400000 + startOfYear.getDay() + 1) / 7);
+  return `${now.getFullYear()}-W${week}`;
+}
+
+async function incrementWeeklyDrives(): Promise<number> {
+  try {
+    const key = `convoy_weekly_drives_${getWeekKey()}`;
+    const raw = await AsyncStorage.getItem(key);
+    const count = (parseInt(raw ?? '0', 10) || 0) + 1;
+    await AsyncStorage.setItem(key, String(count));
+    return count;
+  } catch {
+    return 1;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// ShareCard — visual preview card for the share sheet
+// ---------------------------------------------------------------------------
+
+interface ShareCardProps {
+  groupName: string;
+  distanceText: string;
+  duration: string;
+  members: number;
+  topSpeed: number | null;
+}
+
+function ShareCard({ groupName, distanceText, duration, members, topSpeed }: ShareCardProps) {
+  const dateStr = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+  return (
+    <View style={shareCardStyles.card}>
+      <View style={shareCardStyles.header}>
+        <Text style={shareCardStyles.wordmark}>CONVOY</Text>
+        <Text style={shareCardStyles.flag}>🏁</Text>
+      </View>
+      <Text style={shareCardStyles.groupName}>{groupName}</Text>
+      <Text style={shareCardStyles.date}>{dateStr}</Text>
+      <View style={shareCardStyles.divider} />
+      <Text style={shareCardStyles.statsLine}>
+        {distanceText} · {duration} · {members} {members === 1 ? 'car' : 'cars'}
+      </Text>
+      {topSpeed != null && (
+        <Text style={shareCardStyles.speedLine}>Max speed: {topSpeed} km/h</Text>
+      )}
+      <View style={shareCardStyles.routeLine}>
+        <View style={shareCardStyles.dot} />
+        <View style={shareCardStyles.line} />
+        <View style={shareCardStyles.flag2} />
+      </View>
+      <Text style={shareCardStyles.url}>convoy.app</Text>
+    </View>
+  );
+}
+
+const shareCardStyles = StyleSheet.create({
+  card: {
+    backgroundColor: '#111111',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#DC143C',
+    padding: 20,
+    width: '100%',
+    marginBottom: 16,
+  },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  wordmark: {
+    color: '#DC143C',
+    fontWeight: '900',
+    fontSize: 18,
+    letterSpacing: 3,
+  },
+  flag: { fontSize: 22 },
+  groupName: {
+    color: '#FFFFFF',
+    fontSize: 20,
+    fontWeight: '700',
+    marginBottom: 2,
+  },
+  date: {
+    color: '#888888',
+    fontSize: 12,
+    marginBottom: 12,
+  },
+  divider: {
+    height: 1,
+    backgroundColor: '#2A2A2A',
+    marginBottom: 12,
+  },
+  statsLine: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  speedLine: {
+    color: '#888888',
+    fontSize: 12,
+    marginBottom: 12,
+  },
+  routeLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 12,
+  },
+  dot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#22C55E',
+  },
+  line: {
+    flex: 1,
+    height: 2,
+    backgroundColor: '#DC143C',
+    marginHorizontal: 6,
+  },
+  flag2: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#DC143C',
+  },
+  url: {
+    color: '#888888',
+    fontSize: 11,
+    textAlign: 'right',
+    letterSpacing: 0.5,
+  },
+});
 
 // ---------------------------------------------------------------------------
 // StatCard — one of three horizontal cards

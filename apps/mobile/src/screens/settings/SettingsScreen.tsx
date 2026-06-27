@@ -12,12 +12,16 @@ import {
   Share,
   Linking,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import Constants from 'expo-constants';
 import { apiClient } from '../../services/apiClient';
 import { authService } from '../../services/AuthService';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { theme } from '../../theme';
+
+const DISTANCE_UNIT_KEY = '@convoy/distanceUnit';
+const GAP_THRESHOLD_KEY = '@convoy/gapThresholdM';
 
 const PRIVACY_POLICY_URL = 'https://convoy.app/privacy';
 const TERMS_URL = 'https://convoy.app/terms';
@@ -49,6 +53,16 @@ const MAP_STYLES: Array<{ label: string; value: Settings['mapStyle'] }> = [
   { label: 'Standard', value: 'standard' },
   { label: 'Satellite', value: 'satellite' },
   { label: 'Hybrid', value: 'hybrid' },
+];
+const DISTANCE_UNITS: Array<{ label: string; value: 'km' | 'miles' }> = [
+  { label: 'Kilometres', value: 'km' },
+  { label: 'Miles', value: 'miles' },
+];
+const GAP_THRESHOLDS = [
+  { label: '50 m', metres: 50 },
+  { label: '100 m', metres: 100 },
+  { label: '200 m', metres: 200 },
+  { label: '500 m', metres: 500 },
 ];
 const HAZARD_DISTANCES = [
   { label: '0.25 mi', metres: 402 },
@@ -186,9 +200,19 @@ export default function SettingsScreen() {
   const [notifFriendRequests, setNotifFriendRequests] = useState(true);
   const [notifNavigation, setNotifNavigation] = useState(true);
   const [privacy, setPrivacy] = useState<Settings['privacy']>('public');
+  const [showInBrowse, setShowInBrowse] = useState(true);
+  const [distanceUnit, setDistanceUnit] = useState<'km' | 'miles'>('miles');
+  const [gapThresholdM, setGapThresholdM] = useState(200);
+  const [autoJoinNearby, setAutoJoinNearby] = useState(false);
 
   useEffect(() => {
     loadSettings();
+    AsyncStorage.getItem(DISTANCE_UNIT_KEY).then((v) => {
+      if (v === 'km' || v === 'miles') setDistanceUnit(v);
+    });
+    AsyncStorage.getItem(GAP_THRESHOLD_KEY).then((v) => {
+      if (v) setGapThresholdM(Number(v));
+    });
   }, []);
 
   const loadSettings = async () => {
@@ -246,6 +270,8 @@ export default function SettingsScreen() {
         pttMaxSeconds: response.data.pttMaxSeconds,
         pttVolumePercent,
       });
+      await AsyncStorage.setItem(DISTANCE_UNIT_KEY, distanceUnit);
+      await AsyncStorage.setItem(GAP_THRESHOLD_KEY, String(gapThresholdM));
       setIsDirty(false);
       setSaveSuccess(true);
       if (saveSuccessTimer.current) clearTimeout(saveSuccessTimer.current);
