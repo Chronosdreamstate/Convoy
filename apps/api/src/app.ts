@@ -1,10 +1,12 @@
-import Fastify, { FastifyInstance } from 'fastify';
+﻿import Fastify, { FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import cookie from '@fastify/cookie';
 import jwt from '@fastify/jwt';
 import sensible from '@fastify/sensible';
 import rateLimit from '@fastify/rate-limit';
+import swagger from '@fastify/swagger';
+import swaggerUi from '@fastify/swagger-ui';
 import { env } from './config/env';
 import dbPlugin from './plugins/db';
 import redisPlugin from './plugins/redis';
@@ -13,7 +15,7 @@ import usersRoutes from './users/users.routes';
 import settingsRoutes from './settings/settings.routes';
 import vehiclesRoutes from './vehicles/vehicles.routes';
 import friendsRoutes from './friends/friends.routes';
-import groupsRoutes from './groups/groups.routes';
+import groupsRoutes, { registerGroupStatsRoute } from './groups/groups.routes';
 import chatRoutes from './groups/chat.routes';
 import routesRoutes from './routes/routes.routes';
 import hazardsRoutes from './hazards/hazards.routes';
@@ -35,6 +37,44 @@ export async function buildApp(): Promise<FastifyInstance> {
         : { level: 'info' },
     disableRequestLogging: env.NODE_ENV === 'test',
   });
+
+  // API documentation â€” available at /docs in non-production environments
+  if (env.NODE_ENV !== 'production') {
+    await app.register(swagger, {
+      openapi: {
+        openapi: '3.0.0',
+        info: {
+          title: 'CONVOY API',
+          description: 'Real-time group navigation and push-to-talk radio API for CONVOY',
+          version: '1.0.0',
+        },
+        servers: [
+          { url: 'http://localhost:3000', description: 'Development' },
+        ],
+        tags: [
+          { name: 'auth', description: 'OTP authentication' },
+          { name: 'groups', description: 'Convoy group management' },
+          { name: 'drives', description: 'Drive history and replay' },
+          { name: 'users', description: 'User profiles and search' },
+          { name: 'notifications', description: 'Notification history' },
+          { name: 'ptt', description: 'Push-to-talk channel tokens' },
+          { name: 'friends', description: 'Friend system' },
+          { name: 'vehicles', description: 'Garage / vehicle profiles' },
+        ],
+        components: {
+          securitySchemes: {
+            bearerAuth: { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
+          },
+        },
+        security: [{ bearerAuth: [] }],
+      },
+    });
+    await app.register(swaggerUi, {
+      routePrefix: '/docs',
+      uiConfig: { docExpansion: 'list', deepLinking: true },
+      staticCSP: true,
+    });
+  }
 
   // Security headers
   await app.register(helmet, { contentSecurityPolicy: false });
@@ -95,7 +135,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   // User settings routes
   await app.register(settingsRoutes, { prefix: '/api/v1' });
 
-  // Garage — vehicle profiles
+  // Garage â€” vehicle profiles
   await app.register(vehiclesRoutes, { prefix: '/api/v1' });
 
   // Friend system
@@ -103,6 +143,7 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   // Convoy group management
   await app.register(groupsRoutes, { prefix: '/api/v1' });
+  await app.register(registerGroupStatsRoute, { prefix: '/api/v1' });
 
   // Group text chat
   await app.register(chatRoutes, { prefix: '/api/v1' });
@@ -128,7 +169,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   // Account management and data export
   await app.register(accountRoutes, { prefix: '/api/v1' });
 
-  // Places / geocoding (proxies OpenStreetMap Nominatim — no API key needed)
+  // Places / geocoding (proxies OpenStreetMap Nominatim â€” no API key needed)
   await app.register(placesRoutes, { prefix: '/api/v1' });
 
   // Notification history (read/mark-read)
@@ -141,13 +182,13 @@ export async function buildApp(): Promise<FastifyInstance> {
   // Without this, malformed UUID path params produce a 500 instead of a clean client error.
   app.setErrorHandler(async (error, _request, reply) => {
     if ((error as { code?: string }).code === '22P02') {
-      return reply.status(400).send({ error: 'Invalid ID format — expected a UUID' });
+      return reply.status(400).send({ error: 'Invalid ID format â€” expected a UUID' });
     }
     // All other errors: re-throw so Fastify's default handler runs.
     throw error;
   });
 
-  // Health check — probes DB and Redis so load balancers get a real liveness signal
+  // Health check â€” probes DB and Redis so load balancers get a real liveness signal
   app.get('/health', async (_request, reply) => {
     const checks: Record<string, 'ok' | 'error'> = {};
     let healthy = true;
@@ -177,3 +218,4 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   return app;
 }
+
