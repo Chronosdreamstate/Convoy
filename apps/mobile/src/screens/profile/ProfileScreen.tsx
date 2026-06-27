@@ -14,6 +14,8 @@ import {
   View,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import * as ImagePicker from 'expo-image-picker';
+import * as FileSystem from 'expo-file-system';
 import ProfileCompletionBar from '../../components/ProfileCompletionBar';
 import { apiClient } from '../../services/apiClient';
 import { authService } from '../../services/AuthService';
@@ -86,6 +88,8 @@ function CallsignBadge({ callsign }: { callsign: string | null }) {
 export default function ProfileScreen() {
   const router = useRouter();
   const signOut = useAuthStore((s) => s.signOut);
+  const accessToken = useAuthStore((s) => s.accessToken);
+  const apiUrl = process.env.EXPO_PUBLIC_API_URL ?? '';
 
   const [profile, setProfile] = useState<Profile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -102,6 +106,8 @@ export default function ProfileScreen() {
   const [isDirty, setIsDirty] = useState(false);
   const [editingName, setEditingName] = useState(false);
   const [localAvatarUri, setLocalAvatarUri] = useState<string | null>(null);
+  const [avatarDirty, setAvatarDirty] = useState(false);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [showAvatarModal, setShowAvatarModal] = useState(false);
   const [avatarUrlDraft, setAvatarUrlDraft] = useState('');
   const nameInputRef = useRef<import('react-native').TextInput>(null);
@@ -164,6 +170,7 @@ export default function ProfileScreen() {
         displayName: trimmed,
         pttCallsign: pttCallsign.trim() || null,
         privacy,
+        ...(avatarDirty ? { avatarUrl: localAvatarUri } : {}),
       });
       if (!isMounted.current) return;
       setProfile(res.data);
@@ -171,6 +178,7 @@ export default function ProfileScreen() {
       setPttCallsign(res.data.pttCallsign ?? '');
       setPrivacy(res.data.privacy);
       setIsDirty(false);
+      setAvatarDirty(false);
       setSaveSuccess(true);
       // Clear the success banner after 3 seconds
       setTimeout(() => {
@@ -184,8 +192,47 @@ export default function ProfileScreen() {
     }
   };
 
+  const handlePickAvatar = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission Required', 'Please allow photo library access to set a profile photo.');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.8,
+      allowsEditing: true,
+      aspect: [1, 1],
+    });
+    if (result.canceled) return;
+    setUploadingAvatar(true);
+    try {
+      const asset = result.assets[0];
+      const uploadResult = await FileSystem.uploadAsync(
+        `${apiUrl}/api/v1/uploads/photo`,
+        asset.uri,
+        {
+          httpMethod: 'POST',
+          uploadType: FileSystem.FileSystemUploadType.MULTIPART,
+          fieldName: 'file',
+          mimeType: asset.mimeType ?? 'image/jpeg',
+          headers: { Authorization: `Bearer ${accessToken ?? ''}` },
+        },
+      );
+      const { url } = JSON.parse(uploadResult.body) as { url: string };
+      setLocalAvatarUri(url);
+      setAvatarDirty(true);
+      setIsDirty(true);
+    } catch {
+      Alert.alert('Upload Failed', 'Could not upload photo. Try again.');
+    } finally {
+      setUploadingAvatar(false);
+    }
+  };
+
   const handleAvatarPress = () => {
     Alert.alert('Change Photo', '', [
+      { text: '📷 Choose from Library', onPress: () => void handlePickAvatar() },
       {
         text: 'Enter Photo URL',
         onPress: () => {
@@ -193,7 +240,11 @@ export default function ProfileScreen() {
           setShowAvatarModal(true);
         },
       },
-      { text: 'Remove Photo', style: 'destructive', onPress: () => setLocalAvatarUri(null) },
+      {
+        text: 'Remove Photo',
+        style: 'destructive',
+        onPress: () => { setLocalAvatarUri(null); setAvatarDirty(true); setIsDirty(true); },
+      },
       { text: 'Cancel', style: 'cancel' },
     ]);
   };
@@ -205,6 +256,8 @@ export default function ProfileScreen() {
       return;
     }
     setLocalAvatarUri(trimmed || null);
+    setAvatarDirty(true);
+    setIsDirty(true);
     setShowAvatarModal(false);
   };
 
@@ -265,8 +318,11 @@ export default function ProfileScreen() {
           <AvatarCircle
             name={displayName || profile?.displayName || '?'}
             avatarUrl={localAvatarUri ?? profile?.avatarUrl}
-            onPress={handleAvatarPress}
+            onPress={uploadingAvatar ? undefined : handleAvatarPress}
           />
+          {uploadingAvatar && (
+            <ActivityIndicator style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} color="#DC143C" />
+          )}
           <TouchableOpacity
             style={styles.displayNameRow}
             onPress={() => {

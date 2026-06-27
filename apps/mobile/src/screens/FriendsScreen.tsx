@@ -13,6 +13,7 @@ import {
   View,
   SafeAreaView,
 } from 'react-native';
+import { useRouter } from 'expo-router';
 import { apiClient } from '../services/apiClient';
 import { SkeletonRow } from '../components/SkeletonLoader';
 import { useGroupStore } from '../stores/groupStore';
@@ -84,6 +85,7 @@ function FriendRow({
   onRemove: (id: string) => void;
   removing: boolean;
 }) {
+  const router = useRouter();
   const activeGroupId = useGroupStore((s) => s.activeGroupId);
   const slideAnim = useRef(new Animated.Value(0)).current;
   const opAnim = useRef(new Animated.Value(1)).current;
@@ -113,9 +115,18 @@ function FriendRow({
     }
   };
 
+  const handleOpenDM = async () => {
+    try {
+      const res = await apiClient.post<{ groupId: string }>('/api/v1/dm', { friendId: friend.id });
+      router.push({ pathname: '/group-chat', params: { groupId: res.data.groupId } });
+    } catch {
+      Alert.alert('Error', 'Could not open message thread.');
+    }
+  };
+
   const handleTap = () => {
     const buttons: Array<{ text: string; style?: 'cancel' | 'destructive' | 'default'; onPress?: () => void }> = [
-      { text: '💬 Message', onPress: () => Alert.alert('Coming Soon', 'Messaging will be available soon.') },
+      { text: '💬 Message', onPress: () => void handleOpenDM() },
     ];
     if (activeGroupId) buttons.push({ text: '📨 Invite to Convoy', onPress: () => void handleInviteToConvoy() });
     buttons.push({ text: '🚫 Remove', style: 'destructive', onPress: handleRemove });

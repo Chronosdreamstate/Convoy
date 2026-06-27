@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import * as ImagePicker from 'expo-image-picker';
+import * as MediaLibrary from 'expo-media-library';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -555,8 +556,24 @@ export default function ConvoyEndScreen() {
     }
   };
 
-  const handleSaveToPhotos = () => {
-    Alert.alert('Coming Soon', 'Screenshot sharing will be available in the next update.');
+  const handleSaveToPhotos = async () => {
+    if (photos.length === 0) {
+      Alert.alert('No Photos', 'Add drive photos first using the photo button above.');
+      return;
+    }
+    const { status } = await MediaLibrary.requestPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission Required', 'Please allow photo library access to save photos.');
+      return;
+    }
+    let saved = 0;
+    for (const uri of photos) {
+      try {
+        await MediaLibrary.saveToLibraryAsync(uri);
+        saved++;
+      } catch { /* skip photos that fail */ }
+    }
+    Alert.alert('Saved', `${saved} drive photo${saved !== 1 ? 's' : ''} saved to your camera roll.`);
   };
 
   const handleCopy = async () => {

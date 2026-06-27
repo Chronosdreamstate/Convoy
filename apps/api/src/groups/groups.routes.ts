@@ -238,6 +238,7 @@ async function groupsRoutes(
        WHERE m.user_id = $1
          AND m.left_at IS NULL
          AND g.status = 'active'
+         AND g.type = 'group'
        GROUP BY g.id
        LIMIT 1`,
       [userId],
