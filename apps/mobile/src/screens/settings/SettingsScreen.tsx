@@ -405,12 +405,12 @@ export default function SettingsScreen() {
           <SettingRow
             icon="🔐"
             label="Privacy Policy"
-            onPress={() => router.push('/privacy')}
+            onPress={() => router.push('/privacy' as any)}
           />
           <SettingRow
             icon="📄"
             label="Terms of Service"
-            onPress={() => router.push('/terms')}
+            onPress={() => router.push('/terms' as any)}
             last
           />
         </View>
@@ -493,6 +493,18 @@ export default function SettingsScreen() {
             />
           </View>
           <SettingRow
+            icon="📐"
+            label="Distance Units"
+            subtitle={`Showing distances in ${distanceUnit}`}
+          />
+          <View style={styles.chipContainer}>
+            <ChipSelector
+              options={DISTANCE_UNITS}
+              selected={distanceUnit}
+              onSelect={(v) => { setDistanceUnit(v); mark(); }}
+            />
+          </View>
+          <SettingRow
             icon="🌄"
             label="Scenic Routing"
             subtitle="Prefer roads that avoid highways"
@@ -537,6 +549,37 @@ export default function SettingsScreen() {
               onSelect={(v) => { setPttMaxSecs(v); mark(); }}
             />
           </View>
+        </View>
+
+        {/* ── CONVOY ──────────────────────────────────────────────────────── */}
+        <SectionHeader title="CONVOY" />
+        <View style={styles.sectionCard}>
+          <SettingRow
+            icon="📏"
+            label="Gap Alert Threshold"
+            subtitle={`Alert when gap exceeds ${gapThresholdM >= 1000 ? `${(gapThresholdM / 1000).toFixed(1)} km` : `${gapThresholdM} m`}`}
+          />
+          <View style={styles.chipContainer}>
+            <ChipSelector
+              options={GAP_THRESHOLDS.map((g) => ({ label: g.label, value: g.metres }))}
+              selected={gapThresholdM}
+              onSelect={(v) => { setGapThresholdM(v); mark(); }}
+            />
+          </View>
+          <SettingRow
+            icon="🔗"
+            label="Auto-Join Nearby Convoy"
+            subtitle="Automatically join a convoy when nearby friends start one"
+            rightSlot={
+              <Switch
+                value={autoJoinNearby}
+                onValueChange={(v) => { setAutoJoinNearby(v); mark(); }}
+                trackColor={{ false: theme.colors.border, true: theme.colors.accent }}
+                thumbColor={theme.colors.text}
+              />
+            }
+            last
+          />
         </View>
 
         {/* ── AUDIO ───────────────────────────────────────────────────────── */}
@@ -601,6 +644,20 @@ export default function SettingsScreen() {
               onSelect={(v) => { setPrivacy(v); mark(); }}
             />
           </View>
+          <SettingRow
+            icon="🔍"
+            label="Show in Group Browse"
+            subtitle="Let others find and invite you to convoys"
+            rightSlot={
+              <Switch
+                value={showInBrowse}
+                onValueChange={(v) => { setShowInBrowse(v); mark(); }}
+                trackColor={{ false: theme.colors.border, true: theme.colors.accent }}
+                thumbColor={theme.colors.text}
+              />
+            }
+            last
+          />
         </View>
 
         {/* ── ABOUT ───────────────────────────────────────────────────────── */}
@@ -630,9 +687,20 @@ export default function SettingsScreen() {
             onPress={() => Linking.openURL('mailto:hello@convoy.app?subject=Feedback').catch(() => {})}
           />
           <SettingRow
+            icon="💬"
+            label="Contact Support"
+            subtitle="Get help from the CONVOY team"
+            onPress={() => Linking.openURL('mailto:support@convoy.app?subject=Support%20Request').catch(() => {})}
+          />
+          <SettingRow
             icon="🔒"
             label="Privacy Policy"
-            onPress={() => router.push('/privacy')}
+            onPress={() => Linking.openURL(PRIVACY_POLICY_URL).catch(() => {})}
+          />
+          <SettingRow
+            icon="📄"
+            label="Terms of Service"
+            onPress={() => Linking.openURL(TERMS_URL).catch(() => {})}
           />
           <SettingRow
             icon="ℹ️"
@@ -645,7 +713,7 @@ export default function SettingsScreen() {
 
         {/* ── DANGER ZONE ─────────────────────────────────────────────────── */}
         <SectionHeader title="DANGER ZONE" />
-        <View style={styles.sectionCard}>
+        <View style={[styles.sectionCard, styles.dangerCard]}>
           <SettingRow
             icon="🗑"
             label="Delete Account"
@@ -739,6 +807,10 @@ const styles = StyleSheet.create({
     borderColor: theme.colors.border,
     marginBottom: theme.spacing.lg,
     overflow: 'hidden',
+  },
+  dangerCard: {
+    borderColor: '#DC143C',
+    borderWidth: 1.5,
   },
 
   // Setting row
