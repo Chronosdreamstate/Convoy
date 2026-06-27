@@ -41,6 +41,27 @@ export interface CarPlayState {
   nextWaypointName: string | null;
   /** ETA to next waypoint in minutes — shown alongside waypoint name. */
   nextWaypointEtaMinutes: number | null;
+  // --- Instrument cluster / driving data ---
+  /** Distance in meters to the car directly ahead. Null when position === 1 (lead) or unknown. */
+  gapToCarAheadM: number | null;
+  /** Current vehicle speed in km/h. */
+  speedKph: number;
+  /** Current road speed limit in km/h. Null if unknown. */
+  speedLimitKph: number | null;
+  /** True when speedKph exceeds speedLimitKph by more than 5 km/h. */
+  isOverSpeedLimit: boolean;
+  /** 1-based position within the convoy (1 = lead car). */
+  positionInConvoy: number;
+  /** Total number of cars in the convoy. */
+  convoyTotalCars: number;
+}
+
+export interface DrivingData {
+  speedKph: number;
+  speedLimitKph?: number;
+  gapToCarAheadM?: number;
+  positionInConvoy?: number;
+  convoyTotalCars?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -84,7 +105,13 @@ function statesEqual(a: CarPlayState, b: CarPlayState): boolean {
     a.convoyStatus === b.convoyStatus &&
     a.transmittingMemberCallsign === b.transmittingMemberCallsign &&
     a.nextWaypointName === b.nextWaypointName &&
-    a.nextWaypointEtaMinutes === b.nextWaypointEtaMinutes
+    a.nextWaypointEtaMinutes === b.nextWaypointEtaMinutes &&
+    a.gapToCarAheadM === b.gapToCarAheadM &&
+    a.speedKph === b.speedKph &&
+    a.speedLimitKph === b.speedLimitKph &&
+    a.isOverSpeedLimit === b.isOverSpeedLimit &&
+    a.positionInConvoy === b.positionInConvoy &&
+    a.convoyTotalCars === b.convoyTotalCars
   );
 }
 
@@ -167,9 +194,54 @@ export class CarPlayService {
     if (!this.instrumentCluster || !this.currentState) return;
     const s = this.currentState;
     this.instrumentCluster.clear();
-    this.instrumentCluster.showSpeedLimit(0);
-    this.instrumentCluster.showNextWaypoint(s.nextWaypointName ?? '', 0);
-    this.instrumentCluster.showConvoyPosition(1, s.memberCount);
+    if (s.speedLimitKph !== null) {
+      this.instrumentCluster.showSpeedLimit(s.speedLimitKph);
+    }
+    if (s.nextWaypointName) {
+      this.instrumentCluster.showNextWaypoint(s.nextWaypointName, 0);
+    }
+    this.instrumentCluster.showConvoyPosition(s.positionInConvoy, s.convoyTotalCars);
+  }
+
+  /**
+   * Updates driving telemetry (speed, gap, position) and syncs to native if changed.
+   * Automatically computes isOverSpeedLimit and clears gapToCarAheadM for the lead car.
+   */
+  updateDrivingData(data: DrivingData): void {
+    if (!this.currentState) return;
+    const speedKph = data.speedKph;
+    const speedLimitKph = data.speedLimitKph !== undefined ? data.speedLimitKph : this.currentState.speedLimitKph;
+    const positionInConvoy = data.positionInConvoy ?? this.currentState.positionInConvoy;
+    const convoyTotalCars = data.convoyTotalCars ?? this.currentState.convoyTotalCars;
+    const isOverSpeedLimit = speedLimitKph !== null ? speedKph > speedLimitKph + 5 : false;
+    const gapToCarAheadM = positionInConvoy === 1
+      ? null
+      : (data.gapToCarAheadM ?? this.currentState.gapToCarAheadM);
+
+    const next: CarPlayState = {
+      ...this.currentState,
+      speedKph,
+      speedLimitKph,
+      isOverSpeedLimit,
+      positionInConvoy,
+      convoyTotalCars,
+      gapToCarAheadM,
+    };
+    this.syncStateIfChanged(next);
+  }
+
+  /** Returns a short human-readable string suitable for instrument cluster / wearable display. */
+  getClusterDisplayText(): string {
+    if (!this.currentState || this.currentState.convoyStatus !== 'active') {
+      return 'CONVOY · Ready';
+    }
+    const s = this.currentState;
+    if (s.positionInConvoy === 1) {
+      const following = Math.max(0, s.convoyTotalCars - 1);
+      return `🚗 Lead Car · ${following} following`;
+    }
+    const gapText = s.gapToCarAheadM !== null ? ` · Gap: ${s.gapToCarAheadM}m` : '';
+    return `🚗 #${s.positionInConvoy} of ${s.convoyTotalCars}${gapText}`;
   }
 
   /** Returns the last synced state, or null if syncState has never been called. */

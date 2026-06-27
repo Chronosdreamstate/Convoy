@@ -42,7 +42,7 @@ jest.mock('react-native', () => ({
 
 // Import AFTER mock is registered
 import { NativeModules, NativeEventEmitter } from 'react-native';
-import { CarPlayService, CarPlayState, ICarPlayInstrumentCluster } from './CarPlayService';
+import { CarPlayService, CarPlayState, DrivingData, ICarPlayInstrumentCluster } from './CarPlayService';
 
 // Typed references to the mocked functions
 const mockSyncState = NativeModules.ConvoyCarPlay.syncState as jest.Mock;
@@ -75,6 +75,12 @@ const fcCarPlayState = (): fc.Arbitrary<CarPlayState> =>
     transmittingMemberCallsign: fc.oneof(fc.constant(null as string | null), fc.string({ minLength: 1, maxLength: 20 })),
     nextWaypointName: fc.oneof(fc.constant(null as string | null), fc.string({ minLength: 1, maxLength: 40 })),
     nextWaypointEtaMinutes: fc.oneof(fc.constant(null as number | null), fc.integer({ min: 1, max: 120 })),
+    gapToCarAheadM: fc.oneof(fc.constant(null as number | null), fc.integer({ min: 1, max: 5000 })),
+    speedKph: fc.integer({ min: 0, max: 300 }),
+    speedLimitKph: fc.oneof(fc.constant(null as number | null), fc.integer({ min: 20, max: 130 })),
+    isOverSpeedLimit: fc.boolean(),
+    positionInConvoy: fc.integer({ min: 1, max: 20 }),
+    convoyTotalCars: fc.integer({ min: 1, max: 20 }),
   });
 
 // ---------------------------------------------------------------------------
@@ -356,6 +362,130 @@ describe('Property 116: start() removes prior listeners before adding new ones',
         },
       ),
       { numRuns: 20 },
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// P_CLUSTER_1: gapToCarAheadM is null when positionInConvoy === 1 (lead car)
+// ---------------------------------------------------------------------------
+
+describe('P_CLUSTER_1: updateDrivingData sets gapToCarAheadM to null for lead car', () => {
+  it('gapToCarAheadM is always null after updateDrivingData when positionInConvoy is 1', () => {
+    fc.assert(
+      fc.property(
+        fcCarPlayState(),
+        fc.integer({ min: 0, max: 200 }),
+        fc.integer({ min: 0, max: 300 }),
+        (baseState, speedKph, gapM) => {
+          mockSyncState.mockClear();
+          const svc = makeSvc();
+          svc.syncState({ ...baseState, convoyStatus: 'active' });
+          svc.updateDrivingData({ speedKph, positionInConvoy: 1, gapToCarAheadM: gapM });
+          const result = svc.getState();
+          expect(result?.gapToCarAheadM).toBeNull();
+        },
+      ),
+      { numRuns: 100 },
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// P_CLUSTER_2: isOverSpeedLimit is false when speedLimitKph is null
+// ---------------------------------------------------------------------------
+
+describe('P_CLUSTER_2: isOverSpeedLimit is always false when speedLimitKph is null', () => {
+  it('any speed with null limit never triggers isOverSpeedLimit', () => {
+    fc.assert(
+      fc.property(
+        fcCarPlayState(),
+        fc.integer({ min: 0, max: 300 }),
+        (baseState, speedKph) => {
+          mockSyncState.mockClear();
+          const svc = makeSvc();
+          svc.syncState({ ...baseState, speedLimitKph: null });
+          svc.updateDrivingData({ speedKph, speedLimitKph: undefined });
+          const result = svc.getState();
+          expect(result?.isOverSpeedLimit).toBe(false);
+        },
+      ),
+      { numRuns: 100 },
+    );
+  });
+
+  it('speed below limit + 5kph buffer is never over limit', () => {
+    fc.assert(
+      fc.property(
+        fcCarPlayState(),
+        fc.integer({ min: 20, max: 130 }),
+        (baseState, limitKph) => {
+          mockSyncState.mockClear();
+          const svc = makeSvc();
+          svc.syncState(baseState);
+          svc.updateDrivingData({ speedKph: limitKph, speedLimitKph: limitKph });
+          const result = svc.getState();
+          expect(result?.isOverSpeedLimit).toBe(false);
+        },
+      ),
+      { numRuns: 100 },
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// P_CLUSTER_3: getClusterDisplayText() never throws
+// ---------------------------------------------------------------------------
+
+describe('P_CLUSTER_3: getClusterDisplayText() never throws for any valid state', () => {
+  it('returns a non-empty string for any CarPlayState', () => {
+    fc.assert(
+      fc.property(
+        fcCarPlayState(),
+        (state) => {
+          const svc = makeSvc();
+          svc.syncState(state);
+          let text: string;
+          expect(() => { text = svc.getClusterDisplayText(); }).not.toThrow();
+          expect(text!.length).toBeGreaterThan(0);
+        },
+      ),
+      { numRuns: 200 },
+    );
+  });
+
+  it('returns "CONVOY · Ready" when convoyStatus is not active', () => {
+    fc.assert(
+      fc.property(
+        fcCarPlayState(),
+        (state) => {
+          fc.pre(state.convoyStatus !== 'active');
+          const svc = makeSvc();
+          svc.syncState(state);
+          expect(svc.getClusterDisplayText()).toBe('CONVOY · Ready');
+        },
+      ),
+      { numRuns: 100 },
+    );
+  });
+
+  it('returns "CONVOY · Ready" when no state has been synced', () => {
+    const svc = makeSvc();
+    expect(svc.getClusterDisplayText()).toBe('CONVOY · Ready');
+  });
+
+  it('lead car text contains "Lead Car" when positionInConvoy is 1 and active', () => {
+    fc.assert(
+      fc.property(
+        fcCarPlayState(),
+        fc.integer({ min: 1, max: 20 }),
+        (baseState, totalCars) => {
+          const svc = makeSvc();
+          svc.syncState({ ...baseState, convoyStatus: 'active', positionInConvoy: 1, convoyTotalCars: totalCars });
+          expect(svc.getClusterDisplayText()).toContain('Lead Car');
+        },
+      ),
+      { numRuns: 100 },
     );
   });
 });

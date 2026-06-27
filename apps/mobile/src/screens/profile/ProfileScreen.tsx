@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  Modal,
   SafeAreaView,
   ScrollView,
   StyleSheet,
@@ -100,6 +101,8 @@ export default function ProfileScreen() {
   const [isDirty, setIsDirty] = useState(false);
   const [editingName, setEditingName] = useState(false);
   const [localAvatarUri, setLocalAvatarUri] = useState<string | null>(null);
+  const [showAvatarModal, setShowAvatarModal] = useState(false);
+  const [avatarUrlDraft, setAvatarUrlDraft] = useState('');
   const nameInputRef = useRef<import('react-native').TextInput>(null);
 
   // Mounted guard — prevents setState calls after the component unmounts
@@ -181,11 +184,27 @@ export default function ProfileScreen() {
   };
 
   const handleAvatarPress = () => {
-    Alert.alert(
-      'Profile Photo',
-      'Avatar upload will be available in the next app update.',
-      [{ text: 'OK', style: 'cancel' }],
-    );
+    Alert.alert('Change Photo', '', [
+      {
+        text: 'Enter Photo URL',
+        onPress: () => {
+          setAvatarUrlDraft(localAvatarUri ?? profile?.avatarUrl ?? '');
+          setShowAvatarModal(true);
+        },
+      },
+      { text: 'Remove Photo', style: 'destructive', onPress: () => setLocalAvatarUri(null) },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
+  };
+
+  const handleAvatarUrlConfirm = () => {
+    const trimmed = avatarUrlDraft.trim();
+    if (trimmed && !trimmed.startsWith('http')) {
+      Alert.alert('Invalid URL', 'Please enter a URL starting with http:// or https://');
+      return;
+    }
+    setLocalAvatarUri(trimmed || null);
+    setShowAvatarModal(false);
   };
 
   const handleSignOut = () => {
@@ -382,6 +401,48 @@ export default function ProfileScreen() {
           <Text style={styles.signOutBtnText}>Sign Out</Text>
         </TouchableOpacity>
       </ScrollView>
+
+      {/* Avatar URL input modal */}
+      <Modal
+        visible={showAvatarModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowAvatarModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Photo URL</Text>
+            <Text style={styles.modalSubtitle}>Paste a link to your profile photo</Text>
+            <TextInput
+              style={styles.modalInput}
+              value={avatarUrlDraft}
+              onChangeText={setAvatarUrlDraft}
+              placeholder="https://example.com/photo.jpg"
+              placeholderTextColor="#555"
+              autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType="url"
+              returnKeyType="done"
+              onSubmitEditing={handleAvatarUrlConfirm}
+              accessibilityLabel="Avatar photo URL"
+            />
+            <View style={styles.modalBtnRow}>
+              <TouchableOpacity
+                style={[styles.modalBtn, styles.modalBtnCancel]}
+                onPress={() => setShowAvatarModal(false)}
+              >
+                <Text style={styles.modalBtnCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalBtn, styles.modalBtnConfirm]}
+                onPress={handleAvatarUrlConfirm}
+              >
+                <Text style={styles.modalBtnConfirmText}>Apply</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -657,6 +718,73 @@ const styles = StyleSheet.create({
     fontSize: 22,
     color: '#555555',
     fontWeight: '300',
+  },
+
+  // Avatar URL modal
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  modalCard: {
+    width: '100%',
+    backgroundColor: '#1C1C1C',
+    borderRadius: 16,
+    padding: 24,
+    borderWidth: 1,
+    borderColor: '#2A2A2A',
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#F0F0F0',
+    marginBottom: 4,
+  },
+  modalSubtitle: {
+    fontSize: 13,
+    color: '#888',
+    marginBottom: 16,
+  },
+  modalInput: {
+    backgroundColor: '#0A0A0A',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#2A2A2A',
+    color: '#F0F0F0',
+    fontSize: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 20,
+  },
+  modalBtnRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  modalBtn: {
+    flex: 1,
+    paddingVertical: 13,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  modalBtnCancel: {
+    backgroundColor: '#0A0A0A',
+    borderWidth: 1,
+    borderColor: '#2A2A2A',
+  },
+  modalBtnConfirm: {
+    backgroundColor: '#DC143C',
+  },
+  modalBtnCancelText: {
+    color: '#888',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  modalBtnConfirmText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '600',
   },
 
   // Sign out
