@@ -201,8 +201,19 @@ export default function GuestMapScreen() {
         ]}
       >
         <View style={styles.previewDot} />
-        <Text style={styles.previewPillText}>PREVIEW — Sign in to drive</Text>
+        <Text style={styles.previewPillText}>👁 PREVIEW — Sign in to drive</Text>
       </Animated.View>
+
+      {/* Map annotation bubbles */}
+      <View style={[styles.annotationBubble, { top: insets.top + 72, left: 16 }]}>
+        <Text style={styles.annotationText}>🎙️ Push-to-talk</Text>
+      </View>
+      <View style={[styles.annotationBubble, { top: insets.top + 120, alignSelf: 'center', left: '35%' }]}>
+        <Text style={styles.annotationText}>⚡ Live gaps</Text>
+      </View>
+      <View style={[styles.annotationBubble, { top: insets.top + 72, right: 16 }]}>
+        <Text style={styles.annotationText}>📍 Member tracking</Text>
+      </View>
 
       {/* Location denied card */}
       {permissionDenied && (
@@ -239,16 +250,14 @@ export default function GuestMapScreen() {
           },
         ]}
       >
+        <Text style={styles.headline}>🏁 Drive with your crew</Text>
         <Text style={styles.logo}>CONVOY</Text>
-        <Text style={styles.tagline}>Drive together. Stay connected.</Text>
+        <Text style={styles.tagline}>The app built for car enthusiasts.</Text>
 
-        <View style={styles.featureRow}>
-          {FEATURE_PILLS.map((f) => (
-            <View key={f.label} style={styles.featurePill}>
-              <Text style={styles.featureIcon}>{f.icon}</Text>
-              <Text style={styles.featureLabel}>{f.label}</Text>
-            </View>
-          ))}
+        <View style={styles.checkList}>
+          <Text style={styles.checkItem}>✓  Real-time convoy tracking</Text>
+          <Text style={styles.checkItem}>✓  Push-to-talk radio</Text>
+          <Text style={styles.checkItem}>✓  Live gap alerts</Text>
         </View>
 
         <TouchableOpacity
@@ -455,4 +464,45 @@ const styles = StyleSheet.create({
   signInBtn: { paddingVertical: 4 },
   signInText: { color: '#555555', fontSize: 13, fontWeight: '400' },
   signInTextBold: { color: '#999999', fontWeight: '700' },
+
+  headline: {
+    color: '#AAAAAA',
+    fontSize: 14,
+    fontWeight: '600',
+    letterSpacing: 0.5,
+    marginBottom: 4,
+  },
+  checkList: {
+    alignSelf: 'stretch',
+    marginBottom: 20,
+    gap: 6,
+    paddingHorizontal: 8,
+  },
+  checkItem: {
+    color: '#CCCCCC',
+    fontSize: 13,
+    fontWeight: '500',
+    letterSpacing: 0.2,
+  },
+
+  annotationBubble: {
+    position: 'absolute',
+    backgroundColor: '#1C1C1C',
+    borderRadius: 10,
+    paddingVertical: 5,
+    paddingHorizontal: 10,
+    borderWidth: 0.5,
+    borderColor: 'rgba(255,255,255,0.15)',
+    shadowColor: '#000',
+    shadowOpacity: 0.4,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 4,
+    zIndex: 5,
+  },
+  annotationText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '600',
+  },
 });
