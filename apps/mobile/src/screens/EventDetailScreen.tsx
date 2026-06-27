@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -87,8 +88,15 @@ export default function EventDetailScreen() {
   const [myStatus, setMyStatus] = useState<RsvpStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [rsvpLoading, setRsvpLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   const isAdmin = event?.createdBy === user?.id;
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await load();
+    setRefreshing(false);
+  }, [load]);
 
   const load = useCallback(async () => {
     if (!resolvedGroupId || !eventId) return;
@@ -169,6 +177,9 @@ export default function EventDetailScreen() {
     <ScrollView
       style={styles.root}
       contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 32 }]}
+      refreshControl={
+        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#DC143C" colors={['#DC143C']} />
+      }
     >
       {/* Header */}
       <View style={[styles.headerRow, { paddingTop: insets.top + 16 }]}>
