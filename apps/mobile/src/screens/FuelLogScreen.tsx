@@ -8,6 +8,7 @@ import {
   Text, TextInput, TouchableOpacity, View,
 } from 'react-native';
 import { apiClient } from '../services/apiClient';
+import { SkeletonBox } from '../components/SkeletonLoader';
 
 // --- Types ---
 
@@ -244,7 +245,17 @@ export default function FuelLogScreen() {
   ];
 
   if (loading) {
-    return <SafeAreaView style={s.bg}><ActivityIndicator color="#DC143C" style={{ marginTop: 60 }} /></SafeAreaView>;
+    return (
+      <SafeAreaView style={s.bg}>
+        <View style={s.header}><Text style={s.title}>Fuel Log</Text></View>
+        <View style={{ padding: 16, gap: 10 }}>
+          <View style={{ flexDirection: 'row', gap: 8, marginBottom: 4 }}>
+            {[0, 1, 2].map((i) => <SkeletonBox key={i} width="30%" height={72} borderRadius={12} />)}
+          </View>
+          {[0, 1, 2, 3].map((i) => <SkeletonBox key={i} width="100%" height={64} borderRadius={12} />)}
+        </View>
+      </SafeAreaView>
+    );
   }
 
   return (
