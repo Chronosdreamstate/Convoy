@@ -1,18 +1,25 @@
 /**
- * PTTLogPanel — Shows the PTT transmission log for the active group session.
+ * PTTLogPanel — PTT transmission log for the active group session.
  * Requirements: 27.1–27.5
- * Entries displayed oldest-first; cleared automatically on group:ended.
+ * Entries capped at MAX_ENTRIES; collapsed to ticker when panel is minimized.
  */
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Animated, StyleSheet, Text, View } from 'react-native';
+import {
+  Animated,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { Socket } from 'socket.io-client';
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
-const MAX_VISIBLE = 5;
+const MAX_ENTRIES = 15;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -25,10 +32,13 @@ export interface PttLogEntry {
   callsign: string | null;
   channelId: string | null;
   startedAt: string; // ISO-8601
+  endedAt?: string;  // set when ptt:ended fires
+  vehicleType?: string;
+  distanceFromLeaderM?: number;
 }
 
 interface Props {
-  socket: Pick<Socket, 'on' | 'off'>;
+  socket: Pick<Socket, 'on' | 'off' | 'emit'>;
   initialEntries?: PttLogEntry[];
 }
 
@@ -36,20 +46,39 @@ interface Props {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function formatElapsed(iso: string): string {
+function formatRelative(iso: string): string {
   const s = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+  if (s < 10) return 'just now';
   if (s < 60) return `${s}s ago`;
   const m = Math.floor(s / 60);
   return m < 60 ? `${m}m ago` : `${Math.floor(m / 60)}h ago`;
 }
 
+function formatDuration(startIso: string, endIso?: string): string {
+  const endMs = endIso ? new Date(endIso).getTime() : Date.now();
+  const s = Math.floor((endMs - new Date(startIso).getTime()) / 1000);
+  const m = Math.floor(s / 60);
+  return m > 0 ? `${m}:${String(s % 60).padStart(2, '0')}` : `0:${String(s).padStart(2, '0')}`;
+}
+
+function formatFullTimestamp(iso: string): string {
+  return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
+function getVehicleEmoji(vehicleType?: string): string {
+  const map: Record<string, string> = {
+    car: '🚗', sports_car: '🏎️', suv: '🚙', truck: '🛻',
+    motorcycle: '🏍️', van: '🚐', track_car: '🏎️',
+  };
+  return vehicleType ? (map[vehicleType.toLowerCase()] ?? '') : '';
+}
+
 // ---------------------------------------------------------------------------
-// PulsingDot — animated red indicator for active transmission
+// PulsingDot
 // ---------------------------------------------------------------------------
 
 function PulsingDot() {
   const opacity = useRef(new Animated.Value(1)).current;
-
   useEffect(() => {
     const loop = Animated.loop(
       Animated.sequence([
@@ -60,59 +89,98 @@ function PulsingDot() {
     loop.start();
     return () => loop.stop();
   }, [opacity]);
-
   return <Animated.View style={[styles.dot, { opacity }]} />;
 }
 
 // ---------------------------------------------------------------------------
-// AnimatedLogRow — slides in from above on mount, updates elapsed every tick
+// LogRow — expandable entry
 // ---------------------------------------------------------------------------
 
-function AnimatedLogRow({
+function LogRow({
   entry,
   isActive,
-  tick, // triggers elapsed re-render
+  tick,
+  isExpanded,
+  onPress,
+  onReplayRequest,
 }: {
   entry: PttLogEntry;
   isActive: boolean;
   tick: number;
+  isExpanded: boolean;
+  onPress: () => void;
+  onReplayRequest: (id: string) => void;
 }) {
-  const translateY = useRef(new Animated.Value(-20)).current;
+  const translateY = useRef(new Animated.Value(-16)).current;
   const rowOpacity = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     Animated.parallel([
-      Animated.timing(translateY, { toValue: 0, duration: 220, useNativeDriver: true }),
-      Animated.timing(rowOpacity, { toValue: 1, duration: 220, useNativeDriver: true }),
+      Animated.timing(translateY, { toValue: 0, duration: 200, useNativeDriver: true }),
+      Animated.timing(rowOpacity, { toValue: 1, duration: 200, useNativeDriver: true }),
     ]).start();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  void tick; // triggers elapsed recalc
+
   const name = entry.callsign ?? entry.displayName;
-  const elapsed = formatElapsed(entry.startedAt);
-  // Suppress lint for tick — it intentionally triggers elapsed recalc
-  void tick;
+  const emoji = getVehicleEmoji(entry.vehicleType);
+  const elapsed = formatRelative(entry.startedAt);
+  const duration = formatDuration(entry.startedAt, entry.endedAt);
 
   return (
-    <Animated.View
-      style={[styles.row, { transform: [{ translateY }], opacity: rowOpacity }]}
-      accessible
-      accessibilityLabel={`${name} transmitted ${elapsed}`}
-    >
-      <Text style={styles.radioEmoji}>📻</Text>
+    <Animated.View style={{ transform: [{ translateY }], opacity: rowOpacity }}>
+      <TouchableOpacity
+        onPress={onPress}
+        style={[styles.row, isExpanded && styles.rowExpanded]}
+        accessible
+        accessibilityLabel={`${name} transmitted ${elapsed}`}
+        activeOpacity={0.7}
+      >
+        {/* Main row */}
+        <View style={styles.rowMain}>
+          <Text style={styles.radioEmoji}>{isActive ? '🔴' : '📻'}</Text>
 
-      <View style={styles.rowBody}>
-        <View style={styles.nameRow}>
-          {isActive && <PulsingDot />}
-          <Text style={styles.callsign} numberOfLines={1}>{name}</Text>
-          {isActive && <Text style={styles.txBadge}> TX</Text>}
+          <View style={styles.rowBody}>
+            <View style={styles.nameRow}>
+              {isActive && <PulsingDot />}
+              <Text style={styles.callsign} numberOfLines={1}>
+                {emoji ? `${emoji} ` : ''}{name}
+              </Text>
+              {isActive && <Text style={styles.liveLabel}> LIVE</Text>}
+            </View>
+            <Text style={styles.channelLabel} numberOfLines={1}>
+              {entry.channelId ? `#${entry.channelId}` : 'all channels'} · {duration}
+            </Text>
+          </View>
+
+          <Text style={styles.elapsed}>{elapsed}</Text>
+          <Text style={styles.chevron}>{isExpanded ? '▲' : '▼'}</Text>
         </View>
-        <Text style={styles.channelLabel} numberOfLines={1}>
-          {entry.channelId ? `#${entry.channelId}` : 'all channels'}
-        </Text>
-      </View>
 
-      <Text style={styles.elapsed}>{elapsed}</Text>
+        {/* Expanded details */}
+        {isExpanded && (
+          <View style={styles.expandedBody}>
+            <Text style={styles.expandedRow}>🕐 {formatFullTimestamp(entry.startedAt)}</Text>
+            <Text style={styles.expandedRow}>⏱ Duration: {duration}</Text>
+            {entry.distanceFromLeaderM != null && (
+              <Text style={styles.expandedRow}>
+                📍 {entry.distanceFromLeaderM >= 1000
+                  ? `${(entry.distanceFromLeaderM / 1000).toFixed(1)} km from lead`
+                  : `${Math.round(entry.distanceFromLeaderM)} m from lead`}
+              </Text>
+            )}
+            <TouchableOpacity
+              onPress={() => onReplayRequest(entry.id)}
+              style={styles.replayBtn}
+              accessibilityLabel="Request replay"
+            >
+              <Text style={styles.replayBtnText}>🔁 Request replay</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+      </TouchableOpacity>
     </Animated.View>
   );
 }
@@ -122,39 +190,56 @@ function AnimatedLogRow({
 // ---------------------------------------------------------------------------
 
 function PTTLogPanel({ socket, initialEntries = [] }: Props) {
-  const [entries, setEntries] = useState<PttLogEntry[]>(initialEntries);
+  const [entries, setEntries] = useState<PttLogEntry[]>(
+    initialEntries.slice(-MAX_ENTRIES),
+  );
   const [activeUserId, setActiveUserId] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
+  const [collapsed, setCollapsed] = useState(false);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [unread, setUnread] = useState(0);
 
-  // Refresh elapsed timestamps every second
+  // Tick every second for relative timestamps
   useEffect(() => {
     const id = setInterval(() => setTick((t) => t + 1), 1000);
     return () => clearInterval(id);
   }, []);
 
   const handlePttTransmit = useCallback(
-    (data: { logId: string; userId: string; channelId: string }) => {
+    (data: { logId: string; userId: string; channelId: string; callsign?: string; vehicleType?: string }) => {
       const entry: PttLogEntry = {
         id: data.logId,
         userId: data.userId,
-        displayName: data.userId, // enriched by parent via REST if needed
-        callsign: null,
+        displayName: data.userId,
+        callsign: data.callsign ?? null,
         channelId: data.channelId,
         startedAt: new Date().toISOString(),
+        vehicleType: data.vehicleType,
       };
-      setEntries((prev) => [...prev, entry]);
+      setEntries((prev) => [...prev, entry].slice(-MAX_ENTRIES));
       setActiveUserId(data.userId);
+      setUnread((u) => (collapsed ? u + 1 : 0));
+    },
+    [collapsed],
+  );
+
+  const handlePttEnded = useCallback(
+    (data?: { logId?: string }) => {
+      setActiveUserId(null);
+      if (data?.logId) {
+        const endedAt = new Date().toISOString();
+        setEntries((prev) =>
+          prev.map((e) => (e.id === data.logId ? { ...e, endedAt } : e)),
+        );
+      }
     },
     [],
   );
 
-  const handlePttEnded = useCallback(() => {
-    setActiveUserId(null);
-  }, []);
-
   const handleGroupEnded = useCallback(() => {
-    setEntries([]); // Clear log on session end (Req 27.4)
+    setEntries([]);
     setActiveUserId(null);
+    setUnread(0);
   }, []);
 
   useEffect(() => {
@@ -168,25 +253,83 @@ function PTTLogPanel({ socket, initialEntries = [] }: Props) {
     };
   }, [socket, handlePttTransmit, handlePttEnded, handleGroupEnded]);
 
-  const visible = entries.slice(-MAX_VISIBLE);
+  function handleToggleCollapse() {
+    setCollapsed((c) => !c);
+    setUnread(0);
+  }
+
+  function handleRowPress(id: string) {
+    setExpandedId((prev) => (prev === id ? null : id));
+  }
+
+  function handleReplayRequest(id: string) {
+    socket.emit('ptt:replay_request', { messageId: id });
+  }
+
+  const lastEntry = entries[entries.length - 1];
 
   return (
     <View style={styles.panel}>
-      <Text style={styles.header}>RADIO LOG</Text>
-
-      {visible.length === 0 ? (
-        <View style={styles.emptyRow}>
-          <Text style={styles.emptyText}>No transmissions yet</Text>
+      {/* Header */}
+      <View style={styles.header}>
+        <Text style={styles.headerLabel}>RADIO LOG</Text>
+        <View style={styles.headerRight}>
+          {entries.length > 0 && (
+            <TouchableOpacity
+              onPress={() => { setEntries([]); setUnread(0); setExpandedId(null); }}
+              style={styles.clearBtn}
+              accessibilityLabel="Clear log"
+            >
+              <Text style={styles.clearBtnText}>Clear</Text>
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity
+            onPress={handleToggleCollapse}
+            style={styles.collapseBtn}
+            accessibilityLabel={collapsed ? 'Expand radio log' : 'Collapse radio log'}
+          >
+            {unread > 0 && collapsed && (
+              <View style={styles.badge}>
+                <Text style={styles.badgeText}>{unread > 9 ? '9+' : unread}</Text>
+              </View>
+            )}
+            <Text style={styles.collapseBtnText}>{collapsed ? '▼' : '▲'}</Text>
+          </TouchableOpacity>
         </View>
+      </View>
+
+      {/* Collapsed: single-line ticker */}
+      {collapsed ? (
+        <TouchableOpacity onPress={handleToggleCollapse} style={styles.ticker}>
+          {lastEntry ? (
+            <Text style={styles.tickerText} numberOfLines={1}>
+              📻 {lastEntry.callsign ?? lastEntry.displayName} · {formatRelative(lastEntry.startedAt)}
+            </Text>
+          ) : (
+            <Text style={styles.emptyText}>No transmissions yet</Text>
+          )}
+        </TouchableOpacity>
       ) : (
-        visible.map((entry) => (
-          <AnimatedLogRow
-            key={entry.id}
-            entry={entry}
-            isActive={entry.userId === activeUserId}
-            tick={tick}
-          />
-        ))
+        /* Expanded: scrollable list */
+        entries.length === 0 ? (
+          <View style={styles.emptyRow}>
+            <Text style={styles.emptyText}>No transmissions yet</Text>
+          </View>
+        ) : (
+          <ScrollView style={styles.list} showsVerticalScrollIndicator={false}>
+            {entries.map((entry) => (
+              <LogRow
+                key={entry.id}
+                entry={entry}
+                isActive={entry.userId === activeUserId}
+                tick={tick}
+                isExpanded={expandedId === entry.id}
+                onPress={() => handleRowPress(entry.id)}
+                onReplayRequest={handleReplayRequest}
+              />
+            ))}
+          </ScrollView>
+        )
       )}
     </View>
   );
@@ -207,20 +350,80 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#2A2A2A',
     overflow: 'hidden',
+    maxHeight: 280,
   },
 
+  // Header
   header: {
-    color: '#555555',
-    fontSize: 10,
-    fontWeight: '700',
-    letterSpacing: 2.5,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 12,
     paddingTop: 10,
     paddingBottom: 7,
     borderBottomWidth: 1,
     borderBottomColor: '#2A2A2A',
   },
+  headerLabel: {
+    color: '#555555',
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 2.5,
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  clearBtn: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  clearBtnText: {
+    color: '#555555',
+    fontSize: 11,
+  },
+  collapseBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  collapseBtnText: {
+    color: '#888888',
+    fontSize: 11,
+    paddingHorizontal: 4,
+  },
 
+  // Unread badge
+  badge: {
+    backgroundColor: '#DC143C',
+    borderRadius: 8,
+    minWidth: 16,
+    height: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 3,
+    marginRight: 4,
+  },
+  badgeText: {
+    color: '#fff',
+    fontSize: 9,
+    fontWeight: '700',
+  },
+
+  // Ticker (collapsed)
+  ticker: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  tickerText: {
+    color: '#888888',
+    fontSize: 12,
+  },
+
+  // List (expanded)
+  list: {
+    maxHeight: 220,
+  },
   emptyRow: {
     paddingVertical: 14,
     alignItems: 'center',
@@ -230,21 +433,25 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
 
+  // Row
   row: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#2A2A2A',
+  },
+  rowExpanded: {
+    backgroundColor: 'rgba(220,20,60,0.06)',
+  },
+  rowMain: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 8,
     paddingHorizontal: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#2A2A2A',
   },
-
   radioEmoji: {
     fontSize: 13,
     marginRight: 9,
     opacity: 0.85,
   },
-
   rowBody: {
     flex: 1,
     marginRight: 8,
@@ -263,10 +470,10 @@ const styles = StyleSheet.create({
   callsign: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#DC143C',
+    color: '#FFFFFF',
     flexShrink: 1,
   },
-  txBadge: {
+  liveLabel: {
     fontSize: 9,
     fontWeight: '800',
     color: '#DC143C',
@@ -278,11 +485,39 @@ const styles = StyleSheet.create({
     color: '#888888',
     marginTop: 1,
   },
-
   elapsed: {
     fontSize: 10,
     color: '#555555',
-    minWidth: 38,
+    minWidth: 44,
     textAlign: 'right',
+    marginRight: 4,
+  },
+  chevron: {
+    fontSize: 9,
+    color: '#555555',
+  },
+
+  // Expanded details
+  expandedBody: {
+    paddingHorizontal: 36,
+    paddingBottom: 10,
+    gap: 4,
+  },
+  expandedRow: {
+    fontSize: 12,
+    color: '#888888',
+  },
+  replayBtn: {
+    marginTop: 6,
+    alignSelf: 'flex-start',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderWidth: 1,
+    borderColor: '#2A2A2A',
+    borderRadius: 6,
+  },
+  replayBtnText: {
+    fontSize: 11,
+    color: '#AAAAAA',
   },
 });

@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { SiriShortcutsService } from '../services/SiriShortcutsService';
 
 const API_BASE_URL = `${process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000'}/api/v1`;
 
