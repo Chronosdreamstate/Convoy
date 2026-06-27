@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -14,10 +14,11 @@ import {
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { apiClient } from '../services/apiClient';
 import { theme } from '../theme';
+import { useSocketStore } from '../stores/socketStore';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-type WaypointType = 'waypoint' | 'photo_stop' | 'fuel' | 'rest';
+type WaypointType = 'waypoint' | 'photo_stop' | 'fuel' | 'rest' | 'food' | 'destination';
 
 interface Waypoint {
   id: string;
@@ -30,11 +31,13 @@ interface Waypoint {
 
 // ─── Waypoint type definitions ────────────────────────────────────────────────
 
-const WAYPOINT_TYPES: { key: WaypointType; label: string; icon: string }[] = [
-  { key: 'waypoint',   label: 'Stop',  icon: '📍' },
-  { key: 'photo_stop', label: 'Photo', icon: '📸' },
-  { key: 'fuel',       label: 'Fuel',  icon: '⛽' },
-  { key: 'rest',       label: 'Rest',  icon: '🅿️' },
+const WAYPOINT_TYPES: { key: WaypointType; label: string; icon: string; tint: string }[] = [
+  { key: 'waypoint',    label: 'Stop',        icon: '📍', tint: '#2A2A2A' },
+  { key: 'photo_stop',  label: 'Photo Stop',  icon: '📸', tint: '#8B5CF620' },
+  { key: 'fuel',        label: 'Fuel Stop',   icon: '⛽', tint: '#F59E0B20' },
+  { key: 'food',        label: 'Food Stop',   icon: '🍔', tint: '#22C55E20' },
+  { key: 'rest',        label: 'Rest Stop',   icon: '🅿️', tint: '#3B82F620' },
+  { key: 'destination', label: 'Destination', icon: '🏁', tint: '#DC143C20' },
 ];
 
 function getTypeConfig(type?: WaypointType) {
@@ -51,6 +54,7 @@ function makeId() { return String(_nextId++); }
 export default function WaypointManagementScreen() {
   const { groupId } = useLocalSearchParams<{ groupId?: string }>();
   const router = useRouter();
+  const socket = useSocketStore((s) => s.socket);
 
   const [waypoints, setWaypoints]       = useState<Waypoint[]>([]);
   const [modalVisible, setModalVisible] = useState(false);
@@ -58,6 +62,7 @@ export default function WaypointManagementScreen() {
   const [draftAddress, setDraftAddress] = useState('');
   const [draftType, setDraftType]       = useState<WaypointType>('waypoint');
   const [saving, setSaving]             = useState(false);
+  const [reachedIds, setReachedIds]     = useState<Set<string>>(new Set());
 
   // ── Reorder / remove ────────────────────────────────────────────────────────
 
@@ -82,6 +87,23 @@ export default function WaypointManagementScreen() {
   const remove = (id: string) => {
     setWaypoints((prev) => prev.filter((w) => w.id !== id));
   };
+
+  // ── Mark waypoint reached ────────────────────────────────────────────────────
+
+  const markReached = useCallback((waypoint: Waypoint) => {
+    if (reachedIds.has(waypoint.id)) return;
+    setReachedIds((prev) => new Set([...prev, waypoint.id]));
+    if (!socket || !groupId) return;
+    const isPhotoStop = waypoint.type === 'photo_stop';
+    socket.emit('waypoint:reached', {
+      waypointId: waypoint.id,
+      type: waypoint.type ?? 'waypoint',
+      groupId,
+      message: isPhotoStop
+        ? '📸 Photo stop! Take a moment to capture the view.'
+        : `📍 Reached: ${waypoint.name}`,
+    });
+  }, [socket, groupId, reachedIds]);
 
   // ── Modal helpers ────────────────────────────────────────────────────────────
 
@@ -179,8 +201,9 @@ export default function WaypointManagementScreen() {
             contentContainerStyle={styles.list}
             renderItem={({ item, index }) => {
               const typeConfig = getTypeConfig(item.type);
+              const reached = reachedIds.has(item.id);
               return (
-                <View style={styles.row}>
+                <View style={[styles.row, { backgroundColor: typeConfig.tint || theme.colors.card }]}>
                   {/* Order badge */}
                   <View style={styles.indexBadge}>
                     <Text style={styles.indexText}>{index + 1}</Text>
@@ -193,7 +216,7 @@ export default function WaypointManagementScreen() {
 
                   {/* Info */}
                   <View style={styles.rowInfo}>
-                    <Text style={styles.rowName} numberOfLines={1}>
+                    <Text style={[styles.rowName, reached && styles.rowNameReached]} numberOfLines={1}>
                       {typeConfig.icon} {item.name}
                     </Text>
                     <Text style={[styles.rowTypeLabel, { color: theme.colors.accent }]}>
@@ -204,6 +227,18 @@ export default function WaypointManagementScreen() {
                         {item.address}
                       </Text>
                     ) : null}
+                    {/* Mark Reached button */}
+                    <TouchableOpacity
+                      onPress={() => markReached(item)}
+                      disabled={reached}
+                      style={[styles.reachedBtn, reached && styles.reachedBtnDone]}
+                      accessibilityRole="button"
+                      accessibilityLabel={reached ? 'Waypoint reached' : 'Mark as reached'}
+                    >
+                      <Text style={styles.reachedBtnText}>
+                        {reached ? '✓ Reached' : 'Mark Reached'}
+                      </Text>
+                    </TouchableOpacity>
                   </View>
 
                   {/* Reorder / delete controls */}
@@ -415,7 +450,19 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
-  rowAddress: { color: theme.colors.textMuted, fontSize: 13, marginTop: 2 },
+  rowAddress:     { color: theme.colors.textMuted, fontSize: 13, marginTop: 2 },
+  rowNameReached: { opacity: 0.5, textDecorationLine: 'line-through' },
+  reachedBtn: {
+    marginTop: 6,
+    alignSelf: 'flex-start',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: theme.colors.accent,
+  },
+  reachedBtnDone: { borderColor: '#22C55E', opacity: 0.7 },
+  reachedBtnText: { color: theme.colors.text, fontSize: 11, fontWeight: '600' },
 
   // Controls
   controls: { flexDirection: 'row', alignItems: 'center', gap: 4 },
