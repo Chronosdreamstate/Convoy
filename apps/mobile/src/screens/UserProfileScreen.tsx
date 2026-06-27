@@ -79,7 +79,7 @@ export default function UserProfileScreen() {
     if (!profile || friendLoading) return;
     setFriendLoading(true);
     try {
-      await apiClient.post('/api/v1/friends', { userId: profile.id });
+      await apiClient.post('/api/v1/friends/requests', { addresseeId: profile.id });
       setFriendStatus('pending');
     } catch {
       // silently ignore

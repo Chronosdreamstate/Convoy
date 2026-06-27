@@ -470,7 +470,7 @@ export default function FriendsScreen() {
   const handleAdd = async (userId: string) => {
     setAdding(userId);
     try {
-      await apiClient.post(`/api/v1/friends/request/${userId}`);
+      await apiClient.post('/api/v1/friends/requests', { addresseeId: userId });
       setSearchResults(prev => prev.map(u => u.id === userId ? { ...u, requestSent: true } : u));
     } catch { Alert.alert('Error', 'Could not send friend request.'); }
     finally { setAdding(null); }

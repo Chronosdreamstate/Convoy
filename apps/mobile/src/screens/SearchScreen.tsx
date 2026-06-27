@@ -111,7 +111,7 @@ export default function SearchScreen() {
 
   const handleAddFriend = async (userId: string) => {
     try {
-      await apiClient.post('/api/v1/friends', { userId });
+      await apiClient.post('/api/v1/friends/requests', { addresseeId: userId });
       setFriendActions((prev) => ({ ...prev, [userId]: 'pending' }));
     } catch { /* ignore */ }
   };

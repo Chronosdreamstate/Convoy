@@ -1263,6 +1263,55 @@ async function groupsRoutes(
   );
 
   // -------------------------------------------------------------------------
+  // GET /groups/:id/drives — all drives recorded within this group (Req history)
+  // -------------------------------------------------------------------------
+  fastify.get(
+    '/groups/:id/drives',
+    { preHandler: [authenticate, generalLimiter(fastify.redis)] },
+    async (request, reply) => {
+      const userId = (request.user as { sub: string }).sub;
+      const { id } = request.params as { id: string };
+
+      // Must be a current or past member to view group drives
+      const memberCheck = await fastify.db.query(
+        `SELECT 1 FROM convoy_members WHERE group_id = $1 AND user_id = $2`,
+        [id, userId],
+      );
+      if ((memberCheck.rowCount ?? 0) === 0) return reply.forbidden('Not a member of this group');
+
+      const result = await fastify.db.query<{
+        id: string; group_id: string; user_id: string;
+        distance_m: number; duration_s: number;
+        avg_speed_kph: number | null; top_speed_kph: number | null;
+        member_count: number; started_at: Date; ended_at: Date;
+      }>(
+        `SELECT id, group_id, user_id, distance_m, duration_s,
+                avg_speed_kph, top_speed_kph, member_count, started_at, ended_at
+         FROM drive_history
+         WHERE group_id = $1
+         ORDER BY started_at DESC
+         LIMIT 100`,
+        [id],
+      );
+
+      return reply.send({
+        drives: result.rows.map((r) => ({
+          id: r.id,
+          groupId: r.group_id,
+          userId: r.user_id,
+          distanceM: r.distance_m,
+          durationS: r.duration_s,
+          avgSpeedKph: r.avg_speed_kph ?? null,
+          topSpeedKph: r.top_speed_kph ?? null,
+          memberCount: r.member_count,
+          startedAt: r.started_at,
+          endedAt: r.ended_at,
+        })),
+      });
+    },
+  );
+
+  // -------------------------------------------------------------------------
   // GET /groups/:id/waypoints — list current route waypoints
   // -------------------------------------------------------------------------
   fastify.get(
