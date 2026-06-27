@@ -126,6 +126,7 @@ function groupToResponse(g: GroupRow, memberCount?: number) {
     status: g.status,
     gapThresholdM: g.gap_threshold_m,
     pttMaxSeconds: g.ptt_max_seconds,
+    vehicleFocus: g.vehicle_focus ?? null,
     createdAt: g.created_at,
     endedAt: g.ended_at,
     ...(memberCount !== undefined && { memberCount }),
@@ -149,7 +150,7 @@ async function groupsRoutes(
     const parsed = createGroupSchema.safeParse(request.body);
     if (!parsed.success) return reply.badRequest(parsed.error.errors[0].message);
 
-    const { name, accessType } = parsed.data;
+    const { name, accessType, vehicleFocus, gapThresholdM } = parsed.data;
     const joinCode = await generateJoinCode(fastify.db);
 
     const client = await fastify.db.connect();
@@ -158,11 +159,11 @@ async function groupsRoutes(
 
       // Create the group
       const groupResult = await client.query<GroupRow>(
-        `INSERT INTO convoy_groups (name, join_code, admin_id, access_type)
-         VALUES ($1, $2, $3, $4)
+        `INSERT INTO convoy_groups (name, join_code, admin_id, access_type, vehicle_focus, gap_threshold_m)
+         VALUES ($1, $2, $3, $4, $5, COALESCE($6, 3219))
          RETURNING id, name, join_code, admin_id, access_type, status,
-                   gap_threshold_m, ptt_max_seconds, created_at, ended_at`,
-        [name, joinCode, adminId, accessType],
+                   gap_threshold_m, ptt_max_seconds, vehicle_focus, created_at, ended_at`,
+        [name, joinCode, adminId, accessType, vehicleFocus ?? null, gapThresholdM ?? null],
       );
       const group = groupResult.rows[0];
 
@@ -311,7 +312,7 @@ async function groupsRoutes(
     const parsed = browseGroupsSchema.safeParse(request.query);
     if (!parsed.success) return reply.badRequest(parsed.error.errors[0].message);
 
-    const { q, limit, offset } = parsed.data;
+    const { q, limit, offset, vehicleType } = parsed.data;
 
     interface BrowseRow extends GroupRow {
       member_count: string;
@@ -323,7 +324,7 @@ async function groupsRoutes(
 
     const result = await fastify.db.query<BrowseRow>(
       `SELECT g.id, g.name, g.join_code, g.admin_id, g.access_type, g.status,
-              g.gap_threshold_m, g.ptt_max_seconds, g.created_at, g.ended_at,
+              g.gap_threshold_m, g.ptt_max_seconds, g.vehicle_focus, g.created_at, g.ended_at,
               COUNT(m.id) FILTER (WHERE m.left_at IS NULL) AS member_count,
               u.display_name AS admin_display_name,
               COUNT(*) OVER() AS total_count,
@@ -342,10 +343,11 @@ async function groupsRoutes(
        WHERE g.access_type = 'open'
          AND g.status = 'active'
          AND ($1 = '' OR g.name ILIKE '%' || $1 || '%' OR g.name ILIKE $1 || '%')
+         AND ($4::text IS NULL OR g.vehicle_focus = $4)
        GROUP BY g.id, u.display_name, ne.title, ne.scheduled_for
        ORDER BY COUNT(m.id) FILTER (WHERE m.left_at IS NULL) DESC, g.created_at DESC
        LIMIT $2 OFFSET $3`,
-      [q, limit, offset],
+      [q, limit, offset, vehicleType ?? null],
     );
 
     const total = result.rows.length > 0 ? parseInt(result.rows[0].total_count, 10) : 0;

@@ -40,6 +40,7 @@ export interface PttLogEntry {
 interface Props {
   socket: Pick<Socket, 'on' | 'off' | 'emit'>;
   initialEntries?: PttLogEntry[];
+  groupId?: string;
 }
 
 // ---------------------------------------------------------------------------

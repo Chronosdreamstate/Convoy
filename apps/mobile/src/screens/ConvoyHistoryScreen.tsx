@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { apiClient } from '../services/apiClient';
-import { SkeletonCard } from '../components/SkeletonLoader';
+import SkeletonCard from '../components/SkeletonLoader';
 
 interface ConvoyDrive {
   id: string;

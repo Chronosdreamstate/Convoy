@@ -180,7 +180,7 @@ export default function MemberDetailModal({
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.viewProfileBtn}
-            onPress={() => { onClose(); router.push(`/profile/${member.userId}`); }}
+            onPress={() => { onClose(); (router.push as (href: string) => void)(`/profile/${member.userId}`); }}
             accessibilityRole="button"
             accessibilityLabel="View full profile"
           >

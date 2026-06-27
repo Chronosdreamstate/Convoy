@@ -76,6 +76,13 @@ export default function WelcomeScreen() {
   const dotWidths = useRef(SLIDES.map((_, i) => new Animated.Value(i === 0 ? 20 : 6))).current;
 
   useEffect(() => {
+    if (reduceMotion) {
+      // Skip animations — snap immediately to final state
+      heroOpacity.setValue(1);
+      heroTranslate.setValue(0);
+      return;
+    }
+
     Animated.parallel([
       Animated.timing(heroOpacity, {
         toValue: 1,
@@ -124,7 +131,7 @@ export default function WelcomeScreen() {
       pulse.stop();
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
-  }, [heroOpacity, heroTranslate, accentScale]);
+  }, [reduceMotion, heroOpacity, heroTranslate, accentScale]);
 
   // Spring-animate dot widths whenever active slide changes
   useEffect(() => {
@@ -252,10 +259,14 @@ export default function WelcomeScreen() {
         </ScrollView>
 
         {/* Animated dot indicators */}
-        <View style={styles.dotsRow}>
+        <View style={styles.dotsRow} accessibilityRole="tablist" accessibilityLabel="Slide indicators">
           {SLIDES.map((_, i) => (
             <Animated.View
               key={i}
+              accessible={true}
+              accessibilityRole="tab"
+              accessibilityLabel={`Slide ${i + 1} of ${SLIDES.length}${i === activeSlide ? ', selected' : ''}`}
+              accessibilityState={{ selected: i === activeSlide }}
               style={[
                 styles.dot,
                 i === activeSlide ? styles.dotActive : styles.dotInactive,

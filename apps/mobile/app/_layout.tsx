@@ -24,6 +24,7 @@ import { SyncService } from '../src/services/SyncService';
 import { SQLiteOfflineDB } from '../src/services/OfflineCacheService';
 import type { OfflineHazard, OfflineDrive } from '../src/services/OfflineCacheService';
 import { offlineQueue } from '../src/services/OfflineQueueService';
+import { analytics } from '../src/services/AnalyticsService';
 
 // Set up foreground notification display behaviour at module load time,
 // before any notifications can arrive.
@@ -197,6 +198,7 @@ export default function RootLayout() {
   useEffect(() => {
     let cancelled = false;
     const init = async () => {
+      void analytics.init();
       try {
         const stored = await authService.loadStoredToken();
         if (!stored) { storeSignOut(); return; }

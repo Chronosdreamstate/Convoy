@@ -806,7 +806,7 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
       useSocketStore.getState().setSocket(null);
       clearGroup();
     };
-  }, [token, groupId, socketUrl, updateMemberLocation, user?.id, clearGroup, setStalePositions, clearStalePositions]);
+  }, [token, groupId, socketUrl, updateMemberLocation, user?.id, clearGroup, setStalePositions, clearStalePositions, showAnnouncement]);
 
   const cycleMapType = useCallback(() => {
     const next = mapStyle === 'standard' ? 'satellite' : mapStyle === 'satellite' ? 'hybrid' : 'standard';
@@ -2501,6 +2501,29 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 13,
     fontWeight: '600',
+  },
+
+  announcementBanner: {
+    position: 'absolute',
+    top: 0,
+    left: 16,
+    right: 16,
+    backgroundColor: '#DC143C',
+    borderRadius: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    zIndex: 26,
+    shadowColor: '#DC143C',
+    shadowOpacity: 0.6,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 14,
+  },
+  announcementBannerText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '700',
+    lineHeight: 20,
   },
 
   // Quick-action pill row

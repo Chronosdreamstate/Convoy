@@ -48,6 +48,18 @@ interface EventCountdown {
 
 type FilterTab = 'All' | 'Nearby' | 'Active';
 
+const VEHICLE_FILTERS = [
+  { key: null,          label: 'All' },
+  { key: 'sports_car',  label: '🏎️ Sports' },
+  { key: 'truck',       label: '🛻 Trucks' },
+  { key: 'suv',         label: '🚙 SUVs' },
+  { key: 'jdm',         label: '🎌 JDM' },
+  { key: 'muscle',      label: '🇺🇸 Muscle' },
+  { key: 'ev',          label: '⚡ EV' },
+  { key: 'track_car',   label: '🏁 Track' },
+] as const;
+type VehicleFilter = typeof VEHICLE_FILTERS[number]['key'];
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -217,6 +229,7 @@ export default function GroupBrowseScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [search, setSearch] = useState('');
   const [activeFilter, setActiveFilter] = useState<FilterTab>('All');
+  const [vehicleFilter, setVehicleFilter] = useState<VehicleFilter>(null);
   const [joiningId, setJoiningId] = useState<string | null>(null);
   const [locating, setLocating] = useState(false);
   const [locationError, setLocationError] = useState<string | null>(null);
