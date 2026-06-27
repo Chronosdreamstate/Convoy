@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Animated, Pressable, StyleSheet, Text, View, ViewStyle } from 'react-native';
 import { HapticService } from '../services/HapticService';
 
 export const PTT_BUTTON_SIZE = 80;
@@ -12,6 +12,10 @@ interface Props {
   disabled?: boolean;
   size?: number;
 }
+
+// Waveform bar heights — 5 bars oscillate at staggered speeds during transmission
+const WAVEFORM_BARS = 5;
+const BAR_DURATIONS = [220, 300, 180, 260, 200];
 
 function PTTButton({
   onHoldStart,
@@ -27,6 +31,10 @@ function PTTButton({
   const shadowAnim = useRef(new Animated.Value(0)).current;
   const pulseAnim = useRef<Animated.CompositeAnimation | null>(null);
   const glowLoop = useRef<Animated.CompositeAnimation | null>(null);
+  const waveAnims = useRef(
+    Array.from({ length: WAVEFORM_BARS }, () => new Animated.Value(0.2))
+  ).current;
+  const waveLoop = useRef<Animated.CompositeAnimation | null>(null);
 
   useEffect(() => {
     if (isTransmitting && !disabled && !isMuted) {
@@ -52,9 +60,24 @@ function PTTButton({
         ]),
       );
       glowLoop.current.start();
+
+      // Waveform bars — each bar oscillates at a different speed
+      waveLoop.current = Animated.loop(
+        Animated.parallel(
+          waveAnims.map((anim, i) =>
+            Animated.sequence([
+              Animated.timing(anim, { toValue: 1, duration: BAR_DURATIONS[i], useNativeDriver: false }),
+              Animated.timing(anim, { toValue: 0.2, duration: BAR_DURATIONS[i], useNativeDriver: false }),
+            ])
+          )
+        )
+      );
+      waveLoop.current.start();
     } else {
       pulseAnim.current?.stop();
       glowLoop.current?.stop();
+      waveLoop.current?.stop();
+      waveAnims.forEach(a => Animated.timing(a, { toValue: 0.2, duration: 150, useNativeDriver: false }).start());
       Animated.parallel([
         Animated.spring(scale, { toValue: 1, useNativeDriver: true }),
         Animated.timing(ringOpacity, { toValue: 0, duration: 300, useNativeDriver: true }),
@@ -64,6 +87,7 @@ function PTTButton({
     return () => {
       pulseAnim.current?.stop();
       glowLoop.current?.stop();
+      waveLoop.current?.stop();
     };
   }, [isTransmitting, disabled, isMuted]);
 
