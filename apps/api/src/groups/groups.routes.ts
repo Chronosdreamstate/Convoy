@@ -17,6 +17,9 @@ const JOIN_RATE_LIMIT_WINDOW = 3600; // 1 hour
 const createGroupSchema = z.object({
   name: z.string().min(1).max(100),
   accessType: z.enum(['open', 'invite_only']).optional().default('open'),
+  vehicleFocus: z.string().max(50).optional(),
+  gapThresholdM: z.number().int().min(50).max(160000).optional(),
+  pttChannelName: z.string().max(40).optional(),
 });
 
 const joinGroupSchema = z.object({

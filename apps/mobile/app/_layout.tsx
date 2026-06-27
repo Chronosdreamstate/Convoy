@@ -230,6 +230,13 @@ export default function RootLayout() {
     return () => syncService.stop();
   }, [isAuthenticated, isLoading]);
 
+  // Init general-purpose offline request queue on first auth
+  useEffect(() => {
+    if (!isAuthenticated || isLoading) return;
+    void offlineQueue.init();
+    return () => offlineQueue.destroy();
+  }, [isAuthenticated, isLoading]);
+
   // Push registration: deferred until the user joins their first group.
   // Showing the system permission dialog in context ("convoy is starting")
   // yields significantly higher grant rates than asking at app launch.

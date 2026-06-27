@@ -27,7 +27,13 @@
         "NSCameraUsageDescription": "CONVOY uses your camera for profile and vehicle photos.",
         "NSSupportsLiveActivities": true,
         "NSSupportsLiveActivitiesFrequentUpdates": true
-      }
+      },
+      "NSUserActivityTypes": [
+        "com.convoy.startConvoy",
+        "com.convoy.joinConvoy",
+        "com.convoy.ptt",
+        "com.convoy.checkGap"
+      ]
     },
     "android": {
       "adaptiveIcon": {
