@@ -154,30 +154,48 @@ async function usersRoutes(
 
   // -------------------------------------------------------------------------
   // GET /users/search?phone=<e164>  — exact phone lookup (single result)
-  // GET /users/search?q=<name>      — display-name search  (array result)
+  // GET /users/search?q=<name>      — display-name OR callsign search (array)
+  // Pagination: ?page=1&limit=20
   // -------------------------------------------------------------------------
   fastify.get('/users/search', { preHandler: [authenticate, generalLimiter(fastify.redis)] }, async (request, reply) => {
     const userId = (request.user as { sub: string }).sub;
     const query = request.query as Record<string, string | undefined>;
     const phone = query.phone;
     const q = query.q?.trim() ?? '';
-    const limitRaw = parseInt(query.limit ?? '10', 10);
-    const limit = Number.isNaN(limitRaw) ? 10 : Math.min(20, Math.max(1, limitRaw));
+    const limitRaw = parseInt(query.limit ?? '20', 10);
+    const limit = Number.isNaN(limitRaw) ? 20 : Math.min(50, Math.max(1, limitRaw));
+    const pageRaw = parseInt(query.page ?? '1', 10);
+    const page = Number.isNaN(pageRaw) || pageRaw < 1 ? 1 : pageRaw;
+    const offset = (page - 1) * limit;
 
-    // ── Display-name search (used by FriendsScreen / Find People tab) ─────
+    // ── Display-name OR callsign search (FriendsScreen / Find People) ─────
     if (q) {
       if (q.length < 2) return reply.badRequest('q must be at least 2 characters');
       if (q.length > 50) return reply.badRequest('q must be at most 50 characters');
-      const result = await fastify.db.query<Pick<UserRow, 'id' | 'display_name' | 'avatar_url' | 'ptt_callsign'>>(
-        `SELECT id, display_name, avatar_url, ptt_callsign
+
+      interface SearchRow extends Pick<UserRow, 'id' | 'display_name' | 'avatar_url' | 'ptt_callsign'> {
+        total_count: string;
+      }
+
+      const result = await fastify.db.query<SearchRow>(
+        `SELECT id, display_name, avatar_url, ptt_callsign,
+                COUNT(*) OVER() AS total_count
          FROM users
          WHERE id != $1
            AND privacy = 'open'
-           AND display_name ILIKE $2
-         ORDER BY display_name
-         LIMIT $3`,
-        [userId, `%${q}%`, limit],
+           AND (
+             display_name ILIKE $2
+             OR ptt_callsign ILIKE $2
+           )
+         ORDER BY
+           CASE WHEN LOWER(ptt_callsign) = LOWER($3) THEN 0 ELSE 1 END,
+           display_name
+         LIMIT $4 OFFSET $5`,
+        [userId, `%${q}%`, q, limit, offset],
       );
+
+      const total = result.rows.length > 0 ? parseInt(result.rows[0].total_count, 10) : 0;
+
       return reply.send({
         users: result.rows.map((u) => ({
           id: u.id,
@@ -185,6 +203,10 @@ async function usersRoutes(
           avatarUrl: u.avatar_url,
           pttCallsign: u.ptt_callsign,
         })),
+        total,
+        page,
+        limit,
+        hasMore: offset + result.rows.length < total,
       });
     }
 

@@ -253,6 +253,53 @@ async function groupsRoutes(
   });
 
   // -------------------------------------------------------------------------
+  // GET /groups/featured — top 5 most active open groups
+  // Must be registered before /:id to avoid UUID param swallowing "featured".
+  // -------------------------------------------------------------------------
+  fastify.get('/groups/featured', { preHandler: [authenticate, generalLimiter(fastify.redis)] }, async (request, reply) => {
+    interface FeaturedRow extends GroupRow {
+      member_count: string;
+      admin_display_name: string | null;
+      next_event_title: string | null;
+      next_event_scheduled_for: string | null;
+    }
+
+    const result = await fastify.db.query<FeaturedRow>(
+      `SELECT g.id, g.name, g.join_code, g.admin_id, g.access_type, g.status,
+              g.gap_threshold_m, g.ptt_max_seconds, g.created_at, g.ended_at,
+              COUNT(m.id) FILTER (WHERE m.left_at IS NULL) AS member_count,
+              u.display_name AS admin_display_name,
+              ne.title AS next_event_title,
+              ne.scheduled_for AS next_event_scheduled_for
+       FROM convoy_groups g
+       LEFT JOIN convoy_members m ON m.group_id = g.id
+       LEFT JOIN users u ON u.id = g.admin_id
+       LEFT JOIN LATERAL (
+         SELECT title, scheduled_for
+         FROM group_events
+         WHERE group_id = g.id AND status = 'upcoming' AND scheduled_for > NOW()
+         ORDER BY scheduled_for ASC
+         LIMIT 1
+       ) ne ON true
+       WHERE g.access_type = 'open' AND g.status = 'active'
+       GROUP BY g.id, u.display_name, ne.title, ne.scheduled_for
+       ORDER BY COUNT(m.id) FILTER (WHERE m.left_at IS NULL) DESC, g.created_at DESC
+       LIMIT 5`,
+      [],
+    );
+
+    return reply.send({
+      groups: result.rows.map((g) => ({
+        ...groupToResponse(g, parseInt(g.member_count, 10)),
+        adminDisplayName: g.admin_display_name,
+        nextEvent: g.next_event_title
+          ? { title: g.next_event_title, scheduledFor: g.next_event_scheduled_for }
+          : null,
+      })),
+    });
+  });
+
+  // -------------------------------------------------------------------------
   // GET /groups — browse public groups with search + pagination (Req 7.3)
   // -------------------------------------------------------------------------
   fastify.get('/groups', { preHandler: [authenticate, generalLimiter(fastify.redis)] }, async (request, reply) => {
@@ -265,6 +312,8 @@ async function groupsRoutes(
       member_count: string;
       admin_display_name: string | null;
       total_count: string;
+      next_event_title: string | null;
+      next_event_scheduled_for: string | null;
     }
 
     const result = await fastify.db.query<BrowseRow>(
@@ -272,14 +321,23 @@ async function groupsRoutes(
               g.gap_threshold_m, g.ptt_max_seconds, g.created_at, g.ended_at,
               COUNT(m.id) FILTER (WHERE m.left_at IS NULL) AS member_count,
               u.display_name AS admin_display_name,
-              COUNT(*) OVER() AS total_count
+              COUNT(*) OVER() AS total_count,
+              ne.title AS next_event_title,
+              ne.scheduled_for AS next_event_scheduled_for
        FROM convoy_groups g
        LEFT JOIN convoy_members m ON m.group_id = g.id
        LEFT JOIN users u ON u.id = g.admin_id
+       LEFT JOIN LATERAL (
+         SELECT title, scheduled_for
+         FROM group_events
+         WHERE group_id = g.id AND status = 'upcoming' AND scheduled_for > NOW()
+         ORDER BY scheduled_for ASC
+         LIMIT 1
+       ) ne ON true
        WHERE g.access_type = 'open'
          AND g.status = 'active'
-         AND ($1 = '' OR g.name ILIKE '%' || $1 || '%')
-       GROUP BY g.id, u.display_name
+         AND ($1 = '' OR g.name ILIKE '%' || $1 || '%' OR g.name ILIKE $1 || '%')
+       GROUP BY g.id, u.display_name, ne.title, ne.scheduled_for
        ORDER BY COUNT(m.id) FILTER (WHERE m.left_at IS NULL) DESC, g.created_at DESC
        LIMIT $2 OFFSET $3`,
       [q, limit, offset],
@@ -291,6 +349,9 @@ async function groupsRoutes(
       groups: result.rows.map((g) => ({
         ...groupToResponse(g, parseInt(g.member_count, 10)),
         adminDisplayName: g.admin_display_name,
+        nextEvent: g.next_event_title
+          ? { title: g.next_event_title, scheduledFor: g.next_event_scheduled_for }
+          : null,
       })),
       total,
       limit,
