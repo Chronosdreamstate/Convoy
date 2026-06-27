@@ -760,13 +760,23 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
       HapticService.trigger("warning");
     });
 
-    socket.on('group:ended', () => {
+    socket.on('group:ended', (payload?: { durationS?: number; distanceM?: number; memberCount?: number }) => {
       void driveServiceRef.current.finishSession({
         groupId,
         memberCount: memberCountRef.current,
         offlineCache: offlineDB,
         api: { postDrive: (body) => apiClient.post('/api/v1/drives', body).then((r) => r.data) },
         isOnline: () => socket.connected,
+      });
+      // Navigate non-admin members to the end screen with server-supplied stats
+      router.push({
+        pathname: '/convoy-end' as never,
+        params: {
+          groupName: groupName ?? 'Convoy',
+          memberCount: String(payload?.memberCount ?? memberCountRef.current),
+          durationMinutes: String(Math.round((payload?.durationS ?? 0) / 60)),
+          distanceM: String(payload?.distanceM ?? 0),
+        },
       });
     });
 
