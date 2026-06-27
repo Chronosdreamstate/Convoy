@@ -2564,6 +2564,24 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
   },
+
+  // Weather pill — top-left overlay
+  weatherPill: {
+    position: 'absolute',
+    left: 12,
+    backgroundColor: '#1C1C1C',
+    borderRadius: 16,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderWidth: 1,
+    borderColor: '#2A2A2A',
+    zIndex: 10,
+  },
+  weatherPillText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '600',
+  },
 });
 
 const overlayStyles = StyleSheet.create({
