@@ -58,7 +58,7 @@ const rnMock = require('react-native') as {
   DeviceEventEmitter: { addListener: jest.Mock };
 };
 
-import { AndroidAutoService, AndroidAutoState } from './AndroidAutoService';
+import { AndroidAutoService, AndroidAutoState, DrivingData } from './AndroidAutoService';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -88,6 +88,12 @@ const fcState = fc.record<AndroidAutoState>({
   transmittingMemberCallsign: fc.oneof(fc.constant(null as string | null), fc.string({ minLength: 1, maxLength: 20 })),
   nextWaypointName: fc.oneof(fc.constant(null as string | null), fc.string({ minLength: 1, maxLength: 40 })),
   nextWaypointEtaMinutes: fc.oneof(fc.constant(null as number | null), fc.integer({ min: 1, max: 120 })),
+  gapToCarAheadM: fc.oneof(fc.constant(null as number | null), fc.integer({ min: 0, max: 5000 })),
+  speedKph: fc.integer({ min: 0, max: 300 }),
+  speedLimitKph: fc.oneof(fc.constant(null as number | null), fc.integer({ min: 30, max: 130 })),
+  isOverSpeedLimit: fc.boolean(),
+  positionInConvoy: fc.integer({ min: 1, max: 20 }),
+  convoyTotalCars: fc.integer({ min: 1, max: 20 }),
 });
 
 beforeEach(() => {
@@ -357,6 +363,172 @@ describe('Property A5: start() called multiple times does not accumulate listene
         expect(fired).toBe(1);
       }),
       { numRuns: 20 },
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Property PA_CLUSTER_1: lead car always has null gapToCarAheadM
+// ---------------------------------------------------------------------------
+
+describe('PA_CLUSTER_1: updateDrivingData sets gapToCarAheadM=null when positionInConvoy===1', () => {
+  it('lead car gap is always null regardless of input gapToCarAheadM', () => {
+    fc.assert(
+      fc.property(
+        fcState,
+        fc.integer({ min: 0, max: 5000 }),
+        (base, gap) => {
+          clearHandlers();
+          rnMock.__syncState.mockClear();
+          const svc = new AndroidAutoService();
+          svc.start();
+          svc.syncStateIfChanged(base);
+          const data: DrivingData = { speedKph: 60, positionInConvoy: 1, gapToCarAheadM: gap };
+          svc.updateDrivingData(data);
+          const synced: AndroidAutoState = rnMock.__syncState.mock.calls[rnMock.__syncState.mock.calls.length - 1]?.[0];
+          if (synced) {
+            expect(synced.gapToCarAheadM).toBeNull();
+          }
+        },
+      ),
+      { numRuns: 100 },
+    );
+  });
+
+  it('non-lead car preserves gapToCarAheadM from input', () => {
+    fc.assert(
+      fc.property(
+        fcState,
+        fc.integer({ min: 2, max: 20 }),
+        fc.integer({ min: 0, max: 5000 }),
+        (base, position, gap) => {
+          clearHandlers();
+          rnMock.__syncState.mockClear();
+          const svc = new AndroidAutoService();
+          svc.start();
+          svc.syncStateIfChanged({ ...base, gapToCarAheadM: null });
+          const data: DrivingData = { speedKph: 60, positionInConvoy: position, gapToCarAheadM: gap };
+          svc.updateDrivingData(data);
+          const calls = rnMock.__syncState.mock.calls;
+          const synced: AndroidAutoState | undefined = calls[calls.length - 1]?.[0];
+          if (synced && synced.positionInConvoy !== 1) {
+            expect(synced.gapToCarAheadM).toBe(gap);
+          }
+        },
+      ),
+      { numRuns: 80 },
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Property PA_CLUSTER_2: isOverSpeedLimit is false when speedLimitKph is null
+// ---------------------------------------------------------------------------
+
+describe('PA_CLUSTER_2: isOverSpeedLimit is always false when speedLimitKph is null', () => {
+  it('any speed with null limit never triggers over-speed', () => {
+    fc.assert(
+      fc.property(
+        fcState,
+        fc.integer({ min: 0, max: 300 }),
+        (base, speedKph) => {
+          clearHandlers();
+          rnMock.__syncState.mockClear();
+          const svc = new AndroidAutoService();
+          svc.start();
+          svc.syncStateIfChanged({ ...base, speedLimitKph: null });
+          svc.updateDrivingData({ speedKph, speedLimitKph: undefined });
+          const calls = rnMock.__syncState.mock.calls;
+          const synced: AndroidAutoState | undefined = calls[calls.length - 1]?.[0];
+          if (synced && synced.speedLimitKph === null) {
+            expect(synced.isOverSpeedLimit).toBe(false);
+          }
+        },
+      ),
+      { numRuns: 100 },
+    );
+  });
+
+  it('speed exactly at limit + 5 is not over-speed, limit + 6 is', () => {
+    fc.assert(
+      fc.property(
+        fcState,
+        fc.integer({ min: 30, max: 130 }),
+        (base, limit) => {
+          clearHandlers();
+          rnMock.__syncState.mockClear();
+          const svc = new AndroidAutoService();
+          svc.start();
+          svc.syncStateIfChanged({ ...base, speedLimitKph: limit });
+
+          // exactly at threshold — not over
+          svc.updateDrivingData({ speedKph: limit + 5, speedLimitKph: limit });
+          let calls = rnMock.__syncState.mock.calls;
+          let synced: AndroidAutoState | undefined = calls[calls.length - 1]?.[0];
+          if (synced) expect(synced.isOverSpeedLimit).toBe(false);
+
+          // one above threshold — over
+          svc.updateDrivingData({ speedKph: limit + 6, speedLimitKph: limit });
+          calls = rnMock.__syncState.mock.calls;
+          synced = calls[calls.length - 1]?.[0];
+          if (synced) expect(synced.isOverSpeedLimit).toBe(true);
+        },
+      ),
+      { numRuns: 80 },
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Property PA_CLUSTER_3: getClusterDisplayText() never throws
+// ---------------------------------------------------------------------------
+
+describe('PA_CLUSTER_3: getClusterDisplayText() never throws for any valid state', () => {
+  it('returns a non-empty string for any combination of state', () => {
+    fc.assert(
+      fc.property(fcState, (state) => {
+        clearHandlers();
+        const svc = new AndroidAutoService();
+        svc.start();
+        svc.syncStateIfChanged(state);
+        let result: string;
+        expect(() => { result = svc.getClusterDisplayText(); }).not.toThrow();
+        expect(typeof result!).toBe('string');
+        expect(result!.length).toBeGreaterThan(0);
+      }),
+      { numRuns: 200 },
+    );
+  });
+
+  it('idle/ending status always returns "CONVOY · Ready"', () => {
+    fc.assert(
+      fc.property(
+        fcState,
+        fc.oneof(fc.constant('idle' as const), fc.constant('ending' as const)),
+        (base, status) => {
+          clearHandlers();
+          const svc = new AndroidAutoService();
+          svc.start();
+          svc.syncStateIfChanged({ ...base, convoyStatus: status });
+          expect(svc.getClusterDisplayText()).toBe('CONVOY · Ready');
+        },
+      ),
+      { numRuns: 100 },
+    );
+  });
+
+  it('active + position 1 always returns lead car text', () => {
+    fc.assert(
+      fc.property(fcState, fc.integer({ min: 2, max: 20 }), (base, total) => {
+        clearHandlers();
+        const svc = new AndroidAutoService();
+        svc.start();
+        svc.syncStateIfChanged({ ...base, convoyStatus: 'active', positionInConvoy: 1, convoyTotalCars: total });
+        const text = svc.getClusterDisplayText();
+        expect(text).toContain('Lead Car');
+        expect(text).toContain(`${total - 1} following`);
+      }),
+      { numRuns: 100 },
     );
   });
 });

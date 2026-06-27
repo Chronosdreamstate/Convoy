@@ -40,6 +40,27 @@ export interface AndroidAutoState {
   nextWaypointName: string | null;
   /** ETA to next waypoint in minutes. */
   nextWaypointEtaMinutes: number | null;
+  // --- Instrument cluster / driving data ---
+  /** Distance in meters to the car directly ahead. Null when position === 1 (lead) or unknown. */
+  gapToCarAheadM: number | null;
+  /** Current vehicle speed in km/h. */
+  speedKph: number;
+  /** Current road speed limit in km/h. Null if unknown. */
+  speedLimitKph: number | null;
+  /** True when speedKph exceeds speedLimitKph by more than 5 km/h. */
+  isOverSpeedLimit: boolean;
+  /** 1-based position within the convoy (1 = lead car). */
+  positionInConvoy: number;
+  /** Total number of cars in the convoy. */
+  convoyTotalCars: number;
+}
+
+export interface DrivingData {
+  speedKph: number;
+  speedLimitKph?: number;
+  gapToCarAheadM?: number;
+  positionInConvoy?: number;
+  convoyTotalCars?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -110,7 +131,13 @@ export class AndroidAutoService {
       this.lastState.convoyStatus === state.convoyStatus &&
       this.lastState.transmittingMemberCallsign === state.transmittingMemberCallsign &&
       this.lastState.nextWaypointName === state.nextWaypointName &&
-      this.lastState.nextWaypointEtaMinutes === state.nextWaypointEtaMinutes
+      this.lastState.nextWaypointEtaMinutes === state.nextWaypointEtaMinutes &&
+      this.lastState.gapToCarAheadM === state.gapToCarAheadM &&
+      this.lastState.speedKph === state.speedKph &&
+      this.lastState.speedLimitKph === state.speedLimitKph &&
+      this.lastState.isOverSpeedLimit === state.isOverSpeedLimit &&
+      this.lastState.positionInConvoy === state.positionInConvoy &&
+      this.lastState.convoyTotalCars === state.convoyTotalCars
     ) {
       return;
     }
@@ -159,6 +186,47 @@ export class AndroidAutoService {
   async isActive(): Promise<boolean> {
     if (!this.module) return false;
     return this.module.isSessionActive();
+  }
+
+  /**
+   * Updates driving telemetry (speed, gap, position) and syncs to native if changed.
+   * Automatically computes isOverSpeedLimit and clears gapToCarAheadM for the lead car.
+   */
+  updateDrivingData(data: DrivingData): void {
+    if (!this.lastState) return;
+    const speedKph = data.speedKph;
+    const speedLimitKph = data.speedLimitKph !== undefined ? data.speedLimitKph : this.lastState.speedLimitKph;
+    const positionInConvoy = data.positionInConvoy ?? this.lastState.positionInConvoy;
+    const convoyTotalCars = data.convoyTotalCars ?? this.lastState.convoyTotalCars;
+    const isOverSpeedLimit = speedLimitKph !== null ? speedKph > speedLimitKph + 5 : false;
+    const gapToCarAheadM = positionInConvoy === 1
+      ? null
+      : (data.gapToCarAheadM ?? this.lastState.gapToCarAheadM);
+
+    const next: AndroidAutoState = {
+      ...this.lastState,
+      speedKph,
+      speedLimitKph,
+      isOverSpeedLimit,
+      positionInConvoy,
+      convoyTotalCars,
+      gapToCarAheadM,
+    };
+    this.syncStateIfChanged(next);
+  }
+
+  /** Returns a short human-readable string suitable for cluster / wearable display. */
+  getClusterDisplayText(): string {
+    if (!this.lastState || this.lastState.convoyStatus !== 'active') {
+      return 'CONVOY · Ready';
+    }
+    const s = this.lastState;
+    if (s.positionInConvoy === 1) {
+      const following = Math.max(0, s.convoyTotalCars - 1);
+      return `🚗 Lead Car · ${following} following`;
+    }
+    const gapText = s.gapToCarAheadM !== null ? ` · Gap: ${s.gapToCarAheadM}m` : '';
+    return `🚗 #${s.positionInConvoy} of ${s.convoyTotalCars}${gapText}`;
   }
 
   /**
