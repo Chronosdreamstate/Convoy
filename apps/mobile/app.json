@@ -20,7 +20,6 @@
       "buildNumber": "1",
       "usesAppleSignIn": true,
       "associatedDomains": [
-        "applinks:convoy.app",
         "applinks:convoy.app"
       ],
       "infoPlist": {
@@ -30,18 +29,14 @@
         "NSCameraUsageDescription": "CONVOY uses your camera for profile and vehicle photos.",
         "NSSupportsLiveActivities": true,
         "NSSupportsLiveActivitiesFrequentUpdates": true,
-        "ITSAppUsesNonExemptEncryption": false
-      },
-      "NSUserActivityTypes": [
-        "com.convoy.startConvoy",
-        "com.convoy.joinConvoy",
-        "com.convoy.ptt",
-        "com.convoy.checkGap",
-        "com.convoy.startConvoy",
-        "com.convoy.joinConvoy",
-        "com.convoy.ptt",
-        "com.convoy.checkGap"
-      ]
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSUserActivityTypes": [
+          "com.convoy.startConvoy",
+          "com.convoy.joinConvoy",
+          "com.convoy.ptt",
+          "com.convoy.checkGap"
+        ]
+      }
     },
     "android": {
       "adaptiveIcon": {
