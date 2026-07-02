@@ -15,7 +15,6 @@ import { useRouter } from 'expo-router';
 import { authService } from '../../services/AuthService';
 import { useAuthStore } from '../../stores/authStore';
 import { theme } from '../../theme';
-import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import { useAccessibilitySettings } from '../../hooks/useAccessibilitySettings';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -42,12 +41,6 @@ const SLIDES = [
     body: 'Start your first convoy in seconds.',
   },
 ];
-
-GoogleSignin.configure({
-  iosClientId: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID,
-  webClientId: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID,
-  offlineAccess: true,
-});
 
 const PRIVACY_POLICY_URL = 'https://convoy.app/privacy';
 const TERMS_URL = 'https://convoy.app/terms';
@@ -147,25 +140,8 @@ export default function WelcomeScreen() {
     }
   };
 
-  const handleGoogleSignIn = async () => {
-    if (!process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID && !process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID) {
-      Alert.alert('Not configured', 'Google Sign-In requires EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID and EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID in your .env file.');
-      return;
-    }
-    try {
-      await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
-      const userInfo = await GoogleSignin.signIn();
-      const idToken = userInfo.data?.idToken ?? null;
-      if (!idToken) { Alert.alert('Sign In Failed', 'No ID token returned from Google.'); return; }
-      const result = await authService.signInSocial('google', idToken);
-      setUser(result.user);
-      setAccessToken(result.accessToken);
-      router.replace('/(tabs)/map');
-    } catch (err: unknown) {
-      const code = (err as { code?: string })?.code;
-      if (code === 'SIGN_IN_CANCELLED' || code === '12501') return;
-      Alert.alert('Sign In Failed', 'Could not sign in with Google. Please try another method.');
-    }
+  const handleGoogleSignIn = () => {
+    Alert.alert('Coming Soon', 'Google Sign-In will be available in a future update. Please use phone or Apple Sign-In.');
   };
 
   const isLastSlide = currentSlide === SLIDES.length - 1;

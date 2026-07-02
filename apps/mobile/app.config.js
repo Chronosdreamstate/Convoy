@@ -1,30 +1,3 @@
-const { withDangerousMod } = require('expo/config-plugins');
-const fs = require('fs');
-const path = require('path');
-
-// AppCheckCore (pulled in by RNGoogleSignin 16.x) is a Swift pod that depends on
-// GoogleUtilities and RecaptchaInterop — they need :modular_headers => true so
-// CocoaPods generates module maps for them. Global use_modular_headers! breaks
-// rnmapbox-maps Swift types, so we target only the two pods that need it.
-function withGoogleModularHeaders(config) {
-  return withDangerousMod(config, [
-    'ios',
-    (modConfig) => {
-      const podfilePath = path.join(modConfig.modRequest.platformProjectRoot, 'Podfile');
-      let contents = fs.readFileSync(podfilePath, 'utf8');
-      if (!contents.includes(':modular_headers => true')) {
-        // use_expo_modules! appears once in the target block without parens
-        contents = contents.replace(
-          'use_expo_modules!',
-          "pod 'GoogleUtilities', :modular_headers => true\n  pod 'RecaptchaInterop', :modular_headers => true\n  use_expo_modules!"
-        );
-        fs.writeFileSync(podfilePath, contents);
-      }
-      return modConfig;
-    },
-  ]);
-}
-
 /** @type {import('expo/config').ExpoConfig} */
 const baseConfig = {
   name: 'CONVOY',
@@ -135,12 +108,6 @@ const baseConfig = {
         RNMapboxMapsDownloadToken: process.env.MAPBOX_DOWNLOADS_TOKEN,
       },
     ],
-    [
-      '@react-native-google-signin/google-signin',
-      {
-        iosUrlScheme: 'com.googleusercontent.apps.REPLACE_WITH_IOS_CLIENT_ID_REVERSED',
-      },
-    ],
   ],
   experiments: {
     typedRoutes: true,
@@ -154,4 +121,4 @@ const baseConfig = {
   owner: 'chronoss',
 };
 
-module.exports = { expo: withGoogleModularHeaders(baseConfig) };
+module.exports = { expo: baseConfig };
