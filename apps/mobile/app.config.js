@@ -1,14 +1,23 @@
-const { withPodfileProperties } = require('expo/config-plugins');
+const { withDangerousMod } = require('expo/config-plugins');
+const fs = require('fs');
+const path = require('path');
 
 // AppCheckCore (pulled in by RNGoogleSignin 16.x) is a Swift pod that depends on
-// GoogleUtilities and RecaptchaInterop — CocoaPods requires modular headers for
-// ObjC pods that Swift pods depend on when building as static libraries.
-// The Expo SDK 54 Podfile template has: use_modular_headers! if podfile_properties['ios.useModularHeaders'] == 'true'
+// GoogleUtilities and RecaptchaInterop — CocoaPods aborts pod install when those
+// ObjC pods lack module maps and are used by a Swift pod as static libs.
+// Prepending use_modular_headers! at global scope covers all targets.
 function withGoogleModularHeaders(config) {
-  return withPodfileProperties(config, (modConfig) => {
-    modConfig.modResults['ios.useModularHeaders'] = 'true';
-    return modConfig;
-  });
+  return withDangerousMod(config, [
+    'ios',
+    (modConfig) => {
+      const podfilePath = path.join(modConfig.modRequest.platformProjectRoot, 'Podfile');
+      let contents = fs.readFileSync(podfilePath, 'utf8');
+      if (!contents.includes('use_modular_headers!')) {
+        fs.writeFileSync(podfilePath, 'use_modular_headers!\n\n' + contents);
+      }
+      return modConfig;
+    },
+  ]);
 }
 
 /** @type {import('expo/config').ExpoConfig} */
