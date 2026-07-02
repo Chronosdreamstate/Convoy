@@ -1,5 +1,30 @@
+const { withDangerousMod } = require('@expo/config-plugins');
+const fs = require('fs');
+const path = require('path');
+
+// AppCheckCore (pulled in by RNGoogleSignin 16.x) is a Swift pod that depends on
+// GoogleUtilities and RecaptchaInterop — they must generate module maps when built
+// as static libraries or CocoaPods aborts pod install.
+function withGoogleModularHeaders(config) {
+  return withDangerousMod(config, [
+    'ios',
+    (modConfig) => {
+      const podfilePath = path.join(modConfig.modRequest.platformProjectRoot, 'Podfile');
+      let contents = fs.readFileSync(podfilePath, 'utf8');
+      if (!contents.includes("'GoogleUtilities', :modular_headers")) {
+        contents = contents.replace(
+          /([ \t]+use_expo_modules!\(\))/,
+          "  pod 'GoogleUtilities', :modular_headers => true\n  pod 'RecaptchaInterop', :modular_headers => true\n$1"
+        );
+        fs.writeFileSync(podfilePath, contents);
+      }
+      return modConfig;
+    },
+  ]);
+}
+
 /** @type {import('expo/config').ExpoConfig} */
-const config = {
+const baseConfig = {
   name: 'CONVOY',
   slug: 'convoy',
   description: 'Real-time group navigation and push-to-talk for car enthusiasts. Drive together.',
@@ -127,4 +152,4 @@ const config = {
   owner: 'chronoss',
 };
 
-module.exports = { expo: config };
+module.exports = { expo: withGoogleModularHeaders(baseConfig) };
