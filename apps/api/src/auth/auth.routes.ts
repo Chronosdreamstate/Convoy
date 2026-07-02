@@ -328,11 +328,10 @@ async function authRoutes(fastify: FastifyInstance, _opts: FastifyPluginOptions)
       return reply.unauthorized('Invalid refresh token format');
     }
 
-    // Verify the jti matches the last-issued token — rejects replayed or rotated-out tokens
-    const storedJti = await fastify.redis.get(`rtk:${userId}`);
+    // Atomically consume the stored JTI — GETDEL ensures only one concurrent request can rotate
+    const storedJti = await fastify.redis.getdel(`rtk:${userId}`);
     if (storedJti !== presentedJti) {
-      // Possible token reuse attack — invalidate all refresh tokens for this user
-      await fastify.redis.del(`rtk:${userId}`);
+      // Possible token reuse attack — storedJti was already deleted above, so all sessions are revoked
       return reply.unauthorized('Refresh token has already been used or revoked');
     }
 

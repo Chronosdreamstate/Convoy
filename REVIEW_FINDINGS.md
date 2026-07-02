@@ -3,6 +3,17 @@
 **Date:** 2026-06-25  
 **Scope:** services, API routes, screens, stores, tests, security
 
+**Fixes applied 2026-07-01:**
+- Findings 1, 2, 3, 4, 6 — already resolved before this review was applied
+- Finding 5 — PTT kick cleanup now propagates DB errors (groups.routes.ts)
+- Finding 13 — tile eviction break condition corrected to `<` (OfflineCacheService.ts)
+- Finding 12 — refresh token JTI now consumed atomically via GETDEL (auth.routes.ts)
+- Finding 3 (bulk hazards) — rate limit now applied per-batch; createdAt clamped to now (hazards.routes.ts)
+- Finding 7 — gapThresholdM added to groupStore; MapScreen thresholds now dynamic (groupStore.ts, ConvoyScreen.tsx, MapScreen.tsx)
+- Findings 7 (groupStore metadata), 8, 9, 10, 11, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28 — verified already resolved in current code
+
+---
+
 ---
 
 ## HIGH Severity

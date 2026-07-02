@@ -186,11 +186,11 @@ export default function ConvoyScreen({ userId }: Props) {
   useEffect(() => {
     setActiveGroupId(group?.id ?? null);
     if (group) {
-      setGroupMeta({ name: group.name, memberCount: group.memberCount, adminId: group.adminId });
+      setGroupMeta({ name: group.name, memberCount: group.memberCount, adminId: group.adminId, gapThresholdM: group.gapThresholdM });
     } else {
       clearGroupMeta();
     }
-  }, [group?.id, group?.name, group?.memberCount, group?.adminId, setActiveGroupId, setGroupMeta, clearGroupMeta]);
+  }, [group?.id, group?.name, group?.memberCount, group?.adminId, group?.gapThresholdM, setActiveGroupId, setGroupMeta, clearGroupMeta]);
 
   useEffect(() => {
     return () => {
@@ -374,6 +374,7 @@ export default function ConvoyScreen({ userId }: Props) {
     const handleKicked = () => { setGroup(null); setMembers([]); setView('home'); };
     const handleSettingsUpdated = (data: { gapThresholdM?: number; pttMaxSeconds?: number }) => {
       setGroup((prev) => prev ? { ...prev, ...data } : null);
+      if (data.gapThresholdM !== undefined) setGroupMeta({ gapThresholdM: data.gapThresholdM });
     };
     const handlePttMuted = () => {
       Alert.alert('Muted', 'The group admin has muted your PTT microphone.');

@@ -256,6 +256,7 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
   const setIsInMotion = useMotionStore((s) => s.setIsInMotion);
   const groupName = useGroupStore((s) => s.name);
   const groupMemberCount = useGroupStore((s) => s.memberCount);
+  const gapThresholdM = useGroupStore((s) => s.gapThresholdM);
   const insets = useSafeAreaInsets();
 
   const [gapAlerts, setGapAlerts]     = useState<GapAlert[]>([]);
@@ -1025,7 +1026,7 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
     const memberName = m.displayName ?? `Member ${m.userId.slice(0, 6)}`;
     const callsign = memberCallsignsRef.current[m.userId];
     const gapAlert = gapAlerts.find(a => a.memberId === m.userId);
-    const dotColor = isStale ? '#444444' : gapAlert ? (gapAlert.distanceM > 3000 ? '#DC143C' : '#F59E0B') : '#22C55E';
+    const dotColor = isStale ? '#444444' : gapAlert ? (gapAlert.distanceM > gapThresholdM * 1.5 ? '#DC143C' : '#F59E0B') : '#22C55E';
     const distM = myLocation ? haversineDistanceM(myLocation.lat, myLocation.lng, m.lat, m.lng) : null;
     const distLabel = distM != null ? (distM >= 1000 ? `📍 ${(distM / 1000).toFixed(1)} km` : `📍 ${Math.round(distM)} m`) : null;
     const battery = (m as any).batteryPercent as number | undefined;
@@ -1105,7 +1106,7 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
       >
         {members.map((m: MemberLocation) => {
           const ga = gapAlerts.find(a => a.memberId === m.userId);
-          const gapStatus = ga ? (ga.distanceM > 3000 ? 'alert' as const : 'warning' as const) : 'ok' as const;
+          const gapStatus = ga ? (ga.distanceM > gapThresholdM * 1.5 ? 'alert' as const : 'warning' as const) : 'ok' as const;
           return (
             <MemberMarker
               key={m.userId}
@@ -1490,7 +1491,7 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
           <GapAlertBanner
             memberName={memberNamesRef.current[gapAlerts[0].memberId] ?? `Member ${gapAlerts[0].memberId.slice(0, 6)}`}
             distanceM={gapAlerts[0].distanceM}
-            thresholdM={2000}
+            thresholdM={gapThresholdM}
             onDismiss={() => setGapAlerts((p) => p.slice(1))}
           />
         </View>

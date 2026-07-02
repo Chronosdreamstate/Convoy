@@ -103,7 +103,7 @@ const bulkHazardItemSchema = z.object({
   type: z.enum(HAZARD_TYPES),
   lat: z.number().min(-90).max(90),
   lng: z.number().min(-180).max(180),
-  createdAt: z.number().optional(),
+  createdAt: z.number().int().positive().optional(),
 });
 
 const bulkHazardsSchema = z.object({
@@ -208,7 +208,7 @@ export default async function hazardsRoutes(fastify: FastifyInstance): Promise<v
     return { hazards: result.rows.map(serializeHazardRow) };
   });
 
-  // POST /hazards/bulk — sync offline queue (no rate limit) — MUST be before /:id routes
+  // POST /hazards/bulk — sync offline queue — MUST be before /:id routes
   fastify.post('/hazards/bulk', { preHandler: [authenticate, generalLimiter(fastify.redis)] }, async (request, reply) => {
     const userId = (request.user as { sub: string }).sub;
     const bulkParsed = bulkHazardsSchema.safeParse(request.body);
@@ -217,13 +217,25 @@ export default async function hazardsRoutes(fastify: FastifyInstance): Promise<v
     }
     const { hazards } = bulkParsed.data;
 
+    // Apply rate limit for the entire batch atomically
+    const rateKey = `rate:hazard:${userId}`;
+    const afterBulk = await redis.incrby(rateKey, hazards.length);
+    if (afterBulk === hazards.length) await redis.expire(rateKey, HAZARD_RATE_WINDOW_S);
+    if (afterBulk > HAZARD_RATE_LIMIT) {
+      await redis.decrby(rateKey, hazards.length);
+      return reply.tooManyRequests(`Rate limit exceeded: max ${HAZARD_RATE_LIMIT} hazard reports per hour`);
+    }
+
+    const now = Date.now();
+
     // Wrap all inserts in a transaction so a partial failure leaves no orphaned rows
     const client = await pool.connect();
     const inserted: string[] = [];
     try {
       await client.query('BEGIN');
       for (const h of hazards) {
-        const created = h.createdAt ? new Date(h.createdAt) : new Date();
+        // Clamp future timestamps to now so offline reports don't expire immediately
+        const created = h.createdAt ? new Date(Math.min(h.createdAt, now)) : new Date();
         const expires = computeExpiresAt(created.getTime());
         const r = await client.query<{ id: string }>(
           `INSERT INTO hazard_reports (reporter_id, hazard_type, location, expires_at, created_at)

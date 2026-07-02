@@ -5,6 +5,7 @@ interface GroupMeta {
   memberCount: number;
   adminId: string | null;
   leaderId: string | null;
+  gapThresholdM: number;
 }
 
 interface GroupState extends GroupMeta {
@@ -18,6 +19,8 @@ interface GroupState extends GroupMeta {
   leaveGroup: () => void;
 }
 
+const DEFAULT_GAP_THRESHOLD_M = 3219;
+
 export const useGroupStore = create<GroupState>((set) => ({
   activeGroupId: null,
   pttChannelId: null,
@@ -25,12 +28,13 @@ export const useGroupStore = create<GroupState>((set) => ({
   memberCount: 0,
   adminId: null,
   leaderId: null,
+  gapThresholdM: DEFAULT_GAP_THRESHOLD_M,
   setActiveGroupId: (activeGroupId) => set({ activeGroupId }),
   setPttChannelId: (pttChannelId) => set({ pttChannelId }),
   setGroupMeta: (meta) => set(meta),
-  clearGroupMeta: () => set({ name: null, memberCount: 0, adminId: null, leaderId: null }),
+  clearGroupMeta: () => set({ name: null, memberCount: 0, adminId: null, leaderId: null, gapThresholdM: DEFAULT_GAP_THRESHOLD_M }),
   setLeader: (leaderId) => set({ leaderId }),
   /** Atomically clears all group state — use this instead of calling setActiveGroupId/setPttChannelId/clearGroupMeta separately. */
   leaveGroup: () =>
-    set({ activeGroupId: null, pttChannelId: null, name: null, memberCount: 0, adminId: null, leaderId: null }),
+    set({ activeGroupId: null, pttChannelId: null, name: null, memberCount: 0, adminId: null, leaderId: null, gapThresholdM: DEFAULT_GAP_THRESHOLD_M }),
 }));
