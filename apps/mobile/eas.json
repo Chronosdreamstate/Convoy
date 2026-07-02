@@ -7,7 +7,6 @@
     "development": {
       "developmentClient": true,
       "distribution": "internal",
-      "buildDoctorChecksEnabled": false,
       "ios": {
         "simulator": false,
         "resourceClass": "m-medium"
