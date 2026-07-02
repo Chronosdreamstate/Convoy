@@ -9,7 +9,8 @@
       "distribution": "internal",
       "ios": {
         "simulator": false,
-        "resourceClass": "m-medium"
+        "resourceClass": "m-medium",
+        "image": "macos-sequoia-15.2-xcode-16.2"
       },
       "android": {
         "buildType": "apk",
