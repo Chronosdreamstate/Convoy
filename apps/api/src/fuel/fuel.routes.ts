@@ -4,7 +4,6 @@
  */
 
 import { FastifyPluginAsync } from 'fastify';
-import { z } from 'zod';
 import { authenticate } from '../middleware/authenticate';
 import { generalLimiter } from '../middleware/rateLimiter';
 import { env } from '../config/env';

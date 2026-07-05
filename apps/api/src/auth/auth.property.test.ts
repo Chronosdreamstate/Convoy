@@ -26,6 +26,7 @@ import fc from 'fast-check';
 import { Pool } from 'pg';
 import Redis from 'ioredis';
 import authRoutes from './auth.routes';
+import { authenticate } from '../middleware/authenticate';
 
 // ---------------------------------------------------------------------------
 // Minimal test app factory
@@ -164,11 +165,10 @@ describe('Property 1: Unauthenticated access is uniformly restricted', () => {
     const app = buildTestApp();
 
     // Register a simple protected route to test the authenticate middleware
-    const authenticatePlugin = require('../middleware/authenticate');
     app.register(fp(async (instance) => {
       instance.get(
         '/api/v1/protected',
-        { preHandler: [authenticatePlugin.authenticate] },
+        { preHandler: [authenticate] },
         async () => ({ secret: 'data' }),
       );
     }));
@@ -195,11 +195,10 @@ describe('Property 1: Unauthenticated access is uniformly restricted', () => {
 
   it('request with no Authorization header returns 401', async () => {
     const app = buildTestApp();
-    const authenticatePlugin = require('../middleware/authenticate');
     app.register(fp(async (instance) => {
       instance.get(
         '/api/v1/protected',
-        { preHandler: [authenticatePlugin.authenticate] },
+        { preHandler: [authenticate] },
         async () => ({ secret: 'data' }),
       );
     }));

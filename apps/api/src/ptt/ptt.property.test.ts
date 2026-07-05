@@ -408,7 +408,7 @@ describe('Property 47: PTT_Log is accessible to all group Members', () => {
 describe('Property 48: PTT_Log is cleared on session end', () => {
   it('cleanupGroupPttLog deletes all rows for the group', async () => {
     await fc.assert(
-      fc.asyncProperty(uuidArb, fc.array(uuidArb, { minLength: 0, maxLength: 5 }), async (groupId, otherGroups) => {
+      fc.asyncProperty(uuidArb, fc.array(uuidArb, { minLength: 0, maxLength: 5 }), async (groupId, _otherGroups) => {
         const deleted: string[] = [];
         const mockClient = {
           query: async (text: string, values: unknown[]) => {

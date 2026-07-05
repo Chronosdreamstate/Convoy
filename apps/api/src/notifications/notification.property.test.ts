@@ -134,7 +134,6 @@ describe('Property 67: SOS alerts are always sent regardless of preferences', ()
 describe('Property 68: Non-SOS alerts respect notification preferences', () => {
   it('non-SOS notifications are added to the queue', async () => {
     const { gateway } = makeMockGateway();
-    const deviceStore = makeMockDeviceStore([{ token: 'tok', platform: 'ios' }]);
 
     await fc.assert(
       fc.asyncProperty(

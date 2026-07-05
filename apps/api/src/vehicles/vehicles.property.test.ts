@@ -152,7 +152,6 @@ function buildTestApp(userId: string): FastifyInstance {
 // ---------------------------------------------------------------------------
 describe('Property 51: Only one vehicle is active per user at a time', () => {
   const USER_ID = 'user-prop51';
-  const JWT_SECRET = 'test-secret-that-is-at-least-32-chars-long!!';
 
   function makeJwt(app: FastifyInstance): string {
     return app.jwt.sign({ sub: USER_ID });

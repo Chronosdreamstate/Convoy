@@ -6,7 +6,7 @@ module.exports = {
     es2022: true,
   },
   parserOptions: {
-    project: './tsconfig.json',
+    project: './tsconfig.eslint.json',
     tsconfigRootDir: __dirname,
   },
 };

@@ -12,7 +12,6 @@ import fp from 'fastify-plugin';
 import fc from 'fast-check';
 import { Pool } from 'pg';
 import photosRoutes from './photos.routes';
-import { authenticate } from '../middleware/authenticate';
 
 // ---------------------------------------------------------------------------
 // In-memory photo store
@@ -34,7 +33,7 @@ function resetPhotos() { photos = []; seqId = 0; }
 // ---------------------------------------------------------------------------
 // Mock pool
 // ---------------------------------------------------------------------------
-function makePool(userId: string): Pool {
+function makePool(_userId: string): Pool {
   return {
     query: async (sql: string, values?: unknown[]) => {
       const norm = sql.replace(/\s+/g, ' ').trim().toUpperCase();
@@ -51,6 +50,12 @@ function makePool(userId: string): Pool {
         };
         photos.push(photo);
         return { rows: [{ id: photo.id, photo_url: photo.photo_url, caption: photo.caption, created_at: photo.created_at.toISOString() }], rowCount: 1 };
+      }
+
+      // Membership check (SELECT 1 FROM convoy_members WHERE group_id = $1 AND user_id = $2 AND left_at IS NULL)
+      // The test's default user is always treated as an active member of any group.
+      if (norm.includes('FROM CONVOY_MEMBERS')) {
+        return { rows: [{ '?column?': 1 }], rowCount: 1 };
       }
 
       if (norm.includes('FROM GROUP_PHOTOS')) {
@@ -80,24 +85,30 @@ function makePool(userId: string): Pool {
 // ---------------------------------------------------------------------------
 // Test app factory
 // ---------------------------------------------------------------------------
+const JWT_SECRET = 'test-secret-that-is-at-least-32-chars-long!!';
+
 function buildApp(userId = 'user-test-1'): FastifyInstance {
   const app = Fastify({ logger: false });
   app.register(fastifyCookie);
-  app.register(fastifyJwt, { secret: 'test-secret-that-is-at-least-32-chars-long!!' });
+  app.register(fastifyJwt, { secret: JWT_SECRET });
   app.register(fastifySensible);
 
   const pool = makePool(userId);
 
   app.register(fp(async (instance) => { instance.decorate('db', pool); }), { name: 'db' });
   app.register(fp(async (instance) => {
-    instance.addHook('preHandler', async (req) => {
-      (req as unknown as { user: { id: string } }).user = { id: userId };
-    });
-  }));
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    instance.decorate('io', { to: () => ({ emit: () => true }) } as any);
+  }), { name: 'io' });
 
-  app.register(photosRoutes, { pool } as { pool: Pool });
+  app.register(photosRoutes, { pool, prefix: '/api/v1' } as { pool: Pool; prefix: string });
 
   return app;
+}
+
+/** Signs a valid JWT for the given user so requests pass the `authenticate` preHandler. */
+function authHeader(app: FastifyInstance, userId = 'user-test-1'): { authorization: string } {
+  return { authorization: `Bearer ${app.jwt.sign({ sub: userId })}` };
 }
 
 // ---------------------------------------------------------------------------
@@ -113,6 +124,7 @@ describe('Property P125: photoUrl is required', () => {
     const res = await app.inject({
       method: 'POST',
       url: '/api/v1/groups/group-1/photos',
+      headers: authHeader(app),
       payload: { photoUrl: '' },
     });
 
@@ -132,6 +144,7 @@ describe('Property P125: photoUrl is required', () => {
           const res = await app.inject({
             method: 'POST',
             url: '/api/v1/groups/group-1/photos',
+            headers: authHeader(app),
             payload: { photoUrl: url },
           });
 
@@ -157,6 +170,7 @@ describe('Property P126: Caption max 280 chars', () => {
     const res = await app.inject({
       method: 'POST',
       url: '/api/v1/groups/group-1/photos',
+      headers: authHeader(app),
       payload: { photoUrl: 'https://example.com/photo.jpg', caption: 'x'.repeat(280) },
     });
 
@@ -176,6 +190,7 @@ describe('Property P126: Caption max 280 chars', () => {
           const res = await app.inject({
             method: 'POST',
             url: '/api/v1/groups/group-1/photos',
+            headers: authHeader(app),
             payload: { photoUrl: 'https://example.com/photo.jpg', caption: 'x'.repeat(len) },
           });
 
@@ -215,7 +230,11 @@ describe('Property P127: Photos sorted DESC by created_at', () => {
           const app = buildApp();
           await app.ready();
 
-          const res = await app.inject({ method: 'GET', url: '/api/v1/groups/grp-1/photos' });
+          const res = await app.inject({
+            method: 'GET',
+            url: '/api/v1/groups/grp-1/photos',
+            headers: authHeader(app),
+          });
           expect(res.statusCode).toBe(200);
 
           const body = JSON.parse(res.body) as { photos: { createdAt: string }[] };

@@ -9,11 +9,15 @@ export async function healthRoutes(fastify: FastifyInstance) {
     try {
       await fastify.db.query('SELECT 1');
       dbOk = true;
-    } catch {}
+    } catch {
+      // dbOk stays false — reflected in the degraded status below
+    }
     try {
       await fastify.redis.ping();
       redisOk = true;
-    } catch {}
+    } catch {
+      // redisOk stays false — reflected in the degraded status below
+    }
     const uptime = process.uptime();
     const mem = process.memoryUsage();
     const allOk = dbOk && redisOk;

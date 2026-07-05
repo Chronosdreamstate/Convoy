@@ -73,11 +73,19 @@ interface InMemoryEvent {
   created_at: Date;
 }
 
+interface InMemoryRsvp {
+  event_id: string;
+  user_id: string;
+  status: string;
+  updated_at: Date;
+}
+
 let groups: InMemoryGroup[] = [];
 let members: InMemoryMember[] = [];
 let channels: InMemoryChannel[] = [];
 let channelMembers: InMemoryChannelMember[] = [];
 let events: InMemoryEvent[] = [];
+let rsvps: InMemoryRsvp[] = [];
 let seqId = 0;
 
 function nextId(): string {
@@ -90,6 +98,7 @@ function resetStore(): void {
   channels = [];
   channelMembers = [];
   events = [];
+  rsvps = [];
   seqId = 0;
 }
 
@@ -201,6 +210,63 @@ async function poolQuery(sql: string, values?: unknown[]): Promise<{ rows: unkno
         created_at: ev.created_at.toISOString(),
       }],
       rowCount: 1,
+    };
+  }
+
+  // SELECT id FROM group_events (RSVP POST route's eventCheck query — requires 'upcoming')
+  if (norm.includes('SELECT ID FROM GROUP_EVENTS') && norm.includes("STATUS = 'UPCOMING'")) {
+    const [eventId, groupId] = values as [string, string];
+    const ev = events.find((e) => e.id === eventId && e.group_id === groupId && e.status === 'upcoming');
+    return { rows: ev ? [{ id: ev.id }] : [], rowCount: ev ? 1 : 0 };
+  }
+
+  // SELECT id FROM group_events (GET /rsvps route's eventCheck query — no status filter)
+  if (norm.includes('SELECT ID FROM GROUP_EVENTS') && !norm.includes('STATUS')) {
+    const [eventId, groupId] = values as [string, string];
+    const ev = events.find((e) => e.id === eventId && e.group_id === groupId);
+    return { rows: ev ? [{ id: ev.id }] : [], rowCount: ev ? 1 : 0 };
+  }
+
+  // INSERT INTO event_rsvps ... ON CONFLICT DO UPDATE (POST /rsvp upsert)
+  if (norm.startsWith('INSERT INTO EVENT_RSVPS')) {
+    const [eventId, userId, status] = values as [string, string, string];
+    const existing = rsvps.find((r) => r.event_id === eventId && r.user_id === userId);
+    if (existing) {
+      existing.status = status;
+      existing.updated_at = new Date();
+    } else {
+      rsvps.push({ event_id: eventId, user_id: userId, status, updated_at: new Date() });
+    }
+    return { rows: [], rowCount: 1 };
+  }
+
+  // SELECT status, COUNT(*) FROM event_rsvps WHERE event_id = $1 GROUP BY status (POST /rsvp counts)
+  if (norm.includes('COUNT(*)') && norm.includes('FROM EVENT_RSVPS')) {
+    const eventId = values![0] as string;
+    const counts = new Map<string, number>();
+    for (const r of rsvps.filter((r) => r.event_id === eventId)) {
+      counts.set(r.status, (counts.get(r.status) ?? 0) + 1);
+    }
+    const rows = Array.from(counts.entries()).map(([status, count]) => ({ status, count: String(count) }));
+    return { rows, rowCount: rows.length };
+  }
+
+  // SELECT r.id, r.user_id, u.display_name, ... FROM event_rsvps r JOIN users u ... (GET /rsvps list)
+  if (norm.includes('RSVP_ID') && norm.includes('FROM EVENT_RSVPS')) {
+    const eventId = values![0] as string;
+    const list = rsvps
+      .filter((r) => r.event_id === eventId)
+      .sort((a, b) => b.updated_at.getTime() - a.updated_at.getTime());
+    return {
+      rows: list.map((r) => ({
+        rsvp_id: `${r.event_id}:${r.user_id}`,
+        user_id: r.user_id,
+        display_name: 'Test User',
+        avatar_url: null,
+        ptt_callsign: null,
+        status: r.status,
+      })),
+      rowCount: list.length,
     };
   }
 
@@ -2508,13 +2574,12 @@ describe('Property 124: POST /groups/:id/events/:eventId/rsvp upserts correctly'
             headers: authHeader(token),
           });
 
-          if (listRes.statusCode === 200) {
-            const { rsvps } = JSON.parse(listRes.body) as { rsvps: Array<{ userId: string; status: string }> };
-            const userRsvps = rsvps.filter((r) => r.userId === adminId);
-            expect(userRsvps).toHaveLength(1);
-            // Final status should be the second call's value
-            expect(userRsvps[0].status).toBe(secondStatus);
-          }
+          expect(listRes.statusCode).toBe(200);
+          const { rsvps } = JSON.parse(listRes.body) as { rsvps: Array<{ userId: string; status: string }> };
+          const userRsvps = rsvps.filter((r) => r.userId === adminId);
+          expect(userRsvps).toHaveLength(1);
+          // Final status should be the second call's value
+          expect(userRsvps[0].status).toBe(secondStatus);
 
           await app.close();
         },

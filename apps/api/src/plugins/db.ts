@@ -1,7 +1,7 @@
 import fp from 'fastify-plugin';
 import { FastifyInstance } from 'fastify';
 import { Pool } from 'pg';
-import { createPool, closePool } from '../db/pool';
+import { createPool } from '../db/pool';
 
 declare module 'fastify' {
   interface FastifyInstance {

@@ -112,7 +112,7 @@ async function poolQuery(
   }
 
   // SELECT id, is_all FROM ptt_channels WHERE id=$1 AND group_id=$2
-  if (norm.includes('PTT_CHANNELS') && norm.includes('WHERE ID = $1')) {
+  if (norm.includes('PTT_CHANNELS') && norm.includes('WHERE ID = $1') && norm.includes('GROUP_ID')) {
     const [channelId, groupId] = values as [string, string];
     const ch = channels.find((c) => c.id === channelId && c.group_id === groupId);
     return { rows: ch ? [ch] : [], rowCount: ch ? 1 : 0 };
@@ -201,7 +201,6 @@ function makeDb(): Pool {
 
 function makeRedis(): Redis {
   const store = new Map<string, Record<string, string>>();
-  const setStore = new Map<string, Set<string>>();
 
   return {
     hset: jest.fn(async (key: string, fields: Record<string, string>) => {
