@@ -543,6 +543,11 @@ export default function DriveHistoryScreen() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState<DriveFilter>('all');
   const expandAnim = useRef(new Animated.Value(0)).current;
+  // Measured natural height of each drive's expand panel content, keyed by drive id.
+  // The panel's true height varies with content (group name length, number of stat
+  // badges shown, whether a Replay button is present), so a single hard-coded target
+  // clips taller content — see toggleExpand/onLayout below for the self-correcting fix.
+  const [expandContentHeights, setExpandContentHeights] = useState<Record<string, number>>({});
   const router = useRouter();
 
   const toggleExpand = useCallback((id: string) => {
@@ -553,9 +558,12 @@ export default function DriveHistoryScreen() {
     } else {
       expandAnim.setValue(0);
       setExpandedId(id);
-      Animated.timing(expandAnim, { toValue: 204, duration: 220, useNativeDriver: false }).start();
+      // Use the previously measured height for this drive if we have one; otherwise
+      // fall back to a reasonable estimate until onLayout reports the real height.
+      const target = expandContentHeights[id] ?? 204;
+      Animated.timing(expandAnim, { toValue: target, duration: 220, useNativeDriver: false }).start();
     }
-  }, [expandedId, expandAnim]);
+  }, [expandedId, expandAnim, expandContentHeights]);
 
   const fetchDrives = useCallback(async (pageNum: number, replace: boolean) => {
     if (replace) setFetchError(null);
@@ -836,66 +844,84 @@ export default function DriveHistoryScreen() {
               {/* ── Expandable inline detail ── */}
               {isExpanded && (
                 <Animated.View style={[styles.expandPanel, { height: expandAnim }]}>
-                  {/* Mini map */}
-                  {routeCoords.length > 1 && region ? (
-                    <View style={styles.expandMapContainer}>
-                      <MapView
-                        provider={PROVIDER_DEFAULT}
-                        style={StyleSheet.absoluteFillObject}
-                        initialRegion={region}
-                        scrollEnabled={false}
-                        zoomEnabled={false}
-                        rotateEnabled={false}
-                        pitchEnabled={false}
-                      >
-                        <Polyline coordinates={routeCoords} strokeColor="#DC143C" strokeWidth={3} />
-                      </MapView>
-                    </View>
-                  ) : (
-                    <View style={[styles.expandMapContainer, styles.expandMapPlaceholder]}>
-                      <Text style={{ fontSize: 28 }}>🗺</Text>
-                    </View>
-                  )}
-
-                  {/* Quick stats row */}
-                  <View style={styles.expandStatsRow}>
-                    {drive.topSpeedKph != null && (
-                      <Text style={styles.expandStat}>⚡ {drive.topSpeedKph.toFixed(0)} km/h top</Text>
-                    )}
-                    {drive.avgSpeedKph != null && (
-                      <Text style={styles.expandStat}>📊 {drive.avgSpeedKph.toFixed(0)} km/h avg</Text>
-                    )}
-                    <Text style={styles.expandStat}>
-                      {drive.groupId
-                        ? `👥 ${drive.groupName ?? 'Group'} · ${drive.memberCount} member${drive.memberCount !== 1 ? 's' : ''}`
-                        : '🚗 Solo'}
-                    </Text>
-                  </View>
-
-                  {/* Action row: Share + Replay */}
-                  <View style={{ flexDirection: 'row', gap: 8 }}>
-                    <TouchableOpacity
-                      style={[styles.expandShareBtn, { flex: 1 }]}
-                      onPress={() => void handleShare(drive.id)}
-                      disabled={sharingId === drive.id}
-                      accessibilityRole="button"
-                      accessibilityLabel="Share drive"
-                    >
-                      {sharingId === drive.id
-                        ? <ActivityIndicator color="#DC143C" size="small" />
-                        : <Text style={styles.expandShareBtnText}>📤 Share</Text>
+                  {/*
+                    Measure the real content height and correct the animated target once
+                    it's known — the content below is variable-length (group name, number
+                    of stat badges, optional Replay button), so a fixed animation target
+                    would either clip taller content or leave a gap under shorter content.
+                  */}
+                  <View
+                    onLayout={(e) => {
+                      const measured = Math.ceil(e.nativeEvent.layout.height);
+                      setExpandContentHeights((prev) =>
+                        prev[drive.id] === measured ? prev : { ...prev, [drive.id]: measured },
+                      );
+                      if (expandedId === drive.id) {
+                        Animated.timing(expandAnim, { toValue: measured, duration: 120, useNativeDriver: false }).start();
                       }
-                    </TouchableOpacity>
-                    {(drive.routeTrace?.coordinates?.length ?? 0) > 1 && (
-                      <TouchableOpacity
-                        style={[styles.expandShareBtn, { flex: 1, backgroundColor: '#1C1C1C', borderColor: '#DC143C', borderWidth: 1 }]}
-                        onPress={() => router.push(`/replay?driveId=${drive.id}` as never)}
-                        accessibilityRole="button"
-                        accessibilityLabel="Replay drive"
-                      >
-                        <Text style={[styles.expandShareBtnText, { color: '#DC143C' }]}>▶ Replay</Text>
-                      </TouchableOpacity>
+                    }}
+                  >
+                    {/* Mini map */}
+                    {routeCoords.length > 1 && region ? (
+                      <View style={styles.expandMapContainer}>
+                        <MapView
+                          provider={PROVIDER_DEFAULT}
+                          style={StyleSheet.absoluteFillObject}
+                          initialRegion={region}
+                          scrollEnabled={false}
+                          zoomEnabled={false}
+                          rotateEnabled={false}
+                          pitchEnabled={false}
+                        >
+                          <Polyline coordinates={routeCoords} strokeColor="#DC143C" strokeWidth={3} />
+                        </MapView>
+                      </View>
+                    ) : (
+                      <View style={[styles.expandMapContainer, styles.expandMapPlaceholder]}>
+                        <Text style={{ fontSize: 28 }}>🗺</Text>
+                      </View>
                     )}
+
+                    {/* Quick stats row */}
+                    <View style={styles.expandStatsRow}>
+                      {drive.topSpeedKph != null && (
+                        <Text style={styles.expandStat}>⚡ {drive.topSpeedKph.toFixed(0)} km/h top</Text>
+                      )}
+                      {drive.avgSpeedKph != null && (
+                        <Text style={styles.expandStat}>📊 {drive.avgSpeedKph.toFixed(0)} km/h avg</Text>
+                      )}
+                      <Text style={styles.expandStat}>
+                        {drive.groupId
+                          ? `👥 ${drive.groupName ?? 'Group'} · ${drive.memberCount} member${drive.memberCount !== 1 ? 's' : ''}`
+                          : '🚗 Solo'}
+                      </Text>
+                    </View>
+
+                    {/* Action row: Share + Replay */}
+                    <View style={{ flexDirection: 'row', gap: 8 }}>
+                      <TouchableOpacity
+                        style={[styles.expandShareBtn, { flex: 1 }]}
+                        onPress={() => void handleShare(drive.id)}
+                        disabled={sharingId === drive.id}
+                        accessibilityRole="button"
+                        accessibilityLabel="Share drive"
+                      >
+                        {sharingId === drive.id
+                          ? <ActivityIndicator color="#DC143C" size="small" />
+                          : <Text style={styles.expandShareBtnText}>📤 Share</Text>
+                        }
+                      </TouchableOpacity>
+                      {(drive.routeTrace?.coordinates?.length ?? 0) > 1 && (
+                        <TouchableOpacity
+                          style={[styles.expandShareBtn, { flex: 1, backgroundColor: '#1C1C1C', borderColor: '#DC143C', borderWidth: 1 }]}
+                          onPress={() => router.push(`/replay?driveId=${drive.id}` as never)}
+                          accessibilityRole="button"
+                          accessibilityLabel="Replay drive"
+                        >
+                          <Text style={[styles.expandShareBtnText, { color: '#DC143C' }]}>▶ Replay</Text>
+                        </TouchableOpacity>
+                      )}
+                    </View>
                   </View>
                 </Animated.View>
               )}
