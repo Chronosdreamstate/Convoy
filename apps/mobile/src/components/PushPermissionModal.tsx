@@ -24,7 +24,13 @@ export default function PushPermissionModal({ visible, onEnable, onSkip }: Props
   }, [visible]);
 
   return (
-    <Modal transparent visible={visible} animationType="none" statusBarTranslucent>
+    <Modal
+      transparent
+      visible={visible}
+      animationType="none"
+      statusBarTranslucent
+      accessibilityViewIsModal
+    >
       <View style={styles.overlay}>
         <Animated.View style={[styles.card, { transform: [{ scale: scaleAnim }], opacity: opacityAnim }]}>
           <Text style={styles.bell}>🔔</Text>
