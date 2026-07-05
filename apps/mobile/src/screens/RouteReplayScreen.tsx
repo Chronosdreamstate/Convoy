@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Animated,
+  PanResponder,
   Pressable,
   SafeAreaView,
   ScrollView,
@@ -171,6 +172,59 @@ export default function RouteReplayScreen() {
 
   useEffect(() => () => { stopPlayback(); }, [stopPlayback]);
 
+  // ── Scrubbing (tap/drag the progress bar to seek) ─────────────────────────
+  // Refs mirror latest state/callbacks so the PanResponder (created once) never
+  // reads stale closures from the render it was constructed in.
+  const trackRef = useRef<View>(null);
+  const trackWidthRef = useRef(0);
+  const trackPageXRef = useRef(0);
+  const coordsLenRef = useRef(coords.length);
+  const playingRef = useRef(playing);
+  const startPlaybackRef = useRef(startPlayback);
+  const wasPlayingRef = useRef(false);
+
+  useEffect(() => { coordsLenRef.current = coords.length; }, [coords.length]);
+  useEffect(() => { playingRef.current = playing; }, [playing]);
+  useEffect(() => { startPlaybackRef.current = startPlayback; }, [startPlayback]);
+
+  const measureTrack = useCallback(() => {
+    trackRef.current?.measure((_x, _y, width, _height, pageX) => {
+      trackWidthRef.current = width;
+      trackPageXRef.current = pageX;
+    });
+  }, []);
+
+  const seekToPageX = useCallback((pageX: number) => {
+    const width = trackWidthRef.current;
+    const len = coordsLenRef.current;
+    if (width <= 0 || len < 2) return;
+    const progress = Math.min(1, Math.max(0, (pageX - trackPageXRef.current) / width));
+    const index = Math.round(progress * (len - 1));
+    setMarkerIndex(index);
+    progressAnim.setValue(progress);
+  }, [progressAnim]);
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: (evt) => {
+        wasPlayingRef.current = playingRef.current;
+        stopPlayback();
+        seekToPageX(evt.nativeEvent.pageX);
+      },
+      onPanResponderMove: (evt) => {
+        seekToPageX(evt.nativeEvent.pageX);
+      },
+      onPanResponderRelease: () => {
+        if (wasPlayingRef.current) startPlaybackRef.current();
+      },
+      onPanResponderTerminate: () => {
+        if (wasPlayingRef.current) startPlaybackRef.current();
+      },
+    }),
+  ).current;
+
   // ── Share ──────────────────────────────────────────────────────────────────
   const handleShare = useCallback(() => {
     if (!drive) return;
@@ -319,19 +373,28 @@ export default function RouteReplayScreen() {
           </Text>
         </View>
 
-        {/* Progress bar */}
-        <View style={styles.progressTrack}>
-          <Animated.View
-            style={[
-              styles.progressFill,
-              {
-                width: progressAnim.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: ['0%', '100%'],
-                }),
-              },
-            ]}
-          />
+        {/* Progress bar (tap or drag to seek) */}
+        <View
+          ref={trackRef}
+          style={styles.progressTouchArea}
+          onLayout={measureTrack}
+          accessibilityRole="adjustable"
+          accessibilityLabel="Seek replay position"
+          {...panResponder.panHandlers}
+        >
+          <View style={styles.progressTrack}>
+            <Animated.View
+              style={[
+                styles.progressFill,
+                {
+                  width: progressAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: ['0%', '100%'],
+                  }),
+                },
+              ]}
+            />
+          </View>
         </View>
 
         {/* Play/pause + speed */}
@@ -398,7 +461,8 @@ const styles = StyleSheet.create({
   durationText: { color: '#FFFFFF', fontSize: 15, fontWeight: '600', fontVariant: ['tabular-nums'] },
   durationMuted: { color: '#888888', fontWeight: '400' },
 
-  progressTrack: { height: 4, backgroundColor: '#2A2A2A', borderRadius: 2, overflow: 'hidden', marginBottom: 14 },
+  progressTouchArea: { paddingVertical: 10, marginBottom: 4 },
+  progressTrack: { height: 4, backgroundColor: '#2A2A2A', borderRadius: 2, overflow: 'hidden' },
   progressFill: { height: '100%', backgroundColor: '#DC143C', borderRadius: 2 },
 
   playRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
