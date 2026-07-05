@@ -55,9 +55,21 @@ export class SyncService {
   async sync(): Promise<void> {
     if (this.syncing) return;
     this.syncing = true;
+    // Hazards and drives are independent queues — a failure in one (e.g. hazard API
+    // down after retries) must not prevent the other from being attempted.
+    let firstError: unknown;
     try {
-      await this.syncHazards();
-      await this.syncDrives();
+      try {
+        await this.syncHazards();
+      } catch (err) {
+        firstError = err;
+      }
+      try {
+        await this.syncDrives();
+      } catch (err) {
+        if (firstError === undefined) firstError = err;
+      }
+      if (firstError !== undefined) throw firstError;
       this.onSyncComplete?.();
     } finally {
       this.syncing = false;

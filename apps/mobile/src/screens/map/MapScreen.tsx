@@ -36,7 +36,7 @@ import GapAlertBanner from '../../components/GapAlertBanner';
 import SosAlertModal from '../../components/SosAlertModal';
 import ConvoyBanner from '../../components/ConvoyBanner';
 import { useGroupStore } from '../../stores/groupStore';
-import { SQLiteOfflineDB } from '../../services/OfflineCacheService';
+import { SQLiteOfflineDB, OfflineHazard } from '../../services/OfflineCacheService';
 import { MotionStateService } from '../../services/MotionStateService';
 import { PTTService } from '../../services/PTTService';
 import { agoraEngineAdapter, requestMicPermissionForPTT } from '../../services/AgoraEngineAdapter';
@@ -1036,6 +1036,19 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
     try {
       await apiClient.post('/api/v1/hazards', { type, lat: myLocation.lat, lng: myLocation.lng });
     } catch {
+      // Queue the report in SQLite so SyncService can post it once connectivity returns
+      // (previously this was silently dropped despite the alert claiming it would sync).
+      const offlineHazard: OfflineHazard = {
+        id: `offline-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        type,
+        lat: myLocation.lat,
+        lng: myLocation.lng,
+        createdAt: Date.now(),
+      };
+      await offlineDBReady.then((ready) => {
+        if (!ready) return;
+        return offlineDB.saveHazard(offlineHazard);
+      }).catch(() => {});
       Alert.alert('Error', 'Could not report hazard. It will sync when you reconnect.');
     }
   }, [myLocation]);
