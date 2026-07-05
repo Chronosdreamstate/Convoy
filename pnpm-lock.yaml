@@ -160,8 +160,8 @@ importers:
         specifier: ^7.10.6
         version: 7.10.6(@react-navigation/native@7.3.4(react-native@0.81.5(@babel/core@7.29.7)(@react-native-community/cli@12.3.2)(@types/react@19.1.17)(react@19.1.0))(react@19.1.0))(react-native-gesture-handler@2.28.0(react-native@0.81.5(@babel/core@7.29.7)(@react-native-community/cli@12.3.2)(@types/react@19.1.17)(react@19.1.0))(react@19.1.0))(react-native-safe-area-context@5.6.2(react-native@0.81.5(@babel/core@7.29.7)(@react-native-community/cli@12.3.2)(@types/react@19.1.17)(react@19.1.0))(react@19.1.0))(react-native-screens@4.16.0(react-native@0.81.5(@babel/core@7.29.7)(@react-native-community/cli@12.3.2)(@types/react@19.1.17)(react@19.1.0))(react@19.1.0))(react-native@0.81.5(@babel/core@7.29.7)(@react-native-community/cli@12.3.2)(@types/react@19.1.17)(react@19.1.0))(react@19.1.0)
       '@rnmapbox/maps':
-        specifier: 10.1.25
-        version: 10.1.25(expo@54.0.35)(react-dom@19.1.0(react@19.1.0))(react-native@0.81.5(@babel/core@7.29.7)(@react-native-community/cli@12.3.2)(@types/react@19.1.17)(react@19.1.0))(react@19.1.0)
+        specifier: 10.1.45
+        version: 10.1.45(expo@54.0.35)(react-dom@19.1.0(react@19.1.0))(react-native@0.81.5(@babel/core@7.29.7)(@react-native-community/cli@12.3.2)(@types/react@19.1.17)(react@19.1.0))(react@19.1.0)
       '@tanstack/react-query':
         specifier: ^5.56.0
         version: 5.101.0(react@19.1.0)
@@ -1856,8 +1856,8 @@ packages:
       react-native-safe-area-context: '>= 4.0.0'
       react-native-screens: '>= 4.0.0'
 
-  '@rnmapbox/maps@10.1.25':
-    resolution: {integrity: sha512-bVwNmWW4c2tNiJTvJT5vf9Gm+Y/kTwqs3Yfmu85sdi7PW7eExeUogTyqKp38DNRoLPv+XSuHfZkiGpbfJWqlsg==}
+  '@rnmapbox/maps@10.1.45':
+    resolution: {integrity: sha512-Rk6Yu5euDnYZDsFPFgQ1Rvp5e2IrTMIjtl6OYj9e/OMSuRGufNSa6P6tt0SwOnUG6QHUcle0c9jhsSL9VQBtTg==}
     peerDependencies:
       expo: '>=47.0.0'
       mapbox-gl: ^2.9.0
@@ -2798,8 +2798,9 @@ packages:
   dayjs@1.11.21:
     resolution: {integrity: sha512-98IT+HOahAisibz/yjKbzuOBwYcjJ7BCLPzARyHiyEBmRz4fatF+KPJszEHXsGYjUG234aH/cOjW1wwTbKUZlA==}
 
-  debounce@1.2.1:
-    resolution: {integrity: sha512-XRRe6Glud4rd/ZGQfiV1ruXSfbvfJedlV9Y6zOlP+2K04vBYiJEte6stfFkCP03aMnY5tsipamumUjL14fofug==}
+  debounce@2.2.0:
+    resolution: {integrity: sha512-Xks6RUDLZFdz8LIdR6q0MTH44k7FikOmnh5xkSjMig6ch45afc8sjTjRQf3P6ax8dMgcQrYO/AR2RGWURrruqw==}
+    engines: {node: '>=18'}
 
   debug@2.6.9:
     resolution: {integrity: sha512-bC7ElrdJaJnPbAP+1EotYvqZsb3ecl5wi6Bfi6BJTUcNowp6cvspg0jXznRTKDjm/E7AdgFBVeAPVMNcKGsHMA==}
@@ -8843,7 +8844,7 @@ snapshots:
     transitivePeerDependencies:
       - '@react-native-masked-view/masked-view'
 
-  '@rnmapbox/maps@10.1.25(expo@54.0.35)(react-dom@19.1.0(react@19.1.0))(react-native@0.81.5(@babel/core@7.29.7)(@react-native-community/cli@12.3.2)(@types/react@19.1.17)(react@19.1.0))(react@19.1.0)':
+  '@rnmapbox/maps@10.1.45(expo@54.0.35)(react-dom@19.1.0(react@19.1.0))(react-native@0.81.5(@babel/core@7.29.7)(@react-native-community/cli@12.3.2)(@types/react@19.1.17)(react@19.1.0))(react@19.1.0)':
     dependencies:
       '@turf/along': 6.5.0
       '@turf/distance': 6.5.0
@@ -8851,7 +8852,7 @@ snapshots:
       '@turf/length': 6.5.0
       '@turf/nearest-point-on-line': 6.5.0
       '@types/geojson': 7946.0.16
-      debounce: 1.2.1
+      debounce: 2.2.0
       react: 19.1.0
       react-native: 0.81.5(@babel/core@7.29.7)(@react-native-community/cli@12.3.2)(@types/react@19.1.17)(react@19.1.0)
     optionalDependencies:
@@ -10098,7 +10099,7 @@ snapshots:
   dayjs@1.11.21:
     optional: true
 
-  debounce@1.2.1: {}
+  debounce@2.2.0: {}
 
   debug@2.6.9:
     dependencies:
