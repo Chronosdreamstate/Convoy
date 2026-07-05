@@ -9,7 +9,7 @@ const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
 const SOCKET_URL = API_URL.replace(/^http/, 'ws');
 
 function MapTab() {
-  const { isAuthenticated, accessToken } = useAuthStore();
+  const { isAuthenticated } = useAuthStore();
   const activeGroupId = useGroupStore((s) => s.activeGroupId);
   const pttChannelId = useGroupStore((s) => s.pttChannelId);
 
@@ -19,7 +19,6 @@ function MapTab() {
   return (
     <MapScreen
       groupId={activeGroupId}
-      accessToken={accessToken ?? ''}
       socketUrl={SOCKET_URL}
       pttChannelId={pttChannelId ?? undefined}
     />

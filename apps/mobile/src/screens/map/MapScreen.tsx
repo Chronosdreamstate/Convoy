@@ -6,7 +6,6 @@ import {
   Modal,
   Platform,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -15,7 +14,6 @@ import {
 } from 'react-native';
 import MapView, { Marker, Callout, Polyline, LongPressEvent, PROVIDER_DEFAULT } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import * as ExpoLocation from 'expo-location';
 import { router } from 'expo-router';
 import { Socket } from 'socket.io-client';
 import { WebSocketService } from '../../services/WebSocketService';
@@ -90,7 +88,6 @@ interface RouteAlternative {
 
 interface Props {
   groupId: string;
-  accessToken: string;
   socketUrl: string;
   isAdmin?: boolean;
   pttChannelId?: string;
@@ -241,7 +238,7 @@ const hapticAdapter = {
 const offlineDB = new SQLiteOfflineDB();
 const offlineDBReady: Promise<boolean> = offlineDB.init().then(() => true).catch(() => false);
 
-export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = false, pttChannelId }: Props) {
+export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChannelId }: Props) {
   const { user, token } = useAuthStore();
   const { memberLocations, stalePositions, updateMemberLocation, clearGroup, evictStale, setStalePositions, clearStalePositions } = useLocationStore();
   const setIsInMotion = useMotionStore((s) => s.setIsInMotion);
@@ -326,7 +323,6 @@ export default function MapScreen({ groupId, accessToken, socketUrl, isAdmin = f
 
   // Auto-center: fit map to all convoy members; user tap disables
   const [autoCenterAll, setAutoCenterAll] = useState(true);
-  const autoCenterTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Bottom sheet collapse/expand
   const [sheetExpanded, setSheetExpanded] = useState(false);

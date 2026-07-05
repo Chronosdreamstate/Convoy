@@ -4,6 +4,7 @@ import {
   Animated,
   Dimensions,
   Image,
+  Linking,
   Modal,
   ScrollView,
   Share,
@@ -408,7 +409,6 @@ export default function ConvoyEndScreen() {
                   onPress: async () => {
                     await AsyncStorage.setItem('convoy:has_reviewed', 'true');
                     // Opens App Store page — replace with real app ID before launch
-                    const { Linking } = require('react-native');
                     Linking.openURL('https://apps.apple.com/app/id000000000');
                   },
                 },
@@ -417,7 +417,9 @@ export default function ConvoyEndScreen() {
             );
           }, 3000);
         }
-      } catch {}
+      } catch {
+        // intentionally empty — review prompt is best-effort only
+      }
     }
     maybeAskForReview();
   }, []);
@@ -453,7 +455,9 @@ export default function ConvoyEndScreen() {
             }, 1800);
           }
         }
-      } catch {}
+      } catch {
+        // intentionally empty — achievement unlock check is best-effort only
+      }
     }
     checkFirstConvoy();
   }, []);
@@ -523,7 +527,9 @@ export default function ConvoyEndScreen() {
   const savePhotos = async (newPhotos: string[]) => {
     try {
       await AsyncStorage.setItem(`convoy:drive:${driveId}:photos`, JSON.stringify(newPhotos));
-    } catch {}
+    } catch {
+      // intentionally empty — persisting drive photos locally is best-effort only
+    }
   };
 
   const pickFromLibrary = async () => {

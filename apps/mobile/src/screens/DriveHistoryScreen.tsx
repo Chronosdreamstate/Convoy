@@ -224,7 +224,6 @@ function MonthlySummaryCard({ drives }: { drives: DriveRecord[] }) {
   });
   const maxCount = Math.max(...dayCounts, 1);
   const sparkH = 24;
-  const sparkW = 4;
 
   return (
     <View style={styles.monthCard}>

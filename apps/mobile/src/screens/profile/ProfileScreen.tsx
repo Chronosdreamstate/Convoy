@@ -17,8 +17,8 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
-import * as FileSystem from 'expo-file-system';
-import { FileSystemUploadType } from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
+import { FileSystemUploadType } from 'expo-file-system/legacy';
 import ProfileCompletionBar from '../../components/ProfileCompletionBar';
 import { apiClient } from '../../services/apiClient';
 import { SkeletonBox } from '../../components/SkeletonLoader';
@@ -91,7 +91,6 @@ function CallsignBadge({ callsign }: { callsign: string | null }) {
 
 export default function ProfileScreen() {
   const router = useRouter();
-  const signOut = useAuthStore((s) => s.signOut);
   const accessToken = useAuthStore((s) => s.accessToken);
   const apiUrl = process.env.EXPO_PUBLIC_API_URL ?? '';
 

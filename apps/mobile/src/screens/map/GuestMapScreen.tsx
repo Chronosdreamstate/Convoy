@@ -71,12 +71,6 @@ function interpolateRoute(
   };
 }
 
-const FEATURE_PILLS = [
-  { icon: '🎙️', label: 'Push-to-talk radio' },
-  { icon: '⚡', label: 'Real-time gap alerts' },
-  { icon: '🗺️', label: 'Live convoy map' },
-];
-
 export default function GuestMapScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();

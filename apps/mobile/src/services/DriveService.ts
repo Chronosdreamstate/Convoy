@@ -5,6 +5,7 @@
  */
 
 import { OfflineDrive } from './OfflineCacheService';
+import { haversineDistanceM } from '../utils/geo';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -53,7 +54,7 @@ export interface DriveRecord extends DriveBody {
 // Pure computation — exported for property testing
 // ---------------------------------------------------------------------------
 
-export { haversineDistanceM } from '../utils/geo';
+export { haversineDistanceM };
 
 /** Compute drive stats from an ordered array of track points. Returns null if < 2 points. */
 export function computeDriveStats(points: TrackPoint[]): DriveStats | null {

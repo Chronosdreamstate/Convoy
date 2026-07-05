@@ -9,10 +9,6 @@ export interface AuthResult {
   accessToken: string;
 }
 
-interface ApiResponse<T> {
-  data: T;
-}
-
 interface AuthApiResponse {
   user: User;
   accessToken: string;

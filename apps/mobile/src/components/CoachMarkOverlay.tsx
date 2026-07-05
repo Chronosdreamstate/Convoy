@@ -93,7 +93,9 @@ export default function CoachMarkOverlay({ visible, onComplete }: Props) {
       }).start(async () => {
         try {
           await SecureStore.setItemAsync(STORAGE_KEY, '1');
-        } catch {}
+        } catch {
+          // intentionally empty — persisting the "seen" flag is best-effort only
+        }
         onComplete();
       });
     }

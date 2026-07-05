@@ -10,7 +10,6 @@ import {
   ActivityIndicator,
   Alert,
   Animated,
-  Dimensions,
   KeyboardAvoidingView,
   Platform,
   SafeAreaView,
@@ -24,8 +23,6 @@ import {
 import * as Clipboard from 'expo-clipboard';
 import { router } from 'expo-router';
 import { apiClient } from '../services/apiClient';
-
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 const VEHICLE_TYPES = [
   { type: 'all', label: '🚗 All types' },

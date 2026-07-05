@@ -51,7 +51,7 @@ class AgoraEngineAdapter implements IAgoraEngine {
       return;
     }
     try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
       const Agora = require('react-native-agora');
       this.engine = Agora.createAgoraRtcEngine();
       this.engine.initialize({ appId: APP_ID });

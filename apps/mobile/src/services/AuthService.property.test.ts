@@ -88,7 +88,7 @@ function fetchFailing(): jest.Mock {
 
 function getService() {
   jest.resetModules();
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
   const mod = require('./AuthService') as { authService: import('./AuthService').AuthService };
   return mod.authService;
 }

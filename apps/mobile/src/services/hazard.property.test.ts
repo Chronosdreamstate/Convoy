@@ -230,8 +230,6 @@ describe('Property 74: WebSocket reconnect backoff stays within bounds', () => {
   test('P74.3: backoff grows with each attempt (base increases)', () => {
     // Without jitter, base doubles each time up to max
     const base0 = 1000;
-    const base1 = 2000;
-    const base2 = 4000;
     // With ±25% jitter this can sometimes fail, so we run many samples
     let largerCount = 0;
     for (let i = 0; i < 100; i++) {

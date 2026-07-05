@@ -21,7 +21,6 @@ import { SiriShortcutsService } from '../../services/SiriShortcutsService';
 import { SkeletonBox } from '../../components/SkeletonLoader';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { theme } from '../../theme';
-import { onboardingState } from '../../utils/onboardingState';
 
 const DISTANCE_UNIT_KEY = '@convoy/distanceUnit';
 const GAP_THRESHOLD_KEY = '@convoy/gapThresholdM';
@@ -176,7 +175,7 @@ export default function SettingsScreen() {
   const router = useRouter();
   const setGlobalSettings = useSettingsStore((s) => s.setSettings);
   const storedVolumePercent = useSettingsStore((s) => s.pttVolumePercent);
-  const [settings, setSettings] = useState<Settings | null>(null);
+  const [, setSettings] = useState<Settings | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);

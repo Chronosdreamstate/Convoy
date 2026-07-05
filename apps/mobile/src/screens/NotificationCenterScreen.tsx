@@ -120,7 +120,9 @@ async function loadCached(): Promise<NotificationItem[]> {
 async function saveToCache(items: NotificationItem[]): Promise<void> {
   try {
     await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(items.slice(0, MAX_STORED)));
-  } catch {}
+  } catch {
+    // intentionally empty — caching notifications locally is best-effort only
+  }
 }
 
 // ---------------------------------------------------------------------------

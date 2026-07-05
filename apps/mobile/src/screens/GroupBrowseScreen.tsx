@@ -16,8 +16,7 @@ import {
 import { useRouter } from 'expo-router';
 import * as ExpoLocation from 'expo-location';
 import { apiClient } from '../services/apiClient';
-import { haversineDistanceM } from '../services/DriveService';
-import SkeletonCard, { SkeletonRow } from '../components/SkeletonLoader';
+import SkeletonCard from '../components/SkeletonLoader';
 import { NetworkError } from '../components/NetworkError';
 
 // ---------------------------------------------------------------------------
@@ -256,18 +255,8 @@ export default function GroupBrowseScreen() {
       const res = await apiClient.get<{ groups: PublicGroup[] }>('/api/v1/groups', { params });
       const fetched = res.data.groups ?? [];
 
-      // If we have user coords, annotate each group with distance
-      const coords = opts.lat !== undefined
-        ? { lat: opts.lat, lng: opts.lng as number }
-        : userCoordsRef.current;
-
-      if (coords) {
-        fetched.forEach((g) => {
-          // Groups don't expose their own coords from the API yet — distance
-          // will be populated when the API returns lat/lng. For now we leave
-          // distanceM undefined so the badge is omitted gracefully.
-        });
-      }
+      // Note: groups don't expose their own coords from the API yet — distance
+      // annotation will be added when the API returns lat/lng per group.
 
       setGroups(fetched);
     } catch {

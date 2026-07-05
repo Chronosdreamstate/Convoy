@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -318,80 +318,18 @@ export default function WaypointManagementScreen() {
             data={waypoints}
             keyExtractor={(item) => item.id}
             contentContainerStyle={styles.list}
-            renderItem={({ item, index }) => {
-              const typeConfig = getTypeConfig(item.type);
-              const reached = reachedIds.has(item.id);
-              return (
-                <View style={[styles.row, { backgroundColor: typeConfig.tint || theme.colors.card }]}>
-                  {/* Order badge */}
-                  <View style={styles.indexBadge}>
-                    <Text style={styles.indexText}>{index + 1}</Text>
-                  </View>
-
-                  {/* Type icon badge */}
-                  <View style={styles.typeBadge}>
-                    <Text style={styles.typeBadgeIcon}>{typeConfig.icon}</Text>
-                  </View>
-
-                  {/* Info */}
-                  <View style={styles.rowInfo}>
-                    <Text style={[styles.rowName, reached && styles.rowNameReached]} numberOfLines={1}>
-                      {typeConfig.icon} {item.name}
-                    </Text>
-                    <Text style={[styles.rowTypeLabel, { color: theme.colors.accent }]}>
-                      {typeConfig.label}
-                    </Text>
-                    {item.address ? (
-                      <Text style={styles.rowAddress} numberOfLines={1}>
-                        {item.address}
-                      </Text>
-                    ) : null}
-                    {/* Mark Reached button */}
-                    <TouchableOpacity
-                      onPress={() => markReached(item)}
-                      disabled={reached}
-                      style={[styles.reachedBtn, reached && styles.reachedBtnDone]}
-                      accessibilityRole="button"
-                      accessibilityLabel={reached ? 'Waypoint reached' : 'Mark as reached'}
-                    >
-                      <Text style={styles.reachedBtnText}>
-                        {reached ? '✓ Reached' : 'Mark Reached'}
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
-
-                  {/* Reorder / delete controls */}
-                  <View style={styles.controls}>
-                    <TouchableOpacity
-                      onPress={() => moveUp(index)}
-                      disabled={index === 0}
-                      style={[styles.arrowBtn, index === 0 && styles.arrowDisabled]}
-                      accessibilityRole="button"
-                      accessibilityLabel="Move up"
-                    >
-                      <Text style={styles.arrowText}>↑</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      onPress={() => moveDown(index)}
-                      disabled={index === waypoints.length - 1}
-                      style={[styles.arrowBtn, index === waypoints.length - 1 && styles.arrowDisabled]}
-                      accessibilityRole="button"
-                      accessibilityLabel="Move down"
-                    >
-                      <Text style={styles.arrowText}>↓</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      onPress={() => remove(item.id)}
-                      style={styles.removeBtn}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Remove ${item.name}`}
-                    >
-                      <Text style={styles.removeText}>✕</Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              );
-            }}
+            renderItem={({ item, index }) => (
+              <WaypointRow
+                item={item}
+                index={index}
+                total={waypoints.length}
+                reachedIds={reachedIds}
+                onMoveUp={moveUp}
+                onMoveDown={moveDown}
+                onRemove={remove}
+                onMarkReached={markReached}
+              />
+            )}
             ItemSeparatorComponent={() => <View style={styles.separator} />}
           />
 

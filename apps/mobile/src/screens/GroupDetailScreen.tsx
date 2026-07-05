@@ -40,17 +40,6 @@ interface GroupDetail {
   isMember?: boolean;
 }
 
-const VEHICLE_FOCUS_LABELS: Record<string, string> = {
-  sports_car: '🏎️ Sports Cars',
-  truck: '🛻 Trucks',
-  suv: '🚙 SUVs',
-  jdm: '🎌 JDM',
-  muscle: '🇺🇸 Muscle Cars',
-  ev: '⚡ EV',
-  track_car: '🏁 Track Cars',
-  motorcycle: '🏍️ Motorcycles',
-};
-
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------

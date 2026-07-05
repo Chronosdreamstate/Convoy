@@ -47,7 +47,8 @@ export const useLocationStore = create<LocationState>((set) => ({
 
   removeMember: (userId) =>
     set((state) => {
-      const { [userId]: _, ...rest } = state.memberLocations;
+      const rest = { ...state.memberLocations };
+      delete rest[userId];
       return { memberLocations: rest };
     }),
 

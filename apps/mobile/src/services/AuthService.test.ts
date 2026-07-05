@@ -9,8 +9,6 @@
  * Requirements: 38.4, 38.5
  */
 
-import * as SecureStore from 'expo-secure-store';
-
 // ---------------------------------------------------------------
 // Mock expo-secure-store
 // ---------------------------------------------------------------
@@ -84,7 +82,7 @@ function getAuthService() {
   // Use require() so jest.resetModules() takes effect; dynamic import() requires
   // --experimental-vm-modules which is unavailable in this jest setup.
   jest.resetModules();
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
   const mod = require('./AuthService') as { authService: import('./AuthService').AuthService };
   return mod.authService;
 }

@@ -123,9 +123,6 @@ describe('PTTService volume restore after ducking', () => {
     // Simulate ptt:transmit duck
     engine.adjustPlaybackSignalVolume(120); // duck to 120
 
-    // Retrieve and invoke the pttEndedHandler that was registered
-    const onMock = socket.on as jest.Mock;
-    const pttEndedCallback = onMock.mock.calls.find(([event]: [string]) => event === 'ptt:ended')?.[1];
     // Handler is registered lazily on joinChannel — invoke directly via private field
     const handler = (svc as unknown as { pttEndedHandler: () => void }).pttEndedHandler;
     engine.volumeCalls.length = 0;
