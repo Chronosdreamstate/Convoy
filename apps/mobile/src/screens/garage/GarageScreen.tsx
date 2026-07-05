@@ -550,7 +550,9 @@ const styles = StyleSheet.create({
   vehicleCardPrimary: { borderColor: 'rgba(220,20,60,0.4)', backgroundColor: '#1F1518' },
   activeStrip: { position: 'absolute', left: 0, top: 0, bottom: 0, width: 4, backgroundColor: '#DC143C' },
   primaryBadge: {
-    position: 'absolute', top: 10, right: 12, backgroundColor: 'rgba(220,20,60,0.15)',
+    // right: 60 clears the 36px-wide menuButton (right padding 16 + width 36 = 52),
+    // leaving an 8px gap so the "MAIN RIDE" chip never sits on top of the "···" button.
+    position: 'absolute', top: 10, right: 60, backgroundColor: 'rgba(220,20,60,0.15)',
     borderRadius: 4, paddingHorizontal: 7, paddingVertical: 3, borderWidth: 1, borderColor: 'rgba(220,20,60,0.3)',
   },
   primaryBadgeText: { color: '#DC143C', fontSize: 9, fontWeight: '800', letterSpacing: 0.8 },
