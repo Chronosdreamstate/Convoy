@@ -67,8 +67,8 @@ export default function SplashScreen({ onReady }: SplashScreenProps) {
         🚗
       </Animated.Text>
 
-      {/* CONVOY title */}
-      <Text style={styles.title}>CONVOY</Text>
+      {/* CORTEGE title */}
+      <Text style={styles.title}>CORTEGE</Text>
 
       {/* Crimson divider line */}
       <View style={styles.line} />

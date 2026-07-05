@@ -265,16 +265,16 @@ export default function ProfileScreen() {
   };
 
   const handleShareProfile = async () => {
-    const name = displayName || profile?.displayName || 'a CONVOY rider';
+    const name = displayName || profile?.displayName || 'a CORTEGE rider';
     const callsign = pttCallsign || profile?.pttCallsign;
     const lines = [
-      `${name} is on CONVOY! 🏎️`,
+      `${name} is on CORTEGE! 🏎️`,
       callsign ? `📻 Callsign: ${callsign}` : '',
       '',
       'Join the convoy: convoy.app',
     ].filter(Boolean);
     try {
-      await Share.share({ message: lines.join('\n'), title: `${name} on CONVOY` });
+      await Share.share({ message: lines.join('\n'), title: `${name} on CORTEGE` });
     } catch { /* dismissed */ }
   };
 

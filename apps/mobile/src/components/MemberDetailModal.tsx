@@ -75,7 +75,7 @@ export default function MemberDetailModal({
         `/api/v1/groups/${activeGroupId}/invite-link`,
       );
       await Share.share({
-        message: `Join my convoy on CONVOY! Code: ${res.data.code}\n${res.data.link}`,
+        message: `Join my convoy on CORTEGE! Code: ${res.data.code}\n${res.data.link}`,
       });
     } catch {
       Alert.alert('Error', 'Could not get invite link. Try again.');

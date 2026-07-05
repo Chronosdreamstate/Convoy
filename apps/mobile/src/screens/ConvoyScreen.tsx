@@ -457,7 +457,7 @@ export default function ConvoyScreen({ userId }: Props) {
     if (!group) return;
     try {
       await Share.share({
-        message: `Join my CONVOY group "${group.name}" with code: ${group.joinCode}\nhttps://convoy.app/join/${group.joinCode}`,
+        message: `Join my CORTEGE group "${group.name}" with code: ${group.joinCode}\nhttps://convoy.app/join/${group.joinCode}`,
       });
     } catch { /* user cancelled share sheet */ }
   }, [group]);

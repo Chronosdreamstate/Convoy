@@ -112,8 +112,8 @@ export default function CreateGroupScreen() {
     if (!createdGroup) return;
     try {
       await Share.share({
-        title: 'Join my convoy on CONVOY',
-        message: `Join my convoy "${createdGroup.name}" on CONVOY!\n\nCode: ${createdGroup.joinCode}\n\nDownload: convoy.app`,
+        title: 'Join my convoy on CORTEGE',
+        message: `Join my convoy "${createdGroup.name}" on CORTEGE!\n\nCode: ${createdGroup.joinCode}\n\nDownload: convoy.app`,
       });
     } catch {
       // User cancelled share

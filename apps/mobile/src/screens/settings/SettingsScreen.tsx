@@ -289,7 +289,7 @@ export default function SettingsScreen() {
     try {
       const res = await apiClient.get('/api/v1/account/export');
       const json = JSON.stringify(res.data, null, 2);
-      await Share.share({ message: json, title: 'My CONVOY Data' });
+      await Share.share({ message: json, title: 'My CORTEGE Data' });
     } catch {
       Alert.alert('Error', 'Failed to export data. Please try again.');
     }
@@ -329,7 +329,7 @@ export default function SettingsScreen() {
       if (update.isAvailable) {
         Alert.alert(
           'Update Available',
-          'A new version of CONVOY is available.',
+          'A new version of CORTEGE is available.',
           [
             { text: 'Later', style: 'cancel' },
             {
@@ -686,7 +686,7 @@ export default function SettingsScreen() {
           <SettingRow
             icon="🔄"
             label="Check for Updates"
-            subtitle="Check for the latest version of CONVOY"
+            subtitle="Check for the latest version of CORTEGE"
             onPress={() => { void handleCheckForUpdates(); }}
             rightSlot={
               checkingUpdate
@@ -696,7 +696,7 @@ export default function SettingsScreen() {
           />
           <SettingRow
             icon="⭐"
-            label="Rate CONVOY"
+            label="Rate CORTEGE"
             subtitle="Love the app? Leave us a review"
             onPress={() => Linking.openURL(APP_STORE_URL).catch(() => {})}
           />
@@ -709,7 +709,7 @@ export default function SettingsScreen() {
           <SettingRow
             icon="💬"
             label="Contact Support"
-            subtitle="Get help from the CONVOY team"
+            subtitle="Get help from the CORTEGE team"
             onPress={() => Linking.openURL('mailto:support@convoy.app?subject=Support%20Request').catch(() => {})}
           />
           <SettingRow
@@ -725,7 +725,7 @@ export default function SettingsScreen() {
           <SettingRow
             icon="ℹ️"
             label="Version"
-            subtitle={`CONVOY v${APP_VERSION}`}
+            subtitle={`CORTEGE v${APP_VERSION}`}
             rightSlot={<Text style={styles.versionText}>v{APP_VERSION}</Text>}
             last
           />

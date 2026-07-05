@@ -152,7 +152,7 @@ function buildShareText(
   groupName: string,
 ): string {
   const lines: string[] = [
-    `🏁 Just finished a convoy with ${groupName} on CONVOY!`,
+    `🏁 Just finished a convoy with ${groupName} on CORTEGE!`,
     `📍 ${distanceKm} in ${duration}`,
     `👥 ${members} car${members !== 1 ? 's' : ''} strong`,
   ];
@@ -200,7 +200,7 @@ function ShareCard({ groupName, distanceText, duration, members, topSpeed }: Sha
   return (
     <View style={shareCardStyles.card}>
       <View style={shareCardStyles.header}>
-        <Text style={shareCardStyles.wordmark}>CONVOY</Text>
+        <Text style={shareCardStyles.wordmark}>CORTEGE</Text>
         <Text style={shareCardStyles.flag}>🏁</Text>
       </View>
       <Text style={shareCardStyles.groupName}>{groupName}</Text>
@@ -401,7 +401,7 @@ export default function ConvoyEndScreen() {
         if (count === 3 && !hasReviewed) {
           setTimeout(() => {
             Alert.alert(
-              '❤️ Loving CONVOY?',
+              '❤️ Loving CORTEGE?',
               'A quick rating helps us grow the community of drivers.',
               [
                 {
@@ -553,7 +553,7 @@ export default function ConvoyEndScreen() {
   const handleShare = async () => {
     try {
       await Share.share({
-        title: 'My CONVOY drive',
+        title: 'My CORTEGE drive',
         message: shareText,
       });
       setShared(true);
@@ -748,7 +748,7 @@ export default function ConvoyEndScreen() {
         {shared && (
           <View style={extraStyles.socialPrompt}>
             <Text style={extraStyles.socialPromptText}>
-              Tell your crew about CONVOY — invite them to your next drive!
+              Tell your crew about CORTEGE — invite them to your next drive!
             </Text>
             <TouchableOpacity
               style={extraStyles.inviteBtn}

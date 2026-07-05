@@ -103,7 +103,7 @@ export class LocationService {
      *     timeInterval: 3000,
      *     distanceInterval: 10,
      *     foregroundService: {
-     *       notificationTitle: 'CONVOY is tracking your location',
+     *       notificationTitle: 'CORTEGE is tracking your location',
      *       notificationBody: 'Your crew can see you on the map',
      *       notificationColor: '#DC143C',
      *     },

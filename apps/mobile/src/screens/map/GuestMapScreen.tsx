@@ -215,14 +215,14 @@ export default function GuestMapScreen() {
           <Text style={styles.locationCardIcon}>📍</Text>
           <Text style={styles.locationCardTitle}>Enable Location</Text>
           <Text style={styles.locationCardBody}>
-            Allow location access so Convoy can center the map on you and share your position with your group.
+            Allow location access so Cortege can center the map on you and share your position with your group.
           </Text>
           <TouchableOpacity
             style={styles.locationCardBtn}
             onPress={() =>
               Alert.alert(
                 'Location Access',
-                'Open Settings → Privacy → Location Services → Convoy, then set to "While Using App".',
+                'Open Settings → Privacy → Location Services → Cortege, then set to "While Using App".',
               )
             }
             accessibilityRole="button"
@@ -245,7 +245,7 @@ export default function GuestMapScreen() {
         ]}
       >
         <Text style={overlayStyles.headline}>🏁 Drive with your crew</Text>
-        <Text style={styles.logo}>CONVOY</Text>
+        <Text style={styles.logo}>CORTEGE</Text>
         <Text style={styles.tagline}>The app built for car enthusiasts.</Text>
 
         <View style={overlayStyles.checkList}>
@@ -257,7 +257,7 @@ export default function GuestMapScreen() {
         <TouchableOpacity
           style={styles.createBtn}
           onPress={() => router.push('/(auth)/welcome')}
-          accessibilityLabel="Create free Convoy account"
+          accessibilityLabel="Create free Cortege account"
           accessibilityRole="button"
         >
           <Text style={styles.createBtnText}>Create Free Account</Text>
@@ -266,7 +266,7 @@ export default function GuestMapScreen() {
         <TouchableOpacity
           style={styles.signInBtn}
           onPress={() => router.push('/(auth)/welcome')}
-          accessibilityLabel="Sign in to Convoy"
+          accessibilityLabel="Sign in to Cortege"
           accessibilityRole="button"
         >
           <Text style={styles.signInText}>

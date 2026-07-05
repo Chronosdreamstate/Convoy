@@ -8,7 +8,7 @@ export default function Index() {
   if (isLoading) {
     return (
       <View style={styles.center}>
-        <Text style={styles.wordmark}>CONVOY</Text>
+        <Text style={styles.wordmark}>CORTEGE</Text>
         <View style={styles.accent} />
         <ActivityIndicator size="small" color="#DC143C" style={styles.spinner} />
       </View>

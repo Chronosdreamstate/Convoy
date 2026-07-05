@@ -156,7 +156,7 @@ function LoadingSplash() {
   }, [pulse]);
   return (
     <View style={splashStyles.container}>
-      <Text style={splashStyles.logo}>CONVOY</Text>
+      <Text style={splashStyles.logo}>CORTEGE</Text>
       <Animated.View style={[splashStyles.bar, { opacity: pulse }]} />
     </View>
   );
@@ -294,7 +294,7 @@ export default function RootLayout() {
           await Updates.fetchUpdateAsync();
           Alert.alert(
             'Update Available',
-            'A new version of CONVOY is ready. Restart to get the latest features.',
+            'A new version of CORTEGE is ready. Restart to get the latest features.',
             [
               { text: 'Later', style: 'cancel' },
               { text: 'Restart Now', onPress: () => void Updates.reloadAsync() },

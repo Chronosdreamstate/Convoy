@@ -602,12 +602,12 @@ export default function DriveHistoryScreen() {
     const groupName = drive?.groupName ?? null;
 
     const shareText = [
-      `Just drove ${distanceKm}km${groupName ? ` with ${groupName}` : ''} on CONVOY! 🏁`,
+      `Just drove ${distanceKm}km${groupName ? ` with ${groupName}` : ''} on CORTEGE! 🏁`,
       duration ? `⏱ ${duration}` : '',
       maxSpeedKph ? `⚡ Top speed: ${maxSpeedKph}km/h` : '',
       memberCount > 1 ? `👥 ${memberCount} cars` : '',
       '',
-      'Join us on CONVOY: convoy.app',
+      'Join us on CORTEGE: convoy.app',
     ].filter(Boolean).join('\n');
 
     try {
@@ -626,7 +626,7 @@ export default function DriveHistoryScreen() {
     } catch {
       // Summary card endpoint failed — share text-only
       try {
-        await Share.share({ message: shareText, title: 'My CONVOY Drive' });
+        await Share.share({ message: shareText, title: 'My CORTEGE Drive' });
       } catch { /* cancelled */ }
     } finally {
       setSharingId(null);
@@ -660,14 +660,14 @@ export default function DriveHistoryScreen() {
   }, []);
 
   const handleExport = useCallback(async () => {
-    const header = 'CONVOY Drive History\nDate,Distance,Duration,Group\n';
+    const header = 'CORTEGE Drive History\nDate,Distance,Duration,Group\n';
     const rows = drives
       .map((d) =>
         `${formatDate(d.endedAt)},${formatDistance(d.distanceM)},${formatDuration(d.durationS)},${d.groupId ? 'Group Drive' : 'Solo'}`,
       )
       .join('\n');
     try {
-      await Share.share({ message: header + rows, title: 'CONVOY Drive History' });
+      await Share.share({ message: header + rows, title: 'CORTEGE Drive History' });
     } catch { /* cancelled */ }
   }, [drives]);
 

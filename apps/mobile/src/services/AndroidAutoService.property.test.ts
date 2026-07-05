@@ -500,7 +500,7 @@ describe('PA_CLUSTER_3: getClusterDisplayText() never throws for any valid state
     );
   });
 
-  it('idle/ending status always returns "CONVOY · Ready"', () => {
+  it('idle/ending status always returns "CORTEGE · Ready"', () => {
     fc.assert(
       fc.property(
         fcState,
@@ -510,7 +510,7 @@ describe('PA_CLUSTER_3: getClusterDisplayText() never throws for any valid state
           const svc = new AndroidAutoService();
           svc.start();
           svc.syncStateIfChanged({ ...base, convoyStatus: status });
-          expect(svc.getClusterDisplayText()).toBe('CONVOY · Ready');
+          expect(svc.getClusterDisplayText()).toBe('CORTEGE · Ready');
         },
       ),
       { numRuns: 100 },

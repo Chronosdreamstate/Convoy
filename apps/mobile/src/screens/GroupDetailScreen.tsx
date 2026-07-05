@@ -128,20 +128,20 @@ export default function GroupDetailScreen() {
       const { link, code } = res.data;
       await Share.share({
         message: [
-          `Join "${group.name}" on CONVOY! 🏎️`,
+          `Join "${group.name}" on CORTEGE! 🏎️`,
           `${group.memberCount} riders and counting.`,
           ``,
           `Tap to join: ${link}`,
           code ? `Or use code: ${code}` : '',
         ].filter(Boolean).join('\n'),
         url: link,
-        title: `Join ${group.name} on CONVOY`,
+        title: `Join ${group.name} on CORTEGE`,
       });
     } catch {
       // fallback share without invite link
       await Share.share({
-        message: `Check out "${group.name}" on CONVOY — the car enthusiast convoy app! convoy.app`,
-        title: `Join ${group.name} on CONVOY`,
+        message: `Check out "${group.name}" on CORTEGE — the car enthusiast convoy app! convoy.app`,
+        title: `Join ${group.name} on CORTEGE`,
       });
     }
   }, [group]);

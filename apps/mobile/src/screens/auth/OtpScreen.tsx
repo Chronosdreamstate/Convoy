@@ -132,7 +132,7 @@ export default function OtpScreen() {
           <Text style={styles.backBtnText}>← Back</Text>
         </TouchableOpacity>
 
-        <Text style={styles.logo}>CONVOY</Text>
+        <Text style={styles.logo}>CORTEGE</Text>
 
         <View style={styles.header}>
           <Text style={styles.title}>Enter the code</Text>

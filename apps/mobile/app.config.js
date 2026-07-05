@@ -1,6 +1,6 @@
 /** @type {import('expo/config').ExpoConfig} */
 const baseConfig = {
-  name: 'CONVOY',
+  name: 'CORTEGE',
   slug: 'convoy',
   description: 'Real-time group navigation and push-to-talk for car enthusiasts. Drive together.',
   version: '1.0.0',
@@ -22,12 +22,12 @@ const baseConfig = {
     associatedDomains: ['applinks:convoy.app'],
     infoPlist: {
       NSLocationWhenInUseUsageDescription:
-        'CONVOY uses your location to keep your convoy in sync and find nearby groups.',
+        'CORTEGE uses your location to keep your convoy in sync and find nearby groups.',
       NSLocationAlwaysAndWhenInUseUsageDescription:
-        'CONVOY uses background location to update your position in the convoy.',
+        'CORTEGE uses background location to update your position in the convoy.',
       NSMicrophoneUsageDescription:
-        'CONVOY needs microphone access for push-to-talk radio between convoy members.',
-      NSCameraUsageDescription: 'CONVOY uses your camera for profile and vehicle photos.',
+        'CORTEGE needs microphone access for push-to-talk radio between convoy members.',
+      NSCameraUsageDescription: 'CORTEGE uses your camera for profile and vehicle photos.',
       NSSupportsLiveActivities: true,
       NSSupportsLiveActivitiesFrequentUpdates: true,
       ITSAppUsesNonExemptEncryption: false,
@@ -93,11 +93,11 @@ const baseConfig = {
       'expo-location',
       {
         locationAlwaysAndWhenInUsePermission:
-          'CONVOY needs your location to track your position in the convoy and alert your crew if you fall behind.',
+          'CORTEGE needs your location to track your position in the convoy and alert your crew if you fall behind.',
         locationAlwaysPermission:
-          'CONVOY tracks your location in the background so your convoy can see you even when your screen is off.',
+          'CORTEGE tracks your location in the background so your convoy can see you even when your screen is off.',
         locationWhenInUsePermission:
-          'CONVOY uses your location to keep your convoy in sync and find nearby groups.',
+          'CORTEGE uses your location to keep your convoy in sync and find nearby groups.',
         isIosBackgroundLocationEnabled: true,
         isAndroidBackgroundLocationEnabled: true,
       },

@@ -454,7 +454,7 @@ describe('P_CLUSTER_3: getClusterDisplayText() never throws for any valid state'
     );
   });
 
-  it('returns "CONVOY · Ready" when convoyStatus is not active', () => {
+  it('returns "CORTEGE · Ready" when convoyStatus is not active', () => {
     fc.assert(
       fc.property(
         fcCarPlayState(),
@@ -462,16 +462,16 @@ describe('P_CLUSTER_3: getClusterDisplayText() never throws for any valid state'
           fc.pre(state.convoyStatus !== 'active');
           const svc = makeSvc();
           svc.syncState(state);
-          expect(svc.getClusterDisplayText()).toBe('CONVOY · Ready');
+          expect(svc.getClusterDisplayText()).toBe('CORTEGE · Ready');
         },
       ),
       { numRuns: 100 },
     );
   });
 
-  it('returns "CONVOY · Ready" when no state has been synced', () => {
+  it('returns "CORTEGE · Ready" when no state has been synced', () => {
     const svc = makeSvc();
-    expect(svc.getClusterDisplayText()).toBe('CONVOY · Ready');
+    expect(svc.getClusterDisplayText()).toBe('CORTEGE · Ready');
   });
 
   it('lead car text contains "Lead Car" when positionInConvoy is 1 and active', () => {
