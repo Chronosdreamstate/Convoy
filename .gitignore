@@ -12,3 +12,5 @@ coverage
 *.generated.*
 pgdata
 redisdata
+package-lock.json
+yarn.lock
