@@ -129,6 +129,8 @@ export default function HazardPicker({ visible, isInMotion, onSelect, onClose }:
       transparent
       animationType="slide"
       onRequestClose={handleClose}
+      statusBarTranslucent
+      accessibilityViewIsModal
     >
       <View style={styles.overlay}>
         <Pressable style={StyleSheet.absoluteFillObject} onPress={handleClose} />
