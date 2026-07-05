@@ -11,6 +11,7 @@ import {
   Platform,
   Alert,
   Modal,
+  ScrollView,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { authService } from '../../services/AuthService';
@@ -80,74 +81,80 @@ export default function PhoneScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <KeyboardAvoidingView style={styles.inner} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-        <TouchableOpacity
-          style={styles.backBtn}
-          onPress={() => router.back()}
-          accessibilityRole="button"
-          accessibilityLabel="Go back"
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+      <KeyboardAvoidingView style={styles.keyboardAvoid} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+        <ScrollView
+          contentContainerStyle={styles.inner}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
         >
-          <Text style={styles.backBtnText}>← Back</Text>
-        </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.backBtn}
+            onPress={() => router.back()}
+            accessibilityRole="button"
+            accessibilityLabel="Go back"
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Text style={styles.backBtnText}>← Back</Text>
+          </TouchableOpacity>
 
-        <Text style={styles.logo} accessibilityLabel="CONVOY">CONVOY</Text>
+          <Text style={styles.logo} accessibilityLabel="CONVOY">CONVOY</Text>
 
-        <View style={styles.header}>
-          <Text style={styles.title}>Enter your number</Text>
-          <Text style={styles.subtitle}>
-            We'll send a one-time code to verify your phone number.
-          </Text>
-        </View>
-
-        <View style={styles.form}>
-          {/* Phone input row — bottom-line style, no card border */}
-          <View style={styles.inputArea}>
-            <TouchableOpacity
-              style={styles.countryPicker}
-              onPress={() => setShowPicker(true)}
-              accessibilityRole="button"
-              accessibilityLabel={`Country: ${country.label}, dial code ${country.dial}`}
-            >
-              <Text style={styles.flag}>{country.flag}</Text>
-              <Text style={styles.dialCode}>{country.dial}</Text>
-              <Text style={styles.chevron}>▾</Text>
-            </TouchableOpacity>
-
-            <View style={styles.divider} />
-
-            <TextInput
-              style={styles.input}
-              value={formatPhone(digits, country.dial)}
-              onChangeText={handleChangeText}
-              placeholder="(555) 123-4567"
-              placeholderTextColor="#888888"
-              keyboardType="phone-pad"
-              autoComplete="tel"
-              textContentType="telephoneNumber"
-              autoFocus
-              returnKeyType="send"
-              onSubmitEditing={() => { void handleSendOtp(); }}
-              accessibilityLabel="Phone number, required"
-            />
+          <View style={styles.header}>
+            <Text style={styles.title}>Enter your number</Text>
+            <Text style={styles.subtitle}>
+              We'll send a one-time code to verify your phone number.
+            </Text>
           </View>
 
-          {error ? <Text style={styles.errorText}>{error}</Text> : null}
+          <View style={styles.form}>
+            {/* Phone input row — bottom-line style, no card border */}
+            <View style={styles.inputArea}>
+              <TouchableOpacity
+                style={styles.countryPicker}
+                onPress={() => setShowPicker(true)}
+                accessibilityRole="button"
+                accessibilityLabel={`Country: ${country.label}, dial code ${country.dial}`}
+              >
+                <Text style={styles.flag}>{country.flag}</Text>
+                <Text style={styles.dialCode}>{country.dial}</Text>
+                <Text style={styles.chevron}>▾</Text>
+              </TouchableOpacity>
 
-          <TouchableOpacity
-            style={[styles.button, (isLoading || digits.length < 10) && styles.buttonDisabled]}
-            onPress={() => { void handleSendOtp(); }}
-            disabled={isLoading || digits.length < 10}
-            accessibilityRole="button"
-            accessibilityLabel="Continue"
-            accessibilityHint="Sends a one-time code to your phone"
-            accessibilityState={{ disabled: isLoading || digits.length < 10 }}
-          >
-            {isLoading
-              ? <ActivityIndicator color="#FFFFFF" />
-              : <Text style={styles.buttonText}>Continue →</Text>}
-          </TouchableOpacity>
-        </View>
+              <View style={styles.divider} />
+
+              <TextInput
+                style={styles.input}
+                value={formatPhone(digits, country.dial)}
+                onChangeText={handleChangeText}
+                placeholder="(555) 123-4567"
+                placeholderTextColor="#888888"
+                keyboardType="phone-pad"
+                autoComplete="tel"
+                textContentType="telephoneNumber"
+                autoFocus
+                returnKeyType="send"
+                onSubmitEditing={() => { void handleSendOtp(); }}
+                accessibilityLabel="Phone number, required"
+              />
+            </View>
+
+            {error ? <Text style={styles.errorText}>{error}</Text> : null}
+
+            <TouchableOpacity
+              style={[styles.button, (isLoading || digits.length < 10) && styles.buttonDisabled]}
+              onPress={() => { void handleSendOtp(); }}
+              disabled={isLoading || digits.length < 10}
+              accessibilityRole="button"
+              accessibilityLabel="Continue"
+              accessibilityHint="Sends a one-time code to your phone"
+              accessibilityState={{ disabled: isLoading || digits.length < 10 }}
+            >
+              {isLoading
+                ? <ActivityIndicator color="#FFFFFF" />
+                : <Text style={styles.buttonText}>Continue →</Text>}
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
       </KeyboardAvoidingView>
 
       {/* Country picker bottom sheet */}
@@ -192,7 +199,12 @@ export default function PhoneScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.colors.bg },
-  inner: { flex: 1, paddingHorizontal: theme.spacing.lg, paddingTop: theme.spacing.xl },
+  keyboardAvoid: { flex: 1 },
+  inner: {
+    paddingHorizontal: theme.spacing.lg,
+    paddingTop: theme.spacing.xl,
+    paddingBottom: theme.spacing.xxl,
+  },
   backBtn: { paddingTop: 8, paddingBottom: 16, alignSelf: 'flex-start' },
   backBtnText: { color: theme.colors.accent, fontSize: 16, fontWeight: '600' },
   // Wordmark: white, 24px, weight-900, letterSpacing 6, centered
