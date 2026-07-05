@@ -13,6 +13,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   SafeAreaView,
+  ScrollView,
   Share,
   StyleSheet,
   Text,
@@ -164,7 +165,12 @@ export default function CreateGroupScreen() {
 
           {/* ── Step 1: Basics ─────────────────────────────── */}
           {step === 1 && (
-            <View style={styles.stepContent}>
+            <ScrollView
+              style={styles.stepScroll}
+              contentContainerStyle={styles.stepContent}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+            >
               <Text style={styles.stepHeadline}>What's your crew called?</Text>
               <TextInput
                 style={styles.nameInput}
@@ -195,12 +201,17 @@ export default function CreateGroupScreen() {
                   </TouchableOpacity>
                 ))}
               </View>
-            </View>
+            </ScrollView>
           )}
 
           {/* ── Step 2: Settings ───────────────────────────── */}
           {step === 2 && (
-            <View style={styles.stepContent}>
+            <ScrollView
+              style={styles.stepScroll}
+              contentContainerStyle={styles.stepContent}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+            >
               <Text style={styles.stepHeadline}>Convoy settings</Text>
 
               <Text style={styles.fieldLabel}>Who can join?</Text>
@@ -252,7 +263,7 @@ export default function CreateGroupScreen() {
                 maxLength={40}
                 accessibilityLabel="PTT channel name"
               />
-            </View>
+            </ScrollView>
           )}
 
           {/* ── Step 3: Success ────────────────────────────── */}
@@ -350,7 +361,8 @@ const styles = StyleSheet.create({
   },
   stepLabel: { color: '#888', fontSize: 12, textAlign: 'center', marginTop: 8, marginBottom: 4 },
   stepContainer: { flex: 1 },
-  stepContent: { flex: 1, paddingHorizontal: 20, paddingTop: 24 },
+  stepScroll: { flex: 1 },
+  stepContent: { flexGrow: 1, paddingHorizontal: 20, paddingTop: 24 },
   stepHeadline: { color: '#fff', fontSize: 22, fontWeight: '700', marginBottom: 20 },
   nameInput: {
     backgroundColor: '#1C1C1C',
