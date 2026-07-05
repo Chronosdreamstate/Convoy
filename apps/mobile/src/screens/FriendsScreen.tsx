@@ -593,7 +593,7 @@ const styles = StyleSheet.create({
   badgeTxt: { color: '#FFFFFF', fontSize: 10, fontWeight: '700' },
 
   content: { flex: 1 },
-  skeletonWrap: { flex: 1, paddingHorizontal: 16, paddingTop: 12 },
+  skeletonWrap: { flex: 1, paddingHorizontal: 16, paddingTop: 12, gap: 12 },
   listPad: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 100 },
 
   sectionHeader: { fontSize: 12, fontWeight: '700', color: '#888888', letterSpacing: 0.8, textTransform: 'uppercase', marginTop: 16, marginBottom: 8 },
