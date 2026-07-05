@@ -98,6 +98,11 @@ export default function GroupDetailScreen() {
   const [error, setError] = useState<string | null>(null);
   const [joining, setJoining] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  // Real measured height of the absolutely-positioned bottom action bar, so the
+  // scroll content can reserve exactly enough space to clear it (see footer
+  // below). Starts at a sane estimate so there's no flash of under-padding
+  // before the first onLayout fires.
+  const [footerHeight, setFooterHeight] = useState(100);
 
   const fetchGroup = useCallback(async () => {
     if (!id) return;
@@ -211,7 +216,8 @@ export default function GroupDetailScreen() {
       </View>
 
       <ScrollView
-        contentContainerStyle={styles.content}
+        style={styles.scroll}
+        contentContainerStyle={[styles.content, { paddingBottom: footerHeight + 24 }]}
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#DC143C" colors={['#DC143C']} />
@@ -281,13 +287,13 @@ export default function GroupDetailScreen() {
             <Text style={styles.eventDate}>{formatDate(group.upcomingEvent.scheduledFor)}</Text>
           </View>
         )}
-
-        {/* Spacer for bottom button */}
-        <View style={{ height: 100 }} />
       </ScrollView>
 
       {/* Action buttons */}
-      <View style={styles.footer}>
+      <View
+        style={styles.footer}
+        onLayout={(e) => setFooterHeight(e.nativeEvent.layout.height)}
+      >
         <View style={styles.footerRow}>
           {group.isMember ? (
             <TouchableOpacity
@@ -356,6 +362,7 @@ const styles = StyleSheet.create({
   shareHeaderBtn: { fontSize: 22 },
   backBtn: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 8 },
   backText: { color: '#DC143C', fontSize: 17, fontWeight: '600' },
+  scroll: { flex: 1 },
   content: { paddingHorizontal: 20, paddingTop: 16 },
   skeletonContainer: { paddingHorizontal: 20, paddingTop: 24 },
   errorContainer: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32 },
