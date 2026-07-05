@@ -870,17 +870,64 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
     try { await rallyService.cancelSos(groupId, mySosId); } catch { Alert.alert('Error', 'Could not cancel SOS.'); }
   }, [groupId, mySosId]);
 
+  // Shared "calculate + render a route to this point" logic used by every entry point
+  // that produces a destination coordinate (top search bar, Plan Route modal, dropped
+  // pin "Get Directions", recent destinations).
+  const calculateRouteToDestination = useCallback(async (dest: { lat: number; lng: number }) => {
+    if (!myLocation) {
+      Alert.alert('Location unavailable', 'Waiting for a GPS fix before we can calculate a route.');
+      return;
+    }
+    setIsCalcRoute(true);
+    try {
+      const routeBody = { origin: { lat: myLocation.lat, lng: myLocation.lng }, destination: dest, scenic: scenicRouting };
+      let routeRes = await apiClient.post<{ routes: RouteAlternative[] }>('/api/v1/routes/calculate', routeBody);
+
+      // If scenic routing yielded no results, fall back to standard routing (Req 22.4)
+      if (scenicRouting && (!routeRes.data.routes?.length)) {
+        Alert.alert('Scenic unavailable', 'Scenic routing is not available for this route. Showing standard routes.');
+        routeRes = await apiClient.post<{ routes: RouteAlternative[] }>('/api/v1/routes/calculate', {
+          ...routeBody,
+          scenic: false,
+        });
+      }
+
+      const alts = routeRes.data.routes;
+      if (!alts?.length) {
+        Alert.alert('No route found', 'Could not find a route to that destination.');
+        return;
+      }
+      setRouteAlternatives(alts);
+      setSelectedRouteIdx(0);
+      const coords = alts[0].geometry.coordinates.map(([lng, lat]) => ({ latitude: lat, longitude: lng }));
+      setRouteCoords(coords);
+      setPostedSpeedLimitKph(alts[0]?.speedLimitKph ?? null);
+      activeDestRef.current = dest;
+      showQuickAlert(`${alts[0].distanceText} · ${alts[0].durationText}`);
+    } catch {
+      Alert.alert('Error', 'Could not calculate route.');
+    } finally {
+      setIsCalcRoute(false);
+    }
+  }, [myLocation, scenicRouting, showQuickAlert]);
+
   const handleSearchSelect = useCallback((result: SearchResult) => {
-    mapRef.current?.animateToRegion(
-      {
-        latitude: result.lat,
-        longitude: result.lng,
-        latitudeDelta: 0.02,
-        longitudeDelta: 0.02,
-      },
-      600,
-    );
-  }, []);
+    const destCoord = { latitude: result.lat, longitude: result.lng };
+    // Frame both the current location and the destination so the new route is visible,
+    // falling back to a simple pan when we don't have a GPS fix yet.
+    if (myLocation && mapRef.current) {
+      mapRef.current.fitToCoordinates(
+        [{ latitude: myLocation.lat, longitude: myLocation.lng }, destCoord],
+        { edgePadding: { top: 120, right: 60, bottom: 300, left: 60 }, animated: true },
+      );
+    } else {
+      mapRef.current?.animateToRegion({ ...destCoord, latitudeDelta: 0.02, longitudeDelta: 0.02 }, 600);
+    }
+    // Selecting a search result must actually start turn-by-turn routing, not just
+    // recenter the camera — previously this handler only panned the map, so typing
+    // an address and picking a result produced no route/directions at all.
+    void calculateRouteToDestination({ lat: result.lat, lng: result.lng });
+  }, [myLocation, calculateRouteToDestination]);
 
   const handlePttStart = useCallback(() => {
     HapticService.pttStart();
@@ -928,36 +975,13 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
       );
       const dest = Array.isArray(searchRes.data) ? searchRes.data[0] : undefined;
       if (!dest) { Alert.alert('No results', 'No location found for that search.'); return; }
-
-      const routeBody = {
-        origin: { lat: myLocation.lat, lng: myLocation.lng },
-        destination: { lat: dest.lat, lng: dest.lng },
-        scenic: scenicRouting,
-      };
-      let routeRes = await apiClient.post<{ routes: RouteAlternative[] }>('/api/v1/routes/calculate', routeBody);
-
-      // If scenic routing yielded no results, fall back to standard routing (Req 22.4)
-      if (scenicRouting && (!routeRes.data.routes?.length)) {
-        Alert.alert('Scenic unavailable', 'Scenic routing is not available for this route. Showing standard routes.');
-        routeRes = await apiClient.post<{ routes: RouteAlternative[] }>('/api/v1/routes/calculate', {
-          ...routeBody,
-          scenic: false,
-        });
-      }
-
-      const alts = routeRes.data.routes;
-      setRouteAlternatives(alts);
-      setSelectedRouteIdx(0);
-      const coords = alts[0]?.geometry.coordinates.map(([lng, lat]) => ({ latitude: lat, longitude: lng })) ?? [];
-      setRouteCoords(coords);
-      setPostedSpeedLimitKph(alts[0]?.speedLimitKph ?? null);
-      activeDestRef.current = dest;
+      await calculateRouteToDestination({ lat: dest.lat, lng: dest.lng });
     } catch {
       Alert.alert('Error', 'Could not calculate route.');
     } finally {
       setIsCalcRoute(false);
     }
-  }, [myLocation, routeDestInput]);
+  }, [myLocation, routeDestInput, calculateRouteToDestination]);
 
   const handleSelectRouteAlt = useCallback((idx: number) => {
     setSelectedRouteIdx(idx);
@@ -1123,19 +1147,7 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
                   {
                     text: 'Get Directions',
                     onPress: () => {
-                      activeDestRef.current = { lat: droppedPin.lat, lng: droppedPin.lng };
-                      void apiClient.post<{ routes: RouteAlternative[] }>('/api/v1/routes/calculate', {
-                        origin: myLocationRef.current ?? { lat: droppedPin.lat, lng: droppedPin.lng },
-                        destination: { lat: droppedPin.lat, lng: droppedPin.lng },
-                        scenic: scenicRouting,
-                      }).then((res) => {
-                        const alts = res.data.routes;
-                        if (alts.length === 0) { Alert.alert('No route found', 'Could not find a route to this pin.'); return; }
-                        setRouteAlternatives(alts);
-                        setSelectedRouteIdx(0);
-                        setRouteCoords(alts[0].geometry.coordinates.map(([lng2, lat2]) => ({ latitude: lat2, longitude: lng2 })));
-                        setPostedSpeedLimitKph(alts[0]?.speedLimitKph ?? null);
-                      }).catch(() => Alert.alert('Error', 'Could not calculate route.'));
+                      void calculateRouteToDestination({ lat: droppedPin.lat, lng: droppedPin.lng });
                     },
                   },
                   { text: 'Cancel', style: 'cancel' },
