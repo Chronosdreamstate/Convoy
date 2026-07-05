@@ -2,6 +2,7 @@ import ConvoyScreen from '../../src/screens/ConvoyScreen';
 import { useAuthStore } from '../../src/stores/authStore';
 import { useGroupStore } from '../../src/stores/groupStore';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { withErrorBoundary } from '../../src/components/ErrorBoundary';
 
@@ -9,10 +10,11 @@ function ConvoyTab() {
   const { user } = useAuthStore();
   const router = useRouter();
   const activeGroupId = useGroupStore((s) => s.activeGroupId);
+  const insets = useSafeAreaInsets();
 
   if (!user) {
     return (
-      <View style={styles.centered}>
+      <View style={[styles.centered, { paddingTop: insets.top }]}>
         <Text style={styles.muted}>Sign in to join a convoy.</Text>
       </View>
     );
@@ -20,10 +22,12 @@ function ConvoyTab() {
 
   return (
     <View style={styles.root}>
-      {/* Browse public groups — only useful when not already in a group */}
+      {/* Browse public groups — only useful when not already in a group.
+          Rendered outside ConvoyScreen's own SafeAreaView, so it needs its
+          own top inset or it renders flush under the status bar/notch. */}
       {!activeGroupId && (
         <TouchableOpacity
-          style={styles.browseBanner}
+          style={[styles.browseBanner, { paddingTop: insets.top + 12 }]}
           onPress={() => router.push('/group-browse')}
           accessibilityRole="button"
           accessibilityLabel="Browse public groups"
