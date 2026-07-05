@@ -257,6 +257,7 @@ export default function ConvoyLobbyScreen({ groupId, groupName, onConvoyStart }:
 
       {/* ── Scrollable body ── */}
       <ScrollView
+        style={styles.scrollBody}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
@@ -418,6 +419,16 @@ const styles = StyleSheet.create({
   },
 
   // Scroll body
+  // `flex: 1` is required here: without a bounded height, RN's ScrollView
+  // sizes itself to its own content instead of the remaining space between
+  // the header and the sticky bar. With a long member list that means the
+  // view can't actually scroll — its native contentSize == its own frame —
+  // so rows past the bottom of the screen become permanently unreachable
+  // and the "Start Convoy" / "I'm Ready" sticky bar gets pushed off-screen
+  // instead of staying pinned above the visible member rows.
+  scrollBody: {
+    flex: 1,
+  },
   scrollContent: {
     paddingHorizontal: 16,
     paddingBottom: 24,
