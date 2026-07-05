@@ -1,6 +1,6 @@
 CREATE TABLE IF NOT EXISTS group_photos (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  group_id UUID NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+  group_id UUID NOT NULL REFERENCES convoy_groups(id) ON DELETE CASCADE,
   user_id UUID NOT NULL REFERENCES users(id),
   photo_url TEXT NOT NULL,
   caption TEXT,

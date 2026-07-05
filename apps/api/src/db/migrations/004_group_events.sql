@@ -1,4 +1,4 @@
-﻿-- group_events: scheduled convoy events with RSVP countdown support
+-- group_events: scheduled convoy events with RSVP countdown support
 
 CREATE TABLE IF NOT EXISTS group_events (
   id            UUID        PRIMARY KEY DEFAULT gen_random_uuid(),

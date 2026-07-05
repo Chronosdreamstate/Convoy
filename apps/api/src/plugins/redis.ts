@@ -9,9 +9,9 @@ declare module 'fastify' {
   }
 }
 
-export function createRedisClient(url?: string): Redis {
+export function createRedisClient(url?: string, maxRetriesPerRequest: number | null = 3): Redis {
   const client = new Redis(url ?? env.REDIS_URL, {
-    maxRetriesPerRequest: 3,
+    maxRetriesPerRequest,
     enableReadyCheck: true,
     lazyConnect: false,
   });

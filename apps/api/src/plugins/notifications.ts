@@ -17,9 +17,10 @@ declare module 'fastify' {
 }
 
 async function notificationsPlugin(fastify: FastifyInstance): Promise<void> {
-  // BullMQ worker blocks its Redis connection with BLPOP — use dedicated connections
+  // BullMQ worker blocks its Redis connection with BLPOP — use dedicated connections.
+  // BullMQ requires maxRetriesPerRequest: null on the worker's connection.
   const queueRedis = createRedisClient();
-  const workerRedis = createRedisClient();
+  const workerRedis = createRedisClient(undefined, null);
 
   const gateway = new ExpoPushGateway(fastify.db);
   const deviceStore = new PostgresDeviceStore(fastify.db);
