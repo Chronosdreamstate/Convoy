@@ -10,6 +10,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Animated,
+  ScrollView,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import * as SecureStore from 'expo-secure-store';
@@ -121,94 +122,100 @@ export default function OtpScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <KeyboardAvoidingView style={styles.inner} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-        <TouchableOpacity
-          style={styles.backBtn}
-          onPress={() => router.back()}
-          accessibilityRole="button"
-          accessibilityLabel="Go back"
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+      <KeyboardAvoidingView style={styles.keyboardAvoid} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+        <ScrollView
+          contentContainerStyle={styles.inner}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
         >
-          <Text style={styles.backBtnText}>← Back</Text>
-        </TouchableOpacity>
-
-        <Text style={styles.logo}>CONVOY</Text>
-
-        <View style={styles.header}>
-          <Text style={styles.title}>Enter the code</Text>
-          <Text style={styles.subtitle}>
-            We sent a 6-digit code to{'\n'}
-            <Text style={styles.phoneNumber}>{phone ?? 'your phone'}</Text>
-          </Text>
-        </View>
-
-        <View style={styles.form}>
-          {/* Hidden input captures keyboard; digit boxes are the visual layer */}
-          <TextInput
-            ref={inputRef}
-            value={otp}
-            onChangeText={handleOtpChange}
-            keyboardType="number-pad"
-            textContentType="oneTimeCode"
-            maxLength={DIGIT_COUNT}
-            style={styles.hiddenInput}
-            autoFocus
-            accessibilityLabel="Verification code, 6 digits"
-          />
-
-          <Animated.View style={[styles.digitRow, { transform: [{ translateX: shakeAnim }] }]}>
-            {Array.from({ length: DIGIT_COUNT }).map((_, i) => (
-              <TouchableOpacity
-                key={i}
-                style={[
-                  styles.digitBox,
-                  otp.length === i && styles.digitBoxActive,
-                  otp[i] !== undefined && styles.digitBoxFilled,
-                ]}
-                onPress={() => inputRef.current?.focus()}
-                activeOpacity={0.7}
-                accessibilityRole="none"
-              >
-                <Text style={styles.digitText}>{otp[i] ?? ''}</Text>
-              </TouchableOpacity>
-            ))}
-          </Animated.View>
-
-          {error ? <Text style={styles.errorText}>{error}</Text> : null}
-          {resendMessage ? <Text style={styles.successText}>{resendMessage}</Text> : null}
-
           <TouchableOpacity
-            style={[styles.button, (isVerifying || otp.length !== DIGIT_COUNT) && styles.buttonDisabled]}
-            onPress={() => { void handleVerify(); }}
-            disabled={isVerifying || otp.length !== DIGIT_COUNT}
+            style={styles.backBtn}
+            onPress={() => router.back()}
             accessibilityRole="button"
-            accessibilityLabel="Verify code"
-            accessibilityState={{ disabled: isVerifying || otp.length !== DIGIT_COUNT }}
+            accessibilityLabel="Go back"
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
-            {isVerifying
-              ? <ActivityIndicator color="#FFFFFF" />
-              : <Text style={styles.buttonText}>Verify</Text>}
+            <Text style={styles.backBtnText}>← Back</Text>
           </TouchableOpacity>
 
-          <View style={styles.resendRow}>
-            <Text style={styles.resendText}>Didn't get a code? </Text>
-            <TouchableOpacity
-              onPress={() => { void handleResend(); }}
-              disabled={isResending || resendCooldown > 0}
-              accessibilityRole="button"
-              accessibilityLabel={resendCooldown > 0 ? `Resend code available in ${resendCooldown} seconds` : 'Resend code'}
-              accessibilityState={{ disabled: isResending || resendCooldown > 0 }}
-            >
-              {isResending ? (
-                <ActivityIndicator size="small" color="#DC143C" />
-              ) : resendCooldown > 0 ? (
-                <Text style={styles.resendDisabled}>Resend code in {resendCooldown}s</Text>
-              ) : (
-                <Text style={styles.resendLink}>Resend code</Text>
-              )}
-            </TouchableOpacity>
+          <Text style={styles.logo}>CONVOY</Text>
+
+          <View style={styles.header}>
+            <Text style={styles.title}>Enter the code</Text>
+            <Text style={styles.subtitle}>
+              We sent a 6-digit code to{'\n'}
+              <Text style={styles.phoneNumber}>{phone ?? 'your phone'}</Text>
+            </Text>
           </View>
-        </View>
+
+          <View style={styles.form}>
+            {/* Hidden input captures keyboard; digit boxes are the visual layer */}
+            <TextInput
+              ref={inputRef}
+              value={otp}
+              onChangeText={handleOtpChange}
+              keyboardType="number-pad"
+              textContentType="oneTimeCode"
+              maxLength={DIGIT_COUNT}
+              style={styles.hiddenInput}
+              autoFocus
+              accessibilityLabel="Verification code, 6 digits"
+            />
+
+            <Animated.View style={[styles.digitRow, { transform: [{ translateX: shakeAnim }] }]}>
+              {Array.from({ length: DIGIT_COUNT }).map((_, i) => (
+                <TouchableOpacity
+                  key={i}
+                  style={[
+                    styles.digitBox,
+                    otp.length === i && styles.digitBoxActive,
+                    otp[i] !== undefined && styles.digitBoxFilled,
+                  ]}
+                  onPress={() => inputRef.current?.focus()}
+                  activeOpacity={0.7}
+                  accessibilityRole="none"
+                >
+                  <Text style={styles.digitText}>{otp[i] ?? ''}</Text>
+                </TouchableOpacity>
+              ))}
+            </Animated.View>
+
+            {error ? <Text style={styles.errorText}>{error}</Text> : null}
+            {resendMessage ? <Text style={styles.successText}>{resendMessage}</Text> : null}
+
+            <TouchableOpacity
+              style={[styles.button, (isVerifying || otp.length !== DIGIT_COUNT) && styles.buttonDisabled]}
+              onPress={() => { void handleVerify(); }}
+              disabled={isVerifying || otp.length !== DIGIT_COUNT}
+              accessibilityRole="button"
+              accessibilityLabel="Verify code"
+              accessibilityState={{ disabled: isVerifying || otp.length !== DIGIT_COUNT }}
+            >
+              {isVerifying
+                ? <ActivityIndicator color="#FFFFFF" />
+                : <Text style={styles.buttonText}>Verify</Text>}
+            </TouchableOpacity>
+
+            <View style={styles.resendRow}>
+              <Text style={styles.resendText}>Didn't get a code? </Text>
+              <TouchableOpacity
+                onPress={() => { void handleResend(); }}
+                disabled={isResending || resendCooldown > 0}
+                accessibilityRole="button"
+                accessibilityLabel={resendCooldown > 0 ? `Resend code available in ${resendCooldown} seconds` : 'Resend code'}
+                accessibilityState={{ disabled: isResending || resendCooldown > 0 }}
+              >
+                {isResending ? (
+                  <ActivityIndicator size="small" color="#DC143C" />
+                ) : resendCooldown > 0 ? (
+                  <Text style={styles.resendDisabled}>Resend code in {resendCooldown}s</Text>
+                ) : (
+                  <Text style={styles.resendLink}>Resend code</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -216,7 +223,8 @@ export default function OtpScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0A0A0A' },
-  inner: { flex: 1, paddingHorizontal: 24, paddingTop: 32 },
+  keyboardAvoid: { flex: 1 },
+  inner: { paddingHorizontal: 24, paddingTop: 32, paddingBottom: 48 },
   backBtn: { paddingTop: 8, paddingBottom: 16, alignSelf: 'flex-start' },
   backBtnText: { color: '#DC143C', fontSize: 16, fontWeight: '600' },
   logo: {
