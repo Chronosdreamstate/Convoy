@@ -25,6 +25,8 @@ import { SQLiteOfflineDB } from '../src/services/OfflineCacheService';
 import type { OfflineHazard, OfflineDrive } from '../src/services/OfflineCacheService';
 import { offlineQueue } from '../src/services/OfflineQueueService';
 import { analytics } from '../src/services/AnalyticsService';
+import { carPlayService } from '../src/services/CarPlayService';
+import { androidAutoService } from '../src/services/AndroidAutoService';
 
 // Set up foreground notification display behaviour at module load time,
 // before any notifications can arrive.
@@ -243,6 +245,24 @@ export default function RootLayout() {
     if (!isAuthenticated || isLoading) return;
     void offlineQueue.init();
     return () => offlineQueue.destroy();
+  }, [isAuthenticated, isLoading]);
+
+  // Wire CarPlay / Android Auto session lifecycle listeners (Req 13.7).
+  // Without calling start(), the native connect/disconnect/state-request
+  // subscriptions are never registered, so onCarPlaySessionChange() listeners
+  // (e.g. DrivingModeService) never fire and session state never resyncs
+  // after a native template reload.
+  useEffect(() => {
+    if (!isAuthenticated || isLoading) return;
+    if (Platform.OS === 'ios') {
+      const stop = carPlayService.start();
+      return () => stop();
+    }
+    if (Platform.OS === 'android') {
+      const stop = androidAutoService.start();
+      return () => stop();
+    }
+    return undefined;
   }, [isAuthenticated, isLoading]);
 
   // Push registration: deferred until the user joins their first group.
