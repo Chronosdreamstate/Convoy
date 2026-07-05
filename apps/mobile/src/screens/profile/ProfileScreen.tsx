@@ -52,7 +52,17 @@ function initials(name: string): string {
     .join('');
 }
 
-function AvatarCircle({ name, avatarUrl, onPress }: { name: string; avatarUrl?: string | null; onPress?: () => void }) {
+function AvatarCircle({
+  name,
+  avatarUrl,
+  onPress,
+  loading,
+}: {
+  name: string;
+  avatarUrl?: string | null;
+  onPress?: () => void;
+  loading?: boolean;
+}) {
   return (
     <TouchableOpacity
       style={styles.avatarRing}
@@ -71,6 +81,11 @@ function AvatarCircle({ name, avatarUrl, onPress }: { name: string; avatarUrl?: 
       <View style={styles.avatarCameraOverlay}>
         <Text style={styles.avatarCameraIcon}>📷</Text>
       </View>
+      {loading && (
+        <View style={styles.avatarLoadingOverlay}>
+          <ActivityIndicator color="#DC143C" />
+        </View>
+      )}
     </TouchableOpacity>
   );
 }
@@ -337,10 +352,8 @@ export default function ProfileScreen() {
             name={displayName || profile?.displayName || '?'}
             avatarUrl={localAvatarUri ?? profile?.avatarUrl}
             onPress={uploadingAvatar ? undefined : handleAvatarPress}
+            loading={uploadingAvatar}
           />
-          {uploadingAvatar && (
-            <ActivityIndicator style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} color="#DC143C" />
-          )}
           <TouchableOpacity
             style={styles.displayNameRow}
             onPress={() => {
@@ -634,6 +647,17 @@ const styles = StyleSheet.create({
   },
   avatarCameraIcon: {
     fontSize: 13,
+  },
+  avatarLoadingOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderRadius: 52,
+    backgroundColor: 'rgba(10, 10, 10, 0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   displayNameRow: {
     marginTop: 4,
