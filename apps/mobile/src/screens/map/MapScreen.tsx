@@ -344,6 +344,24 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
   // Keep mySosIdRef in sync so the socket handler closure always sees the current value
   useEffect(() => { mySosIdRef.current = mySosId; }, [mySosId]);
 
+  // Incoming SOS alerts arrive over the socket (see `sos:alert` handler below) and are
+  // completely independent of any locally-driven modal/sheet state. SosAlertModal is a
+  // safety-critical, full-screen <Modal> — if it becomes visible while another <Modal>
+  // (hazard report, hazard picker, SOS picker/confirm, route planner) is already open,
+  // React Native ends up presenting two native modals at once, which stack unreliably
+  // (double-dimmed overlays, unpredictable back-button/dismiss behavior on Android, and
+  // "already presenting" issues on iOS). Force-close every other locally-controlled
+  // sheet so the emergency alert always has the screen to itself.
+  useEffect(() => {
+    if (sosAlerts.length === 0) return;
+    setFabOpen(false);
+    setShowHazardModal(false);
+    setShowHazardPicker(false);
+    setShowRouteModal(false);
+    setShowSosPicker(false);
+    setShowSosConfirm(false);
+  }, [sosAlerts.length]);
+
   // Animate bottom sheet height between collapsed (80) and expanded (300)
   useEffect(() => {
     Animated.spring(sheetHeight, {

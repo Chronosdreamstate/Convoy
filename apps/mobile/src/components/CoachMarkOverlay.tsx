@@ -82,22 +82,26 @@ export default function CoachMarkOverlay({ visible, onComplete }: Props) {
     });
   }
 
+  async function finishCoachMarks() {
+    Animated.timing(fadeAnim, {
+      toValue: 0,
+      duration: 250,
+      useNativeDriver: true,
+    }).start(async () => {
+      try {
+        await SecureStore.setItemAsync(STORAGE_KEY, '1');
+      } catch {
+        // intentionally empty — persisting the "seen" flag is best-effort only
+      }
+      onComplete();
+    });
+  }
+
   async function handleGotIt() {
     if (step < HINTS.length - 1) {
       fadeToNext(step + 1);
     } else {
-      Animated.timing(fadeAnim, {
-        toValue: 0,
-        duration: 250,
-        useNativeDriver: true,
-      }).start(async () => {
-        try {
-          await SecureStore.setItemAsync(STORAGE_KEY, '1');
-        } catch {
-          // intentionally empty — persisting the "seen" flag is best-effort only
-        }
-        onComplete();
-      });
+      await finishCoachMarks();
     }
   }
 
@@ -106,7 +110,13 @@ export default function CoachMarkOverlay({ visible, onComplete }: Props) {
   const hint = HINTS[step];
 
   return (
-    <Modal transparent animationType="none" visible={visible} statusBarTranslucent>
+    <Modal
+      transparent
+      animationType="none"
+      visible={visible}
+      statusBarTranslucent
+      onRequestClose={() => { void finishCoachMarks(); }}
+    >
       <Animated.View style={[styles.overlay, { opacity: fadeAnim }]}>
         {/* Spotlight indicator */}
         <View style={[styles.spotlight, hint.spotlightStyle]}>
