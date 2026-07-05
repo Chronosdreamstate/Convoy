@@ -1071,8 +1071,15 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
   const rallies = useMemo(() => Array.from(rallyPoints.values()), [rallyPoints]);
   const sosPinList = useMemo(() => Array.from(sosPins.values()), [sosPins]);
 
-  // Safe-area-aware top offset for floating UI elements
-  const topBase = insets.top + 8;
+  // Safe-area-aware top offset for floating UI elements.
+  // ConvoyBanner (rendered below, always visible on this screen) is a self-positioned,
+  // 90%-width pill anchored at `insets.top + 8` with zIndex 100 — the highest in this
+  // screen. Without this extra offset, the search bar / connection badge / re-center
+  // button (all previously anchored at insets.top + 8 too) rendered directly underneath
+  // it every time, since they share the same vertical band and ConvoyBanner's pill spans
+  // almost the full screen width. Push this row down by the banner's height (44) plus
+  // margins so the two rows stack instead of overlapping.
+  const topBase = insets.top + 8 + 52;
 
   // Weather data for the HUD pill (non-critical — silently omitted when unavailable)
   const weather = useWeather({ latitude: myLocation?.lat ?? null, longitude: myLocation?.lng ?? null });
@@ -1199,9 +1206,12 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
         )}
       </MapView>
 
-      {/* Offline banner — shown when socket is disconnected */}
+      {/* Offline banner — shown when socket is disconnected.
+          styles.offlineBanner previously hardcoded `top: 0`, ignoring the safe-area inset,
+          so on notched / Dynamic-Island devices this message rendered partly underneath
+          the status bar / sensor housing instead of below it. */}
       {!isConnected && (
-        <View style={styles.offlineBanner}>
+        <View style={[styles.offlineBanner, { top: insets.top }]}>
           <Text style={styles.offlineBannerText}>Connection lost — showing last known positions</Text>
         </View>
       )}
@@ -1394,8 +1404,15 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
         </Animated.View>
       )}
 
-      {/* Quick-action alert pills — above PTT button, only when in a group */}
-      {groupId && pttChannelId && !drivingModeActive && (
+      {/* Quick-action alert pills — above PTT button, only when in a group.
+          Hidden while the FAB menu is expanded: styles.quickActionRow spans left:16 to
+          right:16 (nearly full screen width), and the expanded FAB item stack
+          (styles.fabContainer, anchored at right:16) grows upward from
+          insets.bottom + 88 by up to ~430px (6 possible fabItems @ 60px each + fabMain),
+          which reaches straight through both quick-action rows' vertical band
+          (insets.bottom + 190 to insets.bottom + 264). With both visible at once the FAB
+          buttons and the alert pills rendered stacked on top of one another. */}
+      {groupId && pttChannelId && !drivingModeActive && !fabOpen && (
         <>
           <View style={[styles.quickActionRow, { bottom: insets.bottom + 228 }]}>
             {([
@@ -1458,9 +1475,16 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
         </View>
       )}
 
-      {/* Fuel suggestion banner — above member panel */}
+      {/* Fuel suggestion banner — pinned safely above the quick-action pill rows.
+          Previously used a hardcoded `bottom: 220` (styles.fuelBannerWrapper) that ignored
+          insets.bottom entirely, while the quick-action rows below use
+          `insets.bottom + 190` / `insets.bottom + 228`. On devices with a non-zero bottom
+          inset (home-indicator phones) those values land at ~224 and ~262 — both inside or
+          immediately adjacent to the fuel banner's band — so opening the fuel banner while
+          in an active convoy with a PTT channel rendered it directly on top of the
+          "Report Hazard" / "Stopping / Regrouping / Incident" pills. */}
       {showFuelBanner && myLocation && (
-        <View style={styles.fuelBannerWrapper}>
+        <View style={[styles.fuelBannerWrapper, { bottom: insets.bottom + 274 }]}>
           <FuelSuggestionBanner
             groupId={groupId}
             myLat={myLocation.lat}
@@ -2001,10 +2025,10 @@ const styles = StyleSheet.create({
   },
   fuelIcon: { fontSize: 20 },
 
-  // Fuel banner — above member panel
+  // Fuel banner — bottom offset is supplied inline (insets.bottom + 274) so it clears
+  // the quick-action pill rows regardless of device safe-area inset.
   fuelBannerWrapper: {
     position: 'absolute',
-    bottom: 220,
     left: 0,
     right: 0,
     zIndex: 8,
@@ -2392,10 +2416,9 @@ const styles = StyleSheet.create({
   },
   drivingExitText: { color: '#888888', fontWeight: '600', fontSize: 13 },
 
-  // Offline / connection-lost banner
+  // Offline / connection-lost banner — top offset supplied inline (insets.top)
   offlineBanner: {
     position: 'absolute',
-    top: 0,
     left: 0,
     right: 0,
     backgroundColor: '#B45309',
