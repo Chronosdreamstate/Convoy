@@ -158,7 +158,11 @@ async function routesRoutes(
     const params = new URLSearchParams({
       alternatives: 'true',
       geometries: 'geojson',
-      overview: 'simplified',
+      // Mapbox requires overview=full whenever annotations are requested — 'simplified'
+      // (or 'false') combined with annotations=maxspeed is rejected with a 422
+      // InvalidInput error ("Overview option must be full for maxspeed"), which made
+      // every /routes/calculate call fail.
+      overview: 'full',
       steps: 'false',
       annotations: 'maxspeed',  // Req 23: populate speed limit HUD
       access_token: env.MAPBOX_API_TOKEN,
