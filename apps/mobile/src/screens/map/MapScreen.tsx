@@ -37,7 +37,7 @@ import SosAlertModal from '../../components/SosAlertModal';
 import ConvoyBanner from '../../components/ConvoyBanner';
 import { useGroupStore } from '../../stores/groupStore';
 import { SQLiteOfflineDB } from '../../services/OfflineCacheService';
-import { MotionStateService } from '../../services/MotionStateService';
+import { MotionStateService, deriveMotionState } from '../../services/MotionStateService';
 import { PTTService } from '../../services/PTTService';
 import { agoraEngineAdapter, requestMicPermissionForPTT } from '../../services/AgoraEngineAdapter';
 import { apiTokenFetcher } from '../../services/ApiTokenFetcher';
@@ -1251,7 +1251,7 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
         <View style={[styles.searchWrapper, { top: topBase }]}>
           <DestinationSearch
             isOnline={isOnline}
-            isInMotion={mySpeedKph > 5}
+            isInMotion={deriveMotionState(mySpeedKph) === 'in_motion'}
             onSelect={handleSearchSelect}
           />
         </View>
@@ -1319,7 +1319,7 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
                 style={styles.fabItem}
                 onPress={() => {
                   setFabOpen(false);
-                  if (mySpeedKph > 5) {
+                  if (deriveMotionState(mySpeedKph) === 'in_motion') {
                     Alert.alert('Pull Over First', 'Please stop before planning a route.');
                     return;
                   }
@@ -1668,7 +1668,7 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
                   : <View style={styles.panelConnecting}><Text style={styles.emptyText}>Connecting…</Text></View>
               ) : (
                 <FlatList
-                  data={mySpeedKph > 5 ? sortedMembers.slice(0, 4) : sortedMembers}
+                  data={deriveMotionState(mySpeedKph) === 'in_motion' ? sortedMembers.slice(0, 4) : sortedMembers}
                   keyExtractor={(m) => m.userId}
                   renderItem={renderMemberRow}
                   removeClippedSubviews
@@ -1773,7 +1773,7 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
       {/* Hazard picker bottom sheet (legacy — motion-aware type selection) */}
       <HazardPicker
         visible={showHazardPicker}
-        isInMotion={mySpeedKph > 5}
+        isInMotion={deriveMotionState(mySpeedKph) === 'in_motion'}
         onSelect={handleHazardSelect}
         onClose={() => setShowHazardPicker(false)}
       />
