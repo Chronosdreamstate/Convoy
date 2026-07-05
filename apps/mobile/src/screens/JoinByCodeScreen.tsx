@@ -6,6 +6,7 @@ import {
   Platform,
   Pressable,
   SafeAreaView,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -75,91 +76,99 @@ export default function JoinByCodeScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity
-          onPress={() => router.back()}
-          style={styles.backBtn}
-          accessibilityRole="button"
-          accessibilityLabel="Go back"
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.keyboardAvoid}>
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
         >
-          <Text style={styles.backText}>‹ Back</Text>
-        </TouchableOpacity>
-        <Text style={styles.title}>Join a Convoy</Text>
-        <View style={styles.headerSpacer} />
-      </View>
+          <View>
+            {/* Header */}
+            <View style={styles.header}>
+              <TouchableOpacity
+                onPress={() => router.back()}
+                style={styles.backBtn}
+                accessibilityRole="button"
+                accessibilityLabel="Go back"
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Text style={styles.backText}>‹ Back</Text>
+              </TouchableOpacity>
+              <Text style={styles.title}>Join a Convoy</Text>
+              <View style={styles.headerSpacer} />
+            </View>
 
-      {/* Illustration */}
-      <View style={styles.illustration}>
-        <Text style={styles.cars}>🚗🚗🚗</Text>
-        <Text style={styles.hint}>Enter the code shared by your convoy leader</Text>
-      </View>
+            {/* Illustration */}
+            <View style={styles.illustration}>
+              <Text style={styles.cars}>🚗🚗🚗</Text>
+              <Text style={styles.hint}>Enter the code shared by your convoy leader</Text>
+            </View>
 
-      {/* Code input */}
-      <View style={styles.inputSection}>
-        <Pressable onPress={() => inputRef.current?.focus()}>
-          <View style={[styles.inputWrapper, focused && styles.inputWrapperFocused]}>
-            <TextInput
-              ref={inputRef}
-              style={styles.codeInput}
-              value={code}
-              onChangeText={handleChangeText}
-              onFocus={() => setFocused(true)}
-              onBlur={() => setFocused(false)}
-              maxLength={CODE_LENGTH}
-              autoCapitalize="characters"
-              autoCorrect={false}
-              keyboardType="default"
-              returnKeyType="join"
-              onSubmitEditing={handleJoin}
-              placeholder="XXXXXXXX"
-              placeholderTextColor="#333333"
-              accessibilityLabel="Convoy join code"
-            />
+            {/* Code input */}
+            <View style={styles.inputSection}>
+              <Pressable onPress={() => inputRef.current?.focus()}>
+                <View style={[styles.inputWrapper, focused && styles.inputWrapperFocused]}>
+                  <TextInput
+                    ref={inputRef}
+                    style={styles.codeInput}
+                    value={code}
+                    onChangeText={handleChangeText}
+                    onFocus={() => setFocused(true)}
+                    onBlur={() => setFocused(false)}
+                    maxLength={CODE_LENGTH}
+                    autoCapitalize="characters"
+                    autoCorrect={false}
+                    keyboardType="default"
+                    returnKeyType="join"
+                    onSubmitEditing={handleJoin}
+                    placeholder="XXXXXXXX"
+                    placeholderTextColor="#333333"
+                    accessibilityLabel="Convoy join code"
+                  />
+                </View>
+              </Pressable>
+
+              {/* Dots */}
+              <View style={styles.dots}>
+                {Array.from({ length: CODE_LENGTH }).map((_, i) => (
+                  <Text key={i} style={[styles.dot, i < code.length && styles.dotFilled]}>
+                    {i < code.length ? '●' : '○'}
+                  </Text>
+                ))}
+              </View>
+
+              {/* Paste */}
+              <TouchableOpacity
+                onPress={() => { void handlePaste(); }}
+                style={styles.pasteBtn}
+                accessibilityRole="button"
+                accessibilityLabel="Paste code from clipboard"
+              >
+                <Text style={styles.pasteText}>📋 Paste Code</Text>
+              </TouchableOpacity>
+
+              {/* Inline error */}
+              {error ? <Text style={styles.error}>{error}</Text> : null}
+            </View>
           </View>
-        </Pressable>
 
-        {/* Dots */}
-        <View style={styles.dots}>
-          {Array.from({ length: CODE_LENGTH }).map((_, i) => (
-            <Text key={i} style={[styles.dot, i < code.length && styles.dotFilled]}>
-              {i < code.length ? '●' : '○'}
-            </Text>
-          ))}
-        </View>
-
-        {/* Paste */}
-        <TouchableOpacity
-          onPress={() => { void handlePaste(); }}
-          style={styles.pasteBtn}
-          accessibilityRole="button"
-          accessibilityLabel="Paste code from clipboard"
-        >
-          <Text style={styles.pasteText}>📋 Paste Code</Text>
-        </TouchableOpacity>
-
-        {/* Inline error */}
-        {error ? <Text style={styles.error}>{error}</Text> : null}
-      </View>
-
-      {/* Join button */}
-      <View style={styles.footer}>
-        <TouchableOpacity
-          style={[styles.joinBtn, (code.length < CODE_LENGTH || loading) && styles.joinBtnDisabled]}
-          onPress={() => { void handleJoin(); }}
-          disabled={code.length < CODE_LENGTH || loading}
-          accessibilityRole="button"
-          accessibilityLabel="Join convoy"
-        >
-          {loading ? (
-            <ActivityIndicator color="#fff" size="small" />
-          ) : (
-            <Text style={styles.joinBtnText}>Join Convoy</Text>
-          )}
-        </TouchableOpacity>
-      </View>
+          {/* Join button */}
+          <View style={styles.footer}>
+            <TouchableOpacity
+              style={[styles.joinBtn, (code.length < CODE_LENGTH || loading) && styles.joinBtnDisabled]}
+              onPress={() => { void handleJoin(); }}
+              disabled={code.length < CODE_LENGTH || loading}
+              accessibilityRole="button"
+              accessibilityLabel="Join convoy"
+            >
+              {loading ? (
+                <ActivityIndicator color="#fff" size="small" />
+              ) : (
+                <Text style={styles.joinBtnText}>Join Convoy</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -169,6 +178,13 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#0A0A0A',
+  },
+  keyboardAvoid: {
+    flex: 1,
+  },
+  scrollContent: {
+    flexGrow: 1,
+    justifyContent: 'space-between',
   },
   header: {
     flexDirection: 'row',
@@ -269,10 +285,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   footer: {
-    position: 'absolute',
-    bottom: 40,
-    left: 24,
-    right: 24,
+    paddingHorizontal: 24,
+    paddingTop: 20,
+    paddingBottom: 40,
   },
   joinBtn: {
     backgroundColor: '#DC143C',
