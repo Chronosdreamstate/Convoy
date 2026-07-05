@@ -279,7 +279,7 @@ const styles = StyleSheet.create({
 
   chartContainer: {
     flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between',
-    backgroundColor: '#1C1C1C', borderRadius: 12, padding: 16, height: 130,
+    backgroundColor: '#1C1C1C', borderRadius: 12, padding: 16, minHeight: 130,
   },
   barWrapper: { flex: 1, alignItems: 'center', justifyContent: 'flex-end' },
   barCount: { color: '#888888', fontSize: 10, marginBottom: 3 },
