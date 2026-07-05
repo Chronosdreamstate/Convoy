@@ -25,7 +25,7 @@ export default function ConvoyInviteCard({ visible, groupName, joinCode, inviteL
   const handleShare = async () => {
     try {
       await Share.share({
-        message: `Join me on CONVOY! Use code ${joinCode} or tap: ${inviteLink}`,
+        message: `Join me on CORTEGE! Use code ${joinCode} or tap: ${inviteLink}`,
         url: inviteLink,
       });
     } catch {

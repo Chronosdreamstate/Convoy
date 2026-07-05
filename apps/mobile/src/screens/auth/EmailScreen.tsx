@@ -149,9 +149,9 @@ export default function EmailScreen() {
             <Text style={styles.backBtnText}>← Back</Text>
           </TouchableOpacity>
 
-          {/* CONVOY wordmark */}
+          {/* CORTEGE wordmark */}
           <View style={styles.wordmarkRow}>
-            <Text style={styles.wordmark}>CONVOY</Text>
+            <Text style={styles.wordmark}>CORTEGE</Text>
           </View>
 
           <Animated.View style={{ opacity: fadeAnim }}>
@@ -162,7 +162,7 @@ export default function EmailScreen() {
               <Text style={styles.subtitle}>
                 {mode === 'signin'
                   ? 'Sign in with your email and password.'
-                  : 'Join CONVOY with your email.'}
+                  : 'Join CORTEGE with your email.'}
               </Text>
             </View>
 
@@ -281,7 +281,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
   },
-  // Subtle CONVOY wordmark centered at top
+  // Subtle CORTEGE wordmark centered at top
   wordmarkRow: {
     alignItems: 'center',
     marginBottom: theme.spacing.xl,

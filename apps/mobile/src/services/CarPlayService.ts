@@ -233,7 +233,7 @@ export class CarPlayService {
   /** Returns a short human-readable string suitable for instrument cluster / wearable display. */
   getClusterDisplayText(): string {
     if (!this.currentState || this.currentState.convoyStatus !== 'active') {
-      return 'CONVOY · Ready';
+      return 'CORTEGE · Ready';
     }
     const s = this.currentState;
     if (s.positionInConvoy === 1) {

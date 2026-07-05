@@ -6,11 +6,11 @@ import { theme } from '../../theme';
 const SECTIONS = [
   {
     title: 'What We Collect',
-    body: 'CONVOY collects the following data to provide the service:\n\n• Location — real-time GPS coordinates while a convoy is active\n• Phone number — used for account authentication via OTP\n• Display name and callsign — shown to other members of your convoys\n• Vehicle information — make, model, year, colour (optional)\n• Drive history — route traces, distance, duration, and speed statistics\n• Device push token — to deliver convoy alerts and notifications',
+    body: 'CORTEGE collects the following data to provide the service:\n\n• Location — real-time GPS coordinates while a convoy is active\n• Phone number — used for account authentication via OTP\n• Display name and callsign — shown to other members of your convoys\n• Vehicle information — make, model, year, colour (optional)\n• Drive history — route traces, distance, duration, and speed statistics\n• Device push token — to deliver convoy alerts and notifications',
   },
   {
     title: 'How We Use Your Data',
-    body: 'Your data is used exclusively to power CONVOY features:\n\n• Location is shared in real-time only with members of your active convoy\n• Drive history lets you replay and export past routes\n• Push tokens deliver time-sensitive alerts (SOS, gap warnings, convoy starts)\n\nWe do not sell, rent, or share your data with advertisers or third-party brokers. We do not build advertising profiles.',
+    body: 'Your data is used exclusively to power CORTEGE features:\n\n• Location is shared in real-time only with members of your active convoy\n• Drive history lets you replay and export past routes\n• Push tokens deliver time-sensitive alerts (SOS, gap warnings, convoy starts)\n\nWe do not sell, rent, or share your data with advertisers or third-party brokers. We do not build advertising profiles.',
   },
   {
     title: 'Data Retention',

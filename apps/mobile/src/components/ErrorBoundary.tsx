@@ -29,7 +29,7 @@ export default class ErrorBoundary extends React.Component<Props, State> {
     return (
       <View style={styles.container}>
         <Text style={styles.emoji}>💥</Text>
-        <Text style={styles.wordmark}>CONVOY</Text>
+        <Text style={styles.wordmark}>CORTEGE</Text>
         <Text style={styles.title}>Something went wrong</Text>
         {__DEV__ && this.state.error && (
           <Text style={styles.message}>{this.state.error.message}</Text>

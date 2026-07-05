@@ -6,27 +6,27 @@ import { theme } from '../../theme';
 const SECTIONS = [
   {
     title: '1. Acceptance',
-    body: 'By creating a CONVOY account or using the app, you agree to these Terms of Service. If you do not agree, do not use the app.',
+    body: 'By creating a CORTEGE account or using the app, you agree to these Terms of Service. If you do not agree, do not use the app.',
   },
   {
     title: '2. Eligibility',
-    body: 'You must be 16 years of age or older to use CONVOY. By using the app you represent that you meet this requirement. CONVOY is intended for use by licensed drivers and passengers.',
+    body: 'You must be 16 years of age or older to use CORTEGE. By using the app you represent that you meet this requirement. CORTEGE is intended for use by licensed drivers and passengers.',
   },
   {
     title: '3. Safe Use',
-    body: 'You must not use CONVOY while operating a vehicle in a way that distracts from safe driving. Push-to-talk, map interaction, and alert responses must only be performed when it is safe to do so — pull over when in doubt. You are solely responsible for obeying all traffic laws while using the app.',
+    body: 'You must not use CORTEGE while operating a vehicle in a way that distracts from safe driving. Push-to-talk, map interaction, and alert responses must only be performed when it is safe to do so — pull over when in doubt. You are solely responsible for obeying all traffic laws while using the app.',
   },
   {
     title: '4. Acceptable Use',
-    body: 'You agree not to:\n\n• Harass, threaten, or abuse other users\n• Transmit false SOS alerts\n• Use the app to coordinate illegal activity\n• Attempt to access other users\' location data without authorisation\n• Reverse-engineer, scrape, or attack CONVOY\'s servers',
+    body: 'You agree not to:\n\n• Harass, threaten, or abuse other users\n• Transmit false SOS alerts\n• Use the app to coordinate illegal activity\n• Attempt to access other users\' location data without authorisation\n• Reverse-engineer, scrape, or attack CORTEGE\'s servers',
   },
   {
     title: '5. User Content',
-    body: 'You retain ownership of content you create (vehicle info, callsign, group names). By uploading content you grant CONVOY a non-exclusive licence to store and display it within the service. We reserve the right to remove content that violates these terms.',
+    body: 'You retain ownership of content you create (vehicle info, callsign, group names). By uploading content you grant CORTEGE a non-exclusive licence to store and display it within the service. We reserve the right to remove content that violates these terms.',
   },
   {
     title: '6. Service Availability',
-    body: 'CONVOY is provided on an "as is" basis. We do not guarantee uptime or accuracy of location data. Real-time features depend on network connectivity and GPS availability. Do not rely solely on CONVOY for safety-critical navigation.',
+    body: 'CORTEGE is provided on an "as is" basis. We do not guarantee uptime or accuracy of location data. Real-time features depend on network connectivity and GPS availability. Do not rely solely on CORTEGE for safety-critical navigation.',
   },
   {
     title: '7. Termination',
@@ -34,7 +34,7 @@ const SECTIONS = [
   },
   {
     title: '8. Limitation of Liability',
-    body: 'To the maximum extent permitted by law, CONVOY is not liable for damages arising from use of the app, including accidents, data loss, or service interruptions.',
+    body: 'To the maximum extent permitted by law, CORTEGE is not liable for damages arising from use of the app, including accidents, data loss, or service interruptions.',
   },
   {
     title: '9. Changes',

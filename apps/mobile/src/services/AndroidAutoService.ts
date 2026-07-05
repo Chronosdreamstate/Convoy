@@ -218,7 +218,7 @@ export class AndroidAutoService {
   /** Returns a short human-readable string suitable for cluster / wearable display. */
   getClusterDisplayText(): string {
     if (!this.lastState || this.lastState.convoyStatus !== 'active') {
-      return 'CONVOY · Ready';
+      return 'CORTEGE · Ready';
     }
     const s = this.lastState;
     if (s.positionInConvoy === 1) {

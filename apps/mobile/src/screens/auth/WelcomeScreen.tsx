@@ -22,7 +22,7 @@ const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const SLIDES = [
   {
     emoji: '🚗',
-    title: 'Welcome to Convoy',
+    title: 'Welcome to Cortege',
     body: 'Navigate together. Stay connected.',
   },
   {

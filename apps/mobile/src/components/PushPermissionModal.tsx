@@ -31,7 +31,7 @@ export default function PushPermissionModal({ visible, onEnable, onSkip }: Props
           <Text style={styles.headline}>Stay with your crew</Text>
           <Text style={styles.subheadline}>— even when signal drops</Text>
           <Text style={styles.body}>
-            CONVOY alerts you when someone falls behind, an SOS is sent, or your group is about to leave
+            CORTEGE alerts you when someone falls behind, an SOS is sent, or your group is about to leave
             without you. We only notify you when it matters.
           </Text>
           <View style={styles.bullets}>

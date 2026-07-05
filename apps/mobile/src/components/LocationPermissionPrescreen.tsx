@@ -57,7 +57,7 @@ export default function LocationPermissionPrescreen({ visible, onAllow, onSkip }
               📍
             </Animated.Text>
 
-            <Text style={styles.title}>CONVOY needs your location</Text>
+            <Text style={styles.title}>CORTEGE needs your location</Text>
             <Text style={styles.subtitle}>To keep your convoy together in real time</Text>
 
             {/* Bullet points */}

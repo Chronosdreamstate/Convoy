@@ -110,7 +110,7 @@ function FriendRow({
       const res = await apiClient.get<{ code: string; link: string }>(
         `/api/v1/groups/${activeGroupId}/invite-link`,
       );
-      await Share.share({ message: `Join my convoy on CONVOY! Code: ${res.data.code}\n${res.data.link}` });
+      await Share.share({ message: `Join my convoy on CORTEGE! Code: ${res.data.code}\n${res.data.link}` });
     } catch {
       Alert.alert('Error', 'Could not get invite link.');
     }
@@ -482,7 +482,7 @@ export default function FriendsScreen() {
     try {
       const { data } = await apiClient.get<{ inviteLink: string }>('/api/v1/friends/invite-link');
       await Share.share({
-        message: `Join me on CONVOY — the car enthusiast group navigation app! ${data.inviteLink}`,
+        message: `Join me on CORTEGE — the car enthusiast group navigation app! ${data.inviteLink}`,
         url: data.inviteLink,
       });
     } catch { Alert.alert('Error', 'Could not generate invite link.'); }

@@ -159,7 +159,7 @@ export default function InviteScreen() {
         <View style={styles.centered}>
           <ActivityIndicator color="#DC143C" size="large" />
         </View>
-        <Text style={styles.watermark}>CONVOY</Text>
+        <Text style={styles.watermark}>CORTEGE</Text>
       </SafeAreaView>
     );
   }
@@ -179,10 +179,10 @@ export default function InviteScreen() {
             accessibilityRole="button"
             accessibilityLabel="Go to convoy"
           >
-            <Text style={styles.secondaryBtnText}>Go to CONVOY</Text>
+            <Text style={styles.secondaryBtnText}>Go to CORTEGE</Text>
           </TouchableOpacity>
         </Animated.View>
-        <Text style={styles.watermark}>CONVOY</Text>
+        <Text style={styles.watermark}>CORTEGE</Text>
       </SafeAreaView>
     );
   }
@@ -207,7 +207,7 @@ export default function InviteScreen() {
             <Text style={styles.primaryBtnText}>View Friends</Text>
           </TouchableOpacity>
         </Animated.View>
-        <Text style={styles.watermark}>CONVOY</Text>
+        <Text style={styles.watermark}>CORTEGE</Text>
       </SafeAreaView>
     );
   }
@@ -232,7 +232,7 @@ export default function InviteScreen() {
             <Text style={styles.primaryBtnText}>View Friends</Text>
           </TouchableOpacity>
         </Animated.View>
-        <Text style={styles.watermark}>CONVOY</Text>
+        <Text style={styles.watermark}>CORTEGE</Text>
       </SafeAreaView>
     );
   }
@@ -270,7 +270,7 @@ export default function InviteScreen() {
         <CallsignBadge callsign={profile.pttCallsign} />
 
         <Text style={styles.inviteHint}>
-          🚗 {profile.displayName} wants to ride with you on CONVOY
+          🚗 {profile.displayName} wants to ride with you on CORTEGE
         </Text>
 
         <TouchableOpacity
@@ -297,7 +297,7 @@ export default function InviteScreen() {
         </TouchableOpacity>
       </Animated.View>
 
-      <Text style={styles.watermark}>CONVOY</Text>
+      <Text style={styles.watermark}>CORTEGE</Text>
     </SafeAreaView>
   );
 }

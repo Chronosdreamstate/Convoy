@@ -141,7 +141,7 @@ export default function EventDetailScreen() {
         setTimeout(() => {
           void Share.share({
             message: [
-              `I'm going to "${event.title}" on CONVOY! 🏎️`,
+              `I'm going to "${event.title}" on CORTEGE! 🏎️`,
               `📅 ${formatEventDate(event.scheduledFor)}`,
               '',
               'Join us: convoy.app',

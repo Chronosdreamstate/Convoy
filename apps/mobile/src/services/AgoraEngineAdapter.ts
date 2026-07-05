@@ -28,7 +28,7 @@ export async function requestMicPermissionForPTT(): Promise<boolean> {
       PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
       {
         title: 'Microphone Access',
-        message: 'CONVOY uses your microphone only while you hold the PTT button to transmit voice to your convoy.',
+        message: 'CORTEGE uses your microphone only while you hold the PTT button to transmit voice to your convoy.',
         buttonPositive: 'Allow',
         buttonNegative: 'Deny',
       },

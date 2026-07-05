@@ -97,7 +97,7 @@ export default function PhoneScreen() {
             <Text style={styles.backBtnText}>← Back</Text>
           </TouchableOpacity>
 
-          <Text style={styles.logo} accessibilityLabel="CONVOY">CONVOY</Text>
+          <Text style={styles.logo} accessibilityLabel="CORTEGE">CORTEGE</Text>
 
           <View style={styles.header}>
             <Text style={styles.title}>Enter your number</Text>

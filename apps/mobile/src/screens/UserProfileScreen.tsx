@@ -90,7 +90,7 @@ export default function UserProfileScreen() {
 
   const handleShare = async () => {
     if (!profile) return;
-    await Share.share({ message: `Check out ${profile.displayName} on CONVOY!` }).catch(() => {});
+    await Share.share({ message: `Check out ${profile.displayName} on CORTEGE!` }).catch(() => {});
   };
 
   if (loading) {

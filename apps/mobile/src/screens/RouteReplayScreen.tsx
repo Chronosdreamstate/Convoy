@@ -175,11 +175,11 @@ export default function RouteReplayScreen() {
   const handleShare = useCallback(() => {
     if (!drive) return;
     Share.share({
-      title: 'My CONVOY Drive',
+      title: 'My CORTEGE Drive',
       message:
-        `🏁 I drove ${formatDistance(drive.distanceM)} in ${formatDuration(drive.durationS)} on CONVOY!\n` +
+        `🏁 I drove ${formatDistance(drive.distanceM)} in ${formatDuration(drive.durationS)} on CORTEGE!\n` +
         (drive.topSpeedKph ? `⚡ Top speed: ${drive.topSpeedKph.toFixed(0)} km/h\n` : '') +
-        `📅 ${new Date(drive.startedAt).toLocaleDateString()}\nJoin CONVOY: convoy.app/download`,
+        `📅 ${new Date(drive.startedAt).toLocaleDateString()}\nJoin CORTEGE: convoy.app/download`,
     });
   }, [drive]);
 
