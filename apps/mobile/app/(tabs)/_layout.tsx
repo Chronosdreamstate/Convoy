@@ -1,6 +1,7 @@
 import { useRef } from 'react';
 import { Animated, Pressable, Text, View } from 'react-native';
 import { Tabs } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 function AnimatedTabButton({
   children,
@@ -79,6 +80,16 @@ function TabIcon({ emoji, focused }: { emoji: string; focused: boolean }) {
 }
 
 export default function TabsLayout() {
+  const insets = useSafeAreaInsets();
+  // Base content height for the tab bar (icon + label), excluding the home
+  // indicator / gesture-area inset. When a custom `height` is set on
+  // tabBarStyle, @react-navigation/bottom-tabs uses it verbatim and does NOT
+  // add `insets.bottom` on top of it (unlike its own default height), so we
+  // must fold the inset in ourselves or the bar (and its touch targets) get
+  // squeezed into the unsafe area on devices with a home indicator.
+  const TAB_BAR_CONTENT_HEIGHT = 64;
+  const TAB_BAR_BASE_PADDING_BOTTOM = 10;
+
   return (
     <Tabs
       screenOptions={{
@@ -88,8 +99,8 @@ export default function TabsLayout() {
           backgroundColor: '#0A0A0A',
           borderTopColor: '#2A2A2A',
           borderTopWidth: 1,
-          height: 64,
-          paddingBottom: 10,
+          height: TAB_BAR_CONTENT_HEIGHT + insets.bottom,
+          paddingBottom: TAB_BAR_BASE_PADDING_BOTTOM + insets.bottom,
           paddingTop: 6,
         },
         tabBarActiveTintColor: '#DC143C',
