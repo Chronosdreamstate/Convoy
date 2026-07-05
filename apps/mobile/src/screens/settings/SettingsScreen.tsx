@@ -498,8 +498,9 @@ export default function SettingsScreen() {
             icon="🗺"
             label="Map Style"
             subtitle={`Current: ${mapStyle.charAt(0).toUpperCase() + mapStyle.slice(1)}`}
+            last
           />
-          <View style={styles.chipContainer}>
+          <View style={[styles.chipContainer, styles.chipContainerDivider]}>
             <ChipSelector
               options={MAP_STYLES}
               selected={mapStyle}
@@ -510,8 +511,9 @@ export default function SettingsScreen() {
             icon="📐"
             label="Distance Units"
             subtitle={`Showing distances in ${distanceUnit}`}
+            last
           />
-          <View style={styles.chipContainer}>
+          <View style={[styles.chipContainer, styles.chipContainerDivider]}>
             <ChipSelector
               options={DISTANCE_UNITS}
               selected={distanceUnit}
@@ -542,8 +544,9 @@ export default function SettingsScreen() {
             icon="⚠️"
             label="Hazard Alert Distance"
             subtitle={`Alert within ${(hazardDistM * MILES_PER_METRE).toFixed(2)} miles`}
+            last
           />
-          <View style={styles.chipContainer}>
+          <View style={[styles.chipContainer, styles.chipContainerDivider]}>
             <ChipSelector
               options={HAZARD_DISTANCES.map((d) => ({ label: d.label, value: d.metres }))}
               selected={hazardDistM}
@@ -572,8 +575,9 @@ export default function SettingsScreen() {
             icon="📏"
             label="Gap Alert Threshold"
             subtitle={`Alert when gap exceeds ${gapThresholdM >= 1000 ? `${(gapThresholdM / 1000).toFixed(1)} km` : `${gapThresholdM} m`}`}
+            last
           />
-          <View style={styles.chipContainer}>
+          <View style={[styles.chipContainer, styles.chipContainerDivider]}>
             <ChipSelector
               options={GAP_THRESHOLDS.map((g) => ({ label: g.label, value: g.metres }))}
               selected={gapThresholdM}
@@ -656,8 +660,9 @@ export default function SettingsScreen() {
             icon="👁"
             label="Profile Visibility"
             subtitle={`Who can see your profile: ${privacy.charAt(0).toUpperCase() + privacy.slice(1)}`}
+            last
           />
-          <View style={styles.chipContainer}>
+          <View style={[styles.chipContainer, styles.chipContainerDivider]}>
             <ChipSelector
               options={PRIVACY_OPTIONS}
               selected={privacy}
@@ -888,6 +893,14 @@ const styles = StyleSheet.create({
   chipContainer: {
     paddingHorizontal: theme.spacing.md,
     paddingBottom: 14,
+  },
+  // Applied to a chipContainer that is followed by another setting row within
+  // the same card, so the divider separates this control from the *next*
+  // setting instead of (incorrectly) separating a row's label from its own
+  // chips — see settingRow/settingRowLast below.
+  chipContainerDivider: {
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.border,
   },
   chipRow: {
     flexDirection: 'row',
