@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -15,12 +15,14 @@ import {
   View,
 } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import { apiClient } from '../services/apiClient';
 import { useAuthStore } from '../stores/authStore';
 import { useSocketStore } from '../stores/socketStore';
 import { pickAndUploadPhoto } from '../services/PhotoUploadService';
 import { SkeletonBox } from '../components/SkeletonLoader';
 import { NetworkError } from '../components/NetworkError';
+import { useTheme, ThemeColors } from '../theme';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const CELL_SIZE = (SCREEN_WIDTH - 3) / 2;
@@ -42,6 +44,8 @@ interface Photo {
 function PhotoCell({ photo, canDelete, onDelete, onView }: {
   photo: Photo; canDelete: boolean; onDelete: (id: string) => void; onView: (photo: Photo) => void;
 }) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const [open, setOpen] = useState(false);
 
   return (
@@ -67,7 +71,8 @@ function PhotoCell({ photo, canDelete, onDelete, onView }: {
             accessibilityRole="button"
             accessibilityLabel="Delete photo"
           >
-            <Text style={styles.cellDeleteText}>🗑 Delete</Text>
+            <Ionicons name="trash-outline" size={14} color={colors.accent} />
+            <Text style={styles.cellDeleteText}> Delete</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.cellCancelBtn}
@@ -87,6 +92,8 @@ function PhotoCell({ photo, canDelete, onDelete, onView }: {
 // dismiss. Kept intentionally simple (plain Modal, no pinch-zoom) to match the
 // rest of this screen's minimal styling.
 function PhotoViewerModal({ photo, onClose }: { photo: Photo | null; onClose: () => void }) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   return (
     <Modal visible={photo !== null} transparent animationType="fade" onRequestClose={onClose}>
       <Pressable style={styles.viewerBackdrop} onPress={onClose} accessibilityRole="button" accessibilityLabel="Close photo">
@@ -122,6 +129,8 @@ export default function GroupPhotoLibraryScreen() {
   const { groupId } = useLocalSearchParams<{ groupId: string }>();
   const { accessToken, user } = useAuthStore();
   const { socket } = useSocketStore();
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -212,7 +221,10 @@ export default function GroupPhotoLibraryScreen() {
         <TouchableOpacity onPress={() => router.back()} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
           <Text style={styles.back}>‹ Back</Text>
         </TouchableOpacity>
-        <Text style={styles.title}>📷 Photos</Text>
+        <View style={styles.titleRow}>
+          <Ionicons name="camera-outline" size={16} color={colors.text} />
+          <Text style={styles.title}> Photos</Text>
+        </View>
         <TouchableOpacity
           onPress={handleUpload}
           disabled={uploadingPhoto}
@@ -222,7 +234,7 @@ export default function GroupPhotoLibraryScreen() {
           style={{ width: 60, alignItems: 'flex-end' }}
         >
           {uploadingPhoto ? (
-            <ActivityIndicator size="small" color="#DC143C" />
+            <ActivityIndicator size="small" color={colors.accent} />
           ) : (
             <Text style={styles.uploadBtn}>+ Add</Text>
           )}
@@ -239,7 +251,7 @@ export default function GroupPhotoLibraryScreen() {
         <NetworkError onRetry={() => { setLoading(true); void load(); }} message={error} />
       ) : photos.length === 0 ? (
         <View style={styles.centered}>
-          <Text style={styles.emptyIcon}>📷</Text>
+          <Ionicons name="camera-outline" size={48} color={colors.textMuted} />
           <Text style={styles.emptyTitle}>No Photos Yet</Text>
           <Text style={styles.emptySubtitle}>Share your drive photos here!</Text>
         </View>
@@ -251,7 +263,7 @@ export default function GroupPhotoLibraryScreen() {
           columnWrapperStyle={styles.row}
           renderItem={renderPhotoItem}
           refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#DC143C" colors={['#DC143C']} />
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.accent} colors={[colors.accent]} />
           }
           contentContainerStyle={styles.list}
         />
@@ -262,70 +274,73 @@ export default function GroupPhotoLibraryScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0A0A0A' },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#1C1C1C',
-  },
-  back: { fontSize: 17, color: '#DC143C', fontWeight: '600' },
-  title: { fontSize: 17, fontWeight: '700', color: '#FFFFFF' },
-  centered: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 8 },
-  emptyIcon: { fontSize: 48 },
-  emptyTitle: { fontSize: 18, fontWeight: '700', color: '#FFFFFF' },
-  emptySubtitle: { fontSize: 14, color: '#888888' },
-  skeletonGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 1, padding: 1 },
-  list: { padding: 1 },
-  row: { gap: 1 },
-  cell: { width: CELL_SIZE, height: CELL_SIZE, backgroundColor: '#1C1C1C', marginBottom: 1 },
-  cellImage: { width: '100%', height: '100%' },
-  cellOverlay: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    padding: 8,
-    backgroundColor: 'rgba(0,0,0,0.55)',
-  },
-  cellName: { fontSize: 11, fontWeight: '600', color: '#FFFFFF' },
-  cellCaption: { fontSize: 10, color: '#CCCCCC', marginTop: 2 },
-  uploadBtn: { fontSize: 15, color: '#DC143C', fontWeight: '700' },
-  cellDeleteOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.75)',
-    flexDirection: 'row',
-  },
-  cellDeleteBtn: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRightWidth: 1,
-    borderRightColor: 'rgba(255,255,255,0.15)',
-  },
-  cellDeleteText: { color: '#DC143C', fontSize: 13, fontWeight: '600' },
-  cellCancelBtn: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  cellCancelText: { color: '#CCCCCC', fontSize: 13 },
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: colors.bg },
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.card,
+    },
+    back: { fontSize: 17, color: colors.accent, fontWeight: '600' },
+    titleRow: { flexDirection: 'row', alignItems: 'center' },
+    title: { fontSize: 17, fontWeight: '700', color: colors.text },
+    centered: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 8 },
+    emptyTitle: { fontSize: 18, fontWeight: '700', color: colors.text },
+    emptySubtitle: { fontSize: 14, color: colors.textMuted },
+    skeletonGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 1, padding: 1 },
+    list: { padding: 1 },
+    row: { gap: 1 },
+    cell: { width: CELL_SIZE, height: CELL_SIZE, backgroundColor: colors.card, marginBottom: 1 },
+    cellImage: { width: '100%', height: '100%' },
+    cellOverlay: {
+      position: 'absolute',
+      bottom: 0,
+      left: 0,
+      right: 0,
+      padding: 8,
+      backgroundColor: 'rgba(0,0,0,0.55)',
+    },
+    cellName: { fontSize: 11, fontWeight: '600', color: '#FFFFFF' },
+    cellCaption: { fontSize: 10, color: '#CCCCCC', marginTop: 2 },
+    uploadBtn: { fontSize: 15, color: colors.accent, fontWeight: '700' },
+    cellDeleteOverlay: {
+      position: 'absolute',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      backgroundColor: 'rgba(0,0,0,0.75)',
+      flexDirection: 'row',
+    },
+    cellDeleteBtn: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderRightWidth: 1,
+      borderRightColor: 'rgba(255,255,255,0.15)',
+    },
+    cellDeleteText: { color: colors.accent, fontSize: 13, fontWeight: '600' },
+    cellCancelBtn: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+    cellCancelText: { color: '#CCCCCC', fontSize: 13 },
 
-  viewerBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.95)' },
-  viewerSafeArea: { flex: 1 },
-  viewerCloseBtn: {
-    position: 'absolute', top: 12, right: 16, zIndex: 10,
-    width: 36, height: 36, borderRadius: 18,
-    backgroundColor: 'rgba(255,255,255,0.15)', alignItems: 'center', justifyContent: 'center',
-  },
-  viewerCloseText: { color: '#FFFFFF', fontSize: 18, fontWeight: '700' },
-  viewerImageWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  viewerImage: { width: SCREEN_WIDTH, height: '80%' },
-  viewerCaptionBox: { paddingHorizontal: 20, paddingBottom: 32, paddingTop: 8 },
-  viewerName: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
-  viewerCaption: { color: '#CCCCCC', fontSize: 13, marginTop: 4 },
-});
+    viewerBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.95)' },
+    viewerSafeArea: { flex: 1 },
+    viewerCloseBtn: {
+      position: 'absolute', top: 12, right: 16, zIndex: 10,
+      width: 36, height: 36, borderRadius: 18,
+      backgroundColor: 'rgba(255,255,255,0.15)', alignItems: 'center', justifyContent: 'center',
+    },
+    viewerCloseText: { color: '#FFFFFF', fontSize: 18, fontWeight: '700' },
+    viewerImageWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+    viewerImage: { width: SCREEN_WIDTH, height: '80%' },
+    viewerCaptionBox: { paddingHorizontal: 20, paddingBottom: 32, paddingTop: 8 },
+    viewerName: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
+    viewerCaption: { color: '#CCCCCC', fontSize: 13, marginTop: 4 },
+  });
+}

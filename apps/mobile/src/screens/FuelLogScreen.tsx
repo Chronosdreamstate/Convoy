@@ -1,15 +1,17 @@
 /**
  * FuelLogScreen — fuel fill-up tracking, spending summary, and MPG trend.
  */
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator, Alert, FlatList, KeyboardAvoidingView, Modal,
   Platform, Pressable, RefreshControl, SafeAreaView, StyleSheet,
   Text, TextInput, TouchableOpacity, View,
 } from 'react-native';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { apiClient } from '../services/apiClient';
 import { SkeletonBox } from '../components/SkeletonLoader';
 import { useSettingsStore } from '../stores/settingsStore';
+import { useTheme, ThemeColors } from '../theme';
 
 // --- Types ---
 
@@ -53,6 +55,8 @@ const MAX_BAR_H = 48;
 const WEEK_LABELS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 
 function MpgTrend({ entries }: { entries: FuelEntry[] }) {
+  const { colors } = useTheme();
+  const s = useMemo(() => createStyles(colors), [colors]);
   const now = new Date();
   const mon = new Date(now);
   mon.setDate(now.getDate() + (now.getDay() === 0 ? -6 : 1 - now.getDay()));
@@ -79,7 +83,7 @@ function MpgTrend({ entries }: { entries: FuelEntry[] }) {
         {bars.map((v, i) => (
           <View key={i} style={s.mpgBarCol}>
             <View style={s.mpgBarTrack}>
-              <View style={[s.mpgBar, { height: v ? Math.max(4, (v / max) * MAX_BAR_H) : 4, backgroundColor: v ? '#888888' : '#2A2A2A' }]} />
+              <View style={[s.mpgBar, { height: v ? Math.max(4, (v / max) * MAX_BAR_H) : 4, backgroundColor: v ? colors.textMuted : colors.border }]} />
             </View>
             <Text style={s.mpgBarLabel}>{WEEK_LABELS[i]}</Text>
             {v ? <Text style={s.mpgBarVal}>{v.toFixed(0)}</Text> : null}
@@ -93,6 +97,8 @@ function MpgTrend({ entries }: { entries: FuelEntry[] }) {
 // --- Entry row — long-press reveals delete / cancel ---
 
 function EntryRow({ entry, onDelete }: { entry: FuelEntry; onDelete: (id: string) => void }) {
+  const { colors } = useTheme();
+  const s = useMemo(() => createStyles(colors), [colors]);
   const [open, setOpen] = useState(false);
   const total = entry.gallons * entry.pricePerGallon;
 
@@ -123,7 +129,8 @@ function EntryRow({ entry, onDelete }: { entry: FuelEntry; onDelete: (id: string
             accessibilityRole="button"
             accessibilityLabel="Delete entry"
           >
-            <Text style={s.delText}>🗑 Delete</Text>
+            <Ionicons name="trash-outline" size={14} color={colors.accent} />
+            <Text style={s.delText}> Delete</Text>
           </TouchableOpacity>
           <TouchableOpacity style={s.cancelBtn} onPress={() => setOpen(false)} accessibilityRole="button" accessibilityLabel="Cancel">
             <Text style={s.cancelText}>Cancel</Text>
@@ -139,6 +146,8 @@ function EntryRow({ entry, onDelete }: { entry: FuelEntry; onDelete: (id: string
 function AddModal({ visible, onClose, onSaved }: {
   visible: boolean; onClose: () => void; onSaved: (e: FuelEntry) => void;
 }) {
+  const { colors } = useTheme();
+  const s = useMemo(() => createStyles(colors), [colors]);
   const distanceUnit = useSettingsStore((s) => s.distanceUnit);
   const odometerLabel = distanceUnit === 'miles' ? 'Odometer (mi)' : 'Odometer (km)';
 
@@ -197,16 +206,16 @@ function AddModal({ visible, onClose, onSaved }: {
           <View style={{ flexDirection: 'row', gap: 12, marginBottom: 12 }}>
             <View style={{ flex: 1 }}>
               <Text style={s.label}>Gallons</Text>
-              <TextInput style={s.input} value={gallons} onChangeText={setGallons} keyboardType="decimal-pad" placeholder="0.00" placeholderTextColor="#555" accessibilityLabel="Gallons" />
+              <TextInput style={s.input} value={gallons} onChangeText={setGallons} keyboardType="decimal-pad" placeholder="0.00" placeholderTextColor={colors.textSubtle} accessibilityLabel="Gallons" />
             </View>
             <View style={{ flex: 1 }}>
               <Text style={s.label}>Price / Gallon</Text>
-              <TextInput style={s.input} value={price} onChangeText={setPrice} keyboardType="decimal-pad" placeholder="0.00" placeholderTextColor="#555" accessibilityLabel="Price per gallon" />
+              <TextInput style={s.input} value={price} onChangeText={setPrice} keyboardType="decimal-pad" placeholder="0.00" placeholderTextColor={colors.textSubtle} accessibilityLabel="Price per gallon" />
             </View>
           </View>
 
           <Text style={s.label}>Date (MM/DD/YYYY)</Text>
-          <TextInput style={[s.input, { marginBottom: 12 }]} value={date} onChangeText={setDate} placeholder="MM/DD/YYYY" placeholderTextColor="#555" accessibilityLabel="Date" />
+          <TextInput style={[s.input, { marginBottom: 12 }]} value={date} onChangeText={setDate} placeholder="MM/DD/YYYY" placeholderTextColor={colors.textSubtle} accessibilityLabel="Date" />
 
           <Text style={s.label}>{odometerLabel} (optional)</Text>
           <TextInput
@@ -215,15 +224,15 @@ function AddModal({ visible, onClose, onSaved }: {
             onChangeText={setOdometer}
             keyboardType="decimal-pad"
             placeholder="0"
-            placeholderTextColor="#555"
+            placeholderTextColor={colors.textSubtle}
             accessibilityLabel={odometerLabel}
           />
 
           <Text style={s.label}>Notes (optional)</Text>
-          <TextInput style={[s.input, { height: 64, textAlignVertical: 'top', marginBottom: 16 }]} value={notes} onChangeText={setNotes} placeholder="Station, brand…" placeholderTextColor="#555" multiline accessibilityLabel="Notes" />
+          <TextInput style={[s.input, { height: 64, textAlignVertical: 'top', marginBottom: 16 }]} value={notes} onChangeText={setNotes} placeholder="Station, brand…" placeholderTextColor={colors.textSubtle} multiline accessibilityLabel="Notes" />
 
           <TouchableOpacity style={[s.saveBtn, saving && { opacity: 0.6 }]} onPress={() => { void save(); }} disabled={saving} accessibilityRole="button" accessibilityLabel="Save fill-up">
-            {saving ? <ActivityIndicator color="#fff" /> : <Text style={s.saveBtnText}>Save Fill-Up</Text>}
+            {saving ? <ActivityIndicator color={colors.text} /> : <Text style={s.saveBtnText}>Save Fill-Up</Text>}
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
@@ -234,6 +243,8 @@ function AddModal({ visible, onClose, onSaved }: {
 // --- Main screen ---
 
 export default function FuelLogScreen() {
+  const { colors } = useTheme();
+  const s = useMemo(() => createStyles(colors), [colors]);
   const [entries, setEntries] = useState<FuelEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -279,10 +290,10 @@ export default function FuelLogScreen() {
   const totalGal = entries.reduce((s, e) => s + e.gallons, 0);
   const totalSpent = entries.reduce((s, e) => s + e.gallons * e.pricePerGallon, 0);
   const avgPpg = totalGal > 0 ? entries.reduce((s, e) => s + e.pricePerGallon * e.gallons, 0) / totalGal : 0;
-  const stats = [
-    { icon: '⛽', label: 'Total Spent', val: entries.length ? fmt$(totalSpent) : '—' },
-    { icon: '💰', label: 'Avg $/Gallon', val: avgPpg > 0 ? fmt$(avgPpg) : '—' },
-    { icon: '🧮', label: 'Total Gallons', val: totalGal > 0 ? totalGal.toFixed(1) : '—' },
+  const stats: Array<{ icon: React.ReactNode; label: string; val: string }> = [
+    { icon: <MaterialCommunityIcons name="gas-station" size={20} color={colors.text} />, label: 'Total Spent', val: entries.length ? fmt$(totalSpent) : '—' },
+    { icon: <Ionicons name="cash-outline" size={20} color={colors.text} />, label: 'Avg $/Gallon', val: avgPpg > 0 ? fmt$(avgPpg) : '—' },
+    { icon: <MaterialCommunityIcons name="water-outline" size={20} color={colors.text} />, label: 'Total Gallons', val: totalGal > 0 ? totalGal.toFixed(1) : '—' },
   ];
 
   if (loading) {
@@ -306,13 +317,13 @@ export default function FuelLogScreen() {
         data={entries}
         keyExtractor={e => e.id}
         contentContainerStyle={entries.length === 0 ? s.listEmpty : s.list}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { void onRefresh(); }} tintColor="#DC143C" colors={['#DC143C']} />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { void onRefresh(); }} tintColor={colors.accent} colors={[colors.accent]} />}
         ListHeaderComponent={entries.length > 0 ? (
           <>
             <View style={s.summaryRow}>
               {stats.map((c, i) => (
                 <View key={i} style={s.statCard}>
-                  <Text style={{ fontSize: 20, marginBottom: 4 }}>{c.icon}</Text>
+                  <View style={{ marginBottom: 4 }}>{c.icon}</View>
                   <Text style={s.statVal}>{c.val}</Text>
                   <Text style={s.statLabel}>{c.label}</Text>
                 </View>
@@ -326,7 +337,7 @@ export default function FuelLogScreen() {
         renderItem={renderEntryItem}
         ListEmptyComponent={
           <View style={s.empty}>
-            <Text style={{ fontSize: 56, marginBottom: 16 }}>⛽</Text>
+            <MaterialCommunityIcons name="gas-station" size={56} color={colors.textMuted} style={{ marginBottom: 16 }} />
             <Text style={s.emptyTitle}>No fuel logs yet</Text>
             <Text style={s.emptySub}>Tap + to add your first fill-up and start tracking spending.</Text>
           </View>
@@ -345,57 +356,59 @@ export default function FuelLogScreen() {
 
 // --- Styles ---
 
-const s = StyleSheet.create({
-  bg: { flex: 1, backgroundColor: '#0A0A0A' },
-  header: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 8 },
-  title: { color: '#FFFFFF', fontSize: 24, fontWeight: '700' },
-  list: { paddingHorizontal: 16, paddingBottom: 100 },
-  listEmpty: { flex: 1, paddingHorizontal: 16 },
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    bg: { flex: 1, backgroundColor: colors.bg },
+    header: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 8 },
+    title: { color: colors.text, fontSize: 24, fontWeight: '700' },
+    list: { paddingHorizontal: 16, paddingBottom: 100 },
+    listEmpty: { flex: 1, paddingHorizontal: 16 },
 
-  summaryRow: { flexDirection: 'row', gap: 10, marginBottom: 16 },
-  statCard: { flex: 1, backgroundColor: '#1C1C1C', borderRadius: 12, padding: 12, alignItems: 'center', borderWidth: 1, borderColor: '#2A2A2A' },
-  statVal: { color: '#FFFFFF', fontSize: 15, fontWeight: '700', marginBottom: 2 },
-  statLabel: { color: '#888888', fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.4, textAlign: 'center' },
+    summaryRow: { flexDirection: 'row', gap: 10, marginBottom: 16 },
+    statCard: { flex: 1, backgroundColor: colors.card, borderRadius: 12, padding: 12, alignItems: 'center', borderWidth: 1, borderColor: colors.border },
+    statVal: { color: colors.text, fontSize: 15, fontWeight: '700', marginBottom: 2 },
+    statLabel: { color: colors.textMuted, fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.4, textAlign: 'center' },
 
-  mpgCard: { backgroundColor: '#1C1C1C', borderRadius: 12, borderWidth: 1, borderColor: '#2A2A2A', padding: 14, marginBottom: 16 },
-  mpgBars: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', gap: 4 },
-  mpgBarCol: { flex: 1, alignItems: 'center', gap: 4 },
-  mpgBarTrack: { height: MAX_BAR_H, justifyContent: 'flex-end' },
-  mpgBar: { width: '100%', borderRadius: 3, minHeight: 4 },
-  mpgBarLabel: { color: '#555555', fontSize: 10 },
-  mpgBarVal: { color: '#888888', fontSize: 9 },
+    mpgCard: { backgroundColor: colors.card, borderRadius: 12, borderWidth: 1, borderColor: colors.border, padding: 14, marginBottom: 16 },
+    mpgBars: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', gap: 4 },
+    mpgBarCol: { flex: 1, alignItems: 'center', gap: 4 },
+    mpgBarTrack: { height: MAX_BAR_H, justifyContent: 'flex-end' },
+    mpgBar: { width: '100%', borderRadius: 3, minHeight: 4 },
+    mpgBarLabel: { color: colors.textSubtle, fontSize: 10 },
+    mpgBarVal: { color: colors.textMuted, fontSize: 9 },
 
-  sectionLabel: { color: '#888888', fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.6 },
-  hint: { color: '#555555', fontSize: 11, marginBottom: 10, fontStyle: 'italic' },
+    sectionLabel: { color: colors.textMuted, fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.6 },
+    hint: { color: colors.textSubtle, fontSize: 11, marginBottom: 10, fontStyle: 'italic' },
 
-  entryCard: { backgroundColor: '#1C1C1C', borderRadius: 12, borderWidth: 1, borderColor: '#2A2A2A', marginBottom: 10, overflow: 'hidden' },
-  entryCardOpen: { borderColor: '#DC143C' },
-  entryRow: { flexDirection: 'row', alignItems: 'center', padding: 14, gap: 12 },
-  entryDate: { color: '#FFFFFF', fontSize: 14, fontWeight: '600', marginBottom: 2 },
-  entryMeta: { color: '#888888', fontSize: 12 },
-  entryNotes: { color: '#555555', fontSize: 11, fontStyle: 'italic' },
-  entryTotal: { color: '#DC143C', fontSize: 16, fontWeight: '700' },
-  entryMpg: { color: '#22C55E', fontSize: 11, marginTop: 2 },
-  entryActions: { flexDirection: 'row', borderTopWidth: 1, borderTopColor: '#2A2A2A', backgroundColor: '#242424' },
-  delBtn: { flex: 1, paddingVertical: 12, alignItems: 'center', borderRightWidth: 1, borderRightColor: '#2A2A2A' },
-  delText: { color: '#DC143C', fontSize: 13, fontWeight: '600' },
-  cancelBtn: { flex: 1, paddingVertical: 12, alignItems: 'center' },
-  cancelText: { color: '#888888', fontSize: 13 },
+    entryCard: { backgroundColor: colors.card, borderRadius: 12, borderWidth: 1, borderColor: colors.border, marginBottom: 10, overflow: 'hidden' },
+    entryCardOpen: { borderColor: colors.accent },
+    entryRow: { flexDirection: 'row', alignItems: 'center', padding: 14, gap: 12 },
+    entryDate: { color: colors.text, fontSize: 14, fontWeight: '600', marginBottom: 2 },
+    entryMeta: { color: colors.textMuted, fontSize: 12 },
+    entryNotes: { color: colors.textSubtle, fontSize: 11, fontStyle: 'italic' },
+    entryTotal: { color: colors.accent, fontSize: 16, fontWeight: '700' },
+    entryMpg: { color: colors.success, fontSize: 11, marginTop: 2 },
+    entryActions: { flexDirection: 'row', borderTopWidth: 1, borderTopColor: colors.border, backgroundColor: colors.cardElevated },
+    delBtn: { flex: 1, flexDirection: 'row', paddingVertical: 12, alignItems: 'center', justifyContent: 'center', borderRightWidth: 1, borderRightColor: colors.border },
+    delText: { color: colors.accent, fontSize: 13, fontWeight: '600' },
+    cancelBtn: { flex: 1, paddingVertical: 12, alignItems: 'center' },
+    cancelText: { color: colors.textMuted, fontSize: 13 },
 
-  overlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.6)' },
-  sheet: { backgroundColor: '#1C1C1C', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, paddingBottom: 36, borderTopWidth: 1, borderTopColor: '#2A2A2A' },
-  sheetHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
-  sheetTitle: { color: '#FFFFFF', fontSize: 18, fontWeight: '700' },
-  sheetClose: { color: '#888888', fontSize: 20, padding: 4 },
-  label: { color: '#888888', fontSize: 12, marginBottom: 6, fontWeight: '500' },
-  input: { backgroundColor: '#242424', borderRadius: 10, borderWidth: 1, borderColor: '#2A2A2A', color: '#FFFFFF', paddingHorizontal: 12, paddingVertical: 10, fontSize: 15, marginBottom: 12 },
-  saveBtn: { backgroundColor: '#DC143C', borderRadius: 12, paddingVertical: 15, alignItems: 'center', minHeight: 50 },
-  saveBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
+    overlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.6)' },
+    sheet: { backgroundColor: colors.card, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, paddingBottom: 36, borderTopWidth: 1, borderTopColor: colors.border },
+    sheetHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
+    sheetTitle: { color: colors.text, fontSize: 18, fontWeight: '700' },
+    sheetClose: { color: colors.textMuted, fontSize: 20, padding: 4 },
+    label: { color: colors.textMuted, fontSize: 12, marginBottom: 6, fontWeight: '500' },
+    input: { backgroundColor: colors.cardElevated, borderRadius: 10, borderWidth: 1, borderColor: colors.border, color: colors.text, paddingHorizontal: 12, paddingVertical: 10, fontSize: 15, marginBottom: 12 },
+    saveBtn: { backgroundColor: colors.accent, borderRadius: 12, paddingVertical: 15, alignItems: 'center', minHeight: 50 },
+    saveBtnText: { color: colors.text, fontSize: 16, fontWeight: '700' },
 
-  fab: { position: 'absolute', bottom: 24, right: 20, width: 56, height: 56, borderRadius: 28, backgroundColor: '#DC143C', alignItems: 'center', justifyContent: 'center', elevation: 6, shadowColor: '#DC143C', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.4, shadowRadius: 8 },
-  fabText: { color: '#FFFFFF', fontSize: 28, fontWeight: '300', lineHeight: 32 },
+    fab: { position: 'absolute', bottom: 24, right: 20, width: 56, height: 56, borderRadius: 28, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center', elevation: 6, shadowColor: colors.accent, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.4, shadowRadius: 8 },
+    fabText: { color: colors.text, fontSize: 28, fontWeight: '300', lineHeight: 32 },
 
-  empty: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 80, paddingHorizontal: 32 },
-  emptyTitle: { color: '#FFFFFF', fontSize: 20, fontWeight: '700', marginBottom: 8 },
-  emptySub: { color: '#888888', fontSize: 14, textAlign: 'center', lineHeight: 22 },
-});
+    empty: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 80, paddingHorizontal: 32 },
+    emptyTitle: { color: colors.text, fontSize: 20, fontWeight: '700', marginBottom: 8 },
+    emptySub: { color: colors.textMuted, fontSize: 14, textAlign: 'center', lineHeight: 22 },
+  });
+}
