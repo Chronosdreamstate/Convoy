@@ -3,6 +3,7 @@ import { persist, createJSONStorage } from 'zustand/middleware';
 import * as SecureStore from 'expo-secure-store';
 
 export type MapStyle = 'standard' | 'satellite' | 'hybrid';
+export type DistanceUnit = 'km' | 'miles';
 
 interface SettingsState {
   mapStyle: MapStyle;
@@ -10,7 +11,8 @@ interface SettingsState {
   scenicRouting: boolean;
   pttMaxSeconds: number;
   pttVolumePercent: number;
-  setSettings: (s: Partial<Pick<SettingsState, 'mapStyle' | 'hazardAlertDistanceM' | 'scenicRouting' | 'pttMaxSeconds' | 'pttVolumePercent'>>) => void;
+  distanceUnit: DistanceUnit;
+  setSettings: (s: Partial<Pick<SettingsState, 'mapStyle' | 'hazardAlertDistanceM' | 'scenicRouting' | 'pttMaxSeconds' | 'pttVolumePercent' | 'distanceUnit'>>) => void;
 }
 
 // SecureStore adapter for zustand/persist (non-sensitive app preferences)
@@ -28,6 +30,7 @@ export const useSettingsStore = create<SettingsState>()(
       scenicRouting: false,
       pttMaxSeconds: 30,
       pttVolumePercent: 100,
+      distanceUnit: 'miles',
       setSettings: (s) => set(s),
     }),
     {
@@ -39,6 +42,7 @@ export const useSettingsStore = create<SettingsState>()(
         scenicRouting: state.scenicRouting,
         pttMaxSeconds: state.pttMaxSeconds,
         pttVolumePercent: state.pttVolumePercent,
+        distanceUnit: state.distanceUnit,
       }),
     },
   ),

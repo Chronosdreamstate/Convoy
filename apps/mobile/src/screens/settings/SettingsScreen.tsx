@@ -22,8 +22,6 @@ import { SkeletonBox } from '../../components/SkeletonLoader';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { theme } from '../../theme';
 
-const DISTANCE_UNIT_KEY = '@convoy/distanceUnit';
-
 const PRIVACY_POLICY_URL = 'https://convoy.app/privacy';
 const TERMS_URL = 'https://convoy.app/terms';
 
@@ -168,6 +166,7 @@ export default function SettingsScreen() {
   const router = useRouter();
   const setGlobalSettings = useSettingsStore((s) => s.setSettings);
   const storedVolumePercent = useSettingsStore((s) => s.pttVolumePercent);
+  const storedDistanceUnit = useSettingsStore((s) => s.distanceUnit);
   const [, setSettings] = useState<Settings | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -196,14 +195,11 @@ export default function SettingsScreen() {
   const [notifNavigation, setNotifNavigation] = useState(true);
   const [privacy, setPrivacy] = useState<Settings['privacy']>('public');
   const [showInBrowse, setShowInBrowse] = useState(true);
-  const [distanceUnit, setDistanceUnit] = useState<'km' | 'miles'>('miles');
+  const [distanceUnit, setDistanceUnit] = useState<'km' | 'miles'>(storedDistanceUnit);
   const [autoJoinNearby, setAutoJoinNearby] = useState(false);
 
   useEffect(() => {
     loadSettings();
-    AsyncStorage.getItem(DISTANCE_UNIT_KEY).then((v) => {
-      if (v === 'km' || v === 'miles') setDistanceUnit(v);
-    });
   }, []);
 
   const loadSettings = async () => {
@@ -260,8 +256,8 @@ export default function SettingsScreen() {
         scenicRouting: response.data.scenicRouting,
         pttMaxSeconds: response.data.pttMaxSeconds,
         pttVolumePercent,
+        distanceUnit,
       });
-      await AsyncStorage.setItem(DISTANCE_UNIT_KEY, distanceUnit);
       setIsDirty(false);
       setSaveSuccess(true);
       if (saveSuccessTimer.current) clearTimeout(saveSuccessTimer.current);

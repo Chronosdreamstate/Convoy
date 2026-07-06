@@ -25,7 +25,6 @@ interface Friend {
   callsign?: string;
   avatarUrl?: string;
   isOnline?: boolean;
-  convoyInfo?: { name: string; memberCount: number } | null;
 }
 interface FriendRequest {
   id: string;
@@ -143,11 +142,6 @@ function FriendRow({
         <Text style={styles.cardName} numberOfLines={1}>{friend.displayName}</Text>
         {friend.callsign
           ? <Text style={styles.cardSub} numberOfLines={1}>{friend.callsign}</Text>
-          : null}
-        {friend.convoyInfo
-          ? <Text style={styles.convoyStatus} numberOfLines={1}>
-              In convoy · {friend.convoyInfo.memberCount} members
-            </Text>
           : null}
       </View>
       <View style={styles.cardBtns}>
@@ -615,7 +609,6 @@ const styles = StyleSheet.create({
   cardInfo: { flex: 1, marginRight: 8 },
   cardName: { fontSize: 15, fontWeight: '700', color: '#FFFFFF' },
   cardSub: { fontSize: 12, color: '#888888', marginTop: 2 },
-  convoyStatus: { fontSize: 12, color: '#F59E0B', marginTop: 2, fontWeight: '600' },
   mutualTxt: { fontSize: 11, color: '#6366F1', marginTop: 2 },
   cardBtns: { flexDirection: 'row', gap: 8 },
 
