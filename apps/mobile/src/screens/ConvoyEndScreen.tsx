@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { forwardRef, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Animated,
@@ -6,6 +6,7 @@ import {
   Image,
   Linking,
   Modal,
+  Platform,
   ScrollView,
   Share,
   StyleSheet,
@@ -16,6 +17,8 @@ import {
 import * as Clipboard from 'expo-clipboard';
 import * as ImagePicker from 'expo-image-picker';
 import * as MediaLibrary from 'expo-media-library';
+import * as Sharing from 'expo-sharing';
+import { captureRef } from 'react-native-view-shot';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -159,6 +162,34 @@ function buildShareText(
   lines.push('');
   lines.push('Join us at convoy.app');
   return lines.join('\n');
+}
+
+interface LatLng {
+  latitude: number;
+  longitude: number;
+}
+
+// routeTrace arrives as a JSON string — either a GeoJSON LineString
+// (`{ type, coordinates: [lng, lat][] }`, matching the format used elsewhere
+// in the app e.g. RouteReplayScreen/DriveHistoryScreen) or a bare
+// `[lng, lat][]` coordinate array. Anything else is treated as "no trace".
+function parseRouteCoords(routeTrace?: string): LatLng[] {
+  if (!routeTrace) return [];
+  try {
+    const parsed: unknown = JSON.parse(routeTrace);
+    const coords = Array.isArray(parsed)
+      ? parsed
+      : (parsed as { coordinates?: unknown })?.coordinates;
+    if (!Array.isArray(coords)) return [];
+    return coords
+      .filter(
+        (c: unknown): c is [number, number] =>
+          Array.isArray(c) && c.length === 2 && typeof c[0] === 'number' && typeof c[1] === 'number',
+      )
+      .map(([lng, lat]: [number, number]) => ({ latitude: lat, longitude: lng }));
+  } catch {
+    return [];
+  }
 }
 
 function getWeekKey(): string {
@@ -305,6 +336,222 @@ function createShareCardStyles(colors: ThemeColors) {
 }
 
 // ---------------------------------------------------------------------------
+// DriveSummaryCard — offscreen composite captured to an image for
+// sharing / saving (Req 19.5, 19.6). Combines a stylized route trace, key
+// drive stats, and CONVOY/CORTEGE branding.
+//
+// The route trace is drawn with plain rotated Views rather than an embedded
+// native MapView: react-native-view-shot cannot reliably capture native map
+// SurfaceViews (especially on Android), so a lightweight vector rendering of
+// the polyline is used instead — it's a deliberate simplification, not a
+// stand-in for a full map render.
+// ---------------------------------------------------------------------------
+
+const SUMMARY_CARD_WIDTH = 360;
+const MINIMAP_WIDTH = SUMMARY_CARD_WIDTH - 48; // minus horizontal padding
+const MINIMAP_HEIGHT = 150;
+const MINIMAP_PADDING = 14;
+
+function projectRouteCoords(
+  coords: LatLng[],
+  width: number,
+  height: number,
+  padding: number,
+): { x: number; y: number }[] {
+  if (coords.length === 0) return [];
+  const lats = coords.map((c) => c.latitude);
+  const lngs = coords.map((c) => c.longitude);
+  const minLat = Math.min(...lats);
+  const maxLat = Math.max(...lats);
+  const minLng = Math.min(...lngs);
+  const maxLng = Math.max(...lngs);
+  const latRange = Math.max(maxLat - minLat, 0.0001);
+  const lngRange = Math.max(maxLng - minLng, 0.0001);
+  const innerW = width - padding * 2;
+  const innerH = height - padding * 2;
+  const scale = Math.min(innerW / lngRange, innerH / latRange);
+  const usedW = lngRange * scale;
+  const usedH = latRange * scale;
+  const offsetX = padding + (innerW - usedW) / 2;
+  const offsetY = padding + (innerH - usedH) / 2;
+  return coords.map((c) => ({
+    x: offsetX + (c.longitude - minLng) * scale,
+    // Flip Y — latitude increases upward, screen coordinates increase downward.
+    y: offsetY + (maxLat - c.latitude) * scale,
+  }));
+}
+
+// Rotates a thin line View around its start point (x1, y1) without relying on
+// the `transformOrigin` style prop: a zero-size outer View is positioned at
+// the pivot and rotated, so its "center" (used as the default transform
+// origin) coincides with the pivot point.
+function RouteSegment({ x1, y1, x2, y2, color }: { x1: number; y1: number; x2: number; y2: number; color: string }) {
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const length = Math.sqrt(dx * dx + dy * dy);
+  const angleDeg = (Math.atan2(dy, dx) * 180) / Math.PI;
+  return (
+    <View
+      style={{
+        position: 'absolute',
+        left: x1,
+        top: y1,
+        width: 0,
+        height: 0,
+        transform: [{ rotate: `${angleDeg}deg` }],
+      }}
+    >
+      <View
+        style={{
+          position: 'absolute',
+          left: 0,
+          top: -1.5,
+          width: length,
+          height: 3,
+          borderRadius: 1.5,
+          backgroundColor: color,
+        }}
+      />
+    </View>
+  );
+}
+
+function RouteMiniMap({ coords }: { coords: LatLng[] }) {
+  const points = useMemo(
+    () => projectRouteCoords(coords, MINIMAP_WIDTH, MINIMAP_HEIGHT, MINIMAP_PADDING),
+    [coords],
+  );
+
+  if (points.length < 2) {
+    // Fallback: same minimal "dot — line — flag" motif used when a real
+    // trace isn't available, rather than a blank box.
+    return (
+      <View style={[miniMapStyles.box, miniMapStyles.boxEmpty]}>
+        <View style={miniMapStyles.fallbackDot} />
+        <View style={miniMapStyles.fallbackLine} />
+        <View style={miniMapStyles.fallbackFlag} />
+      </View>
+    );
+  }
+
+  const start = points[0];
+  const end = points[points.length - 1];
+
+  return (
+    <View style={miniMapStyles.box}>
+      {points.slice(1).map((p, i) => (
+        <RouteSegment key={i} x1={points[i].x} y1={points[i].y} x2={p.x} y2={p.y} color={T.accent} />
+      ))}
+      <View style={[miniMapStyles.pin, miniMapStyles.pinStart, { left: start.x - 5, top: start.y - 5 }]} />
+      <View style={[miniMapStyles.pin, miniMapStyles.pinEnd, { left: end.x - 5, top: end.y - 5 }]} />
+    </View>
+  );
+}
+
+const miniMapStyles = StyleSheet.create({
+  box: {
+    width: MINIMAP_WIDTH,
+    height: MINIMAP_HEIGHT,
+    backgroundColor: '#161616',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#2A2A2A',
+    overflow: 'hidden',
+    marginBottom: 14,
+  },
+  boxEmpty: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+  },
+  fallbackDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: T.success },
+  fallbackLine: { flex: 1, maxWidth: 140, height: 2, backgroundColor: T.accent, marginHorizontal: 8 },
+  fallbackFlag: { width: 10, height: 10, borderRadius: 5, backgroundColor: T.accent },
+  pin: { position: 'absolute', width: 10, height: 10, borderRadius: 5, borderWidth: 1.5, borderColor: '#111111' },
+  pinStart: { backgroundColor: T.success },
+  pinEnd: { backgroundColor: T.accent },
+});
+
+interface DriveSummaryCardProps {
+  groupName: string;
+  distanceText: string;
+  duration: string;
+  avgSpeedText: string | null;
+  topSpeed: number | null;
+  members: number;
+  routeCoords: LatLng[];
+}
+
+function MiniStat({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={miniStatStyles.item}>
+      <Text style={miniStatStyles.value} numberOfLines={1}>{value}</Text>
+      <Text style={miniStatStyles.label}>{label}</Text>
+    </View>
+  );
+}
+
+const miniStatStyles = StyleSheet.create({
+  item: { width: '33%', marginBottom: 10 },
+  value: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
+  label: { color: '#888888', fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 1 },
+});
+
+const DriveSummaryCard = forwardRef<View, DriveSummaryCardProps>(function DriveSummaryCard(
+  { groupName, distanceText, duration, avgSpeedText, topSpeed, members, routeCoords },
+  ref,
+) {
+  const dateStr = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+  return (
+    <View ref={ref} collapsable={false} style={summaryCardStyles.root}>
+      <View style={summaryCardStyles.header}>
+        <Text style={summaryCardStyles.wordmark}>CORTEGE</Text>
+        <Text style={summaryCardStyles.flag}>🏁</Text>
+      </View>
+      <Text style={summaryCardStyles.groupName} numberOfLines={1}>{groupName}</Text>
+      <Text style={summaryCardStyles.date}>{dateStr}</Text>
+
+      <RouteMiniMap coords={routeCoords} />
+
+      <View style={summaryCardStyles.statsGrid}>
+        <MiniStat label="Distance" value={distanceText} />
+        <MiniStat label="Duration" value={duration} />
+        <MiniStat label="Crew" value={`${members} ${members === 1 ? 'car' : 'cars'}`} />
+        {avgSpeedText != null && <MiniStat label="Avg Speed" value={avgSpeedText} />}
+        {topSpeed != null && <MiniStat label="Top Speed" value={`${topSpeed} km/h`} />}
+      </View>
+
+      <Text style={summaryCardStyles.url}>convoy.app</Text>
+    </View>
+  );
+});
+
+const summaryCardStyles = StyleSheet.create({
+  root: {
+    // Rendered off-screen (see offscreenCapture wrapper below) purely so
+    // react-native-view-shot has a real, laid-out native view to snapshot.
+    width: SUMMARY_CARD_WIDTH,
+    backgroundColor: '#111111',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#DC143C',
+    padding: 24,
+  },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  wordmark: { color: '#DC143C', fontWeight: '900', fontSize: 20, letterSpacing: 3 },
+  flag: { fontSize: 24 },
+  groupName: { color: '#FFFFFF', fontSize: 22, fontWeight: '700', marginBottom: 2 },
+  date: { color: '#888888', fontSize: 12, marginBottom: 16 },
+  statsGrid: { flexDirection: 'row', flexWrap: 'wrap' },
+  url: { color: '#888888', fontSize: 11, textAlign: 'right', letterSpacing: 0.5, marginTop: 2 },
+});
+
+// ---------------------------------------------------------------------------
 // StatCard — one of three horizontal cards
 // ---------------------------------------------------------------------------
 
@@ -369,6 +616,7 @@ export default function ConvoyEndScreen() {
     distanceM,
     memberCount,
     topSpeedKmh,
+    avgSpeedKmh: avgSpeedKmhParam,
     routeTrace,
   } = useLocalSearchParams<{
     groupName: string;
@@ -376,8 +624,12 @@ export default function ConvoyEndScreen() {
     distanceM: string;
     memberCount: string;
     topSpeedKmh?: string;
+    avgSpeedKmh?: string;
     routeTrace?: string;
   }>();
+
+  // Ref to the offscreen DriveSummaryCard, captured to an image on demand.
+  const summaryCardRef = useRef<View>(null);
 
   // Trophy spring: scale 0 → 1
   const scale = useRef(new Animated.Value(0)).current;
@@ -530,6 +782,17 @@ export default function ConvoyEndScreen() {
   const distanceKmText =
     distance >= 1000 ? `${(distance / 1000).toFixed(1)}km` : `${distance}m`;
 
+  // Average speed: prefer a value passed in from the caller; otherwise derive
+  // it from distance/duration so the summary card always has something to show.
+  const avgSpeedKmh = avgSpeedKmhParam
+    ? parseFloat(avgSpeedKmhParam)
+    : duration > 0
+      ? (distance / 1000) / (duration / 60)
+      : null;
+  const avgSpeedText = avgSpeedKmh != null && Number.isFinite(avgSpeedKmh) ? `${avgSpeedKmh.toFixed(0)} km/h` : null;
+
+  const routeCoords = useMemo(() => parseRouteCoords(routeTrace), [routeTrace]);
+
   const shareText = buildShareText(distanceKmText, formatDuration(duration), members, topSpeed, displayGroup)
     + (photos.length > 0 ? `\n📸 ${photos.length} photo${photos.length !== 1 ? 's' : ''} from the drive` : '');
 
@@ -559,7 +822,46 @@ export default function ConvoyEndScreen() {
     await savePhotos(newPhotos);
   };
 
+  // Captures the offscreen DriveSummaryCard (route trace + stats + branding)
+  // as a PNG file. Returns null if capture fails for any reason (e.g. the
+  // view hasn't laid out yet) — callers fall back to a text-only share.
+  const captureSummaryCard = async (): Promise<string | null> => {
+    try {
+      const uri = await captureRef(summaryCardRef, { format: 'png', quality: 1 });
+      return uri;
+    } catch {
+      return null;
+    }
+  };
+
   const handleShare = async () => {
+    const cardUri = await captureSummaryCard();
+
+    if (cardUri) {
+      try {
+        if (Platform.OS === 'ios') {
+          // iOS's native Share sheet can combine a local file URL with a
+          // text message in one activity.
+          await Share.share({ title: 'My CORTEGE drive', message: shareText, url: cardUri });
+        } else if (await Sharing.isAvailableAsync()) {
+          // Android's Share module doesn't support local file attachments via
+          // `url` — expo-sharing drives the native share sheet with the image
+          // attached instead (Req 19.6).
+          await Sharing.shareAsync(cardUri, {
+            mimeType: 'image/png',
+            dialogTitle: 'Share your CORTEGE drive summary',
+          });
+        } else {
+          await Share.share({ title: 'My CORTEGE drive', message: shareText });
+        }
+        setShared(true);
+        return;
+      } catch {
+        // User cancelled, or the share sheet failed — fall through to the
+        // plain-text share below rather than leaving the user stuck.
+      }
+    }
+
     try {
       await Share.share({
         title: 'My CORTEGE drive',
@@ -572,23 +874,40 @@ export default function ConvoyEndScreen() {
   };
 
   const handleSaveToPhotos = async () => {
-    if (photos.length === 0) {
-      Alert.alert('No Photos', 'Add drive photos first using the photo button above.');
-      return;
-    }
     const { status } = await MediaLibrary.requestPermissionsAsync();
     if (status !== 'granted') {
       Alert.alert('Permission Required', 'Please allow photo library access to save photos.');
       return;
     }
-    let saved = 0;
+
+    // Always try to save the generated summary card (Req 19.6), in addition
+    // to any photos the user manually attached during the drive.
+    let savedCard = false;
+    const cardUri = await captureSummaryCard();
+    if (cardUri) {
+      try {
+        await MediaLibrary.saveToLibraryAsync(cardUri);
+        savedCard = true;
+      } catch { /* fall through — still try the manually-added photos */ }
+    }
+
+    let savedPhotos = 0;
     for (const uri of photos) {
       try {
         await MediaLibrary.saveToLibraryAsync(uri);
-        saved++;
+        savedPhotos++;
       } catch { /* skip photos that fail */ }
     }
-    Alert.alert('Saved', `${saved} drive photo${saved !== 1 ? 's' : ''} saved to your camera roll.`);
+
+    if (!savedCard && savedPhotos === 0) {
+      Alert.alert('Nothing to Save', 'Could not generate the summary card. Please try again.');
+      return;
+    }
+
+    const parts: string[] = [];
+    if (savedCard) parts.push('Summary card');
+    if (savedPhotos > 0) parts.push(`${savedPhotos} drive photo${savedPhotos !== 1 ? 's' : ''}`);
+    Alert.alert('Saved', `${parts.join(' and ')} saved to your camera roll.`);
   };
 
   const handleCopy = async () => {
@@ -601,6 +920,25 @@ export default function ConvoyEndScreen() {
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <Confetti />
+
+      {/*
+        Offscreen shareable summary card (Req 19.5/19.6) — rendered off the
+        visible canvas but still fully laid out so captureRef can snapshot it
+        on demand from handleShare/handleSaveToPhotos. `collapsable={false}`
+        keeps Android from flattening the view out of the native tree.
+      */}
+      <View style={styles.offscreenCapture} pointerEvents="none">
+        <DriveSummaryCard
+          ref={summaryCardRef}
+          groupName={displayGroup}
+          distanceText={distanceKmText}
+          duration={formatDuration(duration)}
+          avgSpeedText={avgSpeedText}
+          topSpeed={topSpeed}
+          members={members}
+          routeCoords={routeCoords}
+        />
+      </View>
 
       {/* First-convoy achievement unlock modal */}
       {showFirstConvoyAchievement && (
@@ -831,6 +1169,15 @@ function createStyles(colors: ThemeColors) {
     flex: 1,
     backgroundColor: colors.bg,
   },
+
+  // Positions the DriveSummaryCard well off the visible canvas while still
+  // laying it out normally, so react-native-view-shot can capture it.
+  offscreenCapture: {
+    position: 'absolute',
+    top: 0,
+    left: -(SUMMARY_CARD_WIDTH + 100),
+  },
+
   inner: {
     flex: 1,
     alignItems: 'center',
