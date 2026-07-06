@@ -81,17 +81,32 @@ export default async function photosRoutes(fastify: FastifyInstance) {
          RETURNING id, photo_url, caption, created_at`,
         [groupId, userId, photoUrl, caption ?? null, driveId ?? null],
       );
+      const r = result.rows[0];
+
+      // Fetch the poster's display name so the response matches GET's shape
+      // (camelCase, with userId/displayName) — this previously returned the
+      // raw INSERT...RETURNING row (photo_url/created_at, no userId or
+      // displayName at all), so a client trusting the POST response instead
+      // of refetching would get a differently-shaped object than every other
+      // photo in the list.
+      const userRow = await fastify.db.query<{ display_name: string }>(
+        `SELECT display_name FROM users WHERE id = $1`,
+        [userId],
+      );
+
+      const photo = {
+        id: r.id,
+        userId,
+        displayName: userRow.rows[0]?.display_name ?? null,
+        photoUrl: r.photo_url,
+        caption: r.caption,
+        createdAt: r.created_at,
+      };
 
       // Broadcast to group so photo library updates in real-time
-      fastify.io.to(`group:${groupId}`).emit('group:photo_added', {
-        id: result.rows[0].id,
-        userId,
-        photoUrl,
-        caption: caption ?? null,
-        createdAt: result.rows[0].created_at,
-      });
+      fastify.io.to(`group:${groupId}`).emit('group:photo_added', photo);
 
-      return reply.status(201).send({ photo: result.rows[0] });
+      return reply.status(201).send({ photo });
     },
   );
 
