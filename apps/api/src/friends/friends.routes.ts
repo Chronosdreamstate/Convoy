@@ -134,55 +134,93 @@ async function friendsRoutes(
       return reply.forbidden('Unable to send friend request');
     }
 
-    // Check for existing relationship
-    const existing = await fastify.db.query<FriendshipRow>(
-      `SELECT id, status FROM friendships
-       WHERE (requester_id = $1 AND addressee_id = $2)
-          OR (requester_id = $2 AND addressee_id = $1)
-       LIMIT 1`,
-      [requesterId, addresseeId],
-    );
-    if (existing.rows[0]) {
-      const { status } = existing.rows[0];
-      if (status === 'accepted') return reply.conflict('You are already friends');
-      if (status === 'pending') return reply.conflict('A friend request already exists');
+    // The "check existing relationship, then insert" pattern below is a
+    // classic TOCTOU race: the `friendships` unique constraint is only on
+    // (requester_id, addressee_id) *in that order*, so it does NOT stop two
+    // users who request each other at the same moment (A→B and B→A racing
+    // concurrently) from each passing the "no existing relationship" check
+    // and both inserting — leaving two separate (and, on open-privacy
+    // accounts, both "accepted") friendship rows for the same pair, which
+    // then shows up as a duplicated entry in both users' friends lists.
+    // A same-direction double-tap (A→B twice) hits the ordered unique
+    // constraint and previously surfaced as an unhandled 500.
+    //
+    // Fix: serialize any concurrent request/accept/block flow for this pair
+    // of users with a Postgres transaction-scoped advisory lock keyed on the
+    // *unordered* pair, so only one request at a time can observe-then-insert
+    // for a given pair — no schema migration required.
+    const [lo, hi] = [requesterId, addresseeId].sort();
+    const client = await fastify.db.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`friendship:${lo}:${hi}`]);
+
+      // Re-check for existing relationship now that we hold the pair lock.
+      const existing = await client.query<FriendshipRow>(
+        `SELECT id, status FROM friendships
+         WHERE (requester_id = $1 AND addressee_id = $2)
+            OR (requester_id = $2 AND addressee_id = $1)
+         LIMIT 1`,
+        [requesterId, addresseeId],
+      );
+      if (existing.rows[0]) {
+        await client.query('ROLLBACK');
+        const { status } = existing.rows[0];
+        if (status === 'accepted') return reply.conflict('You are already friends');
+        if (status === 'pending') return reply.conflict('A friend request already exists');
+        return reply.forbidden('Unable to send friend request');
+      }
+
+      // Read the addressee's privacy setting
+      const addresseeResult = await client.query<{ privacy: string }>(
+        `SELECT privacy FROM users WHERE id = $1`,
+        [addresseeId],
+      );
+      if (!addresseeResult.rows[0]) {
+        await client.query('ROLLBACK');
+        return reply.notFound('User not found');
+      }
+
+      // Privacy-based auto-accept (Req 17.6, 17.7)
+      const initialStatus =
+        addresseeResult.rows[0].privacy === 'open' ? 'accepted' : 'pending';
+
+      const result = await client.query<FriendshipRow>(
+        `INSERT INTO friendships (requester_id, addressee_id, status)
+         VALUES ($1, $2, $3)
+         RETURNING id, requester_id, addressee_id, status, created_at`,
+        [requesterId, addresseeId, initialStatus],
+      );
+
+      await client.query('COMMIT');
+
+      if (initialStatus === 'pending') {
+        fastify.enqueueNotification({
+          userId: addresseeId,
+          type: 'friend_request',
+          title: 'New Friend Request',
+          body: 'You have a new friend request',
+          data: { friendshipId: result.rows[0].id },
+        }).catch((err: unknown) => fastify.log.error({ err }, 'notify friend_request failed'));
+      }
+
+      return reply.status(201).send({
+        id: result.rows[0].id,
+        status: result.rows[0].status,
+        autoAccepted: initialStatus === 'accepted',
+      });
+    } catch (err: unknown) {
+      await client.query('ROLLBACK');
+      // Defense in depth: if a duplicate somehow still slips through (e.g. a
+      // request racing the /friends/block path, which isn't covered by this
+      // lock), report it as a conflict instead of a raw 500.
+      if ((err as { code?: string }).code === '23505') {
+        return reply.conflict('A friend request already exists');
+      }
+      throw err;
+    } finally {
+      client.release();
     }
-
-    // Read the addressee's privacy setting
-    const addresseeResult = await fastify.db.query<{ privacy: string }>(
-      `SELECT privacy FROM users WHERE id = $1`,
-      [addresseeId],
-    );
-    if (!addresseeResult.rows[0]) {
-      return reply.notFound('User not found');
-    }
-
-    // Privacy-based auto-accept (Req 17.6, 17.7)
-    const initialStatus =
-      addresseeResult.rows[0].privacy === 'open' ? 'accepted' : 'pending';
-
-    const result = await fastify.db.query<FriendshipRow>(
-      `INSERT INTO friendships (requester_id, addressee_id, status)
-       VALUES ($1, $2, $3)
-       RETURNING id, requester_id, addressee_id, status, created_at`,
-      [requesterId, addresseeId, initialStatus],
-    );
-
-    if (initialStatus === 'pending') {
-      fastify.enqueueNotification({
-        userId: addresseeId,
-        type: 'friend_request',
-        title: 'New Friend Request',
-        body: 'You have a new friend request',
-        data: { friendshipId: result.rows[0].id },
-      }).catch((err: unknown) => fastify.log.error({ err }, 'notify friend_request failed'));
-    }
-
-    return reply.status(201).send({
-      id: result.rows[0].id,
-      status: result.rows[0].status,
-      autoAccepted: initialStatus === 'accepted',
-    });
   });
 
   // -------------------------------------------------------------------------
