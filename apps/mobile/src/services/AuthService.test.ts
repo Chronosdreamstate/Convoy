@@ -135,8 +135,12 @@ describe('AuthService — secure token storage', () => {
       const service = await getAuthService();
       await service.signOut();
 
-      expect(mockDeleteItemAsync).toHaveBeenCalledTimes(1);
+      // Also clears the device-global 'onboarding_complete' flag so the next
+      // account signed into this device doesn't inherit a prior user's
+      // completed-onboarding state.
+      expect(mockDeleteItemAsync).toHaveBeenCalledTimes(2);
       expect(mockDeleteItemAsync).toHaveBeenCalledWith('convoy_access_token');
+      expect(mockDeleteItemAsync).toHaveBeenCalledWith('onboarding_complete');
     });
 
     it('deletes token from SecureStore even when the logout API call fails', async () => {

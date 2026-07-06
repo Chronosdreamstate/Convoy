@@ -79,7 +79,8 @@
       "<rootDir>/src/**/*.spec.tsx"
     ],
     "moduleNameMapper": {
-      "^@convoy/mobile/(.*)$": "<rootDir>/src/$1"
+      "^@convoy/mobile/(.*)$": "<rootDir>/src/$1",
+      "^@react-native-async-storage/async-storage$": "@react-native-async-storage/async-storage/jest/async-storage-mock"
     },
     "collectCoverageFrom": [
       "src/**/*.{ts,tsx}",
