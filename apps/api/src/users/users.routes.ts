@@ -2,7 +2,6 @@
 import { z } from 'zod';
 import { authenticate } from '../middleware/authenticate';
 import { generalLimiter } from '../middleware/rateLimiter';
-import { getStatCounter } from '../db/statCounters';
 
 const PROFANITY = ['fuck', 'shit', 'ass'];
 const profanityFree = (s: string) => !PROFANITY.some((w) => s.toLowerCase().includes(w));

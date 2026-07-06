@@ -13,7 +13,6 @@ import {
   Linking,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import Constants from 'expo-constants';
 import * as FileSystem from 'expo-file-system/legacy';

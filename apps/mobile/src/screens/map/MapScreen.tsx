@@ -39,7 +39,7 @@ import GapAlertBanner from '../../components/GapAlertBanner';
 import SosAlertModal from '../../components/SosAlertModal';
 import ConvoyBanner from '../../components/ConvoyBanner';
 import { useGroupStore } from '../../stores/groupStore';
-import { SQLiteOfflineDB, OfflineHazard } from '../../services/OfflineCacheService';
+import { SQLiteOfflineDB } from '../../services/OfflineCacheService';
 import { MotionStateService, deriveMotionState } from '../../services/MotionStateService';
 import { PTTService } from '../../services/PTTService';
 import { agoraEngineAdapter, requestMicPermissionForPTT } from '../../services/AgoraEngineAdapter';
