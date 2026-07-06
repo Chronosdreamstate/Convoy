@@ -2,6 +2,7 @@
 import { z } from 'zod';
 import { authenticate } from '../middleware/authenticate';
 import { generalLimiter } from '../middleware/rateLimiter';
+import { getStatCounter } from '../db/statCounters';
 
 const PROFANITY = ['fuck', 'shit', 'ass'];
 const profanityFree = (s: string) => !PROFANITY.some((w) => s.toLowerCase().includes(w));
@@ -382,6 +383,9 @@ async function usersRoutes(
       max_streak: string;
       groups_created: string;
       photos_shared: string;
+      ptt_count: string;
+      waypoints_added: string;
+      sos_responses: string;
     }
 
     const result = await fastify.db.query<StatsRow>(
@@ -416,7 +420,14 @@ async function usersRoutes(
          ds.night_drives,
          ms.val AS max_streak,
          (SELECT COUNT(*) FROM convoy_groups WHERE admin_id = $1) AS groups_created,
-         (SELECT COUNT(*) FROM group_photos  WHERE user_id  = $1) AS photos_shared
+         (SELECT COUNT(*) FROM group_photos  WHERE user_id  = $1) AS photos_shared,
+         -- ptt_master: derived directly from ptt_log rather than a maintained
+         -- counter — ptt_log already gets one row per transmission (started_at
+         -- on ptt:start), and ended_at (migration 022) is stamped when the
+         -- transmission completes, so this is a reliable, always-correct count.
+         (SELECT COUNT(*) FROM ptt_log WHERE user_id = $1 AND ended_at IS NOT NULL) AS ptt_count,
+         (SELECT count FROM user_stat_counters WHERE user_id = $1 AND stat_key = 'waypoint_setter') AS waypoints_added,
+         (SELECT count FROM user_stat_counters WHERE user_id = $1 AND stat_key = 'sos_hero') AS sos_responses
        FROM drive_stats ds, max_streak ms`,
       [userId],
     );
@@ -428,6 +439,9 @@ async function usersRoutes(
     const streak    = parseInt(s.max_streak,       10);
     const groupsCreated = parseInt(s.groups_created, 10);
     const photos    = parseInt(s.photos_shared,    10);
+    const pttCount  = parseInt(s.ptt_count,        10);
+    const waypointsAdded = parseInt(s.waypoints_added ?? '0', 10) || 0;
+    const sosResponses   = parseInt(s.sos_responses   ?? '0', 10) || 0;
 
     const achievements = [
       { id: 'first_convoy',   progress: Math.min(convoys, 1),    total: 1,    unlocked: convoys >= 1 },
@@ -435,11 +449,11 @@ async function usersRoutes(
       { id: 'convoy_50',      progress: Math.min(convoys, 50),   total: 50,   unlocked: convoys >= 50 },
       { id: 'distance_100',   progress: Math.min(distKm, 100),   total: 100,  unlocked: distKm >= 100 },
       { id: 'distance_1000',  progress: Math.min(distKm, 1000),  total: 1000, unlocked: distKm >= 1000 },
-      { id: 'sos_hero',       progress: 0,                       total: 1,    unlocked: false },
+      { id: 'sos_hero',       progress: Math.min(sosResponses, 1),   total: 1,   unlocked: sosResponses >= 1 },
       { id: 'streak_7',       progress: Math.min(streak, 7),     total: 7,    unlocked: streak >= 7 },
       { id: 'group_founder',  progress: Math.min(groupsCreated, 1), total: 1, unlocked: groupsCreated >= 1 },
-      { id: 'ptt_master',     progress: 0,                       total: 100,  unlocked: false },
-      { id: 'waypoint_setter',progress: 0,                       total: 10,   unlocked: false },
+      { id: 'ptt_master',     progress: Math.min(pttCount, 100),      total: 100, unlocked: pttCount >= 100 },
+      { id: 'waypoint_setter',progress: Math.min(waypointsAdded, 10), total: 10,  unlocked: waypointsAdded >= 10 },
       { id: 'night_owl',      progress: Math.min(nightDrives, 1), total: 1,   unlocked: nightDrives >= 1 },
       { id: 'photo_sharer',   progress: Math.min(photos, 5),     total: 5,    unlocked: photos >= 5 },
     ];

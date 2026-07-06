@@ -3,6 +3,7 @@ import { Pool } from 'pg';
 import { z } from 'zod';
 import { authenticate } from '../middleware/authenticate';
 import { generalLimiter } from '../middleware/rateLimiter';
+import { incrementStatCounter } from '../db/statCounters';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -1529,8 +1530,8 @@ async function groupsRoutes(
       const userId = (request.user as { sub: string }).sub;
       const { id } = request.params as { id: string };
 
-      const groupResult = await fastify.db.query<{ admin_id: string }>(
-        'SELECT admin_id FROM convoy_groups WHERE id = $1',
+      const groupResult = await fastify.db.query<{ admin_id: string; waypoints: unknown[] }>(
+        'SELECT admin_id, waypoints FROM convoy_groups WHERE id = $1',
         [id],
       );
       const group = groupResult.rows[0];
@@ -1544,6 +1545,19 @@ async function groupsRoutes(
         `UPDATE convoy_groups SET waypoints = $1::jsonb WHERE id = $2`,
         [JSON.stringify(waypoints), id],
       );
+
+      // waypoint_setter achievement (target: 10 waypoints added): this route replaces
+      // the whole list rather than appending, so a single "waypoint added" event isn't
+      // available here. We treat the net growth of the list on each broadcast as
+      // waypoints added by this admin — e.g. going from 3 -> 5 waypoints counts as 2
+      // added. Removals/reorders (list shrinks or stays the same size) don't count.
+      const previousCount = Array.isArray(group.waypoints) ? group.waypoints.length : 0;
+      const addedCount = Math.max(0, waypoints.length - previousCount);
+      if (addedCount > 0) {
+        incrementStatCounter(fastify.db, userId, 'waypoint_setter', addedCount).catch((err: unknown) =>
+          fastify.log.error({ err }, 'waypoint_setter counter increment error'),
+        );
+      }
 
       fastify.io.to(`group:${id}`).emit('group:waypoints_updated', { groupId: id, waypoints });
       return reply.send({ waypoints });
