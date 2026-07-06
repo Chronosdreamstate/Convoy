@@ -26,7 +26,7 @@ import { useLocationStore, MemberLocation } from '../../stores/locationStore';
 import { useMotionStore } from '../../stores/motionStore';
 import { rallyService, RallyPoint, SosPin } from '../../services/RallyService';
 import { apiClient } from '../../services/apiClient';
-import { HazardType } from '../../services/HazardService';
+import { HazardService, HazardType, IHazardApiClient } from '../../services/HazardService';
 import DestinationSearch, { SearchResult } from '../../components/DestinationSearch';
 import HazardPicker from '../../components/HazardPicker';
 import HazardReportModal from '../../components/HazardReportModal';
@@ -76,7 +76,15 @@ function formatTimeAgo(ts: number): string {
   if (mins < 60) return `${mins}m ago`;
   return `${Math.floor(mins / 60)}h ago`;
 }
-const HAZARD_EXPIRY_MS = 2 * 60 * 60 * 1000; // 2 hours
+/** Formats a distance in meters for display on hazard pins (Req 11.4). */
+function formatDistance(distM: number): string {
+  return distM >= 1000 ? `${(distM / 1000).toFixed(1)} km` : `${Math.round(distM)} m`;
+}
+// Must match the server's expiry window (hazards.routes.ts HAZARD_EXPIRY_MS, Req 11.3)
+// so pins disappear from the map around the same time the server stops treating
+// the report as active. This previously drifted to 2 hours, leaving expired
+// hazards visible on other members' maps for far longer than intended.
+const HAZARD_EXPIRY_MS = 30 * 60 * 1000; // 30 minutes
 interface RouteAlternative {
   distance: number;       // metres (matches backend Route shape)
   duration: number;       // seconds
@@ -266,6 +274,37 @@ const hapticAdapter = {
 const offlineDB = new SQLiteOfflineDB();
 const offlineDBReady: Promise<boolean> = offlineDB.init().then(() => true).catch(() => false);
 
+// HazardService — queues hazard reports in the offline cache when the create
+// call fails (offline or network error), so they can be flushed via
+// POST /hazards/bulk once connectivity returns (Req 11.9, 11.10).
+const hazardApiClient: IHazardApiClient = {
+  createHazard: (type, lat, lng) =>
+    apiClient.post('/api/v1/hazards', { type, lat, lng }).then((r) => r.data),
+  confirmHazard: (id) => apiClient.post(`/api/v1/hazards/${id}/confirm`).then(() => undefined),
+  dismissHazard: (id) => apiClient.post(`/api/v1/hazards/${id}/dismiss`).then(() => undefined),
+};
+const hazardService = new HazardService(
+  hazardApiClient,
+  { saveOfflineHazard: (h) => offlineDB.saveHazard(h) },
+  () => true, // always attempt the network call; failures fall back to the offline queue below
+);
+
+/** Flushes any hazard reports queued while offline (Req 11.9, 11.10). Safe to call repeatedly. */
+async function flushOfflineHazards(): Promise<void> {
+  const ready = await offlineDBReady;
+  if (!ready) return;
+  const pending = await offlineDB.getPendingHazards();
+  if (pending.length === 0) return;
+  try {
+    await apiClient.post('/api/v1/hazards/bulk', {
+      hazards: pending.map((h) => ({ type: h.type, lat: h.lat, lng: h.lng, createdAt: h.createdAt })),
+    });
+    await offlineDB.clearHazards(pending.map((h) => h.id));
+  } catch {
+    // Still offline or server rejected the batch — retry on the next reconnect.
+  }
+}
+
 export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChannelId }: Props) {
   const { user, token } = useAuthStore();
   const { memberLocations, stalePositions, updateMemberLocation, clearGroup, evictStale, setStalePositions, clearStalePositions } = useLocationStore();
@@ -371,6 +410,11 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
 
   // Keep mySosIdRef in sync so the socket handler closure always sees the current value
   useEffect(() => { mySosIdRef.current = mySosId; }, [mySosId]);
+
+  // Flush any hazard reports queued offline (Req 11.9, 11.10). Runs once on mount so
+  // users outside a group (no socket connection) still get their queue drained; the
+  // socket 'connect' handler below covers the in-group reconnect case too.
+  useEffect(() => { void flushOfflineHazards(); }, []);
 
   // Incoming SOS alerts arrive over the socket (see `sos:alert` handler below) and are
   // completely independent of any locally-driven modal/sheet state. SosAlertModal is a
@@ -678,6 +722,7 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
       setIsConnected(true);
       setIsOnline(true);
       clearStalePositions();
+      void flushOfflineHazards();
       void LiveActivityService.startActivity({
         groupName: groupId,
         memberCount: 1,
@@ -1072,23 +1117,11 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
       Alert.alert('Location required', 'Enable location permissions to report a hazard.');
       return;
     }
-    try {
-      await apiClient.post('/api/v1/hazards', { type, lat: myLocation.lat, lng: myLocation.lng });
-    } catch {
-      // Queue the report in SQLite so SyncService can post it once connectivity returns
-      // (previously this was silently dropped despite the alert claiming it would sync).
-      const offlineHazard: OfflineHazard = {
-        id: `offline-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-        type,
-        lat: myLocation.lat,
-        lng: myLocation.lng,
-        createdAt: Date.now(),
-      };
-      await offlineDBReady.then((ready) => {
-        if (!ready) return;
-        return offlineDB.saveHazard(offlineHazard);
-      }).catch(() => {});
-      Alert.alert('Error', 'Could not report hazard. It will sync when you reconnect.');
+    // HazardService queues the report in the offline cache on failure, so it
+    // really is synced later (Req 11.9, 11.10) rather than just dropped.
+    const result = await hazardService.report(type, myLocation.lat, myLocation.lng);
+    if (!result) {
+      Alert.alert('Hazard Queued', 'No connection — this report will send once you reconnect.');
     }
   }, [myLocation]);
 
@@ -1254,6 +1287,11 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
                 </Text>
                 {h.reportedBy ? (
                   <Text style={overlayStyles.hazardCalloutSub}>Reported by {h.reportedBy}</Text>
+                ) : null}
+                {myLocation ? (
+                  <Text style={overlayStyles.hazardCalloutSub}>
+                    {formatDistance(haversineDistanceM(myLocation.lat, myLocation.lng, h.lat, h.lng))} away
+                  </Text>
                 ) : null}
                 {h.reportedAt ? (
                   <Text style={overlayStyles.hazardCalloutSub}>{formatTimeAgo(h.reportedAt)}</Text>
@@ -1832,12 +1870,15 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
         onClose={() => setShowHazardPicker(false)}
       />
 
-      {/* Hazard report modal — full form with severity, note, and GPS coords */}
+      {/* Hazard report modal — full form with severity, note, and GPS coords.
+          isInMotion restricts the type grid and hides severity/note per Req 31.1/31.2,
+          same threshold as HazardPicker above. */}
       <HazardReportModal
         visible={showHazardModal}
         onClose={() => setShowHazardModal(false)}
         lat={hazardModalCoords?.lat ?? null}
         lng={hazardModalCoords?.lng ?? null}
+        isInMotion={mySpeedKph > 5}
       />
 
       {/* Route planning modal */}

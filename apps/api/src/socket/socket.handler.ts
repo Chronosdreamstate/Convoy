@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { Pool } from 'pg';
 import Redis from 'ioredis';
 import { canTransmit, isDurationExceeded } from '../ptt/ptt.routes';
+import { computeExpiresAt } from '../hazards/hazards.routes';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -636,6 +637,12 @@ export function registerSocketHandlers(
           [hazardId, userId],
         );
 
+        // Confirming resets the expiry timer to 30 minutes from now (Req 11.5).
+        // This handler is the live app's actual vote path (MapScreen emits
+        // 'hazard:vote', not the REST /confirm endpoint), so without this the
+        // expiry reset described in Req 11.5 never happens in production.
+        const expiresAt = computeExpiresAt(Date.now());
+
         if (existing.rows[0]) {
           if (existing.rows[0].vote === dbVote) return; // same vote, no-op
           // Changed vote — decrement old, increment new
@@ -643,33 +650,52 @@ export function registerSocketHandlers(
             `UPDATE hazard_votes SET vote = $3 WHERE hazard_id = $1 AND user_id = $2`,
             [hazardId, userId, dbVote],
           );
-          await fastify.db.query(
-            `UPDATE hazard_reports
-             SET ${countCol} = ${countCol} + 1, ${reverseCol} = GREATEST(${reverseCol} - 1, 0)
-             WHERE id = $1`,
-            [hazardId],
-          );
+          if (vote === 'up') {
+            await fastify.db.query(
+              `UPDATE hazard_reports
+               SET ${countCol} = ${countCol} + 1, ${reverseCol} = GREATEST(${reverseCol} - 1, 0),
+                   expires_at = $2, updated_at = now()
+               WHERE id = $1`,
+              [hazardId, expiresAt],
+            );
+          } else {
+            await fastify.db.query(
+              `UPDATE hazard_reports
+               SET ${countCol} = ${countCol} + 1, ${reverseCol} = GREATEST(${reverseCol} - 1, 0),
+                   updated_at = now()
+               WHERE id = $1`,
+              [hazardId],
+            );
+          }
         } else {
           await fastify.db.query(
             `INSERT INTO hazard_votes (hazard_id, user_id, vote) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
             [hazardId, userId, dbVote],
           );
-          await fastify.db.query(
-            `UPDATE hazard_reports SET ${countCol} = ${countCol} + 1 WHERE id = $1`,
-            [hazardId],
-          );
+          if (vote === 'up') {
+            await fastify.db.query(
+              `UPDATE hazard_reports SET ${countCol} = ${countCol} + 1, expires_at = $2, updated_at = now() WHERE id = $1`,
+              [hazardId, expiresAt],
+            );
+          } else {
+            await fastify.db.query(
+              `UPDATE hazard_reports SET ${countCol} = ${countCol} + 1, updated_at = now() WHERE id = $1`,
+              [hazardId],
+            );
+          }
         }
 
-        // Auto-dismiss when dismissal votes exceed 3
+        // Auto-dismiss when dismissal votes exceed 3 (Req 11.6)
         const updated = await fastify.db.query<{ confirmation_count: number; dismissal_count: number }>(
           `SELECT confirmation_count, dismissal_count FROM hazard_reports WHERE id = $1`,
           [hazardId],
         );
         if ((updated.rows[0]?.dismissal_count ?? 0) >= 3) {
           await fastify.db.query(
-            `UPDATE hazard_reports SET status = 'dismissed' WHERE id = $1`,
+            `UPDATE hazard_reports SET status = 'dismissed', expires_at = now(), updated_at = now() WHERE id = $1`,
             [hazardId],
           );
+          io.to(`group:${groupId}`).emit('hazard:expired', { id: hazardId });
         }
 
         io.to(`group:${groupId}`).emit('hazard:vote_updated', {

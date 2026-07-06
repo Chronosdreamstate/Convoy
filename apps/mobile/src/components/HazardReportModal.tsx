@@ -15,22 +15,38 @@ import {
   View,
 } from 'react-native';
 import { apiClient } from '../services/apiClient';
+import { SQLiteOfflineDB } from '../services/OfflineCacheService';
+
+// Shares the same on-disk SQLite file as MapScreen's offline queue (expo-sqlite
+// keys connections by filename), so anything queued here is picked up by the
+// same flush-on-reconnect logic (Req 11.9, 11.10).
+const offlineDB = new SQLiteOfflineDB();
+const offlineDBReady = offlineDB.init().then(() => true).catch(() => false);
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-const TYPES = [
+// Full 9-type grid shown when parked (Req 31.2, mirrors HazardPicker's HAZARD_TYPES).
+const ALL_TYPES = [
+  { key: 'pothole',    emoji: '🕳️', label: 'Pothole'   },
+  { key: 'accident',   emoji: '🚗', label: 'Accident'  },
   { key: 'roadwork',   emoji: '🚧', label: 'Road Work' },
   { key: 'debris',     emoji: '⚠️', label: 'Debris'    },
   { key: 'animal',     emoji: '🐦', label: 'Animal'    },
-  { key: 'flood',      emoji: '🌊', label: 'Flooding'  },
   { key: 'speed_trap', emoji: '🚔', label: 'Police'    },
+  { key: 'ice',        emoji: '🧊', label: 'Ice'       },
+  { key: 'flood',      emoji: '🌊', label: 'Flooding'  },
   { key: 'other',      emoji: '❓', label: 'Other'     },
 ] as const;
 
-type HazardKey = (typeof TYPES)[number]['key'];
+type HazardKey = (typeof ALL_TYPES)[number]['key'];
 type Severity  = 'low' | 'medium' | 'high';
+
+// In-motion: no more than 6 large touch targets (Req 31.1), and no free-text
+// entry (severity/note are hidden below) so nothing requires fine-grained
+// typing while driving.
+const MOTION_TYPE_KEYS: HazardKey[] = ['roadwork', 'debris', 'animal', 'flood', 'speed_trap', 'other'];
 
 interface Props {
   visible: boolean;
@@ -39,18 +55,24 @@ interface Props {
   lat: number | null;
   /** GPS longitude of the report location. */
   lng: number | null;
+  /** True when the vehicle is moving — restricts the picker per Req 31.1/31.2. */
+  isInMotion?: boolean;
 }
 
 // ---------------------------------------------------------------------------
 // HazardReportModal
 // ---------------------------------------------------------------------------
 
-export default function HazardReportModal({ visible, onClose, lat, lng }: Props) {
+export default function HazardReportModal({ visible, onClose, lat, lng, isInMotion = false }: Props) {
   const [type,       setType]       = useState<HazardKey | null>(null);
   const [severity,   setSeverity]   = useState<Severity>('medium');
   const [note,       setNote]       = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [toast,      setToast]      = useState(false);
+
+  const visibleTypes = isInMotion
+    ? ALL_TYPES.filter((t) => MOTION_TYPE_KEYS.includes(t.key))
+    : ALL_TYPES;
 
   // Reset form when sheet opens
   useEffect(() => {
@@ -83,7 +105,21 @@ export default function HazardReportModal({ visible, onClose, lat, lng }: Props)
         onClose();
       }, 2200);
     } catch {
-      // Network failure — offline queue in HazardService handles retry
+      // Network/offline failure — queue for sync later (Req 11.9, 11.10) instead of
+      // silently dropping the report. Severity isn't carried by the offline queue
+      // (POST /hazards/bulk doesn't accept it), so it's lost for queued reports only.
+      const ready = await offlineDBReady;
+      if (ready) {
+        await offlineDB.saveHazard({
+          id: `offline-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          lat,
+          lng,
+          type,
+          description: note.trim() || undefined,
+          createdAt: Date.now(),
+        }).catch(() => {});
+      }
+      onClose();
     } finally {
       setSubmitting(false);
     }
@@ -123,10 +159,10 @@ export default function HazardReportModal({ visible, onClose, lat, lng }: Props)
             </TouchableOpacity>
           </View>
 
-          {/* Type — 2 × 3 grid */}
+          {/* Type grid — 6 targets while in motion (Req 31.1), full 9 when parked (Req 31.2) */}
           <Text style={s.sectionLabel}>Type</Text>
           <View style={s.grid}>
-            {TYPES.map(({ key, emoji, label }) => (
+            {visibleTypes.map(({ key, emoji, label }) => (
               <TouchableOpacity
                 key={key}
                 style={[s.card, type === key && s.cardOn]}
@@ -144,38 +180,44 @@ export default function HazardReportModal({ visible, onClose, lat, lng }: Props)
             ))}
           </View>
 
-          {/* Severity */}
-          <Text style={s.sectionLabel}>Severity</Text>
-          <View style={s.pills}>
-            {(['low', 'medium', 'high'] as Severity[]).map((sev) => (
-              <TouchableOpacity
-                key={sev}
-                style={[s.pill, severity === sev && s.pillOn]}
-                onPress={() => setSeverity(sev)}
-                activeOpacity={0.8}
-                accessibilityRole="button"
-                accessibilityLabel={`${sev} severity`}
-                accessibilityState={{ selected: severity === sev }}
-              >
-                <Text style={[s.pillTxt, severity === sev && s.pillTxtOn]}>
-                  {sev.charAt(0).toUpperCase() + sev.slice(1)}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
+          {/* Severity and free-text note are hidden while in motion (Req 31.1) —
+              selecting a severity pill is a minor extra tap, but the note field
+              invites exactly the fine-grained typing driver-distraction rules
+              are meant to prevent. */}
+          {!isInMotion && (
+            <>
+              <Text style={s.sectionLabel}>Severity</Text>
+              <View style={s.pills}>
+                {(['low', 'medium', 'high'] as Severity[]).map((sev) => (
+                  <TouchableOpacity
+                    key={sev}
+                    style={[s.pill, severity === sev && s.pillOn]}
+                    onPress={() => setSeverity(sev)}
+                    activeOpacity={0.8}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${sev} severity`}
+                    accessibilityState={{ selected: severity === sev }}
+                  >
+                    <Text style={[s.pillTxt, severity === sev && s.pillTxtOn]}>
+                      {sev.charAt(0).toUpperCase() + sev.slice(1)}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
 
-          {/* Note */}
-          <Text style={s.sectionLabel}>Note (optional)</Text>
-          <TextInput
-            style={s.noteInput}
-            placeholder="Add a note…"
-            placeholderTextColor="#888888"
-            value={note}
-            onChangeText={(t) => setNote(t.slice(0, 100))}
-            maxLength={100}
-            multiline
-            accessibilityLabel="Hazard note"
-          />
+              <Text style={s.sectionLabel}>Note (optional)</Text>
+              <TextInput
+                style={s.noteInput}
+                placeholder="Add a note…"
+                placeholderTextColor="#888888"
+                value={note}
+                onChangeText={(t) => setNote(t.slice(0, 100))}
+                maxLength={100}
+                multiline
+                accessibilityLabel="Hazard note"
+              />
+            </>
+          )}
 
           {/* Location */}
           <Text style={s.sectionLabel}>Your Location</Text>
