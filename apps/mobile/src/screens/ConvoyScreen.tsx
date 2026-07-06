@@ -973,7 +973,7 @@ export default function ConvoyScreen({ userId }: Props) {
           </TouchableOpacity>
           {isAdmin && (
             <TouchableOpacity
-              onPress={() => router.push({ pathname: '/group-settings' as never, params: { groupId: group.id, isAdmin: 'true' } })}
+              onPress={() => { if (!guardInMotion()) router.push({ pathname: '/group-settings' as never, params: { groupId: group.id, isAdmin: 'true' } }); }}
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               accessibilityRole="button"
               accessibilityLabel="Group settings"
