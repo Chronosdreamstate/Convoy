@@ -26,7 +26,7 @@ import { router } from 'expo-router';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { apiClient } from '../services/apiClient';
 import { useGroupStore } from '../stores/groupStore';
-import { useTheme, ThemeColors } from '../theme';
+import { useTheme, ThemeColors, withAlpha } from '../theme';
 
 const VEHICLE_TYPES: Array<{ type: string; label: string; icon: keyof typeof MaterialCommunityIcons.glyphMap }> = [
   { type: 'all', label: 'All types', icon: 'car-multiple' },
@@ -415,7 +415,7 @@ function createStyles(colors: ThemeColors) {
     paddingHorizontal: 14,
   },
   pillHalf: { flex: 1 },
-  pillActive: { backgroundColor: '#1A0005', borderColor: colors.accent },
+  pillActive: { backgroundColor: withAlpha(colors.accent, 0.12), borderColor: colors.accent },
   pillText: { color: colors.textMuted, fontSize: 14 },
   pillTextActive: { color: colors.accent, fontWeight: '600' },
   channelInput: {
@@ -433,7 +433,7 @@ function createStyles(colors: ThemeColors) {
   successHeadline: { color: colors.text, fontSize: 24, fontWeight: '700', marginBottom: 4 },
   successGroupName: { color: colors.textMuted, fontSize: 16, marginBottom: 32 },
   codeCard: {
-    backgroundColor: '#1A0005',
+    backgroundColor: withAlpha(colors.accent, 0.12),
     borderWidth: 1.5,
     borderColor: colors.accent,
     borderRadius: 12,

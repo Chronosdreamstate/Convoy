@@ -52,7 +52,7 @@ function RankCircle({ rank, styles, colors }: { rank: number; styles: Styles; co
   const bg = RANK_COLORS[rank] ?? colors.border;
   return (
     <View style={[styles.rankCircle, { backgroundColor: bg }]}>
-      <Text style={[styles.rankText, rank <= 3 ? { color: '#000' } : { color: '#fff' }]}>
+      <Text style={[styles.rankText, rank <= 3 ? { color: '#000' } : { color: colors.text }]}>
         {rank}
       </Text>
     </View>
