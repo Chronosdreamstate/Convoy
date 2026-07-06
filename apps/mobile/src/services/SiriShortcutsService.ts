@@ -43,7 +43,7 @@ const SHORTCUTS: SiriShortcut[] = [
   },
 ];
 
-// TODO: Implement native ConvoyLiveActivity module in ios/
+// TODO: Implement native ConvoySiriShortcuts module in ios/
 // Required: SiriKit/Intents + NSUserActivity donation
 // See: https://developer.apple.com/documentation/sirikit/shortcut
 
