@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
   RefreshControl,
@@ -11,7 +11,8 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
-import { theme } from '../theme';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { ThemeColors, useTheme } from '../theme';
 import { apiClient } from '../services/apiClient';
 import SkeletonCard from '../components/SkeletonLoader';
 import { useSocketStore } from '../stores/socketStore';
@@ -48,6 +49,17 @@ interface NotificationSection {
   data: NotificationItem[];
 }
 
+type IconSpec =
+  | { family: 'ion'; name: React.ComponentProps<typeof Ionicons>['name'] }
+  | { family: 'mc'; name: React.ComponentProps<typeof MaterialCommunityIcons>['name'] };
+
+function TypeIcon({ icon, color, size }: { icon: IconSpec; color: string; size: number }) {
+  if (icon.family === 'mc') {
+    return <MaterialCommunityIcons name={icon.name} size={size} color={color} />;
+  }
+  return <Ionicons name={icon.name} size={size} color={color} />;
+}
+
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -55,19 +67,24 @@ interface NotificationSection {
 const STORAGE_KEY = 'convoy:notifications';
 const MAX_STORED = 50;
 
-const TYPE_META: Record<NotificationType, { icon: string; bg: string }> = {
-  sos_alert:           { icon: '🆘', bg: '#DC143C' },
-  friend_request:      { icon: '🤝', bg: '#22C55E' },
-  group_invite:        { icon: '🚗', bg: '#3B82F6' },
-  group_event:         { icon: '📅', bg: '#8B5CF6' },
-  convoy_started:      { icon: '🏁', bg: '#DC143C' },
-  event_reminder:      { icon: '📅', bg: '#8B5CF6' },
-  rally_point:         { icon: '📍', bg: '#22C55E' },
-  hazard_alert:        { icon: '⚠️', bg: '#F59E0B' },
-  gap_alert:           { icon: '⚠️', bg: '#F59E0B' },
-  fuel_suggest:        { icon: '⛽', bg: '#F59E0B' },
-  arriving_destination:{ icon: '✅', bg: '#22C55E' },
-};
+// Notification type icon + accent bubble color. Icon colors resolve from the
+// theme so they adapt to light/dark; a couple (group/event purple) have no
+// semantic theme token and stay as fixed accent hex values.
+function buildTypeMeta(colors: ThemeColors): Record<NotificationType, { icon: IconSpec; bg: string }> {
+  return {
+    sos_alert:            { icon: { family: 'ion', name: 'alert-circle' }, bg: colors.accent },
+    friend_request:       { icon: { family: 'ion', name: 'people' }, bg: colors.success },
+    group_invite:         { icon: { family: 'ion', name: 'car' }, bg: colors.info },
+    group_event:          { icon: { family: 'ion', name: 'calendar' }, bg: '#8B5CF6' },
+    convoy_started:       { icon: { family: 'ion', name: 'flag' }, bg: colors.accent },
+    event_reminder:       { icon: { family: 'ion', name: 'calendar' }, bg: '#8B5CF6' },
+    rally_point:          { icon: { family: 'ion', name: 'location' }, bg: colors.success },
+    hazard_alert:         { icon: { family: 'ion', name: 'warning' }, bg: colors.warning },
+    gap_alert:            { icon: { family: 'ion', name: 'warning' }, bg: colors.warning },
+    fuel_suggest:         { icon: { family: 'mc', name: 'gas-station' }, bg: colors.warning },
+    arriving_destination: { icon: { family: 'ion', name: 'checkmark-circle' }, bg: colors.success },
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -132,10 +149,13 @@ async function saveToCache(items: NotificationItem[]): Promise<void> {
 interface RowProps {
   item: NotificationItem;
   onPress: (item: NotificationItem) => void;
+  typeMeta: Record<NotificationType, { icon: IconSpec; bg: string }>;
+  styles: Styles;
+  colors: ThemeColors;
 }
 
-const NotificationRow = React.memo(function NotificationRow({ item, onPress }: RowProps) {
-  const meta = TYPE_META[item.type] ?? { icon: '🔔', bg: theme.colors.card };
+const NotificationRow = React.memo(function NotificationRow({ item, onPress, typeMeta, styles, colors }: RowProps) {
+  const meta = typeMeta[item.type] ?? { icon: { family: 'ion' as const, name: 'notifications' as const }, bg: colors.card };
   const isUnread = item.readAt === null;
   const scaleAnim = useRef(new Animated.Value(1)).current;
 
@@ -160,7 +180,7 @@ const NotificationRow = React.memo(function NotificationRow({ item, onPress }: R
         {isUnread && <View style={styles.unreadStripe} />}
 
         <View style={[styles.iconBubble, { backgroundColor: meta.bg }]}>
-          <Text style={styles.iconText}>{meta.icon}</Text>
+          <TypeIcon icon={meta.icon} color="#FFFFFF" size={20} />
         </View>
 
         <View style={styles.rowContent}>
@@ -181,6 +201,10 @@ const NotificationRow = React.memo(function NotificationRow({ item, onPress }: R
 // ---------------------------------------------------------------------------
 
 export default function NotificationCenterScreen() {
+  const { colors, spacing, radius, hitSlop } = useTheme();
+  const styles = useMemo(() => createStyles(colors, spacing, radius), [colors, spacing, radius]);
+  const typeMeta = useMemo(() => buildTypeMeta(colors), [colors]);
+
   const router = useRouter();
   const { socket } = useSocketStore();
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
@@ -231,7 +255,7 @@ export default function NotificationCenterScreen() {
       ['sos:received', (d) => mergeAndSave([{
         id: `sos-${Date.now()}`,
         type: 'sos_alert',
-        title: `🆘 SOS from ${(d.callsign as string) ?? 'Unknown'}`,
+        title: `SOS from ${(d.callsign as string) ?? 'Unknown'}`,
         body: 'Member sent an emergency alert',
         data: { groupId: d.groupId as string },
         createdAt: new Date().toISOString(),
@@ -240,7 +264,7 @@ export default function NotificationCenterScreen() {
       ['gap:alert', (d) => mergeAndSave([{
         id: `gap-${Date.now()}`,
         type: 'gap_alert',
-        title: `⚠️ ${(d.callsign as string) ?? 'Someone'} fell behind`,
+        title: `${(d.callsign as string) ?? 'Someone'} fell behind`,
         body: `Gap detected in your convoy`,
         data: { groupId: d.groupId as string },
         createdAt: new Date().toISOString(),
@@ -267,7 +291,7 @@ export default function NotificationCenterScreen() {
       ['convoy:started', (d) => mergeAndSave([{
         id: `cs-${Date.now()}`,
         type: 'convoy_started',
-        title: `🏁 Convoy started`,
+        title: `Convoy started`,
         body: `${(d.groupName as string) ?? 'Your group'} is on the move`,
         data: { groupId: d.groupId as string },
         createdAt: new Date().toISOString(),
@@ -335,8 +359,10 @@ export default function NotificationCenterScreen() {
   const sections = buildSections(notifications);
 
   const renderNotificationItem = useCallback(
-    ({ item }: { item: NotificationItem }) => <NotificationRow item={item} onPress={handlePress} />,
-    [handlePress],
+    ({ item }: { item: NotificationItem }) => (
+      <NotificationRow item={item} onPress={handlePress} typeMeta={typeMeta} styles={styles} colors={colors} />
+    ),
+    [handlePress, typeMeta, styles, colors],
   );
 
   return (
@@ -347,9 +373,10 @@ export default function NotificationCenterScreen() {
           onPress={() => router.back()}
           style={styles.backButton}
           accessibilityRole="button"
-          hitSlop={theme.hitSlop}
+          accessibilityLabel="Go back"
+          hitSlop={hitSlop}
         >
-          <Text style={styles.backText}>‹ Back</Text>
+          <Ionicons name="chevron-back" size={22} color={colors.accent} />
         </TouchableOpacity>
 
         <View style={styles.headerCenter}>
@@ -365,7 +392,7 @@ export default function NotificationCenterScreen() {
           <TouchableOpacity
             style={styles.markAllBtn}
             onPress={handleMarkAllRead}
-            hitSlop={theme.hitSlop}
+            hitSlop={hitSlop}
           >
             <Text style={styles.markAllText}>Mark all read</Text>
           </TouchableOpacity>
@@ -391,7 +418,7 @@ export default function NotificationCenterScreen() {
           )}
           ListEmptyComponent={
             <View style={styles.emptyState}>
-              <Text style={styles.emptyEmoji}>🔔</Text>
+              <Ionicons name="notifications-outline" size={48} color={colors.textMuted} />
               <Text style={styles.emptyTitle}>No notifications yet</Text>
               <Text style={styles.emptySubtitle}>You'll see convoy alerts here</Text>
             </View>
@@ -403,8 +430,8 @@ export default function NotificationCenterScreen() {
             <RefreshControl
               refreshing={refreshing}
               onRefresh={handleRefresh}
-              tintColor={theme.colors.accent}
-              colors={[theme.colors.accent]}
+              tintColor={colors.accent}
+              colors={[colors.accent]}
             />
           }
           ItemSeparatorComponent={() => <View style={styles.separator} />}
@@ -418,163 +445,155 @@ export default function NotificationCenterScreen() {
 // Styles
 // ---------------------------------------------------------------------------
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: theme.colors.bg,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: theme.spacing.md,
-    paddingTop: theme.spacing.sm,
-    paddingBottom: theme.spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: theme.colors.border,
-  },
-  backButton: {
-    width: 60,
-  },
-  backText: {
-    color: theme.colors.accent,
-    fontSize: 17,
-    fontWeight: '600',
-  },
-  headerCenter: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  headerTitle: {
-    color: theme.colors.text,
-    fontSize: 17,
-    fontWeight: '700',
-    letterSpacing: 0.3,
-  },
-  unreadBadge: {
-    backgroundColor: theme.colors.accent,
-    borderRadius: theme.radius.pill,
-    minWidth: 20,
-    height: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 6,
-  },
-  unreadBadgeText: {
-    color: '#FFFFFF',
-    fontSize: 11,
-    fontWeight: '800',
-  },
-  markAllBtn: {
-    width: 80,
-    alignItems: 'flex-end',
-  },
-  markAllText: {
-    color: theme.colors.accent,
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  skeletonList: {
-    paddingHorizontal: theme.spacing.md,
-    paddingTop: theme.spacing.sm,
-    gap: theme.spacing.sm,
-  },
-  listContent: {
-    paddingBottom: 40,
-  },
-  emptyContainer: {
-    flex: 1,
-  },
-  emptyState: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingTop: 100,
-    gap: theme.spacing.sm,
-  },
-  emptyEmoji: {
-    fontSize: 52,
-    marginBottom: 8,
-  },
-  emptyTitle: {
-    color: theme.colors.text,
-    fontSize: 18,
-    fontWeight: '700',
-  },
-  emptySubtitle: {
-    color: theme.colors.textMuted,
-    fontSize: 14,
-    textAlign: 'center',
-    paddingHorizontal: 32,
-  },
-  sectionHeader: {
-    paddingHorizontal: theme.spacing.md,
-    paddingTop: 20,
-    paddingBottom: 8,
-  },
-  sectionTitle: {
-    color: theme.colors.textMuted,
-    fontSize: 12,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-  },
-  separator: {
-    height: 1,
-    backgroundColor: theme.colors.border,
-    marginLeft: 72,
-  },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: theme.spacing.md,
-    paddingVertical: 14,
-    gap: theme.spacing.sm,
-  },
-  rowUnread: {
-    backgroundColor: 'rgba(220, 20, 60, 0.05)',
-  },
-  unreadStripe: {
-    position: 'absolute',
-    left: 0,
-    top: 0,
-    bottom: 0,
-    width: 3,
-    backgroundColor: theme.colors.accent,
-    borderRadius: 2,
-  },
-  iconBubble: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexShrink: 0,
-  },
-  iconText: {
-    fontSize: 20,
-  },
-  rowContent: {
-    flex: 1,
-    gap: 3,
-  },
-  rowTitle: {
-    color: theme.colors.text,
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  rowTitleBold: {
-    fontWeight: '700',
-  },
-  rowBody: {
-    color: theme.colors.textMuted,
-    fontSize: 13,
-    lineHeight: 18,
-  },
-  rowTime: {
-    color: theme.colors.textSubtle,
-    fontSize: 12,
-    flexShrink: 0,
-  },
-});
+function createStyles(colors: ThemeColors, spacing: { xs: number; sm: number; md: number; lg: number; xl: number; xxl: number }, radius: { sm: number; md: number; lg: number; xl: number; pill: number }) {
+  return StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: colors.bg,
+    },
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: spacing.md,
+      paddingTop: spacing.sm,
+      paddingBottom: spacing.md,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+    },
+    backButton: {
+      width: 60,
+    },
+    headerCenter: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+    },
+    headerTitle: {
+      color: colors.text,
+      fontSize: 17,
+      fontWeight: '700',
+      letterSpacing: 0.3,
+    },
+    unreadBadge: {
+      backgroundColor: colors.accent,
+      borderRadius: radius.pill,
+      minWidth: 20,
+      height: 20,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: 6,
+    },
+    unreadBadgeText: {
+      color: '#FFFFFF',
+      fontSize: 11,
+      fontWeight: '800',
+    },
+    markAllBtn: {
+      width: 80,
+      alignItems: 'flex-end',
+    },
+    markAllText: {
+      color: colors.accent,
+      fontSize: 13,
+      fontWeight: '600',
+    },
+    skeletonList: {
+      paddingHorizontal: spacing.md,
+      paddingTop: spacing.sm,
+      gap: spacing.sm,
+    },
+    listContent: {
+      paddingBottom: 40,
+    },
+    emptyContainer: {
+      flex: 1,
+    },
+    emptyState: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingTop: 100,
+      gap: spacing.sm,
+    },
+    emptyTitle: {
+      color: colors.text,
+      fontSize: 18,
+      fontWeight: '700',
+    },
+    emptySubtitle: {
+      color: colors.textMuted,
+      fontSize: 14,
+      textAlign: 'center',
+      paddingHorizontal: 32,
+    },
+    sectionHeader: {
+      paddingHorizontal: spacing.md,
+      paddingTop: 20,
+      paddingBottom: 8,
+    },
+    sectionTitle: {
+      color: colors.textMuted,
+      fontSize: 12,
+      fontWeight: '700',
+      textTransform: 'uppercase',
+      letterSpacing: 1,
+    },
+    separator: {
+      height: 1,
+      backgroundColor: colors.border,
+      marginLeft: 72,
+    },
+    row: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: spacing.md,
+      paddingVertical: 14,
+      gap: spacing.sm,
+    },
+    rowUnread: {
+      backgroundColor: 'rgba(220, 20, 60, 0.05)',
+    },
+    unreadStripe: {
+      position: 'absolute',
+      left: 0,
+      top: 0,
+      bottom: 0,
+      width: 3,
+      backgroundColor: colors.accent,
+      borderRadius: 2,
+    },
+    iconBubble: {
+      width: 44,
+      height: 44,
+      borderRadius: 22,
+      alignItems: 'center',
+      justifyContent: 'center',
+      flexShrink: 0,
+    },
+    rowContent: {
+      flex: 1,
+      gap: 3,
+    },
+    rowTitle: {
+      color: colors.text,
+      fontSize: 14,
+      fontWeight: '500',
+    },
+    rowTitleBold: {
+      fontWeight: '700',
+    },
+    rowBody: {
+      color: colors.textMuted,
+      fontSize: 13,
+      lineHeight: 18,
+    },
+    rowTime: {
+      color: colors.textSubtle,
+      fontSize: 12,
+      flexShrink: 0,
+    },
+  });
+}
+
+type Styles = ReturnType<typeof createStyles>;

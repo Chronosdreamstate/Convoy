@@ -5,7 +5,7 @@
  * API: GET /api/v1/groups/{groupId}/leaderboard?metric=distance&limit=20
  */
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   FlatList,
   Image,
@@ -18,9 +18,10 @@ import {
   View,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import { SkeletonRow } from '../components/SkeletonLoader';
 import { apiClient } from '../services/apiClient';
-import { theme } from '../theme';
+import { ThemeColors, useTheme } from '../theme';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -54,6 +55,8 @@ const TABS: { label: string; metric: Metric }[] = [
   { label: 'Time', metric: 'time' },
 ];
 
+// Medal emoji for top-3 ranks are intentional, playful gamification content
+// (same spirit as achievement badges) — not UI chrome, left as emoji.
 const MEDALS: Record<number, string> = { 1: '🥇', 2: '🥈', 3: '🥉' };
 
 const SKELETON_COUNT = 5;
@@ -89,7 +92,7 @@ function getInitials(name: string): string {
 // Sub-components
 // ---------------------------------------------------------------------------
 
-function Avatar({ uri, name }: { uri?: string; name: string }) {
+function Avatar({ uri, name, styles }: { uri?: string; name: string; styles: Styles }) {
   const [failed, setFailed] = useState(false);
 
   if (uri && !failed) {
@@ -112,7 +115,7 @@ function Avatar({ uri, name }: { uri?: string; name: string }) {
   );
 }
 
-function RankBadge({ rank }: { rank: number }) {
+function RankBadge({ rank, styles }: { rank: number; styles: Styles }) {
   const medal = MEDALS[rank];
 
   if (medal) {
@@ -134,17 +137,19 @@ function MemberRow({
   member,
   rank,
   metric,
+  styles,
 }: {
   member: LeaderboardMember;
   rank: number;
   metric: Metric;
+  styles: Styles;
 }) {
   const isFirst = rank === 1;
 
   return (
     <View style={[styles.row, isFirst && styles.rowFirst]}>
-      <RankBadge rank={rank} />
-      <Avatar uri={member.avatarUrl ?? undefined} name={member.displayName} />
+      <RankBadge rank={rank} styles={styles} />
+      <Avatar uri={member.avatarUrl ?? undefined} name={member.displayName} styles={styles} />
       <View style={styles.memberInfo}>
         <Text style={styles.displayName} numberOfLines={1}>
           {member.displayName}
@@ -166,16 +171,18 @@ function MemberRow({
 // Header — extracted for reuse across loading/data states
 // ---------------------------------------------------------------------------
 
-function Header({ onBack }: { onBack: () => void }) {
+function Header({ onBack, styles, colors, hitSlop }: { onBack: () => void; styles: Styles; colors: ThemeColors; hitSlop: { top: number; bottom: number; left: number; right: number } }) {
   return (
     <View style={styles.header}>
       <TouchableOpacity
         onPress={onBack}
-        hitSlop={theme.hitSlop}
+        hitSlop={hitSlop}
+        style={styles.backButton}
         accessibilityRole="button"
         accessibilityLabel="Go back"
       >
-        <Text style={styles.backButton}>‹ Back</Text>
+        <Ionicons name="chevron-back" size={22} color={colors.accent} />
+        <Text style={styles.backButtonText}>Back</Text>
       </TouchableOpacity>
       <Text style={styles.headerTitle}>Leaderboard</Text>
       {/* Phantom view to balance flex layout */}
@@ -191,9 +198,11 @@ function Header({ onBack }: { onBack: () => void }) {
 function MetricTabs({
   active,
   onChange,
+  styles,
 }: {
   active: Metric;
   onChange: (m: Metric) => void;
+  styles: Styles;
 }) {
   return (
     <ScrollView
@@ -227,6 +236,9 @@ function MetricTabs({
 // ---------------------------------------------------------------------------
 
 export default function GroupLeaderboardScreen() {
+  const { colors, spacing, radius, typography, hitSlop } = useTheme();
+  const styles = useMemo(() => createStyles(colors, spacing, radius, typography), [colors, spacing, radius, typography]);
+
   const router = useRouter();
   const params = useLocalSearchParams<{ groupId: string }>();
   const groupId = Array.isArray(params.groupId) ? params.groupId[0] : (params.groupId ?? '');
@@ -276,9 +288,9 @@ export default function GroupLeaderboardScreen() {
 
   const renderMemberItem = useCallback(
     ({ item, index }: { item: LeaderboardMember; index: number }) => (
-      <MemberRow member={item} rank={index + 1} metric={activeMetric} />
+      <MemberRow member={item} rank={index + 1} metric={activeMetric} styles={styles} />
     ),
-    [activeMetric],
+    [activeMetric, styles],
   );
 
   // ------------------------------------------------------------------
@@ -287,8 +299,8 @@ export default function GroupLeaderboardScreen() {
   if (loading) {
     return (
       <SafeAreaView style={styles.container}>
-        <Header onBack={handleBack} />
-        <MetricTabs active={activeMetric} onChange={handleTabChange} />
+        <Header onBack={handleBack} styles={styles} colors={colors} hitSlop={hitSlop} />
+        <MetricTabs active={activeMetric} onChange={handleTabChange} styles={styles} />
         <View style={styles.skeletonList}>
           {Array.from({ length: SKELETON_COUNT }).map((_, i) => (
             <View key={i} style={styles.skeletonWrapper}>
@@ -305,8 +317,8 @@ export default function GroupLeaderboardScreen() {
   // ------------------------------------------------------------------
   return (
     <SafeAreaView style={styles.container}>
-      <Header onBack={handleBack} />
-      <MetricTabs active={activeMetric} onChange={handleTabChange} />
+      <Header onBack={handleBack} styles={styles} colors={colors} hitSlop={hitSlop} />
+      <MetricTabs active={activeMetric} onChange={handleTabChange} styles={styles} />
 
       <FlatList
         data={members}
@@ -318,8 +330,8 @@ export default function GroupLeaderboardScreen() {
           <RefreshControl
             refreshing={refreshing}
             onRefresh={handleRefresh}
-            tintColor={theme.colors.accent}
-            colors={[theme.colors.accent]}
+            tintColor={colors.accent}
+            colors={[colors.accent]}
           />
         }
         ListEmptyComponent={
@@ -342,200 +354,214 @@ export default function GroupLeaderboardScreen() {
 // Styles
 // ---------------------------------------------------------------------------
 
-const styles = StyleSheet.create({
-  // Layout
-  container: {
-    flex: 1,
-    backgroundColor: theme.colors.bg,
-  },
+function createStyles(
+  colors: ThemeColors,
+  spacing: { xs: number; sm: number; md: number; lg: number; xl: number; xxl: number },
+  radius: { sm: number; md: number; lg: number; xl: number; pill: number },
+  typography: Record<string, { fontSize: number; fontWeight: '900' | '700' | '400' | '600'; letterSpacing?: number }>,
+) {
+  return StyleSheet.create({
+    // Layout
+    container: {
+      flex: 1,
+      backgroundColor: colors.bg,
+    },
 
-  // Header
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: theme.spacing.md,
-    paddingTop: theme.spacing.md,
-    paddingBottom: theme.spacing.sm,
-  },
-  backButton: {
-    color: theme.colors.accent,
-    fontSize: 17,
-    fontWeight: '600',
-    minWidth: 60,
-  },
-  headerTitle: {
-    flex: 1,
-    color: theme.colors.text,
-    ...theme.typography.heading,
-    textAlign: 'center',
-  },
-  headerSpacer: {
-    minWidth: 60,
-  },
+    // Header
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: spacing.md,
+      paddingTop: spacing.md,
+      paddingBottom: spacing.sm,
+    },
+    backButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      minWidth: 60,
+    },
+    backButtonText: {
+      color: colors.accent,
+      fontSize: 17,
+      fontWeight: '600',
+      marginLeft: 2,
+    },
+    headerTitle: {
+      flex: 1,
+      color: colors.text,
+      ...typography.heading,
+      textAlign: 'center',
+    },
+    headerSpacer: {
+      minWidth: 60,
+    },
 
-  // Tabs
-  tabsScroll: {
-    flexGrow: 0,
-    marginBottom: theme.spacing.sm,
-  },
-  tabsContent: {
-    paddingHorizontal: theme.spacing.md,
-    gap: theme.spacing.sm,
-    paddingBottom: theme.spacing.sm,
-  },
-  tab: {
-    paddingHorizontal: theme.spacing.md,
-    paddingVertical: theme.spacing.xs + 2,
-    borderRadius: theme.radius.pill,
-    backgroundColor: theme.colors.card,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-  },
-  tabActive: {
-    backgroundColor: theme.colors.accent,
-    borderColor: theme.colors.accent,
-  },
-  tabLabel: {
-    color: theme.colors.textMuted,
-    ...theme.typography.label,
-  },
-  tabLabelActive: {
-    color: theme.colors.text,
-  },
+    // Tabs
+    tabsScroll: {
+      flexGrow: 0,
+      marginBottom: spacing.sm,
+    },
+    tabsContent: {
+      paddingHorizontal: spacing.md,
+      gap: spacing.sm,
+      paddingBottom: spacing.sm,
+    },
+    tab: {
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.xs + 2,
+      borderRadius: radius.pill,
+      backgroundColor: colors.card,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    tabActive: {
+      backgroundColor: colors.accent,
+      borderColor: colors.accent,
+    },
+    tabLabel: {
+      color: colors.textMuted,
+      ...typography.label,
+    },
+    tabLabelActive: {
+      color: colors.text,
+    },
 
-  // List
-  list: {
-    paddingHorizontal: theme.spacing.md,
-    paddingBottom: theme.spacing.xl,
-  },
-  listEmpty: {
-    flex: 1,
-    paddingHorizontal: theme.spacing.md,
-  },
+    // List
+    list: {
+      paddingHorizontal: spacing.md,
+      paddingBottom: spacing.xl,
+    },
+    listEmpty: {
+      flex: 1,
+      paddingHorizontal: spacing.md,
+    },
 
-  // Skeleton
-  skeletonList: {
-    paddingHorizontal: theme.spacing.md,
-    paddingTop: theme.spacing.xs,
-    gap: theme.spacing.sm,
-  },
-  skeletonWrapper: {
-    backgroundColor: theme.colors.card,
-    borderRadius: theme.radius.md,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    paddingVertical: theme.spacing.md,
-    paddingHorizontal: theme.spacing.md,
-  },
+    // Skeleton
+    skeletonList: {
+      paddingHorizontal: spacing.md,
+      paddingTop: spacing.xs,
+      gap: spacing.sm,
+    },
+    skeletonWrapper: {
+      backgroundColor: colors.card,
+      borderRadius: radius.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+      paddingVertical: spacing.md,
+      paddingHorizontal: spacing.md,
+    },
 
-  // Row
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: theme.colors.card,
-    borderRadius: theme.radius.md,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    marginBottom: 10,
-    paddingVertical: 14,
-    paddingHorizontal: theme.spacing.md,
-    gap: theme.spacing.sm,
-    overflow: 'hidden',
-  },
-  rowFirst: {
-    borderLeftColor: theme.colors.accent,
-    borderLeftWidth: 3,
-  },
+    // Row
+    row: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: colors.card,
+      borderRadius: radius.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+      marginBottom: 10,
+      paddingVertical: 14,
+      paddingHorizontal: spacing.md,
+      gap: spacing.sm,
+      overflow: 'hidden',
+    },
+    rowFirst: {
+      borderLeftColor: colors.accent,
+      borderLeftWidth: 3,
+    },
 
-  // Rank badge
-  rankBadge: {
-    width: 36,
-    alignItems: 'center',
-    flexShrink: 0,
-  },
-  rankMedal: {
-    fontSize: 22,
-  },
-  rankCircle: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: theme.colors.border,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  rankNumber: {
-    color: theme.colors.textMuted,
-    fontSize: 12,
-    fontWeight: '700',
-  },
+    // Rank badge
+    rankBadge: {
+      width: 36,
+      alignItems: 'center',
+      flexShrink: 0,
+    },
+    rankMedal: {
+      fontSize: 22,
+    },
+    rankCircle: {
+      width: 28,
+      height: 28,
+      borderRadius: 14,
+      backgroundColor: colors.border,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    rankNumber: {
+      color: colors.textMuted,
+      fontSize: 12,
+      fontWeight: '700',
+    },
 
-  // Avatar
-  avatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    flexShrink: 0,
-  },
-  avatarFallback: {
-    backgroundColor: theme.colors.accentMuted,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  avatarInitials: {
-    color: theme.colors.text,
-    fontSize: 13,
-    fontWeight: '700',
-    letterSpacing: 0.5,
-  },
+    // Avatar
+    avatar: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      flexShrink: 0,
+    },
+    avatarFallback: {
+      backgroundColor: colors.accentMuted,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    avatarInitials: {
+      color: colors.text,
+      fontSize: 13,
+      fontWeight: '700',
+      letterSpacing: 0.5,
+    },
 
-  // Member info
-  memberInfo: {
-    flex: 1,
-    gap: 3,
-  },
-  displayName: {
-    color: theme.colors.text,
-    ...theme.typography.label,
-    fontSize: 15,
-  },
-  callsign: {
-    color: theme.colors.textMuted,
-    ...theme.typography.caption,
-  },
+    // Member info
+    memberInfo: {
+      flex: 1,
+      gap: 3,
+    },
+    displayName: {
+      color: colors.text,
+      ...typography.label,
+      fontSize: 15,
+    },
+    callsign: {
+      color: colors.textMuted,
+      ...typography.caption,
+    },
 
-  // Stat
-  statValue: {
-    color: theme.colors.text,
-    fontSize: 15,
-    fontWeight: '700',
-    flexShrink: 0,
-    textAlign: 'right',
-    maxWidth: 100,
-  },
+    // Stat
+    statValue: {
+      color: colors.text,
+      fontSize: 15,
+      fontWeight: '700',
+      flexShrink: 0,
+      textAlign: 'right',
+      maxWidth: 100,
+    },
 
-  // Empty state
-  emptyState: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingTop: 80,
-    paddingHorizontal: theme.spacing.xl,
-  },
-  emptyEmoji: {
-    fontSize: 64,
-    marginBottom: theme.spacing.md,
-  },
-  emptyTitle: {
-    color: theme.colors.text,
-    ...theme.typography.heading,
-    marginBottom: theme.spacing.sm,
-    textAlign: 'center',
-  },
-  emptySubtitle: {
-    color: theme.colors.textMuted,
-    ...theme.typography.body,
-    textAlign: 'center',
-    lineHeight: 24,
-  },
-});
+    // Empty state
+    emptyState: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingTop: 80,
+      paddingHorizontal: spacing.xl,
+    },
+    emptyEmoji: {
+      fontSize: 64,
+      marginBottom: spacing.md,
+    },
+    emptyTitle: {
+      color: colors.text,
+      ...typography.heading,
+      marginBottom: spacing.sm,
+      textAlign: 'center',
+    },
+    emptySubtitle: {
+      color: colors.textMuted,
+      ...typography.body,
+      textAlign: 'center',
+      lineHeight: 24,
+    },
+  });
+}
+
+type Styles = ReturnType<typeof createStyles>;

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
   FlatList,
@@ -11,7 +11,8 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { theme } from '../theme';
+import { Ionicons } from '@expo/vector-icons';
+import { ThemeColors, useTheme } from '../theme';
 import { apiClient } from '../services/apiClient';
 import { SkeletonBox } from '../components/SkeletonLoader';
 
@@ -33,6 +34,9 @@ interface Achievement {
 // renders if the /api/v1/users/me/achievements call fails (see fetchAchievements
 // below). They must stay at "no progress yet" so a network error can't make up
 // fake accomplishments for the user; real values always come from the API.
+//
+// NOTE: `icon` here is the achievement's collectible badge emoji — intentionally
+// playful content, not UI chrome. Leave these as emoji.
 const ACHIEVEMENTS: Achievement[] = [
   { id: 'first_convoy', icon: '🏁', name: 'First Convoy', desc: 'Complete your first convoy', unlocked: false, progress: 0, total: 1 },
   { id: 'convoy_10', icon: '🎖️', name: 'Road Warrior', desc: 'Complete 10 convoys', unlocked: false, progress: 0, total: 10 },
@@ -57,9 +61,11 @@ const NUM_COLUMNS = 3;
 interface AchievementCardProps {
   item: Achievement;
   onPress: (item: Achievement) => void;
+  styles: Styles;
+  colors: ThemeColors;
 }
 
-function AchievementCard({ item, onPress }: AchievementCardProps) {
+function AchievementCard({ item, onPress, styles, colors }: AchievementCardProps) {
   const isLocked = !item.unlocked;
   return (
     <TouchableOpacity
@@ -72,11 +78,13 @@ function AchievementCard({ item, onPress }: AchievementCardProps) {
       accessibilityRole="button"
       accessibilityLabel={`${item.name} — ${item.unlocked ? 'unlocked' : 'locked'}`}
     >
-      {/* Icon */}
+      {/* Icon — badge emoji is intentional collectible content, left as-is */}
       <View style={styles.iconWrapper}>
         <Text style={styles.iconText}>{item.icon}</Text>
         {isLocked && (
-          <Text style={styles.lockOverlay}>🔒</Text>
+          <View style={styles.lockOverlay}>
+            <Ionicons name="lock-closed" size={12} color={colors.textMuted} />
+          </View>
         )}
       </View>
       {/* Name */}
@@ -91,7 +99,7 @@ function AchievementCard({ item, onPress }: AchievementCardProps) {
 // Progress bar
 // ---------------------------------------------------------------------------
 
-function ProgressBar({ progress, total }: { progress: number; total: number }) {
+function ProgressBar({ progress, total, styles }: { progress: number; total: number; styles: Styles }) {
   const pct = Math.min(progress / total, 1);
   return (
     <View style={styles.progressTrack}>
@@ -107,9 +115,11 @@ function ProgressBar({ progress, total }: { progress: number; total: number }) {
 interface DetailModalProps {
   item: Achievement | null;
   onClose: () => void;
+  styles: Styles;
+  colors: ThemeColors;
 }
 
-function DetailModal({ item, onClose }: DetailModalProps) {
+function DetailModal({ item, onClose, styles, colors }: DetailModalProps) {
   const slideAnim = useRef(new Animated.Value(300)).current;
   const insets = useSafeAreaInsets();
 
@@ -150,10 +160,14 @@ function DetailModal({ item, onClose }: DetailModalProps) {
         {/* Handle */}
         <View style={styles.modalHandle} />
 
-        {/* Icon */}
+        {/* Icon — badge emoji is intentional collectible content, left as-is */}
         <View style={[styles.modalIconWrapper, isLocked && styles.modalIconWrapperLocked]}>
           <Text style={styles.modalIcon}>{item.icon}</Text>
-          {isLocked && <Text style={styles.modalLockBadge}>🔒</Text>}
+          {isLocked && (
+            <View style={styles.modalLockBadge}>
+              <Ionicons name="lock-closed" size={16} color={colors.textMuted} />
+            </View>
+          )}
         </View>
 
         {/* Name */}
@@ -164,8 +178,11 @@ function DetailModal({ item, onClose }: DetailModalProps) {
 
         {/* Status badge */}
         <View style={[styles.statusBadge, item.unlocked ? styles.statusBadgeUnlocked : styles.statusBadgeLocked]}>
+          {item.unlocked && (
+            <Ionicons name="checkmark-circle" size={14} color={colors.success} style={styles.statusBadgeIcon} />
+          )}
           <Text style={[styles.statusBadgeText, item.unlocked ? styles.statusBadgeTextUnlocked : styles.statusBadgeTextLocked]}>
-            {item.unlocked ? '✓ Unlocked' : 'Locked'}
+            {item.unlocked ? 'Unlocked' : 'Locked'}
           </Text>
         </View>
 
@@ -176,7 +193,7 @@ function DetailModal({ item, onClose }: DetailModalProps) {
               <Text style={styles.modalProgressLabel}>Progress</Text>
               <Text style={styles.modalProgressCount}>{item.progress} of {item.total}</Text>
             </View>
-            <ProgressBar progress={item.progress} total={item.total} />
+            <ProgressBar progress={item.progress} total={item.total} styles={styles} />
           </View>
         )}
 
@@ -196,6 +213,9 @@ function DetailModal({ item, onClose }: DetailModalProps) {
 interface AchievementProgress { id: string; unlocked: boolean; progress: number; total: number }
 
 export default function AchievementsScreen() {
+  const { colors, spacing, radius } = useTheme();
+  const styles = useMemo(() => createStyles(colors, spacing, radius), [colors, spacing, radius]);
+
   const [achievements, setAchievements] = useState<Achievement[]>(ACHIEVEMENTS);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -227,8 +247,8 @@ export default function AchievementsScreen() {
   const unlockedCount = achievements.filter((a) => a.unlocked).length;
 
   const renderItem = useCallback(({ item }: { item: Achievement }) => (
-    <AchievementCard item={item} onPress={setSelected} />
-  ), []);
+    <AchievementCard item={item} onPress={setSelected} styles={styles} colors={colors} />
+  ), [styles, colors]);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -261,14 +281,14 @@ export default function AchievementsScreen() {
             <RefreshControl
               refreshing={refreshing}
               onRefresh={handleRefresh}
-              tintColor={theme.colors.accent}
-              colors={[theme.colors.accent]}
+              tintColor={colors.accent}
+              colors={[colors.accent]}
             />
           }
         />
       )}
 
-      <DetailModal item={selected} onClose={() => setSelected(null)} />
+      <DetailModal item={selected} onClose={() => setSelected(null)} styles={styles} colors={colors} />
     </SafeAreaView>
   );
 }
@@ -279,254 +299,265 @@ export default function AchievementsScreen() {
 
 const CARD_SIZE = '30%';
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: theme.colors.bg,
-  },
-  skeletonGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    paddingHorizontal: 12,
-    gap: 10,
-  },
-  skeletonCard: {
-    width: CARD_SIZE,
-    aspectRatio: 0.9,
-    backgroundColor: theme.colors.card,
-    borderRadius: theme.radius.md,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 10,
-  },
+function createStyles(colors: ThemeColors, spacing: { xs: number; sm: number; md: number; lg: number; xl: number; xxl: number }, radius: { sm: number; md: number; lg: number; xl: number; pill: number }) {
+  return StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: colors.bg,
+    },
+    skeletonGrid: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      paddingHorizontal: 12,
+      gap: 10,
+    },
+    skeletonCard: {
+      width: CARD_SIZE,
+      aspectRatio: 0.9,
+      backgroundColor: colors.card,
+      borderRadius: radius.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 10,
+    },
 
-  // Header
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingTop: 12,
-    paddingBottom: 16,
-  },
-  headerTitle: {
-    fontSize: 26,
-    fontWeight: '800',
-    color: theme.colors.text,
-    letterSpacing: -0.5,
-  },
-  headerBadge: {
-    backgroundColor: theme.colors.accent,
-    borderRadius: theme.radius.pill,
-    paddingHorizontal: 12,
-    paddingVertical: 5,
-  },
-  headerBadgeText: {
-    color: theme.colors.text,
-    fontSize: 12,
-    fontWeight: '700',
-  },
+    // Header
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: 20,
+      paddingTop: 12,
+      paddingBottom: 16,
+    },
+    headerTitle: {
+      fontSize: 26,
+      fontWeight: '800',
+      color: colors.text,
+      letterSpacing: -0.5,
+    },
+    headerBadge: {
+      backgroundColor: colors.accent,
+      borderRadius: radius.pill,
+      paddingHorizontal: 12,
+      paddingVertical: 5,
+    },
+    headerBadgeText: {
+      color: colors.text,
+      fontSize: 12,
+      fontWeight: '700',
+    },
 
-  // Grid
-  listContent: {
-    paddingHorizontal: 12,
-    paddingBottom: 32,
-  },
-  row: {
-    justifyContent: 'space-between',
-    marginBottom: 10,
-  },
+    // Grid
+    listContent: {
+      paddingHorizontal: 12,
+      paddingBottom: 32,
+    },
+    row: {
+      justifyContent: 'space-between',
+      marginBottom: 10,
+    },
 
-  // Achievement card
-  card: {
-    width: CARD_SIZE,
-    aspectRatio: 0.9,
-    backgroundColor: theme.colors.card,
-    borderRadius: theme.radius.md,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 6,
-    gap: 6,
-  },
-  cardUnlocked: {
-    borderColor: '#F59E0B',
-    borderWidth: 1,
-  },
-  cardLocked: {
-    opacity: 0.35,
-  },
-  iconWrapper: {
-    position: 'relative',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  iconText: {
-    fontSize: 32,
-  },
-  lockOverlay: {
-    position: 'absolute',
-    fontSize: 14,
-    bottom: -4,
-    right: -4,
-    opacity: 0.5,
-  },
-  cardName: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: theme.colors.text,
-    textAlign: 'center',
-    lineHeight: 14,
-  },
-  cardNameLocked: {
-    color: theme.colors.textMuted,
-  },
+    // Achievement card
+    card: {
+      width: CARD_SIZE,
+      aspectRatio: 0.9,
+      backgroundColor: colors.card,
+      borderRadius: radius.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingVertical: 14,
+      paddingHorizontal: 6,
+      gap: 6,
+    },
+    cardUnlocked: {
+      borderColor: colors.warning,
+      borderWidth: 1,
+    },
+    cardLocked: {
+      opacity: 0.35,
+    },
+    iconWrapper: {
+      position: 'relative',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    iconText: {
+      fontSize: 32,
+    },
+    lockOverlay: {
+      position: 'absolute',
+      bottom: -4,
+      right: -4,
+      backgroundColor: colors.card,
+      borderRadius: 8,
+      padding: 2,
+    },
+    cardName: {
+      fontSize: 11,
+      fontWeight: '600',
+      color: colors.text,
+      textAlign: 'center',
+      lineHeight: 14,
+    },
+    cardNameLocked: {
+      color: colors.textMuted,
+    },
 
-  // Progress bar
-  progressTrack: {
-    width: '100%',
-    height: 4,
-    backgroundColor: theme.colors.border,
-    borderRadius: 2,
-    overflow: 'hidden',
-  },
-  progressFill: {
-    height: '100%',
-    backgroundColor: theme.colors.accent,
-    borderRadius: 2,
-  },
+    // Progress bar
+    progressTrack: {
+      width: '100%',
+      height: 4,
+      backgroundColor: colors.border,
+      borderRadius: 2,
+      overflow: 'hidden',
+    },
+    progressFill: {
+      height: '100%',
+      backgroundColor: colors.accent,
+      borderRadius: 2,
+    },
 
-  // Modal backdrop
-  modalBackdrop: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-  },
+    // Modal backdrop
+    modalBackdrop: {
+      ...StyleSheet.absoluteFillObject,
+      backgroundColor: 'rgba(0,0,0,0.6)',
+    },
 
-  // Bottom sheet
-  modalSheet: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: theme.colors.card,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingHorizontal: 24,
-    paddingTop: 12,
-    alignItems: 'center',
-    borderTopWidth: 1,
-    borderColor: theme.colors.border,
-  },
-  modalHandle: {
-    width: 40,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: theme.colors.border,
-    marginBottom: 20,
-  },
-  modalIconWrapper: {
-    width: 88,
-    height: 88,
-    borderRadius: 20,
-    backgroundColor: theme.colors.cardElevated,
-    borderWidth: 1.5,
-    borderColor: '#F59E0B',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 14,
-    position: 'relative',
-  },
-  modalIconWrapperLocked: {
-    borderColor: theme.colors.border,
-    opacity: 0.5,
-  },
-  modalIcon: {
-    fontSize: 44,
-  },
-  modalLockBadge: {
-    position: 'absolute',
-    bottom: -6,
-    right: -6,
-    fontSize: 18,
-    opacity: 0.7,
-  },
-  modalName: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: theme.colors.text,
-    textAlign: 'center',
-    marginBottom: 6,
-  },
-  modalDesc: {
-    fontSize: 14,
-    color: theme.colors.textMuted,
-    textAlign: 'center',
-    lineHeight: 20,
-    marginBottom: 16,
-  },
-  statusBadge: {
-    borderRadius: theme.radius.pill,
-    paddingHorizontal: 16,
-    paddingVertical: 6,
-    marginBottom: 16,
-  },
-  statusBadgeUnlocked: {
-    backgroundColor: 'rgba(34,197,94,0.15)',
-    borderWidth: 1,
-    borderColor: theme.colors.success,
-  },
-  statusBadgeLocked: {
-    backgroundColor: 'rgba(136,136,136,0.15)',
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-  },
-  statusBadgeText: {
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  statusBadgeTextUnlocked: {
-    color: theme.colors.success,
-  },
-  statusBadgeTextLocked: {
-    color: theme.colors.textMuted,
-  },
-  modalProgressSection: {
-    width: '100%',
-    marginBottom: 16,
-    gap: 8,
-  },
-  modalProgressLabelRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  modalProgressLabel: {
-    fontSize: 13,
-    color: theme.colors.textMuted,
-    fontWeight: '600',
-  },
-  modalProgressCount: {
-    fontSize: 13,
-    color: theme.colors.text,
-    fontWeight: '700',
-  },
-  modalCloseBtn: {
-    width: '100%',
-    backgroundColor: theme.colors.cardElevated,
-    borderRadius: theme.radius.md,
-    paddingVertical: 14,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    marginTop: 4,
-  },
-  modalCloseBtnText: {
-    color: theme.colors.textMuted,
-    fontSize: 15,
-    fontWeight: '600',
-  },
-});
+    // Bottom sheet
+    modalSheet: {
+      position: 'absolute',
+      bottom: 0,
+      left: 0,
+      right: 0,
+      backgroundColor: colors.card,
+      borderTopLeftRadius: 24,
+      borderTopRightRadius: 24,
+      paddingHorizontal: 24,
+      paddingTop: 12,
+      alignItems: 'center',
+      borderTopWidth: 1,
+      borderColor: colors.border,
+    },
+    modalHandle: {
+      width: 40,
+      height: 4,
+      borderRadius: 2,
+      backgroundColor: colors.border,
+      marginBottom: 20,
+    },
+    modalIconWrapper: {
+      width: 88,
+      height: 88,
+      borderRadius: 20,
+      backgroundColor: colors.cardElevated,
+      borderWidth: 1.5,
+      borderColor: colors.warning,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginBottom: 14,
+      position: 'relative',
+    },
+    modalIconWrapperLocked: {
+      borderColor: colors.border,
+      opacity: 0.5,
+    },
+    modalIcon: {
+      fontSize: 44,
+    },
+    modalLockBadge: {
+      position: 'absolute',
+      bottom: -6,
+      right: -6,
+      backgroundColor: colors.cardElevated,
+      borderRadius: 10,
+      padding: 3,
+    },
+    modalName: {
+      fontSize: 20,
+      fontWeight: '700',
+      color: colors.text,
+      textAlign: 'center',
+      marginBottom: 6,
+    },
+    modalDesc: {
+      fontSize: 14,
+      color: colors.textMuted,
+      textAlign: 'center',
+      lineHeight: 20,
+      marginBottom: 16,
+    },
+    statusBadge: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      borderRadius: radius.pill,
+      paddingHorizontal: 16,
+      paddingVertical: 6,
+      marginBottom: 16,
+    },
+    statusBadgeIcon: {
+      marginRight: 6,
+    },
+    statusBadgeUnlocked: {
+      backgroundColor: 'rgba(34,197,94,0.15)',
+      borderWidth: 1,
+      borderColor: colors.success,
+    },
+    statusBadgeLocked: {
+      backgroundColor: 'rgba(136,136,136,0.15)',
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    statusBadgeText: {
+      fontSize: 13,
+      fontWeight: '700',
+    },
+    statusBadgeTextUnlocked: {
+      color: colors.success,
+    },
+    statusBadgeTextLocked: {
+      color: colors.textMuted,
+    },
+    modalProgressSection: {
+      width: '100%',
+      marginBottom: 16,
+      gap: 8,
+    },
+    modalProgressLabelRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+    },
+    modalProgressLabel: {
+      fontSize: 13,
+      color: colors.textMuted,
+      fontWeight: '600',
+    },
+    modalProgressCount: {
+      fontSize: 13,
+      color: colors.text,
+      fontWeight: '700',
+    },
+    modalCloseBtn: {
+      width: '100%',
+      backgroundColor: colors.cardElevated,
+      borderRadius: radius.md,
+      paddingVertical: 14,
+      alignItems: 'center',
+      borderWidth: 1,
+      borderColor: colors.border,
+      marginTop: 4,
+    },
+    modalCloseBtnText: {
+      color: colors.textMuted,
+      fontSize: 15,
+      fontWeight: '600',
+    },
+  });
+}
+
+type Styles = ReturnType<typeof createStyles>;
