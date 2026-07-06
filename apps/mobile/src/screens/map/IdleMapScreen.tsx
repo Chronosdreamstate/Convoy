@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Animated,
@@ -12,10 +12,18 @@ import MapView, { Marker, PROVIDER_DEFAULT } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ExpoLocation from 'expo-location';
 import { useRouter } from 'expo-router';
+import { Socket } from 'socket.io-client';
 import LocationPermissionPrescreen from '../../components/LocationPermissionPrescreen';
 import { apiClient } from '../../services/apiClient';
+import { authService } from '../../services/AuthService';
+import { WebSocketService } from '../../services/WebSocketService';
+import { SosPin, SOS_EMOJI } from '../../services/RallyService';
+import { openMapsDirections } from '../../utils/openMapsDirections';
 import { useAuthStore } from '../../stores/authStore';
 import { useSettingsStore } from '../../stores/settingsStore';
+
+const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
+const SOCKET_URL = API_URL.replace(/^http/, 'ws');
 
 const DEFAULT_REGION = {
   latitude: 37.7749,
@@ -40,11 +48,20 @@ function getGreeting(displayName: string): string {
   return `Good evening, ${firstName} 👋`;
 }
 
+/** "3m ago" / "2h ago" style relative timestamp for a friend's SOS pin. */
+function formatSosTimeAgo(createdAt: string): string {
+  const mins = Math.floor((Date.now() - new Date(createdAt).getTime()) / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  return `${Math.floor(mins / 60)}h ago`;
+}
+
 export default function IdleMapScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const mapRef = useRef<MapView>(null);
   const user = useAuthStore((s) => s.user);
+  const token = useAuthStore((s) => s.token);
   const mapStyle = useSettingsStore((s) => s.mapStyle);
 
   const [initialRegion, setInitialRegion] = useState(DEFAULT_REGION);
@@ -56,10 +73,15 @@ export default function IdleMapScreen() {
   const [speedKph, setSpeedKph] = useState<number | null>(null);
   const [headingDeg, setHeadingDeg] = useState<number>(0);
   const [hudVisible, setHudVisible] = useState(true);
+  // Friends' standalone SOS pins (Req 25.7) — keyed by SOS id, populated via the
+  // personal-room `sos:alert` socket event since there's no active group here.
+  const [friendSosPins, setFriendSosPins] = useState<Map<string, SosPin>>(new Map());
 
   const isSuggestionShown = useRef(false);
   const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const locationSubRef = useRef<ExpoLocation.LocationSubscription | null>(null);
+  const socketRef = useRef<Socket | null>(null);
+  const friendNamesRef = useRef<Record<string, string>>({});
 
   // Animations
   const pulseOpacity = useRef(new Animated.Value(1)).current;
@@ -122,6 +144,75 @@ export default function IdleMapScreen() {
       friction: 10,
     }).start();
   }, [selectedGroup, selectedCardAnim]);
+
+  // Fetch friend display names once so a friend's SOS pin can show "who" rather
+  // than a raw userId (mirrors MapScreen's memberNamesRef fetch for group members).
+  useEffect(() => {
+    if (!token) return;
+    apiClient
+      .get<{ friends: Array<{ userId: string; displayName?: string; callsign?: string | null }> }>('/api/v1/friends')
+      .then((res) => {
+        const names: Record<string, string> = {};
+        for (const f of res.data.friends) {
+          names[f.userId] = f.callsign ?? f.displayName ?? 'A friend';
+        }
+        friendNamesRef.current = names;
+      })
+      .catch(() => {});
+  }, [token]);
+
+  // Personal-room socket connection — there's no active group here, so this is the
+  // only channel a friend's standalone SOS (`POST /sos` → `sos:alert`, broadcast to
+  // `user:<id>`) can reach this screen through. WebSocketService's `auth` is sent
+  // without a groupId, and the server now joins the personal room regardless of
+  // whether the user has an active convoy (see apps/api/src/socket/socket.handler.ts).
+  useEffect(() => {
+    if (!token) return;
+    const wsService = new WebSocketService({
+      url: SOCKET_URL,
+      auth: { token },
+      onAuthError: async () => {
+        const newToken = await authService.refreshToken();
+        if (!newToken) throw new Error('Token refresh failed');
+        return newToken;
+      },
+      onAuthFailed: () => {
+        useAuthStore.getState().signOut();
+      },
+    });
+    const socket = wsService.connect();
+    socketRef.current = socket;
+
+    socket.on('sos:alert', (data: SosPin) => {
+      setFriendSosPins((prev) => new Map(prev).set(data.id, data));
+    });
+    socket.on('sos:cancelled', ({ sosId }: { sosId: string }) => {
+      setFriendSosPins((prev) => {
+        const next = new Map(prev);
+        next.delete(sosId);
+        return next;
+      });
+    });
+
+    return () => {
+      wsService.disconnect();
+      socketRef.current = null;
+    };
+  }, [token]);
+
+  const friendSosPinList = useMemo(() => Array.from(friendSosPins.values()), [friendSosPins]);
+
+  const handleSosPinPress = useCallback((pin: SosPin) => {
+    const name = friendNamesRef.current[pin.userId] ?? 'A friend';
+    Alert.alert(
+      `${SOS_EMOJI[pin.type] ?? '🆘'} ${name} needs help`,
+      `Sent ${formatSosTimeAgo(pin.createdAt)}\n${pin.lat.toFixed(5)}, ${pin.lng.toFixed(5)}`,
+      [
+        { text: 'Dismiss', style: 'cancel' },
+        { text: 'Get Directions', onPress: () => openMapsDirections(pin.lat, pin.lng, `${name}'s SOS`) },
+      ],
+    );
+  }, []);
 
   const clearIdleTimer = () => {
     if (idleTimerRef.current) { clearTimeout(idleTimerRef.current); idleTimerRef.current = null; }
@@ -254,6 +345,21 @@ export default function IdleMapScreen() {
             </Marker>
           ) : null,
         )}
+
+        {/* Friends' standalone SOS pins (Req 25.7) */}
+        {friendSosPinList.map((pin) => (
+          <Marker
+            key={pin.id}
+            coordinate={{ latitude: pin.lat, longitude: pin.lng }}
+            onPress={() => handleSosPinPress(pin)}
+            title={`${friendNamesRef.current[pin.userId] ?? 'A friend'} needs help`}
+            description={`Sent ${formatSosTimeAgo(pin.createdAt)} — tap for directions`}
+          >
+            <View style={styles.sosMarker}>
+              <Text style={styles.sosMarkerText}>{SOS_EMOJI[pin.type] ?? '🆘'}</Text>
+            </View>
+          </Marker>
+        ))}
       </MapView>
 
       <View style={styles.dimOverlay} pointerEvents="none" />
@@ -487,6 +593,26 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 13,
     fontWeight: '700',
+  },
+
+  // Friend SOS pin
+  sosMarker: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#DC143C',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+    shadowColor: '#DC143C',
+    shadowOpacity: 0.7,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 8,
+  },
+  sosMarkerText: {
+    fontSize: 20,
   },
 
   // Greeting pill

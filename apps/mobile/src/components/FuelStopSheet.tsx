@@ -8,15 +8,14 @@ import {
   Animated,
   Dimensions,
   FlatList,
-  Linking,
   Modal,
-  Platform,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
 import { FuelStopService, type FuelStation } from '../services/FuelStopService';
+import { openMapsDirections } from '../utils/openMapsDirections';
 
 // ---------------------------------------------------------------------------
 // Props
@@ -35,22 +34,6 @@ interface Props {
 
 function formatDist(m: number): string {
   return m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${m} m`;
-}
-
-function openMapsDirections(lat: number, lon: number, name: string): void {
-  const encodedName = encodeURIComponent(name);
-  const appleUrl = `maps://maps.apple.com/?daddr=${lat},${lon}&q=${encodedName}`;
-  const googleUrl = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lon}&destination_place_id=${encodedName}`;
-
-  if (Platform.OS === 'ios') {
-    Linking.canOpenURL(appleUrl)
-      .then((supported) =>
-        Linking.openURL(supported ? appleUrl : googleUrl),
-      )
-      .catch(() => Linking.openURL(googleUrl));
-  } else {
-    Linking.openURL(googleUrl).catch(() => {/* no-op */});
-  }
 }
 
 // ---------------------------------------------------------------------------
