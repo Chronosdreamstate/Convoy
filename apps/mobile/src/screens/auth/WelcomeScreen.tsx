@@ -157,6 +157,7 @@ export default function WelcomeScreen() {
           <TouchableOpacity
             style={styles.skipButton}
             onPress={handleSkip}
+            activeOpacity={0.7}
             accessibilityRole="button"
             accessibilityLabel="Skip onboarding"
             hitSlop={theme.hitSlop}
@@ -220,6 +221,7 @@ export default function WelcomeScreen() {
         <TouchableOpacity
           style={styles.ctaButton}
           onPress={handleNext}
+          activeOpacity={0.8}
           accessibilityRole="button"
           accessibilityLabel={isLastSlide ? "Let's Go" : 'Next slide'}
           accessibilityHint={isLastSlide ? 'Opens phone number entry screen' : 'Advances to the next slide'}
@@ -231,6 +233,7 @@ export default function WelcomeScreen() {
         <TouchableOpacity
           style={styles.guestButton}
           onPress={() => router.push('/(tabs)/map')}
+          activeOpacity={0.7}
           accessibilityRole="button"
           accessibilityLabel="Continue as Guest"
           accessibilityHint="View the map without creating an account"
@@ -245,6 +248,7 @@ export default function WelcomeScreen() {
               <Text style={styles.signInHint}>Already have an account? </Text>
               <TouchableOpacity
                 onPress={() => router.push('/(auth)/email')}
+                activeOpacity={0.7}
                 accessibilityRole="button"
                 accessibilityLabel="Sign In"
                 hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
@@ -263,6 +267,7 @@ export default function WelcomeScreen() {
               <TouchableOpacity
                 style={styles.appleButton}
                 onPress={() => { void handleAppleSignIn(); }}
+                activeOpacity={0.8}
                 accessibilityRole="button"
                 accessibilityLabel="Sign in with Apple"
                 accessibilityHint="Signs you in with your Apple ID"
@@ -275,6 +280,7 @@ export default function WelcomeScreen() {
             <TouchableOpacity
               style={[styles.googleButton, Platform.OS === 'ios' && styles.googleButtonAfterApple]}
               onPress={() => { void handleGoogleSignIn(); }}
+              activeOpacity={0.8}
               accessibilityRole="button"
               accessibilityLabel="Sign in with Google"
               accessibilityHint="Signs you in with your Google account"
@@ -288,6 +294,7 @@ export default function WelcomeScreen() {
               <View style={styles.legalLinks}>
                 <TouchableOpacity
                   onPress={() => handleOpenUrl(TERMS_URL)}
+                  activeOpacity={0.6}
                   accessibilityRole="link"
                   accessibilityLabel="Terms of Service"
                   hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
@@ -297,6 +304,7 @@ export default function WelcomeScreen() {
                 <Text style={styles.legalText}> and </Text>
                 <TouchableOpacity
                   onPress={() => handleOpenUrl(PRIVACY_POLICY_URL)}
+                  activeOpacity={0.6}
                   accessibilityRole="link"
                   accessibilityLabel="Privacy Policy"
                   hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}

@@ -145,6 +145,7 @@ export default function EmailScreen() {
           <TouchableOpacity
             style={styles.backBtn}
             onPress={() => router.back()}
+            activeOpacity={0.7}
             accessibilityRole="button"
             accessibilityLabel="Go back"
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
@@ -218,6 +219,7 @@ export default function EmailScreen() {
                 <TouchableOpacity
                   style={styles.eyeBtn}
                   onPress={() => setShowPassword((v) => !v)}
+                  activeOpacity={0.7}
                   accessibilityRole="button"
                   accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
                   hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
@@ -237,6 +239,7 @@ export default function EmailScreen() {
                 style={[styles.button, isSubmitDisabled && styles.buttonDisabled]}
                 onPress={handleSubmit}
                 disabled={isSubmitDisabled}
+                activeOpacity={0.8}
                 accessibilityRole="button"
                 accessibilityLabel={mode === 'signin' ? 'Sign In' : 'Sign Up'}
                 accessibilityState={{ disabled: isSubmitDisabled }}
@@ -254,6 +257,7 @@ export default function EmailScreen() {
                 </Text>
                 <TouchableOpacity
                   onPress={toggleMode}
+                  activeOpacity={0.7}
                   accessibilityRole="button"
                   accessibilityLabel={mode === 'signin' ? 'Switch to Sign Up' : 'Switch to Sign In'}
                 >

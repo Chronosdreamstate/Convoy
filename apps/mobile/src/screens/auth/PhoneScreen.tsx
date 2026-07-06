@@ -93,6 +93,7 @@ export default function PhoneScreen() {
           <TouchableOpacity
             style={styles.backBtn}
             onPress={() => router.back()}
+            activeOpacity={0.7}
             accessibilityRole="button"
             accessibilityLabel="Go back"
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
@@ -115,6 +116,7 @@ export default function PhoneScreen() {
               <TouchableOpacity
                 style={styles.countryPicker}
                 onPress={() => setShowPicker(true)}
+                activeOpacity={0.7}
                 accessibilityRole="button"
                 accessibilityLabel={`Country: ${country.label}, dial code ${country.dial}`}
               >
@@ -147,6 +149,7 @@ export default function PhoneScreen() {
               style={[styles.button, (isLoading || digits.length < 10) && styles.buttonDisabled]}
               onPress={() => { void handleSendOtp(); }}
               disabled={isLoading || digits.length < 10}
+              activeOpacity={0.8}
               accessibilityRole="button"
               accessibilityLabel="Continue"
               accessibilityHint="Sends a one-time code to your phone"
@@ -183,6 +186,7 @@ export default function PhoneScreen() {
                 key={c.code}
                 style={[styles.countryRow, country.code === c.code && styles.countryRowSelected]}
                 onPress={() => selectCountry(c)}
+                activeOpacity={0.7}
                 accessibilityRole="radio"
                 accessibilityState={{ checked: country.code === c.code }}
                 accessibilityLabel={`${c.label}, ${c.dial}`}
