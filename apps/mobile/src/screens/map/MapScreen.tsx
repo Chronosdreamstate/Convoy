@@ -416,6 +416,9 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
   const memberCountRef  = useRef(0);
   const wsServiceRef    = useRef<WebSocketService | null>(null);
   const lastRecvRef     = useRef<Record<string, number>>({}); // throttle incoming per-userId to 800ms
+  // Set once the first GPS-fix-triggered hazard/rally backfill has fired, so the
+  // location callback (which runs on every GPS tick) doesn't refetch repeatedly.
+  const initialBackfillDoneRef = useRef(false);
 
   // Auto-center: fit map to all convoy members; user tap disables
   const [autoCenterAll, setAutoCenterAll] = useState(true);
@@ -625,6 +628,14 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
       driveServiceRef.current.addPoint(lat, lng, speedKph);
       wsServiceRef.current?.emitLocation({ lat, lng, heading, speed_kph: speedKph, ts });
 
+      // First GPS fix after mount — backfill hazards/rally now that we have a
+      // location to query hazards by proximity (rally backfill doesn't need it,
+      // but both are fetched together; see fetchActiveHazardsAndRally).
+      if (!initialBackfillDoneRef.current) {
+        initialBackfillDoneRef.current = true;
+        void fetchActiveHazardsAndRallyRef.current();
+      }
+
       // Req 23.1, 23.2: refresh the HUD to the speed limit of whichever route
       // segment is nearest the driver's current position, so it tracks live
       // progress along the route instead of showing one static value forever.
@@ -732,6 +743,64 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
     });
   }, [groupId]);
 
+  // Backfills active hazards + the group's active rally point — both were previously
+  // ONLY ever delivered via live socket push (`hazard:new`/`hazard:nearby`, `rally:set`),
+  // so a Member who joins late, or whose app reconnects after being backgrounded/killed,
+  // never saw already-active state. Called on mount (once a GPS fix + groupId are
+  // available) and whenever the socket reconnects. Best-effort: failures are silent,
+  // since the live socket push remains the primary delivery path.
+  const fetchActiveHazardsAndRally = useCallback(async () => {
+    const loc = myLocationRef.current;
+    if (loc) {
+      try {
+        const res = await apiClient.get<{
+          hazards: Array<{
+            id: string; type: string; lat: number; lng: number;
+            confirmationCount: number; dismissalCount: number; createdAt: string;
+          }>;
+        }>('/api/v1/hazards', { params: { lat: loc.lat, lng: loc.lng, radius: 20_000 } });
+        setHazardPins((prev) => {
+          const m = new Map(prev);
+          for (const h of res.data.hazards) {
+            m.set(h.id, {
+              id: h.id,
+              type: h.type,
+              lat: h.lat,
+              lng: h.lng,
+              thumbsUp: h.confirmationCount,
+              thumbsDown: h.dismissalCount,
+              reportedAt: new Date(h.createdAt).getTime(),
+            });
+          }
+          return m;
+        });
+      } catch { /* best-effort — live socket push remains primary delivery */ }
+    }
+
+    if (groupId) {
+      try {
+        const rp = await rallyService.getActiveRally(groupId);
+        if (rp) setRallyPoints((prev) => new Map(prev).set(rp.id, rp));
+      } catch { /* best-effort */ }
+    }
+  }, [groupId]);
+
+  // Ref mirror of fetchActiveHazardsAndRally so the mount-only LocationService
+  // callback (deps: []) below always calls the current closure (current groupId)
+  // rather than one captured on the first render — same pattern as mySosIdRef.
+  const fetchActiveHazardsAndRallyRef = useRef(fetchActiveHazardsAndRally);
+  useEffect(() => { fetchActiveHazardsAndRallyRef.current = fetchActiveHazardsAndRally; }, [fetchActiveHazardsAndRally]);
+
+  // Rally backfill doesn't need a GPS fix, so fetch it as soon as groupId is known —
+  // a late-joining Member shouldn't have to wait for their first location update to
+  // see the group's active rally point. (Hazard backfill happens separately, gated on
+  // the first GPS fix in the LocationService callback above, since GET /hazards is
+  // proximity-scoped by lat/lng.)
+  useEffect(() => {
+    if (!groupId) return;
+    void fetchActiveHazardsAndRally();
+  }, [groupId, fetchActiveHazardsAndRally]);
+
   // Traffic refresh — re-calculate active route every 60 s (Req 6.3)
   useEffect(() => {
     if (routeCoords.length === 0) return;
@@ -817,6 +886,10 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
       setIsOnline(true);
       clearStalePositions();
       void flushOfflineHazards();
+      // Backfill hazards/rally on every (re)connect — covers a Member who was
+      // disconnected while a rally point/hazard was broadcast and therefore
+      // missed the live `rally:set`/`hazard:new`/`hazard:nearby` push.
+      void fetchActiveHazardsAndRallyRef.current();
       void LiveActivityService.startActivity({
         groupName: groupId,
         memberCount: 1,

@@ -115,6 +115,18 @@ class RallyService {
     await apiClient.delete(`/api/v1/groups/${groupId}/rally/${rallyId}`);
   }
 
+  /**
+   * Fetches the currently-active rally point for the group, or null if none.
+   * Used to backfill state on mount/reconnect for Members who missed the
+   * live `rally:set` socket broadcast (late join, background/kill, reconnect).
+   */
+  async getActiveRally(groupId: string): Promise<RallyPoint | null> {
+    const res = await apiClient.get<{ rallyPoint: RallyPoint | null }>(
+      `/api/v1/groups/${groupId}/rally/active`,
+    );
+    return res.data.rallyPoint;
+  }
+
   /** Broadcast an SOS pin to the active group (Req 25.1–25.3). */
   async broadcastGroupSos(
     groupId: string,

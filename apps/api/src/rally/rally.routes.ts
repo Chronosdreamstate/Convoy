@@ -200,6 +200,54 @@ const rallyRoutes: FastifyPluginAsync = async (fastify) => {
     },
   );
 
+  // ── GET /groups/:id/rally/active ──────────────────────────────────────────
+  // Backfills the currently-active rally point for members who join late or
+  // reconnect after being backgrounded/killed — previously rally points were
+  // ONLY ever delivered via the live `rally:set` socket push, so a Member who
+  // missed that broadcast had no way to learn one was active (Req 20.1, 20.3).
+  // Must be registered before /groups/:id/rally/:rallyId so "active" doesn't
+  // get captured as a :rallyId param — Fastify's static-segment routing
+  // handles this correctly regardless of declaration order, but the comment
+  // documents the intent for future routes added here.
+  fastify.get<{ Params: { id: string } }>(
+    '/groups/:id/rally/active',
+    { preHandler: [authenticate, generalLimiter(fastify.redis)] },
+    async (request, reply) => {
+      const userId = (request.user as { sub: string }).sub;
+      const groupId = request.params.id;
+
+      // Must be an active group member to view group state (mirrors POST's check).
+      const memberResult = await fastify.db.query<{ id: string }>(
+        `SELECT cm.id
+         FROM convoy_members cm
+         WHERE cm.group_id = $1 AND cm.user_id = $2 AND cm.left_at IS NULL`,
+        [groupId, userId],
+      );
+      if (memberResult.rows.length === 0) {
+        return reply.status(403).send({ error: 'Not an active group member' });
+      }
+
+      // At most one rally point is active per group at a time (broadcast-and-cancel
+      // model — POST cancels nothing explicitly, but the client only ever shows one
+      // active rally and idx_rally_points_active is a partial unique-intent index),
+      // so the newest active row is the current one.
+      const result = await fastify.db.query<RawRallyRow>(
+        `SELECT
+           rp.id, rp.broadcaster_id, rp.address, rp.is_active, rp.created_at, rp.type,
+           ST_Y(rp.location::geometry) AS lat,
+           ST_X(rp.location::geometry) AS lng
+         FROM rally_points rp
+         WHERE rp.group_id = $1 AND rp.is_active = true
+         ORDER BY rp.created_at DESC
+         LIMIT 1`,
+        [groupId],
+      );
+
+      const row = result.rows[0];
+      return reply.status(200).send({ rallyPoint: row ? serializeRallyRow(row) : null });
+    },
+  );
+
   // ── DELETE /groups/:id/rally/:rallyId ─────────────────────────────────────
   fastify.delete<{ Params: { id: string; rallyId: string } }>(
     '/groups/:id/rally/:rallyId',
