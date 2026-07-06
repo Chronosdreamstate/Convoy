@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -11,6 +11,8 @@ import {
   Switch,
   Share,
   Linking,
+  Animated,
+  RefreshControl,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -26,9 +28,6 @@ import { useTheme } from '../../theme';
 
 type Theme = ReturnType<typeof useTheme>;
 type IoniconName = keyof typeof Ionicons.glyphMap;
-
-const PRIVACY_POLICY_URL = 'https://convoy.app/privacy';
-const TERMS_URL = 'https://convoy.app/terms';
 
 interface Settings {
   hazardAlertDistanceM: number;
@@ -101,13 +100,14 @@ interface SettingRowProps {
   onPress?: () => void;
   danger?: boolean;
   last?: boolean;
+  disabled?: boolean;
 }
 
-function SettingRow({ icon, label, subtitle, rightSlot, onPress, danger, last }: SettingRowProps) {
+function SettingRow({ icon, label, subtitle, rightSlot, onPress, danger, last, disabled }: SettingRowProps) {
   const theme = useTheme();
   const styles = useMemo(() => createStyles(theme), [theme]);
   const Inner = (
-    <View style={[styles.settingRow, last && styles.settingRowLast]}>
+    <View style={[styles.settingRow, last && styles.settingRowLast, disabled && styles.settingRowDisabled]}>
       <View style={styles.settingIcon}>
         <Ionicons name={icon} size={17} color={danger ? theme.colors.accent : theme.colors.textMuted} />
       </View>
@@ -123,7 +123,13 @@ function SettingRow({ icon, label, subtitle, rightSlot, onPress, danger, last }:
 
   if (onPress) {
     return (
-      <TouchableOpacity onPress={onPress} accessibilityRole="button" accessibilityLabel={label}>
+      <TouchableOpacity
+        onPress={onPress}
+        disabled={disabled}
+        accessibilityRole="button"
+        accessibilityLabel={label}
+        accessibilityState={{ disabled: !!disabled }}
+      >
         {Inner}
       </TouchableOpacity>
     );
@@ -188,18 +194,31 @@ export default function SettingsScreen() {
   const storedThemeMode = useSettingsStore((s) => s.themeMode);
   const [, setSettings] = useState<Settings | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isDirty, setIsDirty] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [isExportingData, setIsExportingData] = useState(false);
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false);
+  const [isSigningOut, setIsSigningOut] = useState(false);
   const saveSuccessTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const saveSuccessAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     return () => {
       if (saveSuccessTimer.current) clearTimeout(saveSuccessTimer.current);
     };
   }, []);
+
+  useEffect(() => {
+    if (saveSuccess) {
+      Animated.timing(saveSuccessAnim, { toValue: 1, duration: 200, useNativeDriver: true }).start();
+    } else {
+      Animated.timing(saveSuccessAnim, { toValue: 0, duration: 250, useNativeDriver: true }).start();
+    }
+  }, [saveSuccess, saveSuccessAnim]);
 
   // Local editable copies
   const [mapStyle, setMapStyle] = useState<Settings['mapStyle']>('standard');
@@ -220,8 +239,8 @@ export default function SettingsScreen() {
     loadSettings();
   }, []);
 
-  const loadSettings = async () => {
-    setIsLoading(true);
+  const loadSettings = async (opts?: { silent?: boolean }) => {
+    if (!opts?.silent) setIsLoading(true);
     setError(null);
     try {
       const response = await apiClient.get<Settings>('/api/v1/settings');
@@ -239,7 +258,15 @@ export default function SettingsScreen() {
       setError('Failed to load settings. Please try again.');
     } finally {
       setIsLoading(false);
+      setIsRefreshing(false);
     }
+  };
+
+  // Pull-to-refresh — also doubles as the retry action for the "Failed to
+  // load settings" error banner, since that copy promises a way to try again.
+  const handleRefresh = () => {
+    setIsRefreshing(true);
+    void loadSettings({ silent: true });
   };
 
   const applySettings = (s: Settings) => {
@@ -293,6 +320,8 @@ export default function SettingsScreen() {
   };
 
   const handleExportData = async () => {
+    if (isExportingData) return;
+    setIsExportingData(true);
     try {
       const res = await apiClient.get('/api/v1/account/export');
       const json = JSON.stringify(res.data, null, 2);
@@ -311,10 +340,13 @@ export default function SettingsScreen() {
       }
     } catch {
       Alert.alert('Error', 'Failed to export data. Please try again.');
+    } finally {
+      setIsExportingData(false);
     }
   };
 
   const handleDeleteAccount = async () => {
+    if (isDeletingAccount) return;
     Alert.alert(
       'Delete Account',
       'This permanently deletes your account and all data. This cannot be undone.',
@@ -324,11 +356,13 @@ export default function SettingsScreen() {
           text: 'Delete',
           style: 'destructive',
           onPress: async () => {
+            setIsDeletingAccount(true);
             try {
               await apiClient.delete('/api/v1/account');
               await authService.signOut();
             } catch {
               Alert.alert('Error', 'Failed to delete account. Please try again.');
+              setIsDeletingAccount(false);
             }
           },
         },
@@ -371,17 +405,20 @@ export default function SettingsScreen() {
   };
 
   const handleSignOut = async () => {
+    if (isSigningOut) return;
     Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Sign Out',
         style: 'destructive',
         onPress: async () => {
+          setIsSigningOut(true);
           try {
             await authService.signOut();
             router.replace('/(auth)/welcome');
           } catch {
             Alert.alert('Error', 'Failed to sign out. Please try again.');
+            setIsSigningOut(false);
           }
         },
       },
@@ -409,11 +446,35 @@ export default function SettingsScreen() {
       <ScrollView
         contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={handleRefresh}
+            tintColor={theme.colors.accent}
+            colors={[theme.colors.accent]}
+          />
+        }
       >
         <Text style={styles.title}>Settings</Text>
 
-        {error ? <Text style={styles.errorText}>{error}</Text> : null}
-        {saveSuccess ? <Text style={styles.successText}>Settings saved.</Text> : null}
+        {error ? (
+          <View style={styles.errorRow}>
+            <Text style={styles.errorText}>{error}</Text>
+            <TouchableOpacity
+              onPress={handleRefresh}
+              accessibilityRole="button"
+              accessibilityLabel="Retry"
+              hitSlop={theme.hitSlop}
+            >
+              <Text style={styles.retryText}>Retry</Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
+        {saveSuccess ? (
+          <Animated.Text style={[styles.successText, { opacity: saveSuccessAnim }]}>
+            Settings saved.
+          </Animated.Text>
+        ) : null}
 
         {/* ── ACCOUNT ─────────────────────────────────────────────────────── */}
         <SectionHeader title="ACCOUNT" />
@@ -434,6 +495,8 @@ export default function SettingsScreen() {
             label="Export My Data"
             subtitle="Receive a copy of your data"
             onPress={handleExportData}
+            disabled={isExportingData}
+            rightSlot={isExportingData ? <ActivityIndicator color={theme.colors.accent} size="small" /> : undefined}
           />
           <SettingRow
             icon="lock-closed-outline"
@@ -510,8 +573,11 @@ export default function SettingsScreen() {
           />
         </View>
 
-        {/* ── NEARBY ──────────────────────────────────────────────────────── */}
-        <SectionHeader title="NEARBY" />
+        {/* ── PRIVACY & VISIBILITY ────────────────────────────────────────── */}
+        {/* Everything that controls who can see or contact you lives in one
+            place — previously split across three separate sections (Nearby,
+            Privacy, Location Sharing) scattered around the screen. */}
+        <SectionHeader title="PRIVACY & VISIBILITY" />
         <View style={styles.sectionCard}>
           <SettingRow
             icon="radio-outline"
@@ -540,6 +606,55 @@ export default function SettingsScreen() {
                 accessibilityLabel="Visible to nearby drivers toggle"
               />
             }
+          />
+          <SettingRow
+            icon="location-outline"
+            label="Share My Location"
+            subtitle="Friends can see your live location when this is on"
+            rightSlot={
+              <Switch
+                value={shareLocationWithFriends}
+                // Applied instantly (not gated behind Save) — this controls
+                // whether friends can see live location. "Off" must take
+                // effect the moment it's toggled, matching the Visible-to-
+                // Nearby setting's instant-apply behavior above, not whenever
+                // the user next remembers to tap Save Settings.
+                onValueChange={async (v) => {
+                  const prev = shareLocationWithFriends;
+                  setShareLocationWithFriends(v);
+                  try {
+                    const response = await apiClient.patch<Settings>('/api/v1/settings', { shareLocationWithFriends: v });
+                    setSettings(response.data);
+                    setGlobalSettings({ shareLocationWithFriends: response.data.shareLocationWithFriends ?? v });
+                  } catch {
+                    setShareLocationWithFriends(prev);
+                    setError('Failed to update location sharing. Please try again.');
+                  }
+                }}
+                trackColor={{ false: theme.colors.border, true: theme.colors.accent }}
+                thumbColor={theme.colors.text}
+                accessibilityLabel="Share my location with friends toggle"
+              />
+            }
+          />
+          {shareLocationWithFriends ? (
+            <View style={styles.shareLocationBanner}>
+              <Text style={styles.shareLocationBannerText}>
+                Your live location is currently visible to friends
+              </Text>
+            </View>
+          ) : null}
+          <SettingRow
+            icon="eye-outline"
+            label="Friend Request Privacy"
+            subtitle="Choose who can send you friend requests"
+            onPress={() => router.push('/(tabs)/profile')}
+          />
+          <SettingRow
+            icon="ban-outline"
+            label="Blocked Users"
+            subtitle="View and unblock users you've blocked"
+            onPress={() => router.push('/blocked-users' as any)}
             last
           />
         </View>
@@ -565,8 +680,11 @@ export default function SettingsScreen() {
           </View>
         </View>
 
-        {/* ── MAP ─────────────────────────────────────────────────────────── */}
-        <SectionHeader title="MAP" />
+        {/* ── MAP & NAVIGATION ────────────────────────────────────────────── */}
+        {/* Map rendering, routing, hazard alerts, and offline caching are all
+            wayfinding settings — merged from three previously separate
+            single-item sections (Map, Navigation, Offline) for scanability. */}
+        <SectionHeader title="MAP & NAVIGATION" />
         <View style={styles.sectionCard}>
           <SettingRow
             icon="map-outline"
@@ -607,24 +725,31 @@ export default function SettingsScreen() {
                 accessibilityLabel="Scenic routing toggle"
               />
             }
-            last
           />
-        </View>
-
-        {/* ── NAVIGATION ──────────────────────────────────────────────────── */}
-        <SectionHeader title="NAVIGATION" />
-        <View style={styles.sectionCard}>
           <SettingRow
             icon="warning-outline"
             label="Hazard Alert Distance"
             subtitle={`Alert within ${(hazardDistM * MILES_PER_METRE).toFixed(2)} miles`}
             last
           />
-          <View style={styles.chipContainer}>
+          <View style={[styles.chipContainer, styles.chipContainerDivider]}>
             <ChipSelector
               options={HAZARD_DISTANCES.map((d) => ({ label: d.label, value: d.metres }))}
               selected={hazardDistM}
               onSelect={(v) => { setHazardDistM(v); mark(); }}
+            />
+          </View>
+          <SettingRow
+            icon="save-outline"
+            label="Map Cache Size"
+            subtitle={`${cacheMb} MB stored for offline use`}
+            last
+          />
+          <View style={styles.chipContainer}>
+            <ChipSelector
+              options={CACHE_SIZES.map((c) => ({ label: c.label, value: c.mb }))}
+              selected={cacheMb}
+              onSelect={(v) => { setCacheMb(v); mark(); }}
             />
           </View>
         </View>
@@ -647,24 +772,6 @@ export default function SettingsScreen() {
           </View>
         </View>
 
-        {/* ── OFFLINE ─────────────────────────────────────────────────────── */}
-        <SectionHeader title="OFFLINE" />
-        <View style={styles.sectionCard}>
-          <SettingRow
-            icon="save-outline"
-            label="Map Cache Size"
-            subtitle={`${cacheMb} MB stored for offline use`}
-            last
-          />
-          <View style={styles.chipContainer}>
-            <ChipSelector
-              options={CACHE_SIZES.map((c) => ({ label: c.label, value: c.mb }))}
-              selected={cacheMb}
-              onSelect={(v) => { setCacheMb(v); mark(); }}
-            />
-          </View>
-        </View>
-
         {/* ── CARPLAY ─────────────────────────────────────────────────────── */}
         <SectionHeader title="CARPLAY" />
         <View style={styles.sectionCard}>
@@ -680,67 +787,6 @@ export default function SettingsScreen() {
             onPress={() => { void SiriShortcutsService.donateAll(); }}
             last
           />
-        </View>
-
-        {/* ── PRIVACY ─────────────────────────────────────────────────────── */}
-        <SectionHeader title="PRIVACY" />
-        <View style={styles.sectionCard}>
-          <SettingRow
-            icon="eye-outline"
-            label="Friend Request Privacy"
-            subtitle="Choose who can send you friend requests"
-            onPress={() => router.push('/(tabs)/profile')}
-          />
-          <SettingRow
-            icon="ban-outline"
-            label="Blocked Users"
-            subtitle="View and unblock users you've blocked"
-            onPress={() => router.push('/blocked-users' as any)}
-            last
-          />
-        </View>
-
-        {/* ── LOCATION SHARING ────────────────────────────────────────────── */}
-        <SectionHeader title="LOCATION SHARING" />
-        <View style={styles.sectionCard}>
-          <SettingRow
-            icon="location-outline"
-            label="Share My Location"
-            subtitle="Friends can see your live location when this is on"
-            rightSlot={
-              <Switch
-                value={shareLocationWithFriends}
-                // Applied instantly (not gated behind Save) — this controls
-                // whether friends can see live location. "Off" must take
-                // effect the moment it's toggled, matching the Theme and
-                // Visible-to-Nearby settings' instant-apply behavior, not
-                // whenever the user next remembers to tap Save Settings.
-                onValueChange={async (v) => {
-                  const prev = shareLocationWithFriends;
-                  setShareLocationWithFriends(v);
-                  try {
-                    const response = await apiClient.patch<Settings>('/api/v1/settings', { shareLocationWithFriends: v });
-                    setSettings(response.data);
-                    setGlobalSettings({ shareLocationWithFriends: response.data.shareLocationWithFriends ?? v });
-                  } catch {
-                    setShareLocationWithFriends(prev);
-                    setError('Failed to update location sharing. Please try again.');
-                  }
-                }}
-                trackColor={{ false: theme.colors.border, true: theme.colors.accent }}
-                thumbColor={theme.colors.text}
-                accessibilityLabel="Share my location with friends toggle"
-              />
-            }
-            last
-          />
-          {shareLocationWithFriends ? (
-            <View style={styles.shareLocationBanner}>
-              <Text style={styles.shareLocationBannerText}>
-                Your live location is currently visible to friends
-              </Text>
-            </View>
-          ) : null}
         </View>
 
         {/* ── ABOUT ───────────────────────────────────────────────────────── */}
@@ -776,16 +822,6 @@ export default function SettingsScreen() {
             onPress={() => Linking.openURL('mailto:support@convoy.app?subject=Support%20Request').catch(() => {})}
           />
           <SettingRow
-            icon="lock-closed-outline"
-            label="Privacy Policy"
-            onPress={() => Linking.openURL(PRIVACY_POLICY_URL).catch(() => {})}
-          />
-          <SettingRow
-            icon="document-text-outline"
-            label="Terms of Service"
-            onPress={() => Linking.openURL(TERMS_URL).catch(() => {})}
-          />
-          <SettingRow
             icon="information-circle-outline"
             label="Version"
             subtitle={`CORTEGE v${APP_VERSION}`}
@@ -802,6 +838,8 @@ export default function SettingsScreen() {
             label="Delete Account"
             subtitle="Permanently remove your account and data"
             onPress={handleDeleteAccount}
+            disabled={isDeletingAccount}
+            rightSlot={isDeletingAccount ? <ActivityIndicator color={theme.colors.accent} size="small" /> : undefined}
             danger
             last
           />
@@ -826,12 +864,18 @@ export default function SettingsScreen() {
         {/* Sign out — separated from save by a spacer */}
         <View style={styles.signOutSpacer} />
         <TouchableOpacity
-          style={styles.signOutButton}
+          style={[styles.signOutButton, isSigningOut && styles.saveButtonDisabled]}
           onPress={() => { void handleSignOut(); }}
+          disabled={isSigningOut}
           accessibilityRole="button"
           accessibilityLabel="Sign out"
+          accessibilityState={{ disabled: isSigningOut }}
         >
-          <Text style={styles.signOutButtonText}>Sign Out</Text>
+          {isSigningOut ? (
+            <ActivityIndicator color={theme.colors.accent} size="small" />
+          ) : (
+            <Text style={styles.signOutButtonText}>Sign Out</Text>
+          )}
         </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>
@@ -860,10 +904,23 @@ function createStyles(theme: Theme) {
     color: theme.colors.text,
     marginBottom: theme.spacing.lg,
   },
+  errorRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: theme.spacing.md,
+  },
   errorText: {
     color: theme.colors.accent,
     fontSize: 13,
-    marginBottom: theme.spacing.md,
+    flexShrink: 1,
+    paddingRight: theme.spacing.sm,
+  },
+  retryText: {
+    color: theme.colors.accent,
+    fontSize: 13,
+    fontWeight: '700',
+    textDecorationLine: 'underline',
   },
   successText: {
     color: theme.colors.success,
@@ -909,6 +966,9 @@ function createStyles(theme: Theme) {
   },
   settingRowLast: {
     borderBottomWidth: 0,
+  },
+  settingRowDisabled: {
+    opacity: 0.5,
   },
   settingIcon: {
     width: 32,
