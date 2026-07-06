@@ -8,6 +8,7 @@ import {
   Text, TextInput, TouchableOpacity, View,
 } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { router } from 'expo-router';
 import { apiClient } from '../services/apiClient';
 import { SkeletonBox } from '../components/SkeletonLoader';
 import { useSettingsStore } from '../stores/settingsStore';
@@ -317,7 +318,17 @@ export default function FuelLogScreen() {
   if (loading) {
     return (
       <SafeAreaView style={s.bg}>
-        <View style={s.header}><Text style={s.title}>Fuel Log</Text></View>
+        <View style={s.header}>
+          <TouchableOpacity
+            onPress={() => router.back()}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityRole="button"
+            accessibilityLabel="Go back"
+          >
+            <Text style={s.back}>‹ Back</Text>
+          </TouchableOpacity>
+          <Text style={s.title}>Fuel Log</Text>
+        </View>
         <View style={{ padding: 16, gap: 10 }}>
           <View style={{ flexDirection: 'row', gap: 8, marginBottom: 4 }}>
             {[0, 1, 2].map((i) => <SkeletonBox key={i} width="30%" height={72} borderRadius={12} />)}
@@ -330,7 +341,17 @@ export default function FuelLogScreen() {
 
   return (
     <SafeAreaView style={s.bg}>
-      <View style={s.header}><Text style={s.title}>Fuel Log</Text></View>
+      <View style={s.header}>
+        <TouchableOpacity
+          onPress={() => router.back()}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+        >
+          <Text style={s.back}>‹ Back</Text>
+        </TouchableOpacity>
+        <Text style={s.title}>Fuel Log</Text>
+      </View>
       <FlatList
         data={entries}
         keyExtractor={e => e.id}
@@ -385,7 +406,8 @@ export default function FuelLogScreen() {
 function createStyles(colors: ThemeColors) {
   return StyleSheet.create({
     bg: { flex: 1, backgroundColor: colors.bg },
-    header: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 8 },
+    header: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 8, gap: 4 },
+    back: { color: colors.accent, fontSize: 16, fontWeight: '600' },
     title: { color: colors.text, fontSize: 24, fontWeight: '700' },
     list: { paddingHorizontal: 16, paddingBottom: 100 },
     listEmpty: { flex: 1, paddingHorizontal: 16 },
