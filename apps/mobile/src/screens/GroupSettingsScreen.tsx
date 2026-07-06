@@ -147,9 +147,10 @@ export default function GroupSettingsScreen() {
   const [pttMaxSeconds, setPttMaxSeconds] = useState(30);
   const [accessType, setAccessType] = useState<'open' | 'invite_only'>('open');
 
-  // Transfer admin state
+  // Transfer admin state — tracks which specific member's transfer is
+  // in-flight so that row (not the whole list, silently) shows a spinner.
   const [members, setMembers] = useState<GroupMember[]>([]);
-  const [transferring, setTransferring] = useState(false);
+  const [transferringId, setTransferringId] = useState<string | null>(null);
 
   // Join requests state (invite-only groups, admin only)
   const [joinRequests, setJoinRequests] = useState<JoinRequest[]>([]);
@@ -286,7 +287,12 @@ export default function GroupSettingsScreen() {
   const handleLeaveGroup = () => {
     Alert.alert(
       'Leave Group',
-      'Are you sure you want to leave this group?',
+      isAdmin
+        // Leaving as admin doesn't end the group — the backend hands admin
+        // to the longest-tenured remaining member (or ends the group if
+        // you're the last one), so make that consequence explicit up front.
+        ? "You're the admin. Leaving will hand admin over to another member — or end the group if you're the last one left. Are you sure?"
+        : 'Are you sure you want to leave this group?',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -310,7 +316,7 @@ export default function GroupSettingsScreen() {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.header}>
-          <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} accessibilityRole="button">
+          <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} accessibilityRole="button" accessibilityLabel="Go back">
             <Text style={styles.backBtnText}>
             <Ionicons name="chevron-back" size={16} color={colors.accent} /> Back
           </Text>
@@ -334,7 +340,7 @@ export default function GroupSettingsScreen() {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.header}>
-          <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} accessibilityRole="button">
+          <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} accessibilityRole="button" accessibilityLabel="Go back">
             <Text style={styles.backBtnText}>
             <Ionicons name="chevron-back" size={16} color={colors.accent} /> Back
           </Text>
@@ -353,7 +359,7 @@ export default function GroupSettingsScreen() {
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} accessibilityRole="button">
+        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} accessibilityRole="button" accessibilityLabel="Go back">
           <Text style={styles.backBtnText}>
             <Ionicons name="chevron-back" size={16} color={colors.accent} /> Back
           </Text>
@@ -521,11 +527,13 @@ export default function GroupSettingsScreen() {
             <Text style={[styles.sectionHeader, { marginTop: 32 }]}>TRANSFER ADMIN</Text>
             <View style={styles.card}>
               <Text style={styles.settingLabel}>Hand over group admin to another member</Text>
-              {members.map((m) => (
+              {members.map((m) => {
+                const isTransferringThis = transferringId === m.userId;
+                return (
                 <TouchableOpacity
                   key={m.userId}
-                  style={styles.memberRow}
-                  disabled={transferring}
+                  style={[styles.memberRow, transferringId !== null && !isTransferringThis && styles.memberRowDimmed]}
+                  disabled={transferringId !== null}
                   onPress={() => {
                     Alert.alert(
                       'Transfer Admin',
@@ -536,7 +544,7 @@ export default function GroupSettingsScreen() {
                           text: 'Transfer',
                           style: 'destructive',
                           onPress: async () => {
-                            setTransferring(true);
+                            setTransferringId(m.userId);
                             try {
                               await apiClient.patch(`/api/v1/groups/${groupId}/transfer-admin`, {
                                 newAdminId: m.userId,
@@ -546,7 +554,7 @@ export default function GroupSettingsScreen() {
                             } catch {
                               Alert.alert('Error', 'Failed to transfer admin. Try again.');
                             } finally {
-                              setTransferring(false);
+                              setTransferringId(null);
                             }
                           },
                         },
@@ -554,6 +562,8 @@ export default function GroupSettingsScreen() {
                     );
                   }}
                   accessibilityRole="button"
+                  accessibilityLabel={`Transfer admin to ${m.displayName}`}
+                  accessibilityState={{ disabled: transferringId !== null }}
                 >
                   <View style={styles.memberInfo}>
                     <View style={styles.memberAvatar}>
@@ -570,9 +580,12 @@ export default function GroupSettingsScreen() {
                       ) : null}
                     </View>
                   </View>
-                  <Text style={styles.transferArrow}>›</Text>
+                  {isTransferringThis
+                    ? <ActivityIndicator color={colors.accent} size="small" />
+                    : <Text style={styles.transferArrow}>›</Text>}
                 </TouchableOpacity>
-              ))}
+                );
+              })}
             </View>
           </>
         )}
@@ -615,10 +628,15 @@ export default function GroupSettingsScreen() {
                 }}
                 accessibilityRole="button"
                 accessibilityLabel="Send announcement"
+                accessibilityState={{ disabled: sendingAnnouncement || announcement.trim().length === 0 }}
               >
-                <Text style={styles.announceBtnText}>
-                  {sendingAnnouncement ? 'Sending...' : <><Ionicons name="megaphone-outline" size={14} color={colors.text} /> Send Announcement</>}
-                </Text>
+                {sendingAnnouncement ? (
+                  <ActivityIndicator color={colors.text} size="small" />
+                ) : (
+                  <Text style={styles.announceBtnText}>
+                    <Ionicons name="megaphone-outline" size={14} color={colors.text} /> Send Announcement
+                  </Text>
+                )}
               </TouchableOpacity>
             </View>
           </>
@@ -794,6 +812,7 @@ function createStyles(colors: ThemeColors) {
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
+  memberRowDimmed: { opacity: 0.4 },
   memberInfo: {
     flexDirection: 'row',
     alignItems: 'center',
