@@ -24,6 +24,7 @@ import {
 import * as Clipboard from 'expo-clipboard';
 import { router } from 'expo-router';
 import { apiClient } from '../services/apiClient';
+import { useGroupStore } from '../stores/groupStore';
 
 const VEHICLE_TYPES = [
   { type: 'all', label: '🚗 All types' },
@@ -44,6 +45,7 @@ interface CreatedGroup {
   id: string;
   name: string;
   joinCode: string;
+  adminId: string;
 }
 
 export default function CreateGroupScreen() {
@@ -106,7 +108,16 @@ export default function CreateGroupScreen() {
   }
 
   function handleStartDriving() {
-    router.replace('/(tabs)/convoy' as never);
+    if (!createdGroup) return;
+    // Populate the group store now — ConvoyLobbyScreen reads adminId from here
+    // to decide leader vs. member controls, and ConvoyScreen (the tab that
+    // normally sets this) hasn't mounted yet at this point in the flow.
+    useGroupStore.getState().setActiveGroupId(createdGroup.id);
+    useGroupStore.getState().setGroupMeta({ name: createdGroup.name, adminId: createdGroup.adminId });
+    router.replace({
+      pathname: '/lobby/[groupId]' as never,
+      params: { groupId: createdGroup.id, name: createdGroup.name },
+    });
   }
 
   async function handleInvite() {

@@ -543,7 +543,7 @@ export default function IdleMapScreen() {
           accessibilityLabel="Join a group with a code"
         >
           <Text style={styles.outlineBtnText}>Join with Code</Text>
-          <Text style={styles.outlineBtnSubtitle}>Enter 8-digit code</Text>
+          <Text style={styles.outlineBtnSubtitle}>Enter 6-character code</Text>
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.ghostBtn} onPress={handleBrowseGroups} accessibilityRole="button">

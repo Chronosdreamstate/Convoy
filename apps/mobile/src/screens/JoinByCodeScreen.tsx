@@ -16,6 +16,7 @@ import {
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { apiClient } from '../services/apiClient';
 import { HapticService } from '../services/HapticService';
+import { useGroupStore } from '../stores/groupStore';
 
 const CODE_LENGTH = 6;
 
@@ -54,9 +55,20 @@ export default function JoinByCodeScreen() {
     setLoading(true);
     setError(null);
     try {
-      await apiClient.post('/api/v1/groups/join', { code });
+      const res = await apiClient.post<{ id: string; name: string; adminId: string }>(
+        '/api/v1/groups/join',
+        { code },
+      );
       HapticService.trigger('success');
-      router.replace('/(tabs)/map');
+      // Populate the group store now — ConvoyLobbyScreen reads adminId from here
+      // to decide leader vs. member controls, and ConvoyScreen (the tab that
+      // normally sets this) hasn't mounted yet at this point in the flow.
+      useGroupStore.getState().setActiveGroupId(res.data.id);
+      useGroupStore.getState().setGroupMeta({ name: res.data.name, adminId: res.data.adminId });
+      router.replace({
+        pathname: '/lobby/[groupId]' as never,
+        params: { groupId: res.data.id, name: res.data.name },
+      });
     } catch (err: unknown) {
       const status =
         err != null && typeof err === 'object' && 'response' in err
@@ -121,7 +133,7 @@ export default function JoinByCodeScreen() {
                     keyboardType="default"
                     returnKeyType="join"
                     onSubmitEditing={handleJoin}
-                    placeholder="XXXXXXXX"
+                    placeholder="XXXXXX"
                     placeholderTextColor="#333333"
                     accessibilityLabel="Convoy join code"
                   />

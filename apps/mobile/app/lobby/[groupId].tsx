@@ -1,4 +1,4 @@
-import { useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import ConvoyLobbyScreen from '../../src/screens/ConvoyLobbyScreen';
 
 export default function LobbyRoute() {
@@ -7,6 +7,7 @@ export default function LobbyRoute() {
     <ConvoyLobbyScreen
       groupId={groupId ?? ''}
       groupName={name ?? ''}
+      onConvoyStart={() => router.replace('/(tabs)/convoy' as never)}
     />
   );
 }
