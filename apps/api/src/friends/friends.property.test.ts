@@ -62,10 +62,15 @@ function resetStore(testUsers: InMemoryUser[]) {
   rateLimitStore = new Map();
 }
 
-function buildMockPool(): Pool {
-  const pool = {
-    query: async (sql: string, params?: unknown[]) => {
-      const normalized = sql.replace(/\s+/g, ' ').trim().toUpperCase();
+// Shared dispatch used by both the plain pool.query (auto-commit statements)
+// and the connect()'d client.query (statements inside a BEGIN/COMMIT
+// transaction) — POST /friends/requests now runs its existing-relationship
+// check, privacy lookup, and insert through a connected client rather than
+// the pool directly (advisory-lock race fix), so the client mock must
+// understand the same queries the pool mock does, not just the block-specific
+// ones it originally covered.
+async function dispatchQuery(sql: string, params?: unknown[]) {
+  const normalized = sql.replace(/\s+/g, ' ').trim().toUpperCase();
 
       // Block check
       if (normalized.includes("STATUS = 'BLOCKED'") && normalized.includes('LIMIT 1')) {
@@ -197,7 +202,11 @@ function buildMockPool(): Pool {
       }
 
       return { rows: [], rowCount: 0 };
-    },
+}
+
+function buildMockPool(): Pool {
+  const pool = {
+    query: dispatchQuery,
     connect: async (): Promise<PoolClient> => {
       const client = {
         query: async (sql: string, params?: unknown[]) => {
@@ -250,7 +259,10 @@ function buildMockPool(): Pool {
             return { rows: [], rowCount: 1 };
           }
 
-          return { rows: [], rowCount: 0 };
+          // Anything else (existing-relationship check, privacy lookup, plain
+          // friendship insert, etc.) behaves the same whether it runs via the
+          // pool directly or inside this transaction's connected client.
+          return dispatchQuery(sql, params);
         },
         release: () => {},
       } as unknown as PoolClient;
