@@ -4,9 +4,22 @@
  */
 
 import { FastifyPluginAsync } from 'fastify';
+import { z } from 'zod';
 import { authenticate } from '../middleware/authenticate';
 import { generalLimiter } from '../middleware/rateLimiter';
 import { env } from '../config/env';
+
+const createFuelLogSchema = z.object({
+  gallons: z.number().positive().max(1000),
+  pricePerGallon: z.number().positive().max(100),
+  notes: z.string().max(500).optional(),
+  location: z.string().max(200).optional(),
+  mpg: z.number().positive().max(1000).optional(),
+  // Not `.datetime()` — the original behavior accepts any string `new Date()` can parse
+  // (e.g. plain "2024-01-01"), not strictly full ISO-8601 with time. Just cap length so
+  // an absurdly long string can't be thrown at the date parser.
+  date: z.string().max(50).optional(),
+});
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -151,14 +164,11 @@ const fuelRoutes: FastifyPluginAsync = async (fastify) => {
   // ── POST /fuel/logs ───────────────────────────────────────────────────────
   fastify.post('/fuel/logs', { preHandler: [authenticate, generalLimiter(fastify.redis)] }, async (request, reply) => {
     const userId = (request.user as { sub: string }).sub;
-    const body = request.body as {
-      gallons?: number; pricePerGallon?: number;
-      notes?: string; location?: string; mpg?: number; date?: string;
-    };
-    const gallons = Number(body.gallons);
-    const ppg = Number(body.pricePerGallon);
-    if (!gallons || gallons <= 0) return reply.badRequest('gallons must be > 0');
-    if (!ppg || ppg <= 0) return reply.badRequest('pricePerGallon must be > 0');
+    const parsed = createFuelLogSchema.safeParse(request.body);
+    if (!parsed.success) return reply.badRequest(parsed.error.errors[0].message);
+    const body = parsed.data;
+    const gallons = body.gallons;
+    const ppg = body.pricePerGallon;
     const date = body.date ? new Date(body.date) : new Date();
     if (isNaN(date.getTime())) return reply.badRequest('invalid date');
 
