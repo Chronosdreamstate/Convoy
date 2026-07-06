@@ -25,6 +25,7 @@ import { useRouter } from 'expo-router';
 import SkeletonCard from '../components/SkeletonLoader';
 import { NetworkError } from '../components/NetworkError';
 import { apiClient } from '../services/apiClient';
+import { useSettingsStore, type DistanceUnit } from '../stores/settingsStore';
 
 const MAPBOX_TOKEN = process.env.EXPO_PUBLIC_MAPBOX_TOKEN ?? '';
 
@@ -77,7 +78,14 @@ type ListItem =
 // Helpers
 // ---------------------------------------------------------------------------
 
-function formatDistance(m: number): string {
+const METERS_PER_MILE = 1609.34;
+
+function formatDistance(m: number, unit: DistanceUnit = 'km'): string {
+  if (unit === 'miles') {
+    const miles = m / METERS_PER_MILE;
+    if (miles >= 0.1) return `${miles.toFixed(1)} mi`;
+    return `${Math.round(m * 3.28084)} ft`;
+  }
   if (m >= 1000) return `${(m / 1000).toFixed(1)} km`;
   return `${m} m`;
 }
@@ -204,6 +212,7 @@ function computeStreak(drives: DriveRecord[]): { current: number; best: number; 
 // ---------------------------------------------------------------------------
 
 function MonthlySummaryCard({ drives }: { drives: DriveRecord[] }) {
+  const distanceUnit = useSettingsStore((s) => s.distanceUnit);
   const now = new Date();
   const monthDrives = drives.filter((d) => {
     const t = new Date(d.endedAt);
@@ -232,7 +241,7 @@ function MonthlySummaryCard({ drives }: { drives: DriveRecord[] }) {
         <View style={{ flex: 1 }}>
           <Text style={styles.monthTitle}>{monthName}</Text>
           <Text style={styles.monthStats}>
-            {monthDrives.length} drive{monthDrives.length !== 1 ? 's' : ''} · {formatDistance(totalDistM)} · {formatDuration(totalDurS)}
+            {monthDrives.length} drive{monthDrives.length !== 1 ? 's' : ''} · {formatDistance(totalDistM, distanceUnit)} · {formatDuration(totalDurS)}
           </Text>
         </View>
         {/* Sparkline */}
@@ -310,11 +319,12 @@ function applyFilter(drives: DriveRecord[], filter: DriveFilter): DriveRecord[] 
 // ---------------------------------------------------------------------------
 
 function TotalStatsHeader({ drives, onExport }: { drives: DriveRecord[]; onExport: () => void }) {
+  const distanceUnit = useSettingsStore((s) => s.distanceUnit);
   const totalDistanceM = drives.reduce((sum, d) => sum + d.distanceM, 0);
   return (
     <View style={styles.statsHeader}>
       <View style={styles.statPill}>
-        <Text style={styles.statPillValue}>{formatDistance(totalDistanceM)}</Text>
+        <Text style={styles.statPillValue}>{formatDistance(totalDistanceM, distanceUnit)}</Text>
         <Text style={styles.statPillLabel}>Total Distance</Text>
       </View>
       <View style={styles.statPillDivider} />
@@ -342,6 +352,7 @@ function TotalStatsHeader({ drives, onExport }: { drives: DriveRecord[]; onExpor
 const DAY_LABELS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 
 function WeeklyStreakCard({ drives }: { drives: DriveRecord[] }) {
+  const distanceUnit = useSettingsStore((s) => s.distanceUnit);
   const { current, best, weekDays } = useMemo(() => computeStreak(drives), [drives]);
   const { start } = getISOWeekBounds();
   const weekDrives = drives.filter((d) => {
@@ -373,7 +384,7 @@ function WeeklyStreakCard({ drives }: { drives: DriveRecord[] }) {
       </View>
       {weekDrives.length > 0 && (
         <Text style={styles.weekSummary}>
-          This week: {weekDrives.length} drive{weekDrives.length !== 1 ? 's' : ''} · {formatDistance(weekDistM)} · {formatDuration(weekDurS)}
+          This week: {weekDrives.length} drive{weekDrives.length !== 1 ? 's' : ''} · {formatDistance(weekDistM, distanceUnit)} · {formatDuration(weekDurS)}
         </Text>
       )}
     </View>
@@ -427,6 +438,7 @@ interface DetailProps {
 }
 
 function DriveDetail({ drive, onBack, onShare, onDelete, sharing, deleting }: DetailProps) {
+  const distanceUnit = useSettingsStore((s) => s.distanceUnit);
   const routeCoords = drive.routeTrace?.coordinates.map(([lng, lat]) => ({
     latitude: lat,
     longitude: lng,
@@ -481,7 +493,7 @@ function DriveDetail({ drive, onBack, onShare, onDelete, sharing, deleting }: De
 
         {/* 2×2 stats grid */}
         <View style={styles.statsGrid}>
-          <Stat icon="📍" label="Distance" value={formatDistance(drive.distanceM)} />
+          <Stat icon="📍" label="Distance" value={formatDistance(drive.distanceM, distanceUnit)} />
           <Stat icon="⏱" label="Duration" value={formatDuration(drive.durationS)} />
           <Stat icon="💨" label="Avg Speed" value={drive.avgSpeedKph ? `${drive.avgSpeedKph.toFixed(0)} km/h` : '—'} />
           <Stat icon="🏎" label="Top Speed" value={drive.topSpeedKph ? `${drive.topSpeedKph.toFixed(0)} km/h` : '—'} />
@@ -530,6 +542,7 @@ function DriveDetail({ drive, onBack, onShare, onDelete, sharing, deleting }: De
 // ---------------------------------------------------------------------------
 
 export default function DriveHistoryScreen() {
+  const distanceUnit = useSettingsStore((s) => s.distanceUnit);
   const [drives, setDrives] = useState<DriveRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
@@ -671,13 +684,13 @@ export default function DriveHistoryScreen() {
     const header = 'CORTEGE Drive History\nDate,Distance,Duration,Group\n';
     const rows = drives
       .map((d) =>
-        `${formatDate(d.endedAt)},${formatDistance(d.distanceM)},${formatDuration(d.durationS)},${d.groupId ? 'Group Drive' : 'Solo'}`,
+        `${formatDate(d.endedAt)},${formatDistance(d.distanceM, distanceUnit)},${formatDuration(d.durationS)},${d.groupId ? 'Group Drive' : 'Solo'}`,
       )
       .join('\n');
     try {
       await Share.share({ message: header + rows, title: 'CORTEGE Drive History' });
     } catch { /* cancelled */ }
-  }, [drives]);
+  }, [drives, distanceUnit]);
 
   const filteredDrives = useMemo(() => applyFilter(drives, activeFilter), [drives, activeFilter]);
   const listData = useMemo(() => buildListData(filteredDrives), [filteredDrives]);
@@ -803,7 +816,7 @@ export default function DriveHistoryScreen() {
                   style={styles.driveCardTouchable}
                   onPress={() => setSelected(drive)}
                   accessibilityRole="button"
-                  accessibilityLabel={`Drive on ${formatDate(drive.endedAt)}, ${formatDistance(drive.distanceM)}`}
+                  accessibilityLabel={`Drive on ${formatDate(drive.endedAt)}, ${formatDistance(drive.distanceM, distanceUnit)}`}
                 >
                   <View style={styles.thumbWrapper}>
                     <MapThumb routeTrace={drive.routeTrace} />
@@ -818,7 +831,7 @@ export default function DriveHistoryScreen() {
                       {formatTime(drive.startedAt)} → {formatTime(drive.endedAt)}
                     </Text>
                     <Text style={styles.driveDistDur}>
-                      {formatDistance(drive.distanceM)} · {formatDuration(drive.durationS)}
+                      {formatDistance(drive.distanceM, distanceUnit)} · {formatDuration(drive.durationS)}
                       {drive.avgSpeedKph != null ? `  · ${drive.avgSpeedKph.toFixed(0)} km/h avg` : ''}
                     </Text>
                     <Text style={styles.driveMembers}>

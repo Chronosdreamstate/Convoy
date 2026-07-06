@@ -22,7 +22,6 @@ import { SkeletonBox } from '../../components/SkeletonLoader';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { theme } from '../../theme';
 
-const DISTANCE_UNIT_KEY = '@convoy/distanceUnit';
 const GAP_THRESHOLD_KEY = '@convoy/gapThresholdM';
 
 const PRIVACY_POLICY_URL = 'https://convoy.app/privacy';
@@ -175,6 +174,7 @@ export default function SettingsScreen() {
   const router = useRouter();
   const setGlobalSettings = useSettingsStore((s) => s.setSettings);
   const storedVolumePercent = useSettingsStore((s) => s.pttVolumePercent);
+  const storedDistanceUnit = useSettingsStore((s) => s.distanceUnit);
   const [, setSettings] = useState<Settings | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -203,15 +203,12 @@ export default function SettingsScreen() {
   const [notifNavigation, setNotifNavigation] = useState(true);
   const [privacy, setPrivacy] = useState<Settings['privacy']>('public');
   const [showInBrowse, setShowInBrowse] = useState(true);
-  const [distanceUnit, setDistanceUnit] = useState<'km' | 'miles'>('miles');
+  const [distanceUnit, setDistanceUnit] = useState<'km' | 'miles'>(storedDistanceUnit);
   const [gapThresholdM, setGapThresholdM] = useState(200);
   const [autoJoinNearby, setAutoJoinNearby] = useState(false);
 
   useEffect(() => {
     loadSettings();
-    AsyncStorage.getItem(DISTANCE_UNIT_KEY).then((v) => {
-      if (v === 'km' || v === 'miles') setDistanceUnit(v);
-    });
     AsyncStorage.getItem(GAP_THRESHOLD_KEY).then((v) => {
       if (v) setGapThresholdM(Number(v));
     });
@@ -271,8 +268,8 @@ export default function SettingsScreen() {
         scenicRouting: response.data.scenicRouting,
         pttMaxSeconds: response.data.pttMaxSeconds,
         pttVolumePercent,
+        distanceUnit,
       });
-      await AsyncStorage.setItem(DISTANCE_UNIT_KEY, distanceUnit);
       await AsyncStorage.setItem(GAP_THRESHOLD_KEY, String(gapThresholdM));
       setIsDirty(false);
       setSaveSuccess(true);
