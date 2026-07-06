@@ -25,6 +25,14 @@ export interface Route {
   durationText: string;
   geometry: RouteGeometry;
   speedLimitKph: number | null;
+  /**
+   * Per-segment posted speed limit (kph), one entry per coordinate-to-coordinate
+   * segment in `geometry.coordinates` (concatenated across legs). Lets the client
+   * look up the limit for the segment nearest the driver's current position as
+   * they advance along the route, rather than a single route-wide summary
+   * (Req 23.1, 23.2).
+   */
+  speedLimitSegmentsKph: (number | null)[];
 }
 
 interface MapboxMaxspeedEntry {
@@ -92,6 +100,32 @@ export function extractSpeedLimitKph(legs?: MapboxLeg[]): number | null {
 }
 
 /**
+ * Convert a single Mapbox maxspeed annotation entry to kph, or null when
+ * the segment's limit is unknown/unposted.
+ */
+function maxspeedEntryToKph(entry: MapboxMaxspeedEntry): number | null {
+  if (entry.speed == null || entry.unknown || entry.none) return null;
+  return entry.unit === 'mph' ? Math.round(entry.speed * 1.60934) : entry.speed;
+}
+
+/**
+ * Per-segment posted speed limit (kph), aligned to the coordinate segments of
+ * the merged route geometry (one entry per leg-segment, concatenated in leg
+ * order). Req 23.1, 23.2 — lets the client show the limit for whichever
+ * segment the driver currently occupies instead of one route-wide value.
+ */
+export function extractSpeedLimitSegmentsKph(legs?: MapboxLeg[]): (number | null)[] {
+  if (!legs?.length) return [];
+  const segments: (number | null)[] = [];
+  for (const leg of legs) {
+    for (const entry of (leg.annotation?.maxspeed ?? [])) {
+      segments.push(maxspeedEntryToKph(entry));
+    }
+  }
+  return segments;
+}
+
+/**
  * Cap Mapbox alternatives at 3 and normalise to Route shape.
  * Exported for Property 6 testing.
  */
@@ -103,6 +137,7 @@ export function processMapboxRoutes(routes: MapboxRoute[]): Route[] {
     durationText: formatDuration(r.duration),
     geometry: r.geometry,
     speedLimitKph: extractSpeedLimitKph(r.legs),
+    speedLimitSegmentsKph: extractSpeedLimitSegmentsKph(r.legs),
   }));
 }
 
@@ -129,6 +164,11 @@ const pushRouteSchema = z.object({
       type: z.literal('LineString'),
       coordinates: z.array(z.tuple([z.number(), z.number()])),
     }),
+    // Without these, zod's default object parsing strips them from the
+    // broadcast payload, leaving every group member's Speed Limit HUD showing
+    // "–" for a pushed route even when Mapbox supplied real data (Req 23.1).
+    speedLimitKph: z.number().nullable().optional(),
+    speedLimitSegmentsKph: z.array(z.number().nullable()).optional(),
   }),
 });
 
