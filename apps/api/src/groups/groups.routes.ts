@@ -955,11 +955,21 @@ async function groupsRoutes(
       if (!group) return reply.notFound('Group not found');
       if (group.admin_id !== userId) return reply.forbidden('Only the Admin can mute members');
 
-      await fastify.db.query(
+      const updated = await fastify.db.query<{ user_id: string }>(
         `UPDATE convoy_members SET is_muted = $1
-         WHERE group_id = $2 AND left_at IS NULL AND user_id != $3`,
+         WHERE group_id = $2 AND left_at IS NULL AND user_id != $3
+         RETURNING user_id`,
         [parsed.data.muted, id, userId],
       );
+
+      // Notify each affected member's own device so its PTTService actually stops
+      // transmitting (Req 10.11) — audio never touches this backend, so the client
+      // must be told to mute locally rather than relying on the DB flag alone.
+      const event = parsed.data.muted ? 'ptt:muted' : 'ptt:unmuted';
+      for (const row of updated.rows) {
+        fastify.io.to(`user:${row.user_id}`).emit(event, { groupId: id, mutedBy: userId, muted: parsed.data.muted });
+      }
+      fastify.io.to(`group:${id}`).emit('member:mute_changed', { muted: parsed.data.muted, all: true });
 
       return reply.status(200).send({ message: parsed.data.muted ? 'All members muted' : 'All members unmuted' });
     },
@@ -995,6 +1005,13 @@ async function groupsRoutes(
       );
 
       if ((result.rowCount ?? 0) === 0) return reply.notFound('Member not found');
+
+      // Notify the muted member's own device so its PTTService actually stops
+      // transmitting (Req 10.11) — audio never touches this backend, so the client
+      // must be told to mute locally rather than relying on the DB flag alone.
+      const event = parsed.data.muted ? 'ptt:muted' : 'ptt:unmuted';
+      fastify.io.to(`user:${targetUserId}`).emit(event, { groupId: id, mutedBy: adminUserId, muted: parsed.data.muted });
+      fastify.io.to(`group:${id}`).emit('member:mute_changed', { userId: targetUserId, muted: parsed.data.muted });
 
       return reply.status(200).send({
         message: parsed.data.muted ? 'Member muted' : 'Member unmuted',

@@ -43,6 +43,7 @@ interface ConvoyGroup {
   status: 'active' | 'ended';
   memberCount: number;
   gapThresholdM: number;
+  pttMaxSeconds: number;
 }
 
 interface PttChannel {
@@ -184,11 +185,11 @@ export default function ConvoyScreen({ userId }: Props) {
   useEffect(() => {
     setActiveGroupId(group?.id ?? null);
     if (group) {
-      setGroupMeta({ name: group.name, memberCount: group.memberCount, adminId: group.adminId, gapThresholdM: group.gapThresholdM });
+      setGroupMeta({ name: group.name, memberCount: group.memberCount, adminId: group.adminId, gapThresholdM: group.gapThresholdM, pttMaxSeconds: group.pttMaxSeconds });
     } else {
       clearGroupMeta();
     }
-  }, [group?.id, group?.name, group?.memberCount, group?.adminId, group?.gapThresholdM, setActiveGroupId, setGroupMeta, clearGroupMeta]);
+  }, [group?.id, group?.name, group?.memberCount, group?.adminId, group?.gapThresholdM, group?.pttMaxSeconds, setActiveGroupId, setGroupMeta, clearGroupMeta]);
 
   useEffect(() => {
     return () => {
@@ -372,6 +373,9 @@ export default function ConvoyScreen({ userId }: Props) {
     const handleSettingsUpdated = (data: { gapThresholdM?: number; pttMaxSeconds?: number }) => {
       setGroup((prev) => prev ? { ...prev, ...data } : null);
       if (data.gapThresholdM !== undefined) setGroupMeta({ gapThresholdM: data.gapThresholdM });
+      // Propagate the Admin's updated PTT max duration to the shared group store so
+      // the active PTT session picks it up immediately (Req 10.6, 16.3).
+      if (data.pttMaxSeconds !== undefined) setGroupMeta({ pttMaxSeconds: data.pttMaxSeconds });
     };
     const handlePttMuted = () => {
       Alert.alert('Muted', 'The group admin has muted your PTT microphone.');

@@ -175,7 +175,23 @@ export default async function pttRoutes(fastify: FastifyInstance): Promise<void>
       'SELECT id, is_all FROM ptt_channels WHERE id = $1 AND group_id = $2',
       [channelId, groupId],
     );
-    if (!channelResult.rows[0]) return reply.notFound('Channel not found in this group');
+    const channel = channelResult.rows[0];
+    if (!channel) return reply.notFound('Channel not found in this group');
+
+    // Verify the member is actually assigned to this channel (Req 26.4, 26.6). The "All"
+    // channel is exempt — every active member can always reach it (Req 26.5). Without this
+    // check, any group member could mint a valid Agora token for a sub-channel they were
+    // never added to and listen in on its audio, since Agora traffic never passes through
+    // this backend for the server to gate afterwards.
+    if (!channel.is_all) {
+      const channelMember = await pool.query(
+        'SELECT 1 FROM ptt_channel_members WHERE channel_id = $1 AND user_id = $2',
+        [channelId, userId],
+      );
+      if ((channelMember.rowCount ?? 0) === 0) {
+        return reply.forbidden('You are not assigned to this PTT channel');
+      }
+    }
 
     const uid = userIdToAgoraUid(userId);
     const channelName = buildAgoraChannelName(groupId, channelId);
