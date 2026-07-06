@@ -124,6 +124,16 @@ export class DriveService {
   }
 
   /**
+   * Non-destructive snapshot of the current session's stats — lets callers
+   * (e.g. the post-drive summary screen) read the route trace / top speed
+   * synchronously, without waiting on the server round-trip that
+   * finishSession() performs, and without resetting the buffered points.
+   */
+  peekStats(): DriveStats | null {
+    return computeDriveStats(this.points);
+  }
+
+  /**
    * Call when `group:ended` fires. Assembles stats, saves to SQLite, then
    * attempts an API POST. Returns the server record on success, null on failure
    * (sync will retry from SQLite on reconnect — Req 19.7).

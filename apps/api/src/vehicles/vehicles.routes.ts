@@ -163,22 +163,51 @@ async function vehiclesRoutes(
 
   // -------------------------------------------------------------------------
   // DELETE /vehicles/:id
+  // Deleting the active vehicle reassigns "active" to the next-oldest
+  // remaining vehicle (Req 29.2/29.3), or leaves the user with no active
+  // vehicle if it was their last one (Req 29.6 — "No vehicle set" is a valid
+  // state). Previously this endpoint returned 409 and blocked deletion of the
+  // active vehicle entirely, which meant a user with exactly one vehicle
+  // (necessarily active) could never delete it via the API or the Garage UI.
   // -------------------------------------------------------------------------
   fastify.delete('/vehicles/:id', { preHandler: [authenticate, generalLimiter(fastify.redis)] }, async (request, reply) => {
     const userId = (request.user as { sub: string }).sub;
     const { id } = request.params as { id: string };
 
-    const fetchResult = await fastify.db.query<{ id: string; is_active: boolean }>(
-      `SELECT id, is_active FROM vehicles WHERE id = $1 AND user_id = $2`,
-      [id, userId],
-    );
-    if (!fetchResult.rows[0]) return reply.notFound('Vehicle not found');
-    if (fetchResult.rows[0].is_active) {
-      return reply.status(409).send({ error: 'Cannot delete the active vehicle. Activate another vehicle first.' });
-    }
+    const client = await fastify.db.connect();
+    try {
+      await client.query('BEGIN');
 
-    await fastify.db.query(`DELETE FROM vehicles WHERE id = $1`, [id]);
-    return reply.status(204).send();
+      const fetchResult = await client.query<{ id: string; is_active: boolean }>(
+        `SELECT id, is_active FROM vehicles WHERE id = $1 AND user_id = $2 FOR UPDATE`,
+        [id, userId],
+      );
+      if (!fetchResult.rows[0]) {
+        await client.query('ROLLBACK');
+        return reply.notFound('Vehicle not found');
+      }
+
+      await client.query(`DELETE FROM vehicles WHERE id = $1`, [id]);
+
+      if (fetchResult.rows[0].is_active) {
+        // Reassign active status to the oldest remaining vehicle, if any.
+        await client.query(
+          `UPDATE vehicles SET is_active = true
+           WHERE id = (
+             SELECT id FROM vehicles WHERE user_id = $1 ORDER BY created_at ASC LIMIT 1
+           )`,
+          [userId],
+        );
+      }
+
+      await client.query('COMMIT');
+      return reply.status(204).send();
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
   });
 
   // -------------------------------------------------------------------------
