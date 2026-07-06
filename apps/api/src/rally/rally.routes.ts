@@ -151,7 +151,7 @@ const rallyRoutes: FastifyPluginAsync = async (fastify) => {
         [groupId, userId],
       );
       if (!canBroadcastRally(memberResult.rows.length > 0)) {
-        return reply.status(403).send({ error: 'Not an active group member' });
+        return reply.status(403).send({ error: 'You are not a member of this group' });
       }
 
       // Best-effort reverse geocode (Req 20.2)
@@ -224,7 +224,7 @@ const rallyRoutes: FastifyPluginAsync = async (fastify) => {
         [groupId, userId],
       );
       if (memberResult.rows.length === 0) {
-        return reply.status(403).send({ error: 'Not an active group member' });
+        return reply.status(403).send({ error: 'You are not a member of this group' });
       }
 
       // At most one rally point is active per group at a time (broadcast-and-cancel
@@ -272,7 +272,7 @@ const rallyRoutes: FastifyPluginAsync = async (fastify) => {
       if (!rally) return reply.status(404).send({ error: 'Rally point not found' });
 
       if (rally.broadcaster_id !== userId && rally.group_admin_id !== userId) {
-        return reply.status(403).send({ error: 'Forbidden' });
+        return reply.status(403).send({ error: 'Only the person who set this rally point or the group Admin can cancel it' });
       }
 
       // Property 33: guard against double-cancel (Req 20.5)
@@ -314,7 +314,7 @@ const rallyRoutes: FastifyPluginAsync = async (fastify) => {
         [groupId, userId],
       );
       if (memberResult.rows.length === 0) {
-        return reply.status(403).send({ error: 'Not an active group member' });
+        return reply.status(403).send({ error: 'You are not a member of this group' });
       }
 
       // SOS cooldown (Req 37.5)
@@ -400,7 +400,7 @@ const rallyRoutes: FastifyPluginAsync = async (fastify) => {
 
       // Property 41: only owner or admin can cancel (Req 25.6)
       if (!canCancelSos({ requesterId: userId, sosOwnerId: sos.userId, groupAdminId })) {
-        return reply.status(403).send({ error: 'Forbidden' });
+        return reply.status(403).send({ error: 'Only the person who sent this SOS or the group Admin can cancel it' });
       }
 
       await fastify.redis.del(`sos:${sosId}`);
@@ -426,7 +426,7 @@ const rallyRoutes: FastifyPluginAsync = async (fastify) => {
 
       const sos = JSON.parse(sosRaw) as { userId: string; groupId: string | null };
       if (sos.userId !== userId) {
-        return reply.status(403).send({ error: 'Forbidden' });
+        return reply.status(403).send({ error: 'You can only cancel an SOS you sent' });
       }
 
       await fastify.redis.del(`sos:${sosId}`);

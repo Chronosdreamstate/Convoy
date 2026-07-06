@@ -266,7 +266,7 @@ const drivesRoutes: FastifyPluginAsync = async (fastify) => {
 
     const parsed = driveBodySchema.safeParse(request.body);
     if (!parsed.success) {
-      return reply.status(400).send({ error: 'Invalid request body', details: parsed.error.flatten() });
+      return reply.status(400).send({ error: parsed.error.errors[0].message, details: parsed.error.flatten() });
     }
     const body = parsed.data;
 
@@ -276,7 +276,7 @@ const drivesRoutes: FastifyPluginAsync = async (fastify) => {
         [body.groupId, userId],
       );
       if (memberCheck.rows.length === 0) {
-        return reply.status(403).send({ error: 'Not an active member of the specified group' });
+        return reply.status(403).send({ error: 'You are not a member of this group' });
       }
     }
 
