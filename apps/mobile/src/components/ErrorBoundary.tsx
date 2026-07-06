@@ -1,5 +1,6 @@
 import React from 'react';
 import { Linking, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { theme } from '../theme';
 
 interface Props {
   children: React.ReactNode;
@@ -66,57 +67,62 @@ export function withErrorBoundary<T extends object>(
   };
 }
 
+// Note: this is a class component (error boundaries require componentDidCatch,
+// which has no hook equivalent), so it can't call useTheme(). It renders the
+// static (dark) `theme` palette rather than duplicating hex literals — if the
+// app ever needs this screen to follow light/dark preference too, wire
+// ThemeContext up as a static contextType instead of hardcoding a palette here.
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0A0A0A',
+    backgroundColor: theme.colors.bg,
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 24,
+    padding: theme.spacing.lg,
   },
   emoji: {
     fontSize: 48,
-    marginBottom: 8,
+    marginBottom: theme.spacing.sm,
   },
   wordmark: {
-    color: '#DC143C',
+    color: theme.colors.accent,
     fontSize: 24,
     fontWeight: '900',
     letterSpacing: 6,
-    marginBottom: 16,
+    marginBottom: theme.spacing.md,
   },
   title: {
-    color: '#FFFFFF',
+    color: theme.colors.text,
     fontSize: 20,
     fontWeight: '700',
-    marginBottom: 8,
+    marginBottom: theme.spacing.sm,
     textAlign: 'center',
   },
   message: {
-    color: '#888888',
+    color: theme.colors.textMuted,
     fontSize: 14,
     textAlign: 'center',
-    marginBottom: 24,
+    marginBottom: theme.spacing.lg,
     fontFamily: 'monospace',
   },
   button: {
-    backgroundColor: '#DC143C',
-    borderRadius: 12,
+    backgroundColor: theme.colors.accent,
+    borderRadius: theme.radius.md,
     paddingVertical: 14,
-    paddingHorizontal: 32,
-    marginTop: 24,
+    paddingHorizontal: theme.spacing.xl,
+    marginTop: theme.spacing.lg,
   },
   buttonText: {
-    color: '#FFFFFF',
+    color: theme.colors.text,
     fontSize: 16,
     fontWeight: '700',
   },
   supportLink: {
-    marginTop: 16,
-    padding: 8,
+    marginTop: theme.spacing.md,
+    padding: theme.spacing.sm,
   },
   supportText: {
-    color: '#888888',
+    color: theme.colors.textMuted,
     fontSize: 14,
     textDecorationLine: 'underline',
   },

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import {
   ActivityIndicator,
   StyleSheet,
@@ -7,7 +7,7 @@ import {
   TouchableOpacityProps,
   ViewStyle,
 } from 'react-native';
-import { theme } from '../theme';
+import { ThemeColors, useTheme } from '../theme';
 
 type Variant = 'primary' | 'secondary' | 'ghost' | 'danger';
 type Size = 'sm' | 'md' | 'lg';
@@ -31,6 +31,8 @@ export default function Button({
   style,
   ...rest
 }: Props) {
+  const { colors, spacing, radius, hitSlop } = useTheme();
+  const styles = useMemo(() => makeStyles(colors, spacing, radius), [colors, spacing, radius]);
   const isDisabled = disabled ?? loading;
 
   return (
@@ -46,7 +48,7 @@ export default function Button({
         isDisabled && styles.disabled,
         style,
       ]}
-      hitSlop={theme.hitSlop}
+      hitSlop={hitSlop}
       accessibilityRole="button"
       accessibilityLabel={label}
       accessibilityState={{ disabled: isDisabled, busy: loading }}
@@ -54,7 +56,7 @@ export default function Button({
       {loading ? (
         <ActivityIndicator
           size="small"
-          color={variant === 'secondary' || variant === 'ghost' ? theme.colors.accent : theme.colors.text}
+          color={variant === 'secondary' || variant === 'ghost' ? colors.accent : colors.text}
         />
       ) : (
         <Text style={[styles.label, styles[`label_${variant}`], styles[`labelSize_${size}`]]}>
@@ -65,55 +67,57 @@ export default function Button({
   );
 }
 
-const styles = StyleSheet.create({
-  base: {
-    borderRadius: theme.radius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-    minHeight: 44,
-    borderWidth: 1,
-    borderColor: 'transparent',
-  },
-  fullWidth: {
-    width: '100%',
-  },
-  disabled: {
-    opacity: 0.45,
-  },
+function makeStyles(colors: ThemeColors, spacing: { md: number; lg: number; xl: number }, radius: { md: number }) {
+  return StyleSheet.create({
+    base: {
+      borderRadius: radius.md,
+      alignItems: 'center',
+      justifyContent: 'center',
+      minHeight: 44,
+      borderWidth: 1,
+      borderColor: 'transparent',
+    },
+    fullWidth: {
+      width: '100%',
+    },
+    disabled: {
+      opacity: 0.45,
+    },
 
-  // Variants
-  primary: {
-    backgroundColor: theme.colors.accent,
-    borderColor: theme.colors.accent,
-  },
-  secondary: {
-    backgroundColor: theme.colors.card,
-    borderColor: theme.colors.border,
-  },
-  ghost: {
-    backgroundColor: 'transparent',
-    borderColor: 'transparent',
-  },
-  danger: {
-    backgroundColor: theme.colors.error,
-    borderColor: theme.colors.error,
-  },
+    // Variants
+    primary: {
+      backgroundColor: colors.accent,
+      borderColor: colors.accent,
+    },
+    secondary: {
+      backgroundColor: colors.card,
+      borderColor: colors.border,
+    },
+    ghost: {
+      backgroundColor: 'transparent',
+      borderColor: 'transparent',
+    },
+    danger: {
+      backgroundColor: colors.error,
+      borderColor: colors.error,
+    },
 
-  // Sizes
-  size_sm: { paddingHorizontal: theme.spacing.md, paddingVertical: 6, minHeight: 36 },
-  size_md: { paddingHorizontal: theme.spacing.lg, paddingVertical: 12 },
-  size_lg: { paddingHorizontal: theme.spacing.xl, paddingVertical: 16, minHeight: 52 },
+    // Sizes
+    size_sm: { paddingHorizontal: spacing.md, paddingVertical: 6, minHeight: 36 },
+    size_md: { paddingHorizontal: spacing.lg, paddingVertical: 12 },
+    size_lg: { paddingHorizontal: spacing.xl, paddingVertical: 16, minHeight: 52 },
 
-  // Labels
-  label: {
-    fontWeight: '700',
-  },
-  label_primary: { color: theme.colors.text },
-  label_secondary: { color: theme.colors.text },
-  label_ghost: { color: theme.colors.accent },
-  label_danger: { color: theme.colors.text },
+    // Labels
+    label: {
+      fontWeight: '700',
+    },
+    label_primary: { color: colors.text },
+    label_secondary: { color: colors.text },
+    label_ghost: { color: colors.accent },
+    label_danger: { color: colors.text },
 
-  labelSize_sm: { fontSize: 13 },
-  labelSize_md: { fontSize: 15, letterSpacing: 0.2 },
-  labelSize_lg: { fontSize: 17, letterSpacing: 0.3 },
-});
+    labelSize_sm: { fontSize: 13 },
+    labelSize_md: { fontSize: 15, letterSpacing: 0.2 },
+    labelSize_lg: { fontSize: 17, letterSpacing: 0.3 },
+  });
+}

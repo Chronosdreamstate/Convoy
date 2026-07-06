@@ -1,5 +1,6 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { Animated, Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ThemeColors, useTheme } from '../theme';
 
 interface Props {
   visible: boolean;
@@ -8,6 +9,8 @@ interface Props {
 }
 
 export default function PushPermissionModal({ visible, onEnable, onSkip }: Props) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const scaleAnim = useRef(new Animated.Value(0.85)).current;
   const opacityAnim = useRef(new Animated.Value(0)).current;
 
@@ -50,10 +53,22 @@ export default function PushPermissionModal({ visible, onEnable, onSkip }: Props
               <Text key={item} style={styles.bullet}>{item}</Text>
             ))}
           </View>
-          <TouchableOpacity style={styles.enableBtn} onPress={onEnable} activeOpacity={0.85}>
+          <TouchableOpacity
+            style={styles.enableBtn}
+            onPress={onEnable}
+            activeOpacity={0.85}
+            accessibilityRole="button"
+            accessibilityLabel="Enable convoy alerts"
+          >
             <Text style={styles.enableText}>Enable Convoy Alerts</Text>
           </TouchableOpacity>
-          <TouchableOpacity onPress={onSkip} activeOpacity={0.7} style={styles.skipBtn}>
+          <TouchableOpacity
+            onPress={onSkip}
+            activeOpacity={0.7}
+            style={styles.skipBtn}
+            accessibilityRole="button"
+            accessibilityLabel="Maybe later"
+          >
             <Text style={styles.skipText}>Maybe later</Text>
           </TouchableOpacity>
         </Animated.View>
@@ -62,37 +77,39 @@ export default function PushPermissionModal({ visible, onEnable, onSkip }: Props
   );
 }
 
-const styles = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.72)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 24,
-  },
-  card: {
-    backgroundColor: '#1C1C1C',
-    borderRadius: 24,
-    padding: 32,
-    width: '100%',
-    alignItems: 'center',
-  },
-  bell: { fontSize: 52, marginBottom: 16 },
-  headline: { fontSize: 22, fontWeight: '700', color: '#FFFFFF', textAlign: 'center' },
-  subheadline: { fontSize: 16, color: '#888888', textAlign: 'center', marginTop: 4, marginBottom: 16 },
-  body: { fontSize: 14, color: '#888888', textAlign: 'center', lineHeight: 20, marginBottom: 20 },
-  bullets: { alignSelf: 'stretch', marginBottom: 28, gap: 10 },
-  bullet: { fontSize: 14, color: '#FFFFFF', paddingLeft: 4 },
-  enableBtn: {
-    backgroundColor: '#DC143C',
-    borderRadius: 12,
-    height: 56,
-    alignSelf: 'stretch',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 14,
-  },
-  enableText: { fontSize: 16, fontWeight: '700', color: '#FFFFFF' },
-  skipBtn: { paddingVertical: 4 },
-  skipText: { fontSize: 14, color: '#888888' },
-});
+function makeStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    overlay: {
+      flex: 1,
+      backgroundColor: 'rgba(0,0,0,0.72)',
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: 24,
+    },
+    card: {
+      backgroundColor: colors.card,
+      borderRadius: 24,
+      padding: 32,
+      width: '100%',
+      alignItems: 'center',
+    },
+    bell: { fontSize: 52, marginBottom: 16 },
+    headline: { fontSize: 22, fontWeight: '700', color: colors.text, textAlign: 'center' },
+    subheadline: { fontSize: 16, color: colors.textMuted, textAlign: 'center', marginTop: 4, marginBottom: 16 },
+    body: { fontSize: 14, color: colors.textMuted, textAlign: 'center', lineHeight: 20, marginBottom: 20 },
+    bullets: { alignSelf: 'stretch', marginBottom: 28, gap: 10 },
+    bullet: { fontSize: 14, color: colors.text, paddingLeft: 4 },
+    enableBtn: {
+      backgroundColor: colors.accent,
+      borderRadius: 12,
+      height: 56,
+      alignSelf: 'stretch',
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginBottom: 14,
+    },
+    enableText: { fontSize: 16, fontWeight: '700', color: colors.text },
+    skipBtn: { paddingVertical: 4 },
+    skipText: { fontSize: 14, color: colors.textMuted },
+  });
+}

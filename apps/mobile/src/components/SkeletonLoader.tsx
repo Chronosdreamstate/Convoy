@@ -1,7 +1,6 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import { Animated, DimensionValue, StyleSheet, View } from 'react-native';
-
-const SKELETON_COLOR = '#2A2A2A';
+import { ThemeColors, useTheme } from '../theme';
 
 function useShimmer() {
   const opacity = useRef(new Animated.Value(0.3)).current;
@@ -31,10 +30,11 @@ interface SkeletonBoxProps {
 }
 
 export function SkeletonBox({ width = '100%', height = 16, borderRadius = 4 }: SkeletonBoxProps) {
+  const { colors } = useTheme();
   const opacity = useShimmer();
   return (
     <Animated.View
-      style={[styles.box, { width, height, borderRadius, opacity }]}
+      style={[{ backgroundColor: colors.border }, { width, height, borderRadius, opacity }]}
     />
   );
 }
@@ -44,6 +44,8 @@ export function SkeletonBox({ width = '100%', height = 16, borderRadius = 4 }: S
 // ---------------------------------------------------------------------------
 
 export function SkeletonRow() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const opacity = useShimmer();
   return (
     <Animated.View style={[styles.row, { opacity }]}>
@@ -61,6 +63,8 @@ export function SkeletonRow() {
 // ---------------------------------------------------------------------------
 
 export default function SkeletonCard() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const opacity = useShimmer();
   return (
     <Animated.View style={[styles.card, { opacity }]}>
@@ -82,34 +86,36 @@ export default function SkeletonCard() {
   );
 }
 
-const styles = StyleSheet.create({
-  box: {
-    backgroundColor: SKELETON_COLOR,
-  },
-  circle: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: SKELETON_COLOR,
-  },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  lines: {
-    flex: 1,
-    justifyContent: 'center',
-  },
-  card: {
-    backgroundColor: '#1C1C1C',
-    borderRadius: 14,
-    padding: 16,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: '#2A2A2A',
-  },
-  body: {
-    marginTop: 16,
-  },
-});
+function makeStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    box: {
+      backgroundColor: colors.border,
+    },
+    circle: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      backgroundColor: colors.border,
+    },
+    row: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+    },
+    lines: {
+      flex: 1,
+      justifyContent: 'center',
+    },
+    card: {
+      backgroundColor: colors.card,
+      borderRadius: 14,
+      padding: 16,
+      marginBottom: 12,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    body: {
+      marginTop: 16,
+    },
+  });
+}
