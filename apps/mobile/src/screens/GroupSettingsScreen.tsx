@@ -18,6 +18,7 @@ import { apiClient } from '../services/apiClient';
 import { SkeletonBox } from '../components/SkeletonLoader';
 import { NetworkError } from '../components/NetworkError';
 import { useTheme, ThemeColors } from '../theme';
+import { useSocketStore } from '../stores/socketStore';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -133,6 +134,7 @@ export default function GroupSettingsScreen() {
   const { groupId, isAdmin: isAdminParam } = useLocalSearchParams<{ groupId: string; isAdmin: string }>();
   const isAdmin = isAdminParam === 'true';
   const router = useRouter();
+  const { socket } = useSocketStore();
 
   const [settings, setSettings] = useState<GroupSettings | null>(null);
   const [loading, setLoading] = useState(true);
@@ -191,6 +193,42 @@ export default function GroupSettingsScreen() {
   }, [groupId, isAdmin]);
 
   useEffect(() => { void loadSettings(); }, [loadSettings]);
+
+  // Keep this screen in sync with real-time group events so it doesn't go
+  // stale (or let the viewer act on a group that's already gone) while it's
+  // open — mirrors the equivalent handling in ConvoyScreen.
+  useEffect(() => {
+    if (!socket || !groupId) return;
+
+    const handleGroupEnded = () => {
+      Alert.alert('Group Ended', 'This group has ended.');
+      router.replace('/(tabs)/convoy');
+    };
+    const handleKicked = () => {
+      Alert.alert('Removed', 'You have been removed from this group.');
+      router.replace('/(tabs)/convoy');
+    };
+    const handleSettingsUpdated = (data: {
+      name?: string;
+      gapThresholdM?: number;
+      pttMaxSeconds?: number;
+      accessType?: 'open' | 'invite_only';
+    }) => {
+      setSettings((prev) => (prev ? { ...prev, ...data } : prev));
+      if (data.name !== undefined) setName(data.name);
+      if (data.gapThresholdM !== undefined) setGapThresholdM(data.gapThresholdM);
+      if (data.pttMaxSeconds !== undefined) setPttMaxSeconds(data.pttMaxSeconds);
+      if (data.accessType !== undefined) setAccessType(data.accessType);
+    };
+    socket.on('group:ended', handleGroupEnded);
+    socket.on('member:kicked', handleKicked);
+    socket.on('group:settings_updated', handleSettingsUpdated);
+    return () => {
+      socket.off('group:ended', handleGroupEnded);
+      socket.off('member:kicked', handleKicked);
+      socket.off('group:settings_updated', handleSettingsUpdated);
+    };
+  }, [socket, groupId, router]);
 
   const handleJoinRequestAction = async (requestId: string, action: 'approve' | 'reject') => {
     if (!groupId) return;

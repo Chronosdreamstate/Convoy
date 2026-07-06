@@ -411,8 +411,9 @@ export default function ConvoyScreen({ userId }: Props) {
       fetchMembers(group.id);
     };
     const handleKicked = () => { setGroup(null); setMembers([]); setView('home'); };
-    const handleSettingsUpdated = (data: { gapThresholdM?: number; pttMaxSeconds?: number }) => {
+    const handleSettingsUpdated = (data: { name?: string; gapThresholdM?: number; pttMaxSeconds?: number }) => {
       setGroup((prev) => prev ? { ...prev, ...data } : null);
+      if (data.name !== undefined) setGroupMeta({ name: data.name });
       if (data.gapThresholdM !== undefined) setGroupMeta({ gapThresholdM: data.gapThresholdM });
       // Propagate the Admin's updated PTT max duration to the shared group store so
       // the active PTT session picks it up immediately (Req 10.6, 16.3).

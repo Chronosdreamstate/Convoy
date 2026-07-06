@@ -28,6 +28,7 @@ const joinGroupSchema = z.object({
 });
 
 const patchSettingsSchema = z.object({
+  name: z.string().trim().min(1).max(100).optional(),
   gapThresholdM: z.number().int().min(100).max(160000).optional(),
   pttMaxSeconds: z.number().int().min(5).max(60).optional(),
   accessType: z.enum(['open', 'invite_only']).optional(),
@@ -994,12 +995,13 @@ async function groupsRoutes(
       if (!group) return reply.notFound('Group not found');
       if (group.admin_id !== userId) return reply.forbidden('Only the Admin can change settings');
 
-      const { gapThresholdM, pttMaxSeconds, accessType } = parsed.data;
+      const { name, gapThresholdM, pttMaxSeconds, accessType } = parsed.data;
 
       const setClauses: string[] = [];
       const values: unknown[] = [];
       let p = 1;
 
+      if (name !== undefined) { setClauses.push(`name = $${p++}`); values.push(name); }
       if (gapThresholdM !== undefined) { setClauses.push(`gap_threshold_m = $${p++}`); values.push(gapThresholdM); }
       if (pttMaxSeconds !== undefined) { setClauses.push(`ptt_max_seconds = $${p++}`); values.push(pttMaxSeconds); }
       if (accessType !== undefined) { setClauses.push(`access_type = $${p++}`); values.push(accessType); }
@@ -1021,6 +1023,7 @@ async function groupsRoutes(
       // Broadcast settings change to all group members so clients can update live
       fastify.io.to(`group:${id}`).emit('group:settings_updated', {
         groupId: id,
+        name: updated.name,
         gapThresholdM: updated.gap_threshold_m,
         pttMaxSeconds: updated.ptt_max_seconds,
         accessType: updated.access_type,
