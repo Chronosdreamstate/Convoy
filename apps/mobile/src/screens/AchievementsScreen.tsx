@@ -67,6 +67,12 @@ interface AchievementCardProps {
 
 function AchievementCard({ item, onPress, styles, colors }: AchievementCardProps) {
   const isLocked = !item.unlocked;
+  // In-progress, multi-step achievements get a thin fill bar at the base of
+  // the card so a user at 95/100 reads as nearly-done at a glance, instead of
+  // looking identical to one at 2/100 — both previously just "locked, dim".
+  const hasVisibleProgress = isLocked && item.total > 1 && item.progress > 0;
+  const pct = hasVisibleProgress ? Math.min(item.progress / item.total, 1) : 0;
+  const progressLabel = hasVisibleProgress ? `, ${item.progress} of ${item.total} complete` : '';
   return (
     <TouchableOpacity
       style={[
@@ -76,7 +82,7 @@ function AchievementCard({ item, onPress, styles, colors }: AchievementCardProps
       ]}
       onPress={() => onPress(item)}
       accessibilityRole="button"
-      accessibilityLabel={`${item.name} — ${item.unlocked ? 'unlocked' : 'locked'}`}
+      accessibilityLabel={`${item.name} — ${item.unlocked ? 'unlocked' : 'locked'}${progressLabel}`}
     >
       {/* Icon — badge emoji is intentional collectible content, left as-is */}
       <View style={styles.iconWrapper}>
@@ -91,6 +97,11 @@ function AchievementCard({ item, onPress, styles, colors }: AchievementCardProps
       <Text style={[styles.cardName, isLocked && styles.cardNameLocked]} numberOfLines={2}>
         {item.name}
       </Text>
+      {hasVisibleProgress && (
+        <View style={styles.cardProgressTrack}>
+          <View style={[styles.cardProgressFill, { width: `${pct * 100}%` as `${number}%` }]} />
+        </View>
+      )}
     </TouchableOpacity>
   );
 }
@@ -121,6 +132,10 @@ interface DetailModalProps {
 
 function DetailModal({ item, onClose, styles, colors }: DetailModalProps) {
   const slideAnim = useRef(new Animated.Value(300)).current;
+  // Small celebratory bounce on the badge icon — only for already-unlocked
+  // achievements, so opening one feels like a little reward rather than a
+  // flat detail view. Locked achievements just settle in at full scale.
+  const iconScale = useRef(new Animated.Value(1)).current;
   const insets = useSafeAreaInsets();
 
   React.useEffect(() => {
@@ -131,6 +146,17 @@ function DetailModal({ item, onClose, styles, colors }: DetailModalProps) {
         tension: 120,
         friction: 9,
       }).start();
+      if (item.unlocked) {
+        iconScale.setValue(0.5);
+        Animated.spring(iconScale, {
+          toValue: 1,
+          useNativeDriver: true,
+          tension: 140,
+          friction: 6,
+        }).start();
+      } else {
+        iconScale.setValue(1);
+      }
     } else {
       slideAnim.setValue(300);
     }
@@ -161,14 +187,20 @@ function DetailModal({ item, onClose, styles, colors }: DetailModalProps) {
         <View style={styles.modalHandle} />
 
         {/* Icon — badge emoji is intentional collectible content, left as-is */}
-        <View style={[styles.modalIconWrapper, isLocked && styles.modalIconWrapperLocked]}>
+        <Animated.View
+          style={[
+            styles.modalIconWrapper,
+            isLocked && styles.modalIconWrapperLocked,
+            { transform: [{ scale: iconScale }] },
+          ]}
+        >
           <Text style={styles.modalIcon}>{item.icon}</Text>
           {isLocked && (
             <View style={styles.modalLockBadge}>
               <Ionicons name="lock-closed" size={16} color={colors.textMuted} />
             </View>
           )}
-        </View>
+        </Animated.View>
 
         {/* Name */}
         <Text style={styles.modalName}>{item.name}</Text>
@@ -220,6 +252,7 @@ export default function AchievementsScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [selected, setSelected] = useState<Achievement | null>(null);
+  const [loadError, setLoadError] = useState(false);
 
   const fetchAchievements = useCallback(async () => {
     try {
@@ -229,8 +262,12 @@ export default function AchievementsScreen() {
         const p = progressMap.get(a.id);
         return p ? { ...a, unlocked: p.unlocked, progress: p.progress, total: p.total } : a;
       }));
+      setLoadError(false);
     } catch {
-      // keep static fallback
+      // Keep the safe "no progress yet" static fallback (see ACHIEVEMENTS note
+      // above) — but still tell the user this is a load failure, not their
+      // real progress, so a network blip doesn't read as lost achievements.
+      setLoadError(true);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -258,6 +295,12 @@ export default function AchievementsScreen() {
           <Text style={styles.headerBadgeText}>{unlockedCount} / {achievements.length} unlocked</Text>
         </View>
       </View>
+
+      {!loading && loadError ? (
+        <Text style={styles.loadErrorText}>
+          Couldn't load your latest progress — pull down to try again.
+        </Text>
+      ) : null}
 
       {loading ? (
         <View style={styles.skeletonGrid}>
@@ -378,8 +421,13 @@ function createStyles(colors: ThemeColors, spacing: { xs: number; sm: number; md
       borderColor: colors.warning,
       borderWidth: 1,
     },
+    // Recede locked cards with a darker fill instead of a flat opacity
+    // multiply — opacity was stacking with cardNameLocked's already-muted
+    // text color and crushing the name below readable contrast. A darker
+    // background (vs. the unlocked card's normal `colors.card`) still reads
+    // as visually receded while keeping the muted text legible.
     cardLocked: {
-      opacity: 0.35,
+      backgroundColor: colors.bg,
     },
     iconWrapper: {
       position: 'relative',
@@ -406,6 +454,34 @@ function createStyles(colors: ThemeColors, spacing: { xs: number; sm: number; md
     },
     cardNameLocked: {
       color: colors.textMuted,
+    },
+
+    // Thin at-a-glance progress cue on in-progress (but still locked) grid
+    // cards — lets a near-complete achievement read as "almost there"
+    // without opening the detail modal.
+    cardProgressTrack: {
+      width: '100%',
+      height: 3,
+      borderRadius: 1.5,
+      backgroundColor: colors.border,
+      overflow: 'hidden',
+      marginTop: 2,
+    },
+    cardProgressFill: {
+      height: '100%',
+      backgroundColor: colors.accent,
+      borderRadius: 1.5,
+    },
+
+    // Load-failure banner — the fallback data intentionally shows zero
+    // progress on error (see ACHIEVEMENTS note), so this makes clear that's
+    // a load failure and not the user's real (lost) progress.
+    loadErrorText: {
+      color: colors.accent,
+      fontSize: 12,
+      textAlign: 'center',
+      marginHorizontal: 20,
+      marginBottom: 12,
     },
 
     // Progress bar
