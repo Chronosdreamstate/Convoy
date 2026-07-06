@@ -15,6 +15,7 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { ThemeColors, useTheme } from '../theme';
 import { apiClient } from '../services/apiClient';
 import SkeletonCard from '../components/SkeletonLoader';
+import { NetworkError } from '../components/NetworkError';
 import { useSocketStore } from '../stores/socketStore';
 
 // ---------------------------------------------------------------------------
@@ -210,6 +211,7 @@ export default function NotificationCenterScreen() {
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadError, setLoadError] = useState(false);
 
   const mergeAndSave = useCallback((incoming: NotificationItem[]) => {
     setNotifications((prev) => {
@@ -235,8 +237,13 @@ export default function NotificationCenterScreen() {
       const fresh = res.data.notifications ?? [];
       setNotifications(fresh);
       void saveToCache(fresh);
+      setLoadError(false);
     } catch {
-      // Use cached data — already set above
+      // Degrade gracefully to cached data when there is any — but with no
+      // cache either, falling through silently would render the exact same
+      // "No notifications yet" empty state a genuinely fresh account sees,
+      // hiding a real connectivity failure behind misleading copy.
+      if (cached.length === 0) setLoadError(true);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -395,6 +402,8 @@ export default function NotificationCenterScreen() {
             style={styles.markAllBtn}
             onPress={handleMarkAllRead}
             hitSlop={hitSlop}
+            accessibilityRole="button"
+            accessibilityLabel="Mark all notifications as read"
           >
             <Text style={styles.markAllText}>Mark all read</Text>
           </TouchableOpacity>
@@ -408,6 +417,11 @@ export default function NotificationCenterScreen() {
         <View style={styles.skeletonList}>
           {[0, 1, 2, 3, 4].map((i) => <SkeletonCard key={i} />)}
         </View>
+      ) : loadError ? (
+        <NetworkError
+          onRetry={() => { setLoading(true); void fetchNotifications(); }}
+          message="Could not load notifications. Please check your connection."
+        />
       ) : (
         <SectionList
           sections={sections}

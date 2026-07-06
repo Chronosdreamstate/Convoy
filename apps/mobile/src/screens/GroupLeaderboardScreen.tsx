@@ -20,6 +20,7 @@ import {
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { SkeletonRow } from '../components/SkeletonLoader';
+import { NetworkError } from '../components/NetworkError';
 import { apiClient } from '../services/apiClient';
 import { ThemeColors, useTheme } from '../theme';
 
@@ -247,6 +248,7 @@ export default function GroupLeaderboardScreen() {
   const [members, setMembers] = useState<LeaderboardMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState(false);
 
   const fetchLeaderboard = useCallback(
     async (metric: Metric) => {
@@ -256,8 +258,12 @@ export default function GroupLeaderboardScreen() {
           { params: { metric, limit: 20 } },
         );
         setMembers(res.data.leaderboard ?? []);
+        setError(false);
       } catch {
-        // Silently fail — list stays empty or stale
+        // A failed fetch must not render identically to a genuine "nobody's
+        // driven yet" empty state — track it separately so the user sees a
+        // retry affordance instead of a misleading "No data yet".
+        setError(true);
       } finally {
         setLoading(false);
         setRefreshing(false);
@@ -320,32 +326,42 @@ export default function GroupLeaderboardScreen() {
       <Header onBack={handleBack} styles={styles} colors={colors} hitSlop={hitSlop} />
       <MetricTabs active={activeMetric} onChange={handleTabChange} styles={styles} />
 
-      <FlatList
-        data={members}
-        keyExtractor={(item) => item.userId}
-        contentContainerStyle={
-          members.length === 0 ? styles.listEmpty : styles.list
-        }
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={handleRefresh}
-            tintColor={colors.accent}
-            colors={[colors.accent]}
-          />
-        }
-        ListEmptyComponent={
-          <View style={styles.emptyState}>
-            <Text style={styles.emptyEmoji}>🏆</Text>
-            <Text style={styles.emptyTitle}>No data yet</Text>
-            <Text style={styles.emptySubtitle}>
-              Complete a convoy to appear on the leaderboard
-            </Text>
-          </View>
-        }
-        renderItem={renderMemberItem}
-        showsVerticalScrollIndicator={false}
-      />
+      {error && members.length === 0 ? (
+        <NetworkError
+          onRetry={() => { setLoading(true); void fetchLeaderboard(activeMetric); }}
+          message="Could not load the leaderboard."
+        />
+      ) : (
+        <FlatList
+          data={members}
+          keyExtractor={(item) => item.userId}
+          contentContainerStyle={
+            members.length === 0 ? styles.listEmpty : styles.list
+          }
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+              tintColor={colors.accent}
+              colors={[colors.accent]}
+            />
+          }
+          ListHeaderComponent={
+            error ? <Text style={styles.errorBanner}>Couldn't refresh — showing last loaded data</Text> : null
+          }
+          ListEmptyComponent={
+            <View style={styles.emptyState}>
+              <Text style={styles.emptyEmoji}>🏆</Text>
+              <Text style={styles.emptyTitle}>No data yet</Text>
+              <Text style={styles.emptySubtitle}>
+                Complete a convoy to appear on the leaderboard
+              </Text>
+            </View>
+          }
+          renderItem={renderMemberItem}
+          showsVerticalScrollIndicator={false}
+        />
+      )}
     </SafeAreaView>
   );
 }
@@ -434,6 +450,12 @@ function createStyles(
     listEmpty: {
       flex: 1,
       paddingHorizontal: spacing.md,
+    },
+    errorBanner: {
+      color: colors.error,
+      fontSize: 12,
+      textAlign: 'center',
+      marginBottom: spacing.sm,
     },
 
     // Skeleton
