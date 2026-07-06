@@ -465,6 +465,30 @@ describe('Property 65: DELETE /account hard-deletes the user record', () => {
     await app.close();
   });
 
+  it('DELETE purges the cached loc:friend location-sharing key', async () => {
+    // Task #77 adversarial review: account deletion must hard-delete the
+    // groupless friend-location cache immediately rather than leaning on its
+    // 35s TTL to eventually clear it (Req 36.3 says "hard-delete ...
+    // immediately", not "eventually").
+    const user = makeUser('u-loc-friend-clear');
+    const app = buildTestApp();
+    resetStore([user]);
+    redisStore.set(`loc:friend:${user.id}`, 'cached-fix');
+    const token = await makeToken(app, user.id);
+
+    expect(redisStore.has(`loc:friend:${user.id}`)).toBe(true);
+
+    await app.inject({
+      method: 'DELETE',
+      url: '/api/v1/account',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(redisStore.has(`loc:friend:${user.id}`)).toBe(false);
+
+    await app.close();
+  });
+
   it('DELETE returns a success response', async () => {
     const user = makeUser('u-del-resp');
     const app = buildTestApp();

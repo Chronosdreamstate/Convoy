@@ -141,6 +141,18 @@ const accountRoutes: FastifyPluginAsync = async (fastify) => {
     await fastify.redis.del(`rtk:${userId}`);
     reply.clearCookie('refreshToken', { path: '/' });
 
+    // Explicitly purge the groupless friend-location cache too (Task #69 /
+    // Req 36.3 "hard-delete ... immediately"). The 35s TTL would clear this on
+    // its own, and the cascaded delete of users/user_settings/friendships
+    // above already makes GET /friends/locations unable to ever serve it
+    // again — but relying on either of those for a compliance-sensitive
+    // "delete now" flow is exactly the kind of implicit/incidental protection
+    // this review is meant to flag, so delete it up front like the other
+    // per-user Redis keys cleaned up in this handler.
+    await fastify.redis.del(`loc:friend:${userId}`).catch((err: unknown) => {
+      fastify.log.error({ err }, 'failed to delete loc:friend key on account deletion');
+    });
+
     return reply.send({ success: true, message: 'Account and all associated data deleted.' });
   });
 
