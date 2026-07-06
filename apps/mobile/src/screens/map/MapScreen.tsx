@@ -1829,12 +1829,15 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
         onClose={() => setShowHazardPicker(false)}
       />
 
-      {/* Hazard report modal — full form with severity, note, and GPS coords */}
+      {/* Hazard report modal — full form with severity, note, and GPS coords.
+          isInMotion restricts the type grid and hides severity/note per Req 31.1/31.2,
+          same threshold as HazardPicker above. */}
       <HazardReportModal
         visible={showHazardModal}
         onClose={() => setShowHazardModal(false)}
         lat={hazardModalCoords?.lat ?? null}
         lng={hazardModalCoords?.lng ?? null}
+        isInMotion={mySpeedKph > 5}
       />
 
       {/* Route planning modal */}
