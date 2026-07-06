@@ -89,13 +89,18 @@ export default function PTTTutorialScreen() {
             style={styles.gotItBtn}
             onPress={goToFindGroup}
             activeOpacity={0.85}
+            accessibilityRole="button"
+            accessibilityLabel="Got it"
           >
             <Text style={styles.gotItText}>Got it!</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
             onPress={goToFindGroup}
+            activeOpacity={0.7}
             hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            accessibilityRole="button"
+            accessibilityLabel="Skip tutorial"
           >
             <Text style={styles.skipText}>Skip tutorial</Text>
           </TouchableOpacity>

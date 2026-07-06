@@ -145,7 +145,13 @@ export default function AddVehiclePromptScreen() {
           )}
         </TouchableOpacity>
 
-        <TouchableOpacity onPress={handleSkip} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+        <TouchableOpacity
+          onPress={handleSkip}
+          activeOpacity={0.7}
+          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+          accessibilityRole="button"
+          accessibilityLabel="Skip for now"
+        >
           <Text style={styles.skipText}>Skip for now →</Text>
         </TouchableOpacity>
       </ScrollView>

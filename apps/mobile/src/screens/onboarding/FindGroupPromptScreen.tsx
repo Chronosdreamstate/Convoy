@@ -70,6 +70,8 @@ export default function FindGroupPromptScreen() {
               onPress={() => void completeOnboarding('/group-browse')}
               activeOpacity={0.8}
               accessibilityRole="button"
+              accessibilityLabel="Browse Groups"
+              accessibilityHint="See what's driving near you"
             >
               <View style={styles.cardIconCircle}>
                 <View style={styles.cardIconHalo} pointerEvents="none" />
@@ -86,6 +88,8 @@ export default function FindGroupPromptScreen() {
               onPress={() => void completeOnboarding('/join')}
               activeOpacity={0.8}
               accessibilityRole="button"
+              accessibilityLabel="Enter Code"
+              accessibilityHint="Got an invite? Enter the 6-character code"
             >
               <View style={styles.cardIconCircle}>
                 <View style={styles.cardIconHalo} pointerEvents="none" />
@@ -99,7 +103,10 @@ export default function FindGroupPromptScreen() {
 
         <TouchableOpacity
           onPress={() => void completeOnboarding('/(tabs)/map', true)}
+          activeOpacity={0.7}
           hitSlop={{ top: 12, bottom: 12, left: 24, right: 24 }}
+          accessibilityRole="button"
+          accessibilityLabel="Skip for now"
         >
           <Text style={styles.skipText}>Skip for now</Text>
         </TouchableOpacity>
