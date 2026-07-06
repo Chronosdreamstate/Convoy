@@ -211,6 +211,7 @@ export default function SearchScreen() {
           onPress={() => router.back()}
           accessibilityRole="button"
           accessibilityLabel="Go back"
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         >
           <Text style={styles.backText}>‹</Text>
         </TouchableOpacity>
@@ -294,7 +295,7 @@ export default function SearchScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0A0A0A' },
   header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 8, gap: 8 },
-  backBtn: { padding: 4 },
+  backBtn: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
   backText: { fontSize: 28, color: '#fff', lineHeight: 32 },
   inputWrap: {
     flex: 1, flexDirection: 'row', alignItems: 'center',

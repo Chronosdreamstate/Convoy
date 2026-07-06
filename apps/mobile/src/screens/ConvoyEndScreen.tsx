@@ -632,6 +632,7 @@ export default function ConvoyEndScreen() {
             onPress={() => setPreviewPhoto(null)}
             accessibilityRole="button"
             accessibilityLabel="Close photo preview"
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
             <Text style={styles.photoModalCloseText}>✕</Text>
           </TouchableOpacity>

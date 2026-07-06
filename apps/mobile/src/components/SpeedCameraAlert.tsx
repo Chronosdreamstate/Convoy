@@ -73,10 +73,22 @@ export default function SpeedCameraAlert({ camera, distanceM, onDismiss }: Props
         <Text style={styles.speedLimit}>Speed limit: {camera.speedLimitKph} km/h</Text>
       )}
       <View style={styles.actions}>
-        <TouchableOpacity style={styles.confirmBtn} onPress={handleConfirm} accessibilityRole="button" accessibilityLabel="Confirm camera still there">
+        <TouchableOpacity
+          style={styles.confirmBtn}
+          onPress={handleConfirm}
+          accessibilityRole="button"
+          accessibilityLabel="Confirm camera still there"
+          hitSlop={{ top: 8, bottom: 8, left: 0, right: 0 }}
+        >
           <Text style={styles.confirmText}>✓ Confirm</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.denyBtn} onPress={handleNotThere} accessibilityRole="button" accessibilityLabel="Report camera not there">
+        <TouchableOpacity
+          style={styles.denyBtn}
+          onPress={handleNotThere}
+          accessibilityRole="button"
+          accessibilityLabel="Report camera not there"
+          hitSlop={{ top: 8, bottom: 8, left: 0, right: 0 }}
+        >
           <Text style={styles.denyText}>✗ Not There</Text>
         </TouchableOpacity>
       </View>

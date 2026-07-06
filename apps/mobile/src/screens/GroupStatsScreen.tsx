@@ -110,7 +110,11 @@ export default function GroupStatsScreen() {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.header}>
-          <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+          <TouchableOpacity
+            style={styles.backBtn}
+            onPress={() => router.back()}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
             <Text style={styles.backText}>‹ Back</Text>
           </TouchableOpacity>
           <Text style={styles.title}>Group Stats</Text>
@@ -135,7 +139,11 @@ export default function GroupStatsScreen() {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.header}>
-          <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+          <TouchableOpacity
+            style={styles.backBtn}
+            onPress={() => router.back()}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
             <Text style={styles.backText}>‹ Back</Text>
           </TouchableOpacity>
           <Text style={styles.title}>Group Stats</Text>
@@ -149,7 +157,11 @@ export default function GroupStatsScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+        <TouchableOpacity
+          style={styles.backBtn}
+          onPress={() => router.back()}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        >
           <Text style={styles.backText}>‹ Back</Text>
         </TouchableOpacity>
         <Text style={styles.title}>{stats.groupName}</Text>
@@ -158,6 +170,7 @@ export default function GroupStatsScreen() {
           onPress={handleShare}
           accessibilityRole="button"
           accessibilityLabel="Share group stats"
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         >
           <Text style={styles.shareIcon}>📤</Text>
         </TouchableOpacity>
