@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -13,10 +13,12 @@ import {
   View,
   SafeAreaView,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { apiClient } from '../services/apiClient';
 import { SkeletonRow } from '../components/SkeletonLoader';
 import { useGroupStore } from '../stores/groupStore';
+import { useTheme, ThemeColors } from '../theme';
 
 // Types
 interface Friend {
@@ -42,7 +44,9 @@ interface SearchUser {
 type Tab = 'friends' | 'requests';
 interface Section { title: string; data: Friend[] }
 
-// Avatar colors — deterministic per name
+// Avatar colors — deterministic per name. Intentionally a fixed decorative
+// palette (not theme chrome) so a given user's initials bubble looks the
+// same regardless of light/dark mode.
 const AVATAR_COLORS = ['#DC143C', '#6366F1', '#0EA5E9', '#10B981', '#F59E0B', '#EC4899', '#8B5CF6', '#14B8A6'];
 function avatarColor(name: string): string {
   let h = 0;
@@ -54,6 +58,8 @@ function initials(name: string) {
 }
 
 function Avatar({ name, online }: { name: string; online?: boolean }) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   return (
     <View style={styles.avatarWrap}>
       <View style={[styles.avatar, { backgroundColor: avatarColor(name) }]}>
@@ -64,10 +70,12 @@ function Avatar({ name, online }: { name: string; online?: boolean }) {
   );
 }
 
-function Empty({ icon, title, sub }: { icon: string; title: string; sub: string }) {
+function Empty({ icon, title, sub }: { icon: keyof typeof Ionicons.glyphMap; title: string; sub: string }) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   return (
     <View style={styles.empty}>
-      <Text style={styles.emptyIcon}>{icon}</Text>
+      <Ionicons name={icon} size={44} color={colors.textMuted} style={styles.emptyIcon} />
       <Text style={styles.emptyTitle}>{title}</Text>
       <Text style={styles.emptySub}>{sub}</Text>
     </View>
@@ -85,6 +93,8 @@ function FriendRow({
   removing: boolean;
 }) {
   const router = useRouter();
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const activeGroupId = useGroupStore((s) => s.activeGroupId);
   const slideAnim = useRef(new Animated.Value(0)).current;
   const opAnim = useRef(new Animated.Value(1)).current;
@@ -125,6 +135,9 @@ function FriendRow({
   };
 
   const handleTap = () => {
+    // Native Alert buttons render as plain OS text — they cannot host a
+    // custom vector icon, so these emoji stay as lightweight visual
+    // shorthand within the dialog copy itself.
     const buttons: Array<{ text: string; style?: 'cancel' | 'destructive' | 'default'; onPress?: () => void }> = [
       { text: '💬 Message', onPress: () => void handleOpenDM() },
     ];
@@ -157,7 +170,7 @@ function FriendRow({
           accessibilityState={{ disabled: removing }}
         >
           {removing
-            ? <ActivityIndicator color="#DC143C" size="small" />
+            ? <ActivityIndicator color={colors.accent} size="small" />
             : <Text style={styles.trashBtnTxt}>✕</Text>}
         </TouchableOpacity>
       </View>
@@ -168,6 +181,8 @@ function FriendRow({
 
 // Friends tab with SectionList
 function FriendsTab({ query }: { query: string }) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const [friends, setFriends] = useState<Friend[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -220,7 +235,7 @@ function FriendsTab({ query }: { query: string }) {
   }
 
   if (filtered.length === 0 && !error) {
-    return <Empty icon="👥" title="No friends yet" sub="Use the + button to invite your crew." />;
+    return <Empty icon="people-outline" title="No friends yet" sub="Use the + button to invite your crew." />;
   }
 
   const online = filtered.filter(f => f.isOnline);
@@ -238,7 +253,7 @@ function FriendsTab({ query }: { query: string }) {
       showsVerticalScrollIndicator={false}
       stickySectionHeadersEnabled={false}
       refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#DC143C" colors={['#DC143C']} />
+        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.accent} colors={[colors.accent]} />
       }
       ListHeaderComponent={error ? <Text style={styles.errorTxt}>{error}</Text> : null}
       renderSectionHeader={({ section }) => (
@@ -264,6 +279,8 @@ function RequestRow({
   onAct: (id: string, action: 'accept' | 'decline') => void;
   acting: { id: string; action: 'accept' | 'decline' } | null;
 }) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const slideAnim = useRef(new Animated.Value(0)).current;
   const opAnim = useRef(new Animated.Value(1)).current;
   const isMe = acting?.id === req.id;
@@ -304,7 +321,7 @@ function RequestRow({
           accessibilityState={{ disabled: !!isMe }}
         >
           {isMe && acting?.action === 'accept'
-            ? <ActivityIndicator color="#fff" size="small" />
+            ? <ActivityIndicator color={colors.text} size="small" />
             : <Text style={styles.acceptBtnTxt}>✓</Text>}
         </TouchableOpacity>
         <TouchableOpacity
@@ -316,7 +333,7 @@ function RequestRow({
           accessibilityState={{ disabled: !!isMe }}
         >
           {isMe && acting?.action === 'decline'
-            ? <ActivityIndicator color="#888" size="small" />
+            ? <ActivityIndicator color={colors.textMuted} size="small" />
             : <Text style={styles.declineBtnTxt}>✕</Text>}
         </TouchableOpacity>
       </View>
@@ -326,6 +343,8 @@ function RequestRow({
 
 // Requests tab
 function RequestsTab({ onCount }: { onCount: (n: number) => void }) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const [reqs, setReqs] = useState<FriendRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [acting, setActing] = useState<{ id: string; action: 'accept' | 'decline' } | null>(null);
@@ -369,7 +388,7 @@ function RequestsTab({ onCount }: { onCount: (n: number) => void }) {
       stickySectionHeadersEnabled={false}
       ListHeaderComponent={error ? <Text style={styles.errorTxt}>{error}</Text> : null}
       ListEmptyComponent={
-        !error ? <Empty icon="📬" title="No pending requests" sub="When someone adds you, they'll appear here." /> : null
+        !error ? <Empty icon="mail-unread-outline" title="No pending requests" sub="When someone adds you, they'll appear here." /> : null
       }
       renderSectionHeader={({ section }) => (
         <Text style={styles.sectionHeader}>{section.title} ({section.data.length})</Text>
@@ -389,6 +408,8 @@ function UserSearchResults({
   onAdd: (id: string) => void;
   adding: string | null;
 }) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   if (results.length === 0) return null;
   return (
     <View style={styles.searchDropdown}>
@@ -412,7 +433,7 @@ function UserSearchResults({
               accessibilityLabel={`Add ${u.displayName}`}
             >
               {adding === u.id
-                ? <ActivityIndicator color="#fff" size="small" />
+                ? <ActivityIndicator color={colors.text} size="small" />
                 : <Text style={styles.addBtnTxt}>+ Add</Text>}
             </TouchableOpacity>
           )}
@@ -429,6 +450,8 @@ const TABS: { id: Tab; label: string }[] = [
 ];
 
 export default function FriendsScreen() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   // Deep-link / notification-tap entry point: e.g. a friend_request push
   // navigates here with ?tab=requests so the Requests tab opens directly.
   const { tab: initialTabParam } = useLocalSearchParams<{ tab?: string }>();
@@ -502,11 +525,13 @@ export default function FriendsScreen() {
       {tab === 'friends' && (
         <View style={styles.searchContainer}>
           <View style={styles.searchRow}>
-            <Text style={styles.searchIco}>{searching ? '⏳' : '🔍'}</Text>
+            {searching
+              ? <ActivityIndicator size="small" color={colors.textMuted} style={styles.searchIco} />
+              : <Ionicons name="search" size={16} color={colors.textMuted} style={styles.searchIco} />}
             <TextInput
               style={styles.searchInput}
               placeholder="Search by name or callsign…"
-              placeholderTextColor="#888888"
+              placeholderTextColor={colors.textMuted}
               value={query}
               onChangeText={handleSearch}
               autoCapitalize="none"
@@ -562,95 +587,99 @@ export default function FriendsScreen() {
         accessibilityLabel="Invite friends"
         accessibilityState={{ disabled: inviting }}
       >
-        {inviting ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.fabIcon}>+</Text>}
+        {inviting ? <ActivityIndicator color={colors.text} size="small" /> : <Text style={styles.fabIcon}>+</Text>}
       </TouchableOpacity>
     </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#0A0A0A' },
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+  root: { flex: 1, backgroundColor: colors.bg },
   header: { paddingHorizontal: 24, paddingTop: 16, paddingBottom: 8 },
-  headerTitle: { fontSize: 28, fontWeight: '700', color: '#FFFFFF' },
+  headerTitle: { fontSize: 28, fontWeight: '700', color: colors.text },
 
   searchContainer: { marginHorizontal: 16, marginBottom: 8, zIndex: 10 },
   searchRow: {
-    flexDirection: 'row', alignItems: 'center', backgroundColor: '#1C1C1C',
-    borderRadius: 12, borderWidth: 1, borderColor: '#2A2A2A',
+    flexDirection: 'row', alignItems: 'center', backgroundColor: colors.card,
+    borderRadius: 12, borderWidth: 1, borderColor: colors.border,
     paddingHorizontal: 14, minHeight: 48,
   },
-  searchIco: { fontSize: 16, marginRight: 8 },
-  searchInput: { flex: 1, fontSize: 15, color: '#FFFFFF', paddingVertical: 10 },
-  searchClear: { color: '#888888', fontSize: 15, paddingLeft: 8 },
+  searchIco: { marginRight: 8 },
+  searchInput: { flex: 1, fontSize: 15, color: colors.text, paddingVertical: 10 },
+  searchClear: { color: colors.textMuted, fontSize: 15, paddingLeft: 8 },
   searchDropdown: {
-    backgroundColor: '#1C1C1C', borderRadius: 12, borderWidth: 1, borderColor: '#2A2A2A',
+    backgroundColor: colors.card, borderRadius: 12, borderWidth: 1, borderColor: colors.border,
     marginTop: 4, overflow: 'hidden',
   },
   searchResultRow: {
     flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14,
-    paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#2A2A2A',
+    paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.border,
   },
 
-  tabBar: { flexDirection: 'row', marginHorizontal: 16, borderBottomWidth: 1, borderBottomColor: '#2A2A2A', marginBottom: 4 },
+  tabBar: { flexDirection: 'row', marginHorizontal: 16, borderBottomWidth: 1, borderBottomColor: colors.border, marginBottom: 4 },
   tabBtn: { flex: 1, paddingVertical: 12, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6, minHeight: 44 },
-  tabLabel: { fontSize: 14, fontWeight: '600', color: '#888888' },
-  tabLabelActive: { color: '#FFFFFF' },
-  underline: { position: 'absolute', bottom: 0, height: 2, backgroundColor: '#DC143C', borderRadius: 1 },
-  badge: { backgroundColor: '#DC143C', borderRadius: 10, minWidth: 18, height: 18, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 },
-  badgeTxt: { color: '#FFFFFF', fontSize: 10, fontWeight: '700' },
+  tabLabel: { fontSize: 14, fontWeight: '600', color: colors.textMuted },
+  tabLabelActive: { color: colors.text },
+  underline: { position: 'absolute', bottom: 0, height: 2, backgroundColor: colors.accent, borderRadius: 1 },
+  badge: { backgroundColor: colors.accent, borderRadius: 10, minWidth: 18, height: 18, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 },
+  badgeTxt: { color: colors.text, fontSize: 10, fontWeight: '700' },
 
   content: { flex: 1 },
   skeletonWrap: { flex: 1, paddingHorizontal: 16, paddingTop: 12, gap: 12 },
   listPad: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 100 },
 
-  sectionHeader: { fontSize: 12, fontWeight: '700', color: '#888888', letterSpacing: 0.8, textTransform: 'uppercase', marginTop: 16, marginBottom: 8 },
-  onlineEmpty: { fontSize: 13, color: '#555555', textAlign: 'center', paddingVertical: 8 },
+  sectionHeader: { fontSize: 12, fontWeight: '700', color: colors.textMuted, letterSpacing: 0.8, textTransform: 'uppercase', marginTop: 16, marginBottom: 8 },
+  onlineEmpty: { fontSize: 13, color: colors.textSubtle, textAlign: 'center', paddingVertical: 8 },
 
   card: {
-    flexDirection: 'row', alignItems: 'center', backgroundColor: '#1C1C1C',
-    borderRadius: 14, borderWidth: 1, borderColor: '#2A2A2A',
+    flexDirection: 'row', alignItems: 'center', backgroundColor: colors.card,
+    borderRadius: 14, borderWidth: 1, borderColor: colors.border,
     paddingHorizontal: 14, paddingVertical: 12, marginBottom: 10, minHeight: 72,
   },
   avatarWrap: { marginRight: 12, flexShrink: 0, position: 'relative', width: 44, height: 44 },
   avatar: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
-  avatarText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
+  avatarText: { color: colors.text, fontSize: 15, fontWeight: '700' },
   onlineDot: {
     position: 'absolute', bottom: 0, right: 0,
     width: 12, height: 12, borderRadius: 6,
-    backgroundColor: '#22C55E', borderWidth: 2, borderColor: '#1C1C1C',
+    backgroundColor: colors.success, borderWidth: 2, borderColor: colors.card,
   },
   cardInfo: { flex: 1, marginRight: 8 },
-  cardName: { fontSize: 15, fontWeight: '700', color: '#FFFFFF' },
-  cardSub: { fontSize: 12, color: '#888888', marginTop: 2 },
+  cardName: { fontSize: 15, fontWeight: '700', color: colors.text },
+  cardSub: { fontSize: 12, color: colors.textMuted, marginTop: 2 },
+  // Fixed indigo accent (matches the AVATAR_COLORS decorative palette above)
+  // rather than a theme surface color — intentionally the same across modes.
   mutualTxt: { fontSize: 11, color: '#6366F1', marginTop: 2 },
   cardBtns: { flexDirection: 'row', gap: 8 },
 
-  mapBtn: { width: 38, height: 38, borderRadius: 8, backgroundColor: '#242424', borderWidth: 1, borderColor: '#2A2A2A', alignItems: 'center', justifyContent: 'center' },
-  mapBtnTxt: { color: '#888888', fontSize: 16, fontWeight: '700' },
-  trashBtn: { width: 38, height: 38, borderRadius: 8, borderWidth: 1, borderColor: '#DC143C', backgroundColor: 'transparent', alignItems: 'center', justifyContent: 'center' },
-  trashBtnTxt: { color: '#DC143C', fontSize: 15, fontWeight: '700' },
-  acceptBtn: { width: 38, height: 38, borderRadius: 8, backgroundColor: '#22C55E', alignItems: 'center', justifyContent: 'center' },
-  acceptBtnTxt: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
-  declineBtn: { width: 38, height: 38, borderRadius: 8, borderWidth: 1, borderColor: '#2A2A2A', backgroundColor: 'transparent', alignItems: 'center', justifyContent: 'center' },
-  declineBtnTxt: { color: '#888888', fontSize: 15, fontWeight: '700' },
+  mapBtn: { width: 38, height: 38, borderRadius: 8, backgroundColor: colors.cardElevated, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
+  mapBtnTxt: { color: colors.textMuted, fontSize: 16, fontWeight: '700' },
+  trashBtn: { width: 38, height: 38, borderRadius: 8, borderWidth: 1, borderColor: colors.accent, backgroundColor: 'transparent', alignItems: 'center', justifyContent: 'center' },
+  trashBtnTxt: { color: colors.accent, fontSize: 15, fontWeight: '700' },
+  acceptBtn: { width: 38, height: 38, borderRadius: 8, backgroundColor: colors.success, alignItems: 'center', justifyContent: 'center' },
+  acceptBtnTxt: { color: colors.text, fontSize: 16, fontWeight: '700' },
+  declineBtn: { width: 38, height: 38, borderRadius: 8, borderWidth: 1, borderColor: colors.border, backgroundColor: 'transparent', alignItems: 'center', justifyContent: 'center' },
+  declineBtnTxt: { color: colors.textMuted, fontSize: 15, fontWeight: '700' },
 
-  addBtn: { paddingHorizontal: 14, height: 34, borderRadius: 8, backgroundColor: '#DC143C', alignItems: 'center', justifyContent: 'center' },
-  addBtnTxt: { color: '#FFFFFF', fontSize: 13, fontWeight: '700' },
-  alreadyFriendBadge: { paddingHorizontal: 10, height: 30, borderRadius: 8, backgroundColor: '#242424', alignItems: 'center', justifyContent: 'center' },
-  alreadyFriendTxt: { color: '#22C55E', fontSize: 12, fontWeight: '600' },
-  sentBadge: { paddingHorizontal: 10, height: 30, borderRadius: 8, backgroundColor: '#242424', alignItems: 'center', justifyContent: 'center' },
-  sentBadgeTxt: { color: '#888888', fontSize: 12, fontWeight: '600' },
+  addBtn: { paddingHorizontal: 14, height: 34, borderRadius: 8, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center' },
+  addBtnTxt: { color: colors.text, fontSize: 13, fontWeight: '700' },
+  alreadyFriendBadge: { paddingHorizontal: 10, height: 30, borderRadius: 8, backgroundColor: colors.cardElevated, alignItems: 'center', justifyContent: 'center' },
+  alreadyFriendTxt: { color: colors.success, fontSize: 12, fontWeight: '600' },
+  sentBadge: { paddingHorizontal: 10, height: 30, borderRadius: 8, backgroundColor: colors.cardElevated, alignItems: 'center', justifyContent: 'center' },
+  sentBadgeTxt: { color: colors.textMuted, fontSize: 12, fontWeight: '600' },
 
   empty: { alignItems: 'center', paddingTop: 64, paddingHorizontal: 32 },
-  emptyIcon: { fontSize: 44, marginBottom: 14 },
-  emptyTitle: { fontSize: 18, fontWeight: '700', color: '#FFFFFF', marginBottom: 6, textAlign: 'center' },
-  emptySub: { fontSize: 14, color: '#888888', textAlign: 'center', lineHeight: 20 },
-  errorTxt: { color: '#DC143C', fontSize: 13, marginBottom: 10, textAlign: 'center' },
+  emptyIcon: { marginBottom: 14 },
+  emptyTitle: { fontSize: 18, fontWeight: '700', color: colors.text, marginBottom: 6, textAlign: 'center' },
+  emptySub: { fontSize: 14, color: colors.textMuted, textAlign: 'center', lineHeight: 20 },
+  errorTxt: { color: colors.accent, fontSize: 13, marginBottom: 10, textAlign: 'center' },
 
   fab: {
     position: 'absolute', bottom: 28, right: 24, width: 56, height: 56, borderRadius: 28,
-    backgroundColor: '#DC143C', alignItems: 'center', justifyContent: 'center',
-    shadowColor: '#DC143C', shadowOpacity: 0.45, shadowRadius: 14, shadowOffset: { width: 0, height: 4 }, elevation: 8,
+    backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center',
+    shadowColor: colors.accent, shadowOpacity: 0.45, shadowRadius: 14, shadowOffset: { width: 0, height: 4 }, elevation: 8,
   },
-  fabIcon: { color: '#FFFFFF', fontSize: 30, fontWeight: '300', lineHeight: 34 },
-});
+  fabIcon: { color: colors.text, fontSize: 30, fontWeight: '300', lineHeight: 34 },
+  });
+}
