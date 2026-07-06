@@ -1,7 +1,9 @@
 import { useRef } from 'react';
-import { Animated, Pressable, Text, View } from 'react-native';
+import { Animated, Pressable, View } from 'react-native';
 import { Tabs } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { useTheme } from '../../src/theme';
 
 function AnimatedTabButton({
   children,
@@ -62,17 +64,28 @@ function AnimatedTabButton({
   );
 }
 
-function TabIcon({ emoji, focused }: { emoji: string; focused: boolean }) {
+function TabIcon({
+  name,
+  focused,
+}: {
+  name: React.ComponentProps<typeof MaterialCommunityIcons>['name'];
+  focused: boolean;
+}) {
+  const { colors } = useTheme();
   return (
     <View style={{ alignItems: 'center', gap: 4 }}>
-      <Text style={{ fontSize: 22, opacity: focused ? 1 : 0.45 }}>{emoji}</Text>
+      <MaterialCommunityIcons
+        name={name}
+        size={24}
+        color={focused ? colors.accent : colors.textSubtle}
+      />
       {/* Fixed-height placeholder keeps layout stable whether dot is visible or not */}
       <View
         style={{
           width: 4,
           height: 4,
           borderRadius: 2,
-          backgroundColor: focused ? '#DC143C' : 'transparent',
+          backgroundColor: focused ? colors.accent : 'transparent',
         }}
       />
     </View>
@@ -81,6 +94,7 @@ function TabIcon({ emoji, focused }: { emoji: string; focused: boolean }) {
 
 export default function TabsLayout() {
   const insets = useSafeAreaInsets();
+  const { colors } = useTheme();
   // Base content height for the tab bar (icon + label), excluding the home
   // indicator / gesture-area inset. When a custom `height` is set on
   // tabBarStyle, @react-navigation/bottom-tabs uses it verbatim and does NOT
@@ -96,15 +110,15 @@ export default function TabsLayout() {
         headerShown: false,
         tabBarHideOnKeyboard: true,
         tabBarStyle: {
-          backgroundColor: '#0A0A0A',
-          borderTopColor: '#2A2A2A',
+          backgroundColor: colors.bg,
+          borderTopColor: colors.border,
           borderTopWidth: 1,
           height: TAB_BAR_CONTENT_HEIGHT + insets.bottom,
           paddingBottom: TAB_BAR_BASE_PADDING_BOTTOM + insets.bottom,
           paddingTop: 6,
         },
-        tabBarActiveTintColor: '#DC143C',
-        tabBarInactiveTintColor: '#555555',
+        tabBarActiveTintColor: colors.accent,
+        tabBarInactiveTintColor: colors.textSubtle,
         tabBarLabelStyle: { fontSize: 11, fontWeight: '600' },
         tabBarButton: (props) => <AnimatedTabButton {...props} />,
       }}
@@ -114,7 +128,7 @@ export default function TabsLayout() {
         options={{
           title: 'Map',
           tabBarAccessibilityLabel: 'Map tab',
-          tabBarIcon: ({ focused }) => <TabIcon emoji="🗺️" focused={focused} />,
+          tabBarIcon: ({ focused }) => <TabIcon name="map" focused={focused} />,
         }}
       />
       <Tabs.Screen
@@ -122,7 +136,7 @@ export default function TabsLayout() {
         options={{
           title: 'Convoy',
           tabBarAccessibilityLabel: 'Convoy tab',
-          tabBarIcon: ({ focused }) => <TabIcon emoji="🚗" focused={focused} />,
+          tabBarIcon: ({ focused }) => <TabIcon name="car-multiple" focused={focused} />,
         }}
       />
       <Tabs.Screen
@@ -130,7 +144,7 @@ export default function TabsLayout() {
         options={{
           title: 'Drives',
           tabBarAccessibilityLabel: 'Drive history tab',
-          tabBarIcon: ({ focused }) => <TabIcon emoji="📍" focused={focused} />,
+          tabBarIcon: ({ focused }) => <TabIcon name="map-marker-path" focused={focused} />,
         }}
       />
       <Tabs.Screen
@@ -138,7 +152,7 @@ export default function TabsLayout() {
         options={{
           title: 'Garage',
           tabBarAccessibilityLabel: 'Garage tab',
-          tabBarIcon: ({ focused }) => <TabIcon emoji="🔧" focused={focused} />,
+          tabBarIcon: ({ focused }) => <TabIcon name="garage-variant" focused={focused} />,
         }}
       />
       <Tabs.Screen
@@ -146,7 +160,7 @@ export default function TabsLayout() {
         options={{
           title: 'Profile',
           tabBarAccessibilityLabel: 'Profile tab',
-          tabBarIcon: ({ focused }) => <TabIcon emoji="👤" focused={focused} />,
+          tabBarIcon: ({ focused }) => <TabIcon name="account" focused={focused} />,
         }}
       />
       {/* Settings is accessible from Profile — hidden from tab bar to keep navigation clean */}

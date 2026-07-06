@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Animated, StyleSheet, Text } from 'react-native';
+import { Animated, StyleSheet, Text, View } from 'react-native';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { useTheme } from '../theme';
 
 interface Props {
   isOffline: boolean;
@@ -7,10 +9,11 @@ interface Props {
 }
 
 const DEFAULT_MSG = 'No internet connection — changes will sync when back online';
-const BACK_ONLINE_MSG = 'Back online ✓';
+const BACK_ONLINE_MSG = 'Back online';
 const BANNER_H = 40;
 
 export default function OfflineIndicator({ isOffline, message = DEFAULT_MSG }: Props) {
+  const { colors } = useTheme();
   const translateY = useRef(new Animated.Value(-BANNER_H)).current;
   const [visible, setVisible] = useState(false);
   const [showingOnline, setShowingOnline] = useState(false);
@@ -57,15 +60,22 @@ export default function OfflineIndicator({ isOffline, message = DEFAULT_MSG }: P
     <Animated.View
       style={[
         styles.banner,
-        showingOnline ? styles.bannerOnline : styles.bannerOffline,
+        { backgroundColor: showingOnline ? colors.success : colors.warning },
         { transform: [{ translateY }] },
       ]}
       accessibilityLiveRegion="polite"
       accessibilityLabel={showingOnline ? BACK_ONLINE_MSG : message}
     >
-      <Text style={styles.text} numberOfLines={1}>
-        {showingOnline ? `📶 ${BACK_ONLINE_MSG}` : `📡 ${message}`}
-      </Text>
+      <View style={styles.content}>
+        <MaterialCommunityIcons
+          name={showingOnline ? 'wifi' : 'wifi-off'}
+          size={16}
+          color="#000000"
+        />
+        <Text style={styles.text} numberOfLines={1}>
+          {showingOnline ? BACK_ONLINE_MSG : message}
+        </Text>
+      </View>
     </Animated.View>
   );
 }
@@ -82,11 +92,10 @@ const styles = StyleSheet.create({
     zIndex: 9999,
     paddingHorizontal: 16,
   },
-  bannerOffline: {
-    backgroundColor: '#F59E0B',
-  },
-  bannerOnline: {
-    backgroundColor: '#22C55E',
+  content: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
   text: {
     color: '#000000',

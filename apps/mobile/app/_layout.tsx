@@ -28,7 +28,8 @@ import { offlineQueue } from '../src/services/OfflineQueueService';
 import { analytics } from '../src/services/AnalyticsService';
 import { carPlayService } from '../src/services/CarPlayService';
 import { androidAutoService } from '../src/services/AndroidAutoService';
-import { ThemeProvider } from '../src/theme';
+import { ThemeProvider, useTheme } from '../src/theme';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 
 // Set up foreground notification display behaviour at module load time,
 // before any notifications can arrive.
@@ -150,6 +151,7 @@ function handleDeepLink(router: Router, url: string): void {
 }
 
 function LoadingSplash() {
+  const { colors } = useTheme();
   const pulse = useRef(new Animated.Value(0.3)).current;
   useEffect(() => {
     const loop = Animated.loop(
@@ -162,9 +164,9 @@ function LoadingSplash() {
     return () => loop.stop();
   }, [pulse]);
   return (
-    <View style={splashStyles.container}>
-      <Text style={splashStyles.logo}>CORTEGE</Text>
-      <Animated.View style={[splashStyles.bar, { opacity: pulse }]} />
+    <View style={[splashStyles.container, { backgroundColor: colors.bg }]}>
+      <Text style={[splashStyles.logo, { color: colors.text }]}>CORTEGE</Text>
+      <Animated.View style={[splashStyles.bar, { opacity: pulse, backgroundColor: colors.accent }]} />
     </View>
   );
 }
@@ -172,7 +174,6 @@ function LoadingSplash() {
 const splashStyles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0A0A0A',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 20,
@@ -180,16 +181,33 @@ const splashStyles = StyleSheet.create({
   logo: {
     fontSize: 48,
     fontWeight: '900',
-    color: '#FFFFFF',
     letterSpacing: 8,
   },
   bar: {
     width: 80,
     height: 4,
     borderRadius: 2,
-    backgroundColor: '#DC143C',
   },
 });
+
+/** Low-battery warning banner shown at the top of the screen (Req: expo-battery integration, not yet wired). */
+function LowBatteryBanner() {
+  const { colors } = useTheme();
+  return (
+    <View
+      style={{
+        position: 'absolute', top: 0, left: 0, right: 0, zIndex: 9999,
+        backgroundColor: colors.warning, paddingTop: 44, paddingBottom: 8,
+        paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', gap: 8,
+      }}
+    >
+      <MaterialCommunityIcons name="battery-alert" size={16} color="#000000" />
+      <Text style={{ fontSize: 14, color: '#000000', flex: 1 }}>
+        Low battery — convoy members may lose your signal
+      </Text>
+    </View>
+  );
+}
 
 export default function RootLayout() {
   const { isAuthenticated, isLoading, isFirstLogin, setUser, setLoading, setIsFirstLogin, signOut: storeSignOut } = useAuthStore();
@@ -383,17 +401,7 @@ export default function RootLayout() {
   return (
     <ThemeProvider>
     <SafeAreaProvider>
-      {showLowBatteryWarning && (
-        <View style={{
-          position: 'absolute', top: 0, left: 0, right: 0, zIndex: 9999,
-          backgroundColor: '#F59E0B', paddingTop: 44, paddingBottom: 8,
-          paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center',
-        }}>
-          <Text style={{ fontSize: 14, color: '#000', flex: 1 }}>
-            ⚡ Low battery — convoy members may lose your signal
-          </Text>
-        </View>
-      )}
+      {showLowBatteryWarning && <LowBatteryBanner />}
       <ErrorBoundary>
         <Stack
           screenOptions={{
