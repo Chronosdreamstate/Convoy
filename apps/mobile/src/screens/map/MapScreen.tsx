@@ -1888,7 +1888,7 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
 
               {panelTab === 'pttlog' ? (
                 socket
-                  ? <PTTLogPanel socket={socket} />
+                  ? <PTTLogPanel socket={socket} isInMotion={deriveMotionState(mySpeedKph) === 'in_motion'} />
                   : <View style={styles.panelConnecting}><Text style={styles.emptyText}>Connecting…</Text></View>
               ) : (
                 <FlatList
