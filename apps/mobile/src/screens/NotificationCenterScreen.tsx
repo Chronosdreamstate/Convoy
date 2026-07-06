@@ -331,7 +331,9 @@ export default function NotificationCenterScreen() {
         router.push('/(tabs)/map' as never);
         break;
       case 'friend_request':
-        router.push('/friends' as never);
+        // Deep-link straight into the Requests tab — FriendsScreen reads this
+        // via useLocalSearchParams<{ tab?: string }>() (see FriendsScreen.tsx).
+        router.push('/friends?tab=requests' as never);
         break;
       case 'group_invite':
         router.push('/join' as never);

@@ -157,6 +157,16 @@ function FriendRow({
     }
   };
 
+  // View this friend on the map (Req 70) — IdleMapScreen reads `focusFriendId`
+  // and, once its friend-locations poll resolves, centers on this friend's pin
+  // if they're currently sharing, or lets the user know if they're not.
+  const handleViewOnMap = () => {
+    (router.push as (href: { pathname: string; params?: Record<string, string> }) => void)({
+      pathname: '/(tabs)/map',
+      params: { focusFriendId: friend.id, focusFriendName: friend.displayName },
+    });
+  };
+
   const handleTap = () => {
     // Native Alert buttons render as plain OS text — they cannot host a
     // custom vector icon, so these emoji stay as lightweight visual
@@ -184,7 +194,12 @@ function FriendRow({
           : null}
       </View>
       <View style={styles.cardBtns}>
-        <TouchableOpacity style={styles.mapBtn} accessibilityRole="button" accessibilityLabel={`View ${friend.displayName} on map`}>
+        <TouchableOpacity
+          style={styles.mapBtn}
+          onPress={handleViewOnMap}
+          accessibilityRole="button"
+          accessibilityLabel={`View ${friend.displayName} on map`}
+        >
           <Text style={styles.mapBtnTxt}>↗</Text>
         </TouchableOpacity>
         <TouchableOpacity
