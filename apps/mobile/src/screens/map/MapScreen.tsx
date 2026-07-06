@@ -451,10 +451,12 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
         const vehicles: Record<string, string> = {};
         for (const m of res.data.members) {
           if (m.displayName) names[m.userId] = m.displayName;
-          if (m.vehicle) {
-            const parts = [m.vehicle.color, m.vehicle.year, m.vehicle.make, m.vehicle.model].filter(Boolean);
-            if (parts.length) vehicles[m.userId] = parts.join(' ');
-          }
+          const parts = m.vehicle
+            ? [m.vehicle.color, m.vehicle.year, m.vehicle.make, m.vehicle.model].filter(Boolean)
+            : [];
+          // Req 29.6: show "No vehicle set" rather than silently omitting vehicle info
+          // when a Member has no vehicle in their Garage.
+          vehicles[m.userId] = parts.length ? parts.join(' ') : 'No vehicle set';
         }
         memberNamesRef.current = names;
         memberVehiclesRef.current = vehicles;
@@ -767,6 +769,11 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
     });
 
     socket.on('group:ended', (payload?: { durationS?: number; distanceM?: number; memberCount?: number }) => {
+      // Snapshot locally-computed stats (top speed, route trace) before finishSession()
+      // resets the point buffer — Req 19.1/19.4 require the summary to include these,
+      // and reading them synchronously avoids waiting on the drive POST round-trip.
+      const localStats = driveServiceRef.current.peekStats();
+
       void driveServiceRef.current.finishSession({
         groupId,
         memberCount: memberCountRef.current,
@@ -782,6 +789,10 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
           memberCount: String(payload?.memberCount ?? memberCountRef.current),
           durationMinutes: String(Math.round((payload?.durationS ?? 0) / 60)),
           distanceM: String(payload?.distanceM ?? 0),
+          ...(localStats?.topSpeedKph != null ? { topSpeedKmh: String(Math.round(localStats.topSpeedKph)) } : {}),
+          ...(localStats && localStats.routeTrace.coordinates.length > 1
+            ? { routeTrace: JSON.stringify(localStats.routeTrace) }
+            : {}),
         },
       });
     });
