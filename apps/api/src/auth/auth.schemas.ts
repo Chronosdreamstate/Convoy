@@ -13,18 +13,18 @@ export const otpVerifySchema = z.object({
 });
 
 export const emailSignupSchema = z.object({
-  email: z.string().email('Invalid email address'),
+  email: z.string().max(254, 'Email must be at most 254 characters').email('Invalid email address'),
   password: z.string().min(8, 'Password must be at least 8 characters').max(128, 'Password must be at most 128 characters'),
 });
 
 export const emailLoginSchema = z.object({
-  email: z.string().email('Invalid email address'),
-  password: z.string().min(1, 'Password is required'),
+  email: z.string().max(254, 'Email must be at most 254 characters').email('Invalid email address'),
+  password: z.string().min(1, 'Password is required').max(128, 'Password must be at most 128 characters'),
 });
 
 export const socialAuthSchema = z.object({
   provider: z.enum(['apple', 'google']),
-  idToken: z.string().min(1, 'idToken is required'),
+  idToken: z.string().min(1, 'idToken is required').max(8192, 'idToken is too long'),
 });
 
 export type OtpRequestInput = z.infer<typeof otpRequestSchema>;

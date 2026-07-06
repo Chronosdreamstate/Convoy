@@ -8,14 +8,14 @@ const profanityFree = (s: string) => !PROFANITY.some((w) => s.toLowerCase().incl
 
 const patchMeSchema = z.object({
   displayName: z.string().min(1).max(50).refine(profanityFree, { message: 'Display name contains disallowed words' }).optional(),
-  avatarUrl: z.string().url().nullable().optional(),
+  avatarUrl: z.string().url().max(2048).nullable().optional(),
   pttCallsign: z.string().max(20).regex(/^[a-zA-Z0-9_-]+$/, 'Callsign must be alphanumeric, dash, or underscore').nullable().optional(),
   privacy: z.enum(['open', 'invite_only']).optional(),
   mods: z.array(z.string().max(100)).max(20).optional(),
 });
 
 const deviceSchema = z.object({
-  pushToken: z.string().min(1),
+  pushToken: z.string().min(1).max(4096),
   platform: z.enum(['ios', 'android']),
 });
 

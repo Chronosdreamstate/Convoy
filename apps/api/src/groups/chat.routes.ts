@@ -11,7 +11,7 @@ const sendMessageSchema = z
   .object({
     type: z.enum(['text', 'voice']).default('text'),
     text: z.string().min(1, 'Message cannot be empty').max(500, 'Message exceeds 500 characters').optional(),
-    audioUrl: z.string().url().optional(),
+    audioUrl: z.string().url().max(2048).optional(),
   })
   .refine(
     (d) => (d.type === 'voice' ? !!d.audioUrl : !!d.text),
