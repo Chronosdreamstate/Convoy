@@ -74,12 +74,23 @@ export default function JoinByCodeScreen() {
         params: { groupId: res.data.id, name: res.data.name },
       });
     } catch (err: unknown) {
-      const status =
+      const response =
         err != null && typeof err === 'object' && 'response' in err
-          ? (err as { response?: { status?: number } }).response?.status ?? 0
-          : 0;
+          ? (err as { response?: { status?: number; data?: { message?: string } } }).response
+          : undefined;
+      const status = response?.status ?? 0;
+      const serverMessage = response?.data?.message;
       if (status === 404) {
         setError('Code not found — check with your convoy leader');
+      } else if (status === 403) {
+        setError('This convoy is invite-only — ask a member to send you a direct invite');
+      } else if (status === 410) {
+        // Server distinguishes "group has ended" from "code expired from
+        // inactivity" with its own message — surface it verbatim rather than
+        // collapsing both into one generic string.
+        setError(serverMessage ?? 'This join code is no longer valid');
+      } else if (status === 429) {
+        setError("Too many attempts — wait a bit before trying again");
       } else if (status === 409) {
         setError("You're already in this group");
       } else {
