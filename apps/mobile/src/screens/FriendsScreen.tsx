@@ -23,6 +23,7 @@ import { useTheme, ThemeColors } from '../theme';
 // Types
 interface Friend {
   id: string;
+  userId: string;
   displayName: string;
   callsign?: string;
   avatarUrl?: string;
@@ -87,10 +88,14 @@ function FriendRow({
   friend,
   onRemove,
   removing,
+  onBlock,
+  blocking,
 }: {
   friend: Friend;
   onRemove: (id: string) => void;
   removing: boolean;
+  onBlock: (id: string, userId: string) => void;
+  blocking: boolean;
 }) {
   const router = useRouter();
   const { colors } = useTheme();
@@ -111,6 +116,24 @@ function FriendRow({
         },
       },
     ]);
+  };
+
+  const handleBlock = () => {
+    Alert.alert(
+      'Block User',
+      `Block ${friend.displayName}? They won't be able to send you friend requests or see your location, and they'll be removed from your friends list.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Block', style: 'destructive', onPress: () => {
+            Animated.parallel([
+              Animated.timing(slideAnim, { toValue: -80, duration: 250, useNativeDriver: true }),
+              Animated.timing(opAnim, { toValue: 0, duration: 250, useNativeDriver: true }),
+            ]).start(() => onBlock(friend.id, friend.userId));
+          },
+        },
+      ],
+    );
   };
 
   const handleInviteToConvoy = async () => {
@@ -143,12 +166,15 @@ function FriendRow({
     ];
     if (activeGroupId) buttons.push({ text: '📨 Invite to Convoy', onPress: () => void handleInviteToConvoy() });
     buttons.push({ text: '🚫 Remove', style: 'destructive', onPress: handleRemove });
+    buttons.push({ text: '⛔ Block', style: 'destructive', onPress: handleBlock });
     buttons.push({ text: 'Cancel', style: 'cancel' });
     Alert.alert(friend.displayName, friend.callsign ? `📻 ${friend.callsign}` : undefined, buttons);
   };
 
+  const busy = removing || blocking;
+
   return (
-    <TouchableOpacity onPress={handleTap} activeOpacity={0.85}>
+    <TouchableOpacity onPress={handleTap} activeOpacity={0.85} disabled={busy}>
     <Animated.View style={[styles.card, { transform: [{ translateX: slideAnim }], opacity: opAnim }]}>
       <Avatar name={friend.displayName} online={friend.isOnline} />
       <View style={styles.cardInfo}>
@@ -164,10 +190,10 @@ function FriendRow({
         <TouchableOpacity
           style={styles.trashBtn}
           onPress={handleRemove}
-          disabled={removing}
+          disabled={busy}
           accessibilityRole="button"
           accessibilityLabel={`Remove ${friend.displayName}`}
-          accessibilityState={{ disabled: removing }}
+          accessibilityState={{ disabled: busy }}
         >
           {removing
             ? <ActivityIndicator color={colors.accent} size="small" />
@@ -187,6 +213,7 @@ function FriendsTab({ query }: { query: string }) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [removing, setRemoving] = useState<string | null>(null);
+  const [blocking, setBlocking] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -215,13 +242,24 @@ function FriendsTab({ query }: { query: string }) {
     finally { setRemoving(null); }
   }, []);
 
+  const handleBlock = useCallback(async (id: string, userId: string) => {
+    setBlocking(id);
+    try {
+      await apiClient.post('/api/v1/friends/block', { userId });
+      setFriends(p => p.filter(f => f.id !== id));
+    } catch { setError('Could not block user.'); }
+    finally { setBlocking(null); }
+  }, []);
+
   const renderFriendItem = useCallback(({ item }: { item: Friend }) => (
     <FriendRow
       friend={item}
       onRemove={handleRemove}
       removing={removing === item.id}
+      onBlock={handleBlock}
+      blocking={blocking === item.id}
     />
-  ), [handleRemove, removing]);
+  ), [handleRemove, removing, handleBlock, blocking]);
 
   const q = query.toLowerCase().trim();
   const filtered = q

@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
+  ActivityIndicator,
+  Alert,
   Animated,
   Share,
   StyleSheet,
@@ -54,6 +56,7 @@ export default function UserProfileScreen() {
   const [error, setError] = useState<string | null>(null);
   const [friendStatus, setFriendStatus] = useState<string | null>(null);
   const [friendLoading, setFriendLoading] = useState(false);
+  const [blocking, setBlocking] = useState(false);
 
   const fadeAnim = React.useRef(new Animated.Value(0)).current;
 
@@ -91,6 +94,36 @@ export default function UserProfileScreen() {
   const handleShare = async () => {
     if (!profile) return;
     await Share.share({ message: `Check out ${profile.displayName} on CORTEGE!` }).catch(() => {});
+  };
+
+  const handleBlock = () => {
+    if (!profile || blocking) return;
+    Alert.alert(
+      'Block User',
+      `Block ${profile.displayName}? They won't be able to send you friend requests or see your location, and any existing friendship will be removed.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Block',
+          style: 'destructive',
+          onPress: () => {
+            void (async () => {
+              setBlocking(true);
+              try {
+                await apiClient.post('/api/v1/friends/block', { userId: profile.id });
+                Alert.alert('User Blocked', `${profile.displayName} has been blocked.`, [
+                  { text: 'OK', onPress: () => router.back() },
+                ]);
+              } catch {
+                Alert.alert('Error', 'Could not block this user. Please try again.');
+              } finally {
+                setBlocking(false);
+              }
+            })();
+          },
+        },
+      ],
+    );
   };
 
   if (loading) {
@@ -218,6 +251,19 @@ export default function UserProfileScreen() {
             >
               <Text style={styles.friendBtnText}>{friendLoading ? 'Sending...' : friendBtnLabel}</Text>
             </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.blockBtn}
+              onPress={handleBlock}
+              disabled={blocking}
+              accessibilityRole="button"
+              accessibilityLabel={`Block ${profile.displayName}`}
+              accessibilityState={{ disabled: blocking }}
+            >
+              {blocking
+                ? <ActivityIndicator color="#DC143C" size="small" />
+                : <Text style={styles.blockBtnText}>⛔ Block</Text>}
+            </TouchableOpacity>
           </View>
         </View>
 
@@ -339,6 +385,16 @@ const styles = StyleSheet.create({
   },
   friendBtnDone: { backgroundColor: '#1C1C1C', borderWidth: 1, borderColor: '#2A2A2A' },
   friendBtnText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
+  blockBtn: {
+    width: '100%',
+    backgroundColor: 'transparent',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#DC143C',
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  blockBtnText: { color: '#DC143C', fontSize: 15, fontWeight: '700' },
 
   statsCard: {
     flexDirection: 'row',
