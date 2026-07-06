@@ -314,7 +314,7 @@ function FriendsTab({ query }: { query: string }) {
       )}
       renderItem={renderFriendItem}
       renderSectionFooter={({ section }) =>
-        section.title === 'Online Now' && offline.length === 0 ? (
+        section.title === 'Online Now' && offline.length > 0 ? (
           <Text style={styles.onlineEmpty}>None of your other friends are driving right now</Text>
         ) : null
       }

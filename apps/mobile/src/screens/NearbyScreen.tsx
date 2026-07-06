@@ -14,7 +14,7 @@
  *  2. Location permission is missing/denied — prompt to enable it.
  *  3. Opted in with location, but no one else nearby is visible right now.
  */
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -27,7 +27,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import * as ExpoLocation from 'expo-location';
 import { apiClient } from '../services/apiClient';
 import { SkeletonRow } from '../components/SkeletonLoader';
@@ -124,7 +124,15 @@ export default function NearbyScreen() {
     }
   }, []);
 
-  useEffect(() => { void load(); }, [load]);
+  // Re-run on every focus (not just mount) — the opted-out and
+  // needs-location empty states both send the user to the device Settings
+  // app via a button, and this screen must re-check when they come back
+  // instead of showing a stale prompt for a state that no longer applies.
+  useFocusEffect(
+    useCallback(() => {
+      void load({ silent: true });
+    }, [load]),
+  );
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);

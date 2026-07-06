@@ -38,7 +38,7 @@ const SECTIONS = [
   },
   {
     title: '9. Changes',
-    body: 'We may update these terms. Continued use after notification of changes constitutes acceptance. Contact us at manjoytsunny13@gmail.com with any questions.',
+    body: 'We may update these terms. Continued use after notification of changes constitutes acceptance. Contact us at support@convoy.app with any questions.',
   },
 ];
 

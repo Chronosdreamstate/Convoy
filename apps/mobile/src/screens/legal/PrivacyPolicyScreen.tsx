@@ -26,7 +26,7 @@ const SECTIONS = [
   },
   {
     title: 'Contact',
-    body: 'Questions, deletion requests, or privacy concerns:\n\nmanjoytsunny13@gmail.com\n\nWe respond within 5 business days.',
+    body: 'Questions, deletion requests, or privacy concerns:\n\nsupport@convoy.app\n\nWe respond within 5 business days.',
   },
 ];
 

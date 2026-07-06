@@ -142,6 +142,7 @@ export default function ProfileScreen() {
   const [showAvatarModal, setShowAvatarModal] = useState(false);
   const [avatarUrlDraft, setAvatarUrlDraft] = useState('');
   const nameInputRef = useRef<import('react-native').TextInput>(null);
+  const callsignInputRef = useRef<import('react-native').TextInput>(null);
 
   // Mounted guard — prevents setState calls after the component unmounts
   const isMounted = useRef(true);
@@ -431,7 +432,8 @@ export default function ProfileScreen() {
             onItemPress={(item) => {
               if (item === 'vehicle') router.push('/garage');
               else if (item === 'friend') router.push('/friends');
-              else if (item === 'callsign') { /* focus callsign field */ }
+              else if (item === 'callsign') setTimeout(() => callsignInputRef.current?.focus(), 50);
+              else if (item === 'avatar') handleAvatarPress();
             }}
           />
         )}
@@ -440,6 +442,7 @@ export default function ProfileScreen() {
         <View style={styles.card}>
           <Text style={styles.cardLabel}>PTT Callsign</Text>
           <TextInput
+            ref={callsignInputRef}
             style={[styles.nameInput, { marginBottom: 0 }]}
             value={pttCallsign}
             onChangeText={(v) => { setPttCallsign(v); setIsDirty(true); }}

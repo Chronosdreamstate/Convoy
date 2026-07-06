@@ -16,6 +16,8 @@ import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import Constants from 'expo-constants';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as Sharing from 'expo-sharing';
 import { apiClient } from '../../services/apiClient';
 import { authService } from '../../services/AuthService';
 import { SiriShortcutsService } from '../../services/SiriShortcutsService';
@@ -115,7 +117,7 @@ function SettingRow({ icon, label, subtitle, rightSlot, onPress, danger, last }:
         {subtitle ? <Text style={styles.settingSubtitle}>{subtitle}</Text> : null}
       </View>
       <View style={styles.settingRight}>
-        {rightSlot ?? <Text style={styles.chevron}>›</Text>}
+        {rightSlot ?? (onPress ? <Text style={styles.chevron}>›</Text> : null)}
       </View>
     </View>
   );
@@ -295,7 +297,19 @@ export default function SettingsScreen() {
     try {
       const res = await apiClient.get('/api/v1/account/export');
       const json = JSON.stringify(res.data, null, 2);
-      await Share.share({ message: json, title: 'My CORTEGE Data' });
+      const fileUri = `${FileSystem.cacheDirectory}cortege-my-data.json`;
+      await FileSystem.writeAsStringAsync(fileUri, json, { encoding: 'utf8' });
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(fileUri, {
+          mimeType: 'application/json',
+          UTI: 'public.json',
+          dialogTitle: 'My CORTEGE Data',
+        });
+      } else {
+        // Fallback for environments without a share sheet (e.g. some Android
+        // emulators) — share the raw JSON as text so the data isn't lost.
+        await Share.share({ message: json, title: 'My CORTEGE Data' });
+      }
     } catch {
       Alert.alert('Error', 'Failed to export data. Please try again.');
     }
@@ -677,6 +691,12 @@ export default function SettingsScreen() {
             label="Friend Request Privacy"
             subtitle="Choose who can send you friend requests"
             onPress={() => router.push('/(tabs)/profile')}
+          />
+          <SettingRow
+            icon="ban-outline"
+            label="Blocked Users"
+            subtitle="View and unblock users you've blocked"
+            onPress={() => router.push('/blocked-users' as any)}
             last
           />
         </View>
