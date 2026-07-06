@@ -31,6 +31,7 @@ import { useAuthStore } from '../stores/authStore';
 import { useSocketStore } from '../stores/socketStore';
 import { apiClient } from '../services/apiClient';
 import { SkeletonRow } from '../components/SkeletonLoader';
+import { NetworkError } from '../components/NetworkError';
 import { theme, useTheme, ThemeColors } from '../theme';
 
 // ---------------------------------------------------------------------------
@@ -52,6 +53,12 @@ interface Message {
   createdAt: string;
   type?: 'message' | 'system' | 'text' | 'voice';
   reactions?: Reaction[];
+  // Optimistic-send bookkeeping — never sent to/from the server. `pending`
+  // marks a locally-added bubble still waiting on the POST round-trip;
+  // `failed` marks one whose send errored, so it can render a tap-to-retry
+  // affordance in place instead of silently vanishing back into the input.
+  pending?: boolean;
+  failed?: boolean;
 }
 
 const QUICK_REPLIES = [
@@ -279,9 +286,10 @@ interface BubbleProps {
   currentUserId: string;
   onLongPress: (messageId: string) => void;
   onReact: (messageId: string, emoji: string) => void;
+  onRetry: (item: Message) => void;
 }
 
-function MessageBubble({ item, isOwn, currentUserId, onLongPress, onReact }: BubbleProps) {
+function MessageBubble({ item, isOwn, currentUserId, onLongPress, onReact, onRetry }: BubbleProps) {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   if (item.type === 'system') {
@@ -307,11 +315,19 @@ function MessageBubble({ item, isOwn, currentUserId, onLongPress, onReact }: Bub
       )}
       <View style={isOwn ? styles.bubbleWrapRight : styles.bubbleWrapLeft}>
         <TouchableOpacity
+          onPress={item.failed ? () => onRetry(item) : undefined}
           onLongPress={() => onLongPress(item.id)}
           activeOpacity={0.85}
           delayLongPress={350}
+          accessibilityRole={item.failed ? 'button' : undefined}
+          accessibilityLabel={item.failed ? 'Message failed to send. Tap to retry.' : undefined}
         >
-          <View style={[styles.bubble, isOwn ? styles.bubbleOwn : styles.bubbleOther]}>
+          <View style={[
+            styles.bubble,
+            isOwn ? styles.bubbleOwn : styles.bubbleOther,
+            item.pending && styles.bubblePending,
+            item.failed && styles.bubbleFailed,
+          ]}>
             {!isOwn && (
               <Text style={styles.senderName}>{item.displayName}</Text>
             )}
@@ -324,6 +340,12 @@ function MessageBubble({ item, isOwn, currentUserId, onLongPress, onReact }: Bub
             )}
           </View>
         </TouchableOpacity>
+        {item.failed && (
+          <View style={[styles.failedRow, isOwn && styles.failedRowRight]}>
+            <Ionicons name="alert-circle" size={12} color={colors.error} />
+            <Text style={styles.failedText}>Failed to send · Tap to retry</Text>
+          </View>
+        )}
         {hasReactions && (
           <View style={[styles.reactionsRow, isOwn && styles.reactionsRowRight]}>
             {item.reactions!.map((r) => (
@@ -362,6 +384,7 @@ export default function GroupChatScreen() {
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [inputText, setInputText] = useState('');
@@ -400,6 +423,7 @@ export default function GroupChatScreen() {
   const loadInitialMessages = useCallback(async () => {
     if (!groupId || !accessToken) return;
     setLoading(true);
+    setLoadError(false);
     try {
       const { data } = await apiClient.get<{ messages: Message[]; nextCursor: string | null }>(
         `/api/v1/groups/${groupId}/messages?limit=50`,
@@ -407,7 +431,11 @@ export default function GroupChatScreen() {
       setMessages(data.messages);
       setNextCursor(data.nextCursor);
     } catch {
-      // silently fail — user sees empty list
+      // Distinguishable from a genuinely empty conversation — a failed
+      // fetch (or a 403 from ongoing-DM block enforcement) must not render
+      // as the same "No messages yet. Say hi!" empty state a brand-new
+      // thread shows, especially for a DM with real history.
+      setLoadError(true);
     } finally {
       setLoading(false);
     }
@@ -467,7 +495,11 @@ export default function GroupChatScreen() {
     if (!socket) return;
 
     const handleMessage = (msg: Message) => {
-      setMessages((prev) => [msg, ...prev]);
+      // De-duped by id: the sender's own message is already added optimistically
+      // by `sendMessage` (and reconciled with the real id from the POST
+      // response) before this broadcast round-trips back, so without this
+      // check the sender would see their own message twice.
+      setMessages((prev) => (prev.some((m) => m.id === msg.id) ? prev : [msg, ...prev]));
     };
 
     const handleReaction = (payload: { messageId: string; emoji: string; userId: string; action: 'add' | 'remove' }) => {
@@ -531,18 +563,44 @@ export default function GroupChatScreen() {
     if (!trimmed || trimmed.length > 500 || sending || !groupId || !accessToken) return;
     setSending(true);
     setInputText('');
+
+    // Optimistic bubble — appears instantly instead of waiting on the POST
+    // round-trip (and the socket echo after that). Reconciled with the real
+    // server row on success, or flipped to a tap-to-retry state on failure.
+    const clientId = `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const optimisticMessage: Message = {
+      id: clientId,
+      userId: currentUserId,
+      displayName: user?.displayName ?? 'You',
+      avatarUrl: user?.avatarUrl ?? null,
+      text: trimmed,
+      createdAt: new Date().toISOString(),
+      type: 'text',
+      pending: true,
+    };
+    setMessages((prev) => [optimisticMessage, ...prev]);
+
     try {
-      await apiClient.post(`/api/v1/groups/${groupId}/messages`, { text: trimmed });
+      const { data } = await apiClient.post<Message>(`/api/v1/groups/${groupId}/messages`, { text: trimmed });
+      setMessages((prev) => prev.map((m) => (m.id === clientId ? { ...data, pending: false } : m)));
     } catch {
-      setInputText(trimmed);
+      setMessages((prev) => prev.map((m) => (m.id === clientId ? { ...m, pending: false, failed: true } : m)));
     } finally {
       setSending(false);
     }
-  }, [sending, groupId, accessToken]);
+  }, [sending, groupId, accessToken, currentUserId, user]);
 
   const handleSend = useCallback(() => sendMessage(inputText), [inputText, sendMessage]);
 
   const handleQuickReply = useCallback((text: string) => sendMessage(text), [sendMessage]);
+
+  // Tapping a failed bubble drops it and re-sends the same text as a fresh
+  // optimistic message, rather than dumping it back into the input box.
+  const handleRetry = useCallback((message: Message) => {
+    if (!message.text) return;
+    setMessages((prev) => prev.filter((m) => m.id !== message.id));
+    void sendMessage(message.text);
+  }, [sendMessage]);
 
   // ---------------------------------------------------------------------------
   // Voice recording
@@ -706,9 +764,10 @@ export default function GroupChatScreen() {
         currentUserId={currentUserId}
         onLongPress={handleLongPress}
         onReact={handleReact}
+        onRetry={handleRetry}
       />
     ),
-    [currentUserId, handleLongPress, handleReact],
+    [currentUserId, handleLongPress, handleReact, handleRetry],
   );
 
   const keyExtractor = useCallback((item: Message) => item.id, []);
@@ -779,6 +838,11 @@ export default function GroupChatScreen() {
                   </View>
                 ))}
               </View>
+            ) : loadError ? (
+              <NetworkError
+                onRetry={() => void loadInitialMessages()}
+                message="Could not load messages. Please check your connection."
+              />
             ) : (
               <FlatList
                 ref={flatListRef}
@@ -1084,6 +1148,14 @@ function createStyles(colors: ThemeColors) {
     borderColor: colors.border,
     borderBottomLeftRadius: 4,
   },
+  bubblePending: {
+    opacity: 0.55,
+  },
+  bubbleFailed: {
+    opacity: 0.85,
+    borderWidth: 1,
+    borderColor: colors.error,
+  },
   senderName: {
     color: colors.textMuted,
     fontSize: 11,
@@ -1138,6 +1210,25 @@ function createStyles(colors: ThemeColors) {
     color: colors.textMuted,
     fontSize: 11,
     fontWeight: '700',
+  },
+
+  // Failed-send affordance
+  failedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 3,
+    marginLeft: 4,
+  },
+  failedRowRight: {
+    marginLeft: 0,
+    marginRight: 4,
+    justifyContent: 'flex-end',
+  },
+  failedText: {
+    color: colors.error,
+    fontSize: 11,
+    fontWeight: '600',
   },
 
   // Typing indicator
