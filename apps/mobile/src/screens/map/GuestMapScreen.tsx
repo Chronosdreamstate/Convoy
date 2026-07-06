@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
   StyleSheet,
@@ -11,7 +11,9 @@ import MapView, { Marker, PROVIDER_DEFAULT, Polyline } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ExpoLocation from 'expo-location';
 import { useRouter } from 'expo-router';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSettingsStore } from '../../stores/settingsStore';
+import { ThemeColors, useTheme } from '../../theme';
 
 const DEFAULT_REGION = {
   latitude: 37.7749,
@@ -53,6 +55,9 @@ const DEMO_ROUTES: { key: string; coords: { latitude: number; longitude: number 
   },
 ];
 
+// Demo convoy markers on the preview map — kept as emoji (not vector icons) since
+// they're map pins meant for quick, colorful at-a-glance recognition, same
+// rationale as the hazard-type pins on the real MapScreen.
 const MARKER_EMOJIS = ['🚗', '🚙', '🏎️'];
 
 function interpolateRoute(
@@ -75,6 +80,9 @@ function interpolateRoute(
 export default function GuestMapScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const overlayStyles = useMemo(() => makeOverlayStyles(colors), [colors]);
   const [initialRegion, setInitialRegion] = useState(DEFAULT_REGION);
   const [permissionDenied, setPermissionDenied] = useState(false);
   const mapRef = useRef<MapView>(null);
@@ -194,7 +202,9 @@ export default function GuestMapScreen() {
         accessibilityRole="button"
         accessibilityLabel="Re-center map"
       >
-        <Text style={styles.recenterText}>⊕</Text>
+        {/* This button's translucent dark background is fixed regardless of app
+            theme (it floats over the map), so the icon stays a fixed light color. */}
+        <Ionicons name="locate" size={22} color="#FFFFFF" />
       </TouchableOpacity>
 
       {/* Map style cycle button */}
@@ -204,9 +214,11 @@ export default function GuestMapScreen() {
         accessibilityRole="button"
         accessibilityLabel={`Map style: ${mapStyle}. Tap to cycle.`}
       >
-        <Text style={styles.mapTypeIcon}>
-          {mapStyle === 'standard' ? '🗺️' : mapStyle === 'satellite' ? '🛰️' : '🌍'}
-        </Text>
+        <MaterialCommunityIcons
+          name={mapStyle === 'standard' ? 'map-outline' : mapStyle === 'satellite' ? 'satellite-variant' : 'earth'}
+          size={18}
+          color="#FFFFFF"
+        />
       </TouchableOpacity>
 
       {/* Preview Mode pill */}
@@ -217,7 +229,8 @@ export default function GuestMapScreen() {
         ]}
       >
         <View style={styles.previewDot} />
-        <Text style={styles.previewPillText}>👁 PREVIEW — Sign in to drive</Text>
+        <Ionicons name="eye" size={12} color="#CCCCCC" />
+        <Text style={styles.previewPillText}>PREVIEW — Sign in to drive</Text>
       </Animated.View>
 
       {/* Map annotation bubbles */}
@@ -234,7 +247,7 @@ export default function GuestMapScreen() {
       {/* Location denied card */}
       {permissionDenied && (
         <View style={styles.locationCard}>
-          <Text style={styles.locationCardIcon}>📍</Text>
+          <Ionicons name="location" size={36} color={colors.accent} style={{ marginBottom: 12 }} />
           <Text style={styles.locationCardTitle}>Enable Location</Text>
           <Text style={styles.locationCardBody}>
             Allow location access so Cortege can center the map on you and share your position with your group.
@@ -301,7 +314,8 @@ export default function GuestMapScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function makeStyles(colors: ThemeColors) {
+return StyleSheet.create({
   container: { flex: 1 },
 
   markerBubble: {
@@ -310,10 +324,10 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     backgroundColor: '#1C1C1Cf2',
     borderWidth: 1.5,
-    borderColor: '#DC143C',
+    borderColor: colors.accent,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#DC143C',
+    shadowColor: colors.accent,
     shadowOpacity: 0.5,
     shadowRadius: 4,
     shadowOffset: { width: 0, height: 0 },
@@ -331,7 +345,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: colors.border,
     shadowColor: '#000',
     shadowOpacity: 0.4,
     shadowRadius: 6,
@@ -339,7 +353,7 @@ const styles = StyleSheet.create({
     elevation: 4,
     zIndex: 10,
   },
-  recenterText: { fontSize: 22, color: '#FFFFFF' },
+  recenterText: { fontSize: 22, color: colors.text },
 
   mapTypeBtn: {
     position: 'absolute',
@@ -351,7 +365,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: colors.border,
     shadowColor: '#000',
     shadowOpacity: 0.4,
     shadowRadius: 6,
@@ -379,7 +393,7 @@ const styles = StyleSheet.create({
     width: 7,
     height: 7,
     borderRadius: 3.5,
-    backgroundColor: '#DC143C',
+    backgroundColor: colors.accent,
   },
   previewPillText: {
     color: '#CCCCCC',
@@ -398,14 +412,16 @@ const styles = StyleSheet.create({
     padding: 24,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: colors.border,
     shadowColor: '#000',
     shadowOpacity: 0.5,
     shadowRadius: 16,
     shadowOffset: { width: 0, height: 4 },
     elevation: 10,
   },
-  locationCardIcon: { fontSize: 36, marginBottom: 12 },
+  // locationCard's background is a fixed dark translucent card regardless of app
+  // theme (it floats over the map, matching recenterBtn/mapTypeBtn above), so its
+  // text stays fixed light/gray rather than following colors.text/textMuted.
   locationCardTitle: { color: '#FFFFFF', fontSize: 18, fontWeight: '700', marginBottom: 8 },
   locationCardBody: {
     color: '#888888',
@@ -415,13 +431,18 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   locationCardBtn: {
-    backgroundColor: '#DC143C',
+    backgroundColor: colors.accent,
     borderRadius: 10,
     paddingVertical: 12,
     paddingHorizontal: 32,
   },
+  // locationCardBtn's background is the fixed-value accent color (same in both
+  // themes), so its label stays fixed white for contrast rather than colors.text.
   locationCardBtnText: { color: '#FFFFFF', fontWeight: '700', fontSize: 14 },
 
+  // This card's background is a fixed dark translucent surface regardless of app
+  // theme (a branded pre-login marketing card floating over the map preview), so
+  // its text below stays fixed light/gray rather than following colors.text/etc.
   card: {
     position: 'absolute',
     left: 16,
@@ -433,7 +454,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: colors.border,
     shadowColor: '#000',
     shadowOpacity: 0.65,
     shadowRadius: 20,
@@ -465,12 +486,12 @@ const styles = StyleSheet.create({
   featurePill: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#1C1C1C',
+    backgroundColor: colors.card,
     borderRadius: 20,
     paddingVertical: 6,
     paddingHorizontal: 10,
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: colors.border,
     gap: 5,
   },
   featureIcon: { fontSize: 13 },
@@ -478,18 +499,20 @@ const styles = StyleSheet.create({
 
   createBtn: {
     width: '100%',
-    backgroundColor: '#DC143C',
+    backgroundColor: colors.accent,
     borderRadius: 14,
     paddingVertical: 15,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 12,
-    shadowColor: '#DC143C',
+    shadowColor: colors.accent,
     shadowOpacity: 0.45,
     shadowRadius: 10,
     shadowOffset: { width: 0, height: 3 },
     elevation: 5,
   },
+  // createBtn's background is the fixed-value accent color (same in both themes),
+  // so its label stays fixed white rather than colors.text.
   createBtnText: {
     color: '#FFFFFF',
     fontWeight: '800',
@@ -501,8 +524,10 @@ const styles = StyleSheet.create({
   signInText: { color: '#555555', fontSize: 13, fontWeight: '400' },
   signInTextBold: { color: '#999999', fontWeight: '700' },
 });
+}
 
-const overlayStyles = StyleSheet.create({
+function makeOverlayStyles(colors: ThemeColors) {
+return StyleSheet.create({
   headline: {
     color: '#AAAAAA',
     fontSize: 14,
@@ -525,7 +550,7 @@ const overlayStyles = StyleSheet.create({
 
   annotationBubble: {
     position: 'absolute',
-    backgroundColor: '#1C1C1C',
+    backgroundColor: colors.card,
     borderRadius: 10,
     paddingVertical: 5,
     paddingHorizontal: 10,
@@ -539,8 +564,9 @@ const overlayStyles = StyleSheet.create({
     zIndex: 5,
   },
   annotationText: {
-    color: '#FFFFFF',
+    color: colors.text,
     fontSize: 11,
     fontWeight: '600',
   },
 });
+}

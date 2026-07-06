@@ -17,6 +17,8 @@ import MapView, { Marker, Callout, Polyline, LongPressEvent, PROVIDER_DEFAULT } 
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { Socket } from 'socket.io-client';
+import { Ionicons, MaterialCommunityIcons, MaterialIcons } from '@expo/vector-icons';
+import { ThemeColors, useTheme } from '../../theme';
 import { WebSocketService } from '../../services/WebSocketService';
 import { useAuthStore } from '../../stores/authStore';
 import { useSocketStore } from '../../stores/socketStore';
@@ -64,6 +66,9 @@ interface HazardPin {
   thumbsDown: number;
 }
 
+// Hazard-type glyphs on map pins/callouts/banners are deliberately kept as emoji —
+// they need to be recognized at a glance on a small map marker, and matching
+// HazardPicker's emoji set keeps the reporting UI and the resulting pin consistent.
 const HAZARD_EMOJI: Record<string, string> = {
   pothole: '🕳️', accident: '🚗', roadwork: '🚧', debris: '🪨',
   animal: '🦌', speed_trap: '📷', ice: '🧊', flood: '🌊', other: '⚠️',
@@ -136,10 +141,15 @@ function memberInitials(name: string): string {
 }
 
 const MemberMarkerView = React.memo(function MemberMarkerView({ member, isStale, distanceM, callsign, gapStatus }: { member: MemberLocation; isStale: boolean; distanceM?: number; callsign?: string; gapStatus?: 'ok' | 'warning' | 'alert' }) {
+  const { colors } = useTheme();
   const name = member.displayName ?? `M${member.userId.slice(0, 4)}`;
   // Prefer callsign on map markers — more meaningful to car enthusiasts than initials
   const displayLabel = callsign ? callsign.slice(0, 6).toUpperCase() : memberInitials(name).slice(0, 2) || '?';
-  const gapDotColor = gapStatus === 'alert' ? '#DC143C' : gapStatus === 'warning' ? '#F59E0B' : '#22C55E';
+  // Status color is themed (matches the app's semantic accent/warning/success tokens);
+  // the badge's white ring/text below stay hardcoded on purpose — they need fixed
+  // contrast against this marker's own crimson fill as it floats over map imagery,
+  // not the app's light/dark surface.
+  const gapDotColor = gapStatus === 'alert' ? colors.accent : gapStatus === 'warning' ? colors.warning : colors.success;
   const ringScale = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
@@ -204,7 +214,7 @@ const MemberMarkerView = React.memo(function MemberMarkerView({ member, isStale,
           width: 32,
           height: 32,
           borderRadius: 16,
-          backgroundColor: '#DC143C',
+          backgroundColor: colors.accent,
           borderWidth: 1.5,
           borderColor: isStale ? '#555555' : '#FFFFFF',
           alignItems: 'center',
@@ -334,6 +344,9 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
   const gapThresholdM = useGroupStore((s) => s.gapThresholdM);
   const groupPttMaxSeconds = useGroupStore((s) => s.pttMaxSeconds);
   const insets = useSafeAreaInsets();
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const overlayStyles = useMemo(() => makeOverlayStyles(colors), [colors]);
 
   const [gapAlerts, setGapAlerts]     = useState<GapAlert[]>([]);
   const [hazardPins, setHazardPins]   = useState<Map<string, HazardPin>>(new Map());
@@ -1329,7 +1342,7 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
     const memberName = m.displayName ?? `Member ${m.userId.slice(0, 6)}`;
     const callsign = memberCallsignsRef.current[m.userId];
     const gapAlert = gapAlerts.find(a => a.memberId === m.userId);
-    const dotColor = isStale ? '#444444' : gapAlert ? (gapAlert.distanceM > gapThresholdM * 1.5 ? '#DC143C' : '#F59E0B') : '#22C55E';
+    const dotColor = isStale ? colors.textSubtle : gapAlert ? (gapAlert.distanceM > gapThresholdM * 1.5 ? colors.accent : colors.warning) : colors.success;
     const distM = myLocation ? haversineDistanceM(myLocation.lat, myLocation.lng, m.lat, m.lng) : null;
     const distLabel = distM != null ? (distM >= 1000 ? `📍 ${(distM / 1000).toFixed(1)} km` : `📍 ${Math.round(distM)} m`) : null;
     const battery = (m as any).batteryPercent as number | undefined;
@@ -1342,7 +1355,7 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
               {callsign ? `${callsign} · ${memberName}` : memberName}
             </Text>
             {battery != null && battery < 20 && (
-              <Text style={{ color: '#DC143C', fontSize: 12 }}>⚡</Text>
+              <Ionicons name="battery-dead" size={13} color={colors.accent} accessibilityLabel="Low battery" />
             )}
           </View>
           {distLabel && (
@@ -1358,7 +1371,7 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
             accessibilityLabel={`SOS for ${memberName}`}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
-            <Text style={styles.rowSosText}>🆘</Text>
+            <MaterialIcons name="sos" size={18} color={colors.accent} />
           </TouchableOpacity>
         )}
       </View>
@@ -1436,7 +1449,7 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
             coordinate={{ latitude: droppedPin.lat, longitude: droppedPin.lng }}
             title="Dropped Pin"
             description={droppedPin.address ?? 'Loading address…'}
-            pinColor="#F59E0B"
+            pinColor={colors.warning}
             onCalloutPress={() => {
               Alert.alert(
                 'Dropped Pin',
@@ -1456,10 +1469,10 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
           />
         )}
         {rallies.map((r) => (
-          <Marker key={r.id} coordinate={{ latitude: r.lat, longitude: r.lng }} title="Rally Point" description={r.address ?? undefined} pinColor="#22c55e" />
+          <Marker key={r.id} coordinate={{ latitude: r.lat, longitude: r.lng }} title="Rally Point" description={r.address ?? undefined} pinColor={colors.success} />
         ))}
         {sosPinList.map((s) => (
-          <Marker key={s.id} coordinate={{ latitude: s.lat, longitude: s.lng }} title="SOS" pinColor="#DC143C" />
+          <Marker key={s.id} coordinate={{ latitude: s.lat, longitude: s.lng }} title="SOS" pinColor={colors.accent} />
         ))}
         {Array.from(hazardPins.values())
           .filter((h) => !h.reportedAt || Date.now() - h.reportedAt < HAZARD_EXPIRY_MS)
@@ -1467,7 +1480,7 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
           <Marker
             key={h.id}
             coordinate={{ latitude: h.lat, longitude: h.lng }}
-            pinColor="#f59e0b"
+            pinColor={colors.warning}
             title={hazardLabel(h.type)}
           >
             <Callout tooltip onPress={() => {}}>
@@ -1494,7 +1507,8 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
                     accessibilityRole="button"
                     accessibilityLabel={`Confirm hazard still there, ${h.thumbsUp} votes`}
                   >
-                    <Text style={overlayStyles.hazardVoteText}>👍 {h.thumbsUp}</Text>
+                    <Ionicons name="thumbs-up" size={13} color={colors.text} />
+                    <Text style={overlayStyles.hazardVoteText}> {h.thumbsUp}</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={overlayStyles.hazardVoteBtn}
@@ -1503,7 +1517,8 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
                     accessibilityRole="button"
                     accessibilityLabel={`Report hazard not there, ${h.thumbsDown} votes`}
                   >
-                    <Text style={overlayStyles.hazardVoteText}>👎 {h.thumbsDown}</Text>
+                    <Ionicons name="thumbs-down" size={13} color={colors.text} />
+                    <Text style={overlayStyles.hazardVoteText}> {h.thumbsDown}</Text>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -1513,7 +1528,7 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
         {routeCoords.length > 0 && (
           <Polyline
             coordinates={routeCoords}
-            strokeColor="#DC143C"
+            strokeColor={colors.accent}
             strokeWidth={4}
             lineDashPattern={[1]}
           />
@@ -1555,9 +1570,14 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
         accessibilityRole="button"
         accessibilityLabel={`Map style: ${mapStyle}. Tap to cycle.`}
       >
-        <Text style={{ fontSize: 18 }}>
-          {mapStyle === 'standard' ? '🗺️' : mapStyle === 'satellite' ? '🛰️' : '🌍'}
-        </Text>
+        {/* This chip's background is a fixed dark translucent pill regardless of app
+            theme (it floats directly over the map surface), so the icon stays a
+            fixed light color rather than following colors.text. */}
+        <MaterialCommunityIcons
+          name={mapStyle === 'standard' ? 'map-outline' : mapStyle === 'satellite' ? 'satellite-variant' : 'earth'}
+          size={18}
+          color="#FFFFFF"
+        />
       </TouchableOpacity>
 
       {/* Re-center — top-left, below safe area */}
@@ -1567,7 +1587,7 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
         accessibilityRole="button"
         accessibilityLabel="Re-center map"
       >
-        <Text style={styles.recenterText}>⊕</Text>
+        <Ionicons name="locate" size={22} color="#0A0A0A" />
       </TouchableOpacity>
 
       {/* Auto-center on all convoy members — appears when disabled */}
@@ -1578,7 +1598,7 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
           accessibilityRole="button"
           accessibilityLabel="Re-center map"
         >
-          <Text style={styles.recenterText}>🎯</Text>
+          <MaterialCommunityIcons name="crosshairs-gps" size={22} color="#0A0A0A" />
         </TouchableOpacity>
       )}
 
@@ -1618,7 +1638,7 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
                 accessibilityLabel="Plan route"
                 accessibilityRole="button"
               >
-                <Text style={styles.fabItemIcon}>🗺</Text>
+                <Ionicons name="map" size={22} color={colors.text} />
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.fabItem, drivingModeActive && styles.fabItemActive]}
@@ -1626,7 +1646,7 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
                 accessibilityLabel={drivingModeActive ? 'Exit driving mode' : 'Enter driving mode'}
                 accessibilityRole="button"
               >
-                <Text style={styles.fabItemIcon}>🚗</Text>
+                <Ionicons name="car" size={22} color={drivingModeActive ? '#FFFFFF' : colors.text} />
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.fabItem}
@@ -1634,7 +1654,7 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
                 accessibilityLabel="Find fuel nearby"
                 accessibilityRole="button"
               >
-                <Text style={styles.fabItemIcon}>⛽</Text>
+                <MaterialCommunityIcons name="gas-station" size={22} color={colors.text} />
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.fabItem}
@@ -1642,16 +1662,17 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
                 accessibilityLabel="Report a road hazard"
                 accessibilityRole="button"
               >
-                <Text style={styles.fabItemIcon}>⚠️</Text>
+                <Ionicons name="warning" size={22} color={colors.text} />
               </TouchableOpacity>
               {mySosId ? (
                 <TouchableOpacity
-                  style={[styles.fabItem, styles.fabSosCancelItem]}
+                  style={[styles.fabItem, styles.fabSosCancelItem, { flexDirection: 'row', gap: 4 }]}
                   onPress={() => { setFabOpen(false); void cancelMySos(); }}
                   accessibilityLabel="Cancel SOS"
                   accessibilityRole="button"
                 >
-                  <Text style={styles.fabItemText}>✕ SOS</Text>
+                  <Ionicons name="close" size={14} color="#fff" />
+                  <Text style={styles.fabItemText}>SOS</Text>
                 </TouchableOpacity>
               ) : (
                 <TouchableOpacity
@@ -1661,7 +1682,7 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
                   accessibilityHint="Alerts your convoy of an emergency"
                   accessibilityRole="button"
                 >
-                  <Text style={styles.fabItemIcon}>🆘</Text>
+                  <MaterialIcons name="sos" size={22} color={colors.accent} />
                 </TouchableOpacity>
               )}
               {pttChannelId && (
@@ -1686,7 +1707,11 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
                   accessibilityHint="Hold to broadcast voice to convoy"
                   accessibilityRole="button"
                 >
-                  <Text style={styles.fabItemIcon}>{pttAdminMuted ? '🔇' : pttVoiceAvailable ? '🎙' : '🚫'}</Text>
+                  <Ionicons
+                    name={pttAdminMuted ? 'mic-off' : pttVoiceAvailable ? 'mic' : 'ban'}
+                    size={20}
+                    color={fabPttActive ? '#FFFFFF' : (pttAdminMuted || !pttVoiceAvailable) ? colors.textMuted : colors.text}
+                  />
                   <Text style={styles.fabPttLabel}>
                     {pttAdminMuted ? 'MUTED' : !pttVoiceAvailable ? 'NO VOICE' : fabPttActive ? 'LIVE' : 'PTT'}
                   </Text>
@@ -1700,7 +1725,7 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
             accessibilityLabel={fabOpen ? 'Close actions menu' : 'Open actions menu'}
             accessibilityRole="button"
           >
-            <Text style={styles.fabMainIcon}>{fabOpen ? '✕' : '⚡'}</Text>
+            <Ionicons name={fabOpen ? 'close' : 'flash'} size={26} color={colors.text} />
           </TouchableOpacity>
         </View>
       )}
@@ -1738,17 +1763,18 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
         <>
           <View style={[styles.quickActionRow, { bottom: insets.bottom + 228 }]}>
             {([
-              { type: 'stopping', label: '🚦 Stopping' },
-              { type: 'regroup',  label: '🔄 Regrouping' },
-              { type: 'incident', label: '⚠️ Incident' },
-            ] as const).map(({ type, label }) => (
+              { type: 'stopping', label: 'Stopping', message: '🚦 Stopping', icon: 'hand-left' as const },
+              { type: 'regroup',  label: 'Regrouping', message: '🔄 Regrouping', icon: 'sync' as const },
+              { type: 'incident', label: 'Incident', message: '⚠️ Incident', icon: 'warning' as const },
+            ]).map(({ type, label, message, icon }) => (
               <TouchableOpacity
                 key={type}
                 style={styles.quickActionPill}
-                onPress={() => sendQuickAlert(type, label)}
+                onPress={() => sendQuickAlert(type, message)}
                 accessibilityRole="button"
                 accessibilityLabel={`Send ${label} alert to convoy`}
               >
+                <Ionicons name={icon} size={14} color={colors.text} />
                 <Text style={styles.quickActionPillText}>{label}</Text>
               </TouchableOpacity>
             ))}
@@ -1760,7 +1786,10 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
               accessibilityRole="button"
               accessibilityLabel="Report a hazard on the road"
             >
-              <Text style={styles.quickActionPillText}>🚨 Report Hazard</Text>
+              {/* hazardQuickPill overrides the background to a fixed dark amber tint
+                  regardless of theme, so this icon/label stay fixed white. */}
+              <Ionicons name="warning" size={14} color="#FFFFFF" />
+              <Text style={[styles.quickActionPillText, { color: '#FFFFFF' }]}>Report Hazard</Text>
             </TouchableOpacity>
           </View>
         </>
@@ -1789,7 +1818,11 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
             accessibilityHint="Hold to transmit voice to group"
             accessibilityRole="button"
           >
-            <Text style={styles.pttStandaloneIcon}>{pttAdminMuted ? '🔇' : pttVoiceAvailable ? '🎙' : '🚫'}</Text>
+            <Ionicons
+              name={pttAdminMuted ? 'mic-off' : pttVoiceAvailable ? 'mic' : 'ban'}
+              size={30}
+              color={isPttTransmitting ? '#FFFFFF' : (pttAdminMuted || !pttVoiceAvailable) ? colors.textSubtle : colors.text}
+            />
           </Pressable>
           <Text style={[styles.pttStandaloneLabel, isPttTransmitting && styles.pttStandaloneLabelActive]}>
             {pttAdminMuted ? 'MUTED BY ADMIN' : !pttVoiceAvailable ? 'NO VOICE' : isPttTransmitting ? 'TRANSMITTING' : 'HOLD TO TALK'}
@@ -1848,7 +1881,7 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
               accessibilityRole="button"
               accessibilityLabel="Dismiss hazard alerts"
             >
-              <Text style={styles.alertDismiss}>✕</Text>
+              <Ionicons name="close" size={16} color="#888888" />
             </TouchableOpacity>
           </View>
         </View>
@@ -1868,9 +1901,12 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
           accessibilityLabel={`Rally Point${rallyAlert.address ? `: ${rallyAlert.address}` : ''} — tap for directions`}
         >
           <View style={styles.rallyBannerStrip} />
-          <Text style={[styles.rallyBannerText, { flex: 1, padding: 10 }]}>
-            🚩 Rally Point set{rallyAlert.address ? `: ${rallyAlert.address}` : ''} — Tap for directions
-          </Text>
+          <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8, padding: 10 }}>
+            <MaterialCommunityIcons name="flag-variant" size={16} color={colors.success} />
+            <Text style={styles.rallyBannerText}>
+              Rally Point set{rallyAlert.address ? `: ${rallyAlert.address}` : ''} — Tap for directions
+            </Text>
+          </View>
         </TouchableOpacity>
       )}
 
@@ -1915,8 +1951,9 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
           {!sheetExpanded ? (
             /* Collapsed peek: member count + mini PTT */
             <View style={styles.panelCollapsed}>
+              <Ionicons name="car" size={16} color={colors.text} />
               <Text style={styles.panelCollapsedText}>
-                🚗 {members.length} {members.length === 1 ? 'rider' : 'riders'}
+                {members.length} {members.length === 1 ? 'rider' : 'riders'}
               </Text>
               {pttChannelId ? (
                 <Pressable
@@ -1926,10 +1963,14 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
                   accessibilityLabel={pttAdminMuted ? 'Muted by admin' : 'Hold to push to talk'}
                   accessibilityRole="button"
                 >
-                  <Text style={{ fontSize: 16 }}>{pttAdminMuted ? '🔇' : isPttTransmitting ? '📡' : '🎙'}</Text>
+                  <Ionicons
+                    name={pttAdminMuted ? 'mic-off' : isPttTransmitting ? 'radio' : 'mic'}
+                    size={16}
+                    color={isPttTransmitting ? colors.accent : colors.text}
+                  />
                 </Pressable>
               ) : null}
-              <Text style={styles.panelCollapsedChevron}>∧</Text>
+              <Ionicons name="chevron-up" size={18} color={colors.textMuted} />
             </View>
           ) : (
             <>
@@ -1981,7 +2022,10 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
       <Modal transparent visible={showSosPicker} animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={[styles.modalBox, styles.pickerBox]}>
-            <Text style={styles.modalTitle}>🆘 SOS — Who needs help?</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+              <MaterialIcons name="sos" size={20} color={colors.accent} />
+              <Text style={[styles.modalTitle, { marginBottom: 0 }]}>SOS — Who needs help?</Text>
+            </View>
             <Text style={styles.pickerSubtitle}>Their current location will be broadcast to all convoy members.</Text>
 
             {/* Yourself row */}
@@ -1993,14 +2037,14 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
               accessibilityLabel={myLocation ? 'SOS for yourself using your GPS location' : 'Location unavailable'}
               accessibilityState={{ disabled: !myLocation }}
             >
-              <Text style={styles.pickerRowEmoji}>🙋</Text>
+              <Ionicons name="person" size={22} color={colors.textMuted} style={styles.pickerRowEmoji} />
               <View style={styles.pickerRowBody}>
                 <Text style={[styles.pickerRowName, !myLocation && styles.pickerRowNameDisabled]}>
                   {myLocation ? 'Yourself' : 'Location unavailable – cannot broadcast'}
                 </Text>
                 <Text style={styles.pickerRowSub}>{myLocation ? 'Using your GPS location' : 'Enable location permissions to use this option'}</Text>
               </View>
-              {myLocation && <Text style={styles.pickerRowArrow}>›</Text>}
+              {myLocation && <Ionicons name="chevron-forward" size={20} color="#444444" style={{ marginLeft: 8 }} />}
             </TouchableOpacity>
 
             {/* Convoy members */}
@@ -2015,12 +2059,12 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
                   accessibilityRole="button"
                   accessibilityLabel={`SOS for ${name}`}
                 >
-                  <Text style={styles.pickerRowEmoji}>🚗</Text>
+                  <Ionicons name="car" size={22} color={colors.textMuted} style={styles.pickerRowEmoji} />
                   <View style={styles.pickerRowBody}>
                     <Text style={styles.pickerRowName}>{name}</Text>
                     <Text style={styles.pickerRowSub}>{m.speedKph.toFixed(0)} km/h · {formatElapsed(m.receivedAt)}</Text>
                   </View>
-                  <Text style={styles.pickerRowArrow}>›</Text>
+                  <Ionicons name="chevron-forward" size={20} color="#444444" style={{ marginLeft: 8 }} />
                 </TouchableOpacity>
               );
             })}
@@ -2041,7 +2085,10 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
       <Modal transparent visible={showSosConfirm} animationType="fade">
         <View style={styles.modalOverlay}>
           <View style={styles.modalBox}>
-            <Text style={styles.modalTitle}>🆘 Send SOS Alert?</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+              <MaterialIcons name="sos" size={20} color={colors.accent} />
+              <Text style={[styles.modalTitle, { marginBottom: 0 }]}>Send SOS Alert?</Text>
+            </View>
             <Text style={styles.modalBody}>
               {pendingSosName ? `This will broadcast ${pendingSosName}'s location` : "This will broadcast your location"} to all convoy members as an emergency alert.
             </Text>
@@ -2090,12 +2137,15 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
       <Modal transparent visible={showRouteModal} animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={[styles.modalBox, styles.routeModalBox]}>
-            <Text style={styles.modalTitle}>🗺  Plan Route</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+              <Ionicons name="map" size={20} color={colors.text} />
+              <Text style={[styles.modalTitle, { marginBottom: 0 }]}>Plan Route</Text>
+            </View>
             <View style={styles.routeInputRow}>
               <TextInput
                 style={styles.routeInput}
                 placeholder="Enter destination"
-                placeholderTextColor="#555555"
+                placeholderTextColor={colors.textSubtle}
                 value={routeDestInput}
                 onChangeText={setRouteDestInput}
                 returnKeyType="search"
@@ -2115,7 +2165,10 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
 
             {/* Req 22.1: Scenic route preference toggle on the route calculation screen */}
             <View style={styles.scenicToggleRow}>
-              <Text style={styles.scenicToggleLabel}>🌲 Scenic route</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <MaterialCommunityIcons name="pine-tree" size={16} color={colors.success} />
+                <Text style={styles.scenicToggleLabel}>Scenic route</Text>
+              </View>
               <Switch
                 value={scenicRouting}
                 onValueChange={(v) => setSettings({ scenicRouting: v })}
@@ -2148,7 +2201,7 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
                         </Text>
                         <Text style={styles.routeAltMeta}>{km} km · {dur}</Text>
                       </View>
-                      {selectedRouteIdx === idx && <Text style={styles.routeAltCheck}>✓</Text>}
+                      {selectedRouteIdx === idx && <Ionicons name="checkmark" size={18} color={colors.accent} />}
                     </TouchableOpacity>
                   );
                 })}
@@ -2225,7 +2278,8 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
 
 const SEARCH_SIDE_MARGIN = 64; // leaves room for re-center (left) and badge (right)
 
-const styles = StyleSheet.create({
+function makeStyles(colors: ThemeColors) {
+return StyleSheet.create({
   container: { flex: 1 },
   map: { ...StyleSheet.absoluteFillObject },
 
@@ -2246,8 +2300,8 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     zIndex: 10,
   },
-  badgeOnline: { backgroundColor: '#22C55E' },
-  badgeOffline: { backgroundColor: '#444444' },
+  badgeOnline: { backgroundColor: colors.success },
+  badgeOffline: { backgroundColor: colors.textSubtle },
   badgeText: { color: '#fff', fontSize: 11, fontWeight: '700' },
 
   mapTypeBtn: {
@@ -2305,11 +2359,11 @@ const styles = StyleSheet.create({
     width: 64,
     height: 64,
     borderRadius: 32,
-    backgroundColor: '#1C1C1C',
+    backgroundColor: colors.card,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 3,
-    borderColor: '#555555',
+    borderColor: colors.textSubtle,
     shadowColor: '#000',
     shadowOpacity: 0.4,
     shadowRadius: 6,
@@ -2331,11 +2385,11 @@ const styles = StyleSheet.create({
     width: 52,
     height: 52,
     borderRadius: 26,
-    backgroundColor: '#1C1C1C',
+    backgroundColor: colors.card,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 2,
-    borderColor: '#F59E0B',
+    borderColor: colors.warning,
     shadowColor: '#000',
     shadowOpacity: 0.3,
     shadowRadius: 4,
@@ -2352,7 +2406,7 @@ const styles = StyleSheet.create({
     width: 52,
     height: 52,
     borderRadius: 26,
-    backgroundColor: '#1C1C1C',
+    backgroundColor: colors.card,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 2,
@@ -2378,7 +2432,7 @@ const styles = StyleSheet.create({
     width: 64,
     height: 64,
     borderRadius: 32,
-    backgroundColor: '#DC143C',
+    backgroundColor: colors.accent,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 3,
@@ -2394,7 +2448,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     minHeight: 44,
     borderRadius: 8,
-    backgroundColor: '#555555',
+    backgroundColor: colors.textSubtle,
     borderWidth: 2,
     borderColor: '#fff',
     alignItems: 'center',
@@ -2418,7 +2472,7 @@ const styles = StyleSheet.create({
   },
   alertBannerStrip: {
     width: 4,
-    backgroundColor: '#DC143C',
+    backgroundColor: colors.accent,
   },
   alertBannerContent: {
     flex: 1,
@@ -2441,11 +2495,13 @@ const styles = StyleSheet.create({
   },
   hazardBannerStrip: {
     width: 4,
-    backgroundColor: '#F59E0B',
+    backgroundColor: colors.warning,
   },
   hazardAlertText: { color: '#FEF3C7', fontSize: 13 },
   alertBannerTexts: { flex: 1 },
   alertText: { color: '#F0F0F0', fontSize: 13 },
+  // hazardBanner's background stays a fixed dark translucent chip regardless of
+  // theme (it floats over the map), so this dismiss glyph stays fixed too.
   alertDismiss: { color: '#888888', fontSize: 16, fontWeight: '700', marginLeft: 8, lineHeight: 20 },
   rallyBanner: {
     position: 'absolute',
@@ -2462,8 +2518,9 @@ const styles = StyleSheet.create({
   },
   rallyBannerStrip: {
     width: 4,
-    backgroundColor: '#22C55E',
+    backgroundColor: colors.success,
   },
+  // rallyBanner's background stays fixed dark regardless of theme (same as hazardBanner above).
   rallyBannerText: { color: '#F0F0F0', fontSize: 13, fontWeight: '600' },
   sosBanner: {
     position: 'absolute',
@@ -2485,14 +2542,18 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: 'rgba(10, 10, 10, 0.92)',
+    // 92%-opacity tint of the themed bg color (colors.bg is a 7-char hex, so
+    // appending an alpha channel keeps this a themed surface instead of a
+    // fixed-dark literal — needed since this panel's text below now follows
+    // colors.text/textMuted).
+    backgroundColor: `${colors.bg}eb`,
     overflow: 'hidden',
     paddingTop: 4,
     paddingHorizontal: 16,
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
     borderTopWidth: 1,
-    borderTopColor: 'rgba(255, 255, 255, 0.08)',
+    borderTopColor: colors.border,
     shadowColor: '#000',
     shadowOpacity: 0.6,
     shadowRadius: 16,
@@ -2509,12 +2570,12 @@ const styles = StyleSheet.create({
   },
   panelCollapsedText: {
     flex: 1,
-    color: '#FFFFFF',
+    color: colors.text,
     fontSize: 14,
     fontWeight: '600',
   },
   panelCollapsedChevron: {
-    color: '#888888',
+    color: colors.textMuted,
     fontSize: 18,
     fontWeight: '600',
   },
@@ -2522,15 +2583,15 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#1C1C1C',
+    backgroundColor: colors.card,
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: colors.border,
     alignItems: 'center',
     justifyContent: 'center',
   },
   miniPttBtnActive: {
     backgroundColor: 'rgba(220, 20, 60, 0.25)',
-    borderColor: '#DC143C',
+    borderColor: colors.accent,
   },
   panelTabRow: {
     flexDirection: 'row',
@@ -2547,8 +2608,10 @@ const styles = StyleSheet.create({
     minHeight: 30,
     justifyContent: 'center',
   },
-  panelTabActive: { backgroundColor: '#DC143C' },
-  panelTabText: { color: '#555555', fontSize: 11, fontWeight: '600' },
+  panelTabActive: { backgroundColor: colors.accent },
+  panelTabText: { color: colors.textSubtle, fontSize: 11, fontWeight: '600' },
+  // panelTabActive's background is the fixed-value accent color, so its active
+  // label stays fixed white for contrast rather than colors.text.
   panelTabTextActive: { color: '#FFFFFF' },
   panelConnecting: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 
@@ -2556,41 +2619,41 @@ const styles = StyleSheet.create({
     width: 36,
     height: 4,
     borderRadius: 2,
-    backgroundColor: '#444444',
+    backgroundColor: colors.textSubtle,
     alignSelf: 'center',
     marginBottom: 8,
   },
-  panelTitle: { color: '#F0F0F0', fontWeight: '700', marginBottom: 8, fontSize: 13 },
+  panelTitle: { color: colors.text, fontWeight: '700', marginBottom: 8, fontSize: 13 },
   memberRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6, minHeight: 36 },
   dot: { width: 8, height: 8, borderRadius: 4, marginRight: 8 },
-  dotOnline: { backgroundColor: '#22C55E' },
-  dotOffline: { backgroundColor: '#444444' },
-  memberText: { color: '#F0F0F0', flex: 1, fontSize: 13 },
-  memberDetail: { color: '#888888', fontSize: 12 },
-  emptyText: { color: '#555555', fontSize: 13, textAlign: 'center', marginTop: 8 },
+  dotOnline: { backgroundColor: colors.success },
+  dotOffline: { backgroundColor: colors.textSubtle },
+  memberText: { color: colors.text, flex: 1, fontSize: 13 },
+  memberDetail: { color: colors.textMuted, fontSize: 12 },
+  emptyText: { color: colors.textSubtle, fontSize: 13, textAlign: 'center', marginTop: 8 },
 
   // SOS confirm modal
   modalOverlay: { flex: 1, backgroundColor: '#00000099', alignItems: 'center', justifyContent: 'center' },
   modalBox: {
-    backgroundColor: '#1C1C1C',
+    backgroundColor: colors.card,
     borderRadius: 12,
     padding: 24,
     marginHorizontal: 32,
     borderWidth: 2,
-    borderColor: '#DC143C',
+    borderColor: colors.accent,
   },
-  modalTitle: { color: '#F0F0F0', fontSize: 20, fontWeight: '800', marginBottom: 12 },
-  modalBody: { color: '#888888', fontSize: 14, lineHeight: 20, marginBottom: 20 },
+  modalTitle: { color: colors.text, fontSize: 20, fontWeight: '800', marginBottom: 12 },
+  modalBody: { color: colors.textMuted, fontSize: 14, lineHeight: 20, marginBottom: 20 },
   modalActions: { flexDirection: 'row', gap: 12 },
-  modalCancel: { flex: 1, paddingVertical: 12, borderRadius: 8, backgroundColor: '#2A2A2A', alignItems: 'center' },
-  modalCancelText: { color: '#F0F0F0', fontWeight: '600' },
-  modalConfirm: { flex: 1, paddingVertical: 12, borderRadius: 8, backgroundColor: '#DC143C', alignItems: 'center', borderWidth: 2, borderColor: '#FF8080' },
+  modalCancel: { flex: 1, paddingVertical: 12, borderRadius: 8, backgroundColor: colors.border, alignItems: 'center' },
+  modalCancelText: { color: colors.text, fontWeight: '600' },
+  modalConfirm: { flex: 1, paddingVertical: 12, borderRadius: 8, backgroundColor: colors.accent, alignItems: 'center', borderWidth: 2, borderColor: '#FF8080' },
   modalConfirmText: { color: '#fff', fontWeight: '900', fontSize: 15 },
 
   // Person picker modal
-  pickerBox: { borderColor: '#DC143C', paddingHorizontal: 20, paddingVertical: 24, width: '100%' },
-  pickerSubtitle: { color: '#888888', fontSize: 13, lineHeight: 18, marginBottom: 16 },
-  pickerDivider: { height: 1, backgroundColor: '#2A2A2A', marginVertical: 8 },
+  pickerBox: { borderColor: colors.accent, paddingHorizontal: 20, paddingVertical: 24, width: '100%' },
+  pickerSubtitle: { color: colors.textMuted, fontSize: 13, lineHeight: 18, marginBottom: 16 },
+  pickerDivider: { height: 1, backgroundColor: colors.border, marginVertical: 8 },
   pickerRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -2601,11 +2664,11 @@ const styles = StyleSheet.create({
   },
   pickerRowEmoji: { fontSize: 24, marginRight: 12 },
   pickerRowBody: { flex: 1 },
-  pickerRowName: { color: '#F0F0F0', fontSize: 15, fontWeight: '600' },
-  pickerRowNameDisabled: { color: '#555555' },
+  pickerRowName: { color: colors.text, fontSize: 15, fontWeight: '600' },
+  pickerRowNameDisabled: { color: colors.textSubtle },
   pickerRowDisabled: { opacity: 0.5 },
-  pickerRowSub: { color: '#555555', fontSize: 12, marginTop: 2 },
-  pickerRowArrow: { color: '#444444', fontSize: 22, marginLeft: 8 },
+  pickerRowSub: { color: colors.textSubtle, fontSize: 12, marginTop: 2 },
+  pickerRowArrow: { color: colors.textSubtle, fontSize: 22, marginLeft: 8 },
 
   // Quick SOS on member row
   rowSosBtn: {
@@ -2628,11 +2691,11 @@ const styles = StyleSheet.create({
     width: 60,
     height: 60,
     borderRadius: 30,
-    backgroundColor: '#1C1C1C',
+    backgroundColor: colors.card,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 2,
-    borderColor: '#555555',
+    borderColor: colors.textSubtle,
     shadowColor: '#000',
     shadowOpacity: 0.4,
     shadowRadius: 6,
@@ -2640,17 +2703,17 @@ const styles = StyleSheet.create({
     elevation: 8,
     marginTop: 8,
   },
-  fabMainOpen: { borderColor: '#DC143C' },
+  fabMainOpen: { borderColor: colors.accent },
   fabMainIcon: { fontSize: 26 },
   fabItem: {
     width: 52,
     height: 52,
     borderRadius: 26,
-    backgroundColor: '#1C1C1C',
+    backgroundColor: colors.card,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 2,
-    borderColor: '#555555',
+    borderColor: colors.textSubtle,
     shadowColor: '#000',
     shadowOpacity: 0.3,
     shadowRadius: 4,
@@ -2660,12 +2723,12 @@ const styles = StyleSheet.create({
   },
   fabItemIcon: { fontSize: 22 },
   fabItemText: { color: '#fff', fontWeight: '800', fontSize: 11 },
-  fabItemActive: { borderColor: '#DC143C', backgroundColor: '#1A0505' },
-  fabSosItem: { borderColor: '#DC143C' },
+  fabItemActive: { borderColor: colors.accent, backgroundColor: '#1A0505' },
+  fabSosItem: { borderColor: colors.accent },
   fabSosCancelItem: { borderColor: '#555', backgroundColor: '#3a3a3a' },
-  fabPttItem: { borderColor: '#DC143C' },
+  fabPttItem: { borderColor: colors.accent },
   fabPttItemActive: { backgroundColor: '#8B0000', borderColor: '#FF4040' },
-  fabPttItemUnavailable: { backgroundColor: '#2A2A2A', borderColor: '#555', opacity: 0.6 },
+  fabPttItemUnavailable: { backgroundColor: colors.border, borderColor: '#555', opacity: 0.6 },
   fabPttLabel: { color: '#fff', fontSize: 9, fontWeight: '800', letterSpacing: 0.5 },
 
   // Route modal
@@ -2684,20 +2747,20 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: 16,
   },
-  scenicToggleLabel: { color: '#F0F0F0', fontSize: 14, fontWeight: '600' },
+  scenicToggleLabel: { color: colors.text, fontSize: 14, fontWeight: '600' },
   routeInput: {
     flex: 1,
-    backgroundColor: '#0A0A0A',
-    color: '#F0F0F0',
+    backgroundColor: colors.bg,
+    color: colors.text,
     borderRadius: 10,
     paddingHorizontal: 14,
     paddingVertical: 10,
     fontSize: 15,
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: colors.border,
   },
   routeSearchBtn: {
-    backgroundColor: '#DC143C',
+    backgroundColor: colors.accent,
     borderRadius: 10,
     paddingHorizontal: 16,
     alignItems: 'center',
@@ -2706,26 +2769,26 @@ const styles = StyleSheet.create({
   },
   routeSearchBtnText: { color: '#fff', fontWeight: '800', fontSize: 16 },
   routeAlts: { marginBottom: 16 },
-  routeAltsLabel: { color: '#555555', fontSize: 10, fontWeight: '700', letterSpacing: 1.5, marginBottom: 8 },
+  routeAltsLabel: { color: colors.textSubtle, fontSize: 10, fontWeight: '700', letterSpacing: 1.5, marginBottom: 8 },
   routeAltRow: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 12,
     paddingHorizontal: 12,
     borderRadius: 10,
-    backgroundColor: '#0A0A0A',
+    backgroundColor: colors.bg,
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: colors.border,
     marginBottom: 6,
   },
-  routeAltRowActive: { borderColor: '#DC143C', backgroundColor: '#1A0505' },
+  routeAltRowActive: { borderColor: colors.accent, backgroundColor: '#1A0505' },
   routeAltBody: { flex: 1 },
-  routeAltLabel: { color: '#888888', fontSize: 14, fontWeight: '600' },
-  routeAltLabelActive: { color: '#DC143C' },
-  routeAltMeta: { color: '#555555', fontSize: 12, marginTop: 2 },
-  routeAltCheck: { color: '#DC143C', fontSize: 18, fontWeight: '900' },
+  routeAltLabel: { color: colors.textMuted, fontSize: 14, fontWeight: '600' },
+  routeAltLabelActive: { color: colors.accent },
+  routeAltMeta: { color: colors.textSubtle, fontSize: 12, marginTop: 2 },
+  routeAltCheck: { color: colors.accent, fontSize: 18, fontWeight: '900' },
   routeClearBtn: { paddingVertical: 10, alignItems: 'center', marginBottom: 12 },
-  routeClearText: { color: '#555555', fontSize: 13, textDecorationLine: 'underline' },
+  routeClearText: { color: colors.textSubtle, fontSize: 13, textDecorationLine: 'underline' },
 
   // Driving mode overlay (bottom bar HUD)
   drivingOverlay: {
@@ -2739,7 +2802,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 14,
     borderTopWidth: 2,
-    borderTopColor: '#DC143C',
+    borderTopColor: colors.accent,
     zIndex: 15,
   },
   drivingSpeedBox: {
@@ -2747,10 +2810,13 @@ const styles = StyleSheet.create({
     marginRight: 20,
     minWidth: 64,
   },
+  // drivingOverlay's background is a fixed dark bar regardless of theme (full-bleed
+  // driving-mode HUD, meant to always read like a dashboard readout), so its text
+  // stays fixed light/gray rather than following colors.text/textSubtle/textMuted.
   drivingSpeedValue: { color: '#F0F0F0', fontSize: 44, fontWeight: '900', lineHeight: 48 },
   drivingSpeedUnit: { color: '#555555', fontSize: 11, fontWeight: '700', letterSpacing: 1 },
   drivingInfo: { flex: 1 },
-  drivingTitle: { color: '#DC143C', fontSize: 12, fontWeight: '800', letterSpacing: 2 },
+  drivingTitle: { color: colors.accent, fontSize: 12, fontWeight: '800', letterSpacing: 2 },
   drivingConnected: { color: '#555555', fontSize: 12, marginTop: 4 },
   drivingExitBtn: {
     backgroundColor: 'rgba(28, 28, 28, 0.94)',
@@ -2796,18 +2862,18 @@ const styles = StyleSheet.create({
     height: 80,
     borderRadius: 40,
     borderWidth: 2.5,
-    borderColor: '#DC143C',
+    borderColor: colors.accent,
   },
   pttStandaloneBtn: {
     width: 80,
     height: 80,
     borderRadius: 40,
-    backgroundColor: '#1C1C1C',
+    backgroundColor: colors.card,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 3,
-    borderColor: '#DC143C',
-    shadowColor: '#DC143C',
+    borderColor: colors.accent,
+    shadowColor: colors.accent,
     shadowOpacity: 0.45,
     shadowRadius: 10,
     shadowOffset: { width: 0, height: 2 },
@@ -2819,13 +2885,13 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.9,
   },
   pttStandaloneBtnUnavailable: {
-    borderColor: '#555555',
+    borderColor: colors.textSubtle,
     opacity: 0.5,
     shadowOpacity: 0,
   },
   pttStandaloneIcon: { fontSize: 30 },
   pttStandaloneLabel: {
-    color: '#555555',
+    color: colors.textSubtle,
     fontSize: 9,
     fontWeight: '800',
     letterSpacing: 1.5,
@@ -2841,14 +2907,14 @@ const styles = StyleSheet.create({
     top: 0,
     left: 16,
     right: 16,
-    backgroundColor: '#1C1C1C',
+    backgroundColor: colors.card,
     borderRadius: 10,
     paddingVertical: 10,
     paddingHorizontal: 14,
     borderWidth: 1,
     borderColor: '#F59E0B44',
     borderLeftWidth: 4,
-    borderLeftColor: '#F59E0B',
+    borderLeftColor: colors.warning,
     zIndex: 25,
     shadowColor: '#000',
     shadowOpacity: 0.5,
@@ -2857,7 +2923,7 @@ const styles = StyleSheet.create({
     elevation: 12,
   },
   quickAlertText: {
-    color: '#FFFFFF',
+    color: colors.text,
     fontSize: 13,
     fontWeight: '600',
   },
@@ -2867,17 +2933,19 @@ const styles = StyleSheet.create({
     top: 0,
     left: 16,
     right: 16,
-    backgroundColor: '#DC143C',
+    backgroundColor: colors.accent,
     borderRadius: 10,
     paddingVertical: 12,
     paddingHorizontal: 16,
     zIndex: 26,
-    shadowColor: '#DC143C',
+    shadowColor: colors.accent,
     shadowOpacity: 0.6,
     shadowRadius: 12,
     shadowOffset: { width: 0, height: 4 },
     elevation: 14,
   },
+  // announcementBanner's background is the fixed-value accent color, so its
+  // text stays fixed white for contrast rather than colors.text.
   announcementBannerText: {
     color: '#FFFFFF',
     fontSize: 14,
@@ -2897,16 +2965,18 @@ const styles = StyleSheet.create({
   quickActionPill: {
     flex: 1,
     height: 36,
-    backgroundColor: '#1C1C1C',
+    flexDirection: 'row',
+    backgroundColor: colors.card,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: colors.border,
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 6,
     paddingHorizontal: 12,
   },
   quickActionPillText: {
-    color: '#FFFFFF',
+    color: colors.text,
     fontSize: 12,
     fontWeight: '600',
   },
@@ -2915,24 +2985,26 @@ const styles = StyleSheet.create({
   weatherPill: {
     position: 'absolute',
     left: 12,
-    backgroundColor: '#1C1C1C',
+    backgroundColor: colors.card,
     borderRadius: 16,
     paddingHorizontal: 10,
     paddingVertical: 5,
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: colors.border,
     zIndex: 10,
   },
   weatherPillText: {
-    color: '#FFFFFF',
+    color: colors.text,
     fontSize: 12,
     fontWeight: '600',
   },
 });
+}
 
-const overlayStyles = StyleSheet.create({
+function makeOverlayStyles(colors: ThemeColors) {
+return StyleSheet.create({
   hazardCallout: {
-    backgroundColor: '#1C1C1C',
+    backgroundColor: colors.card,
     borderRadius: 10,
     padding: 12,
     minWidth: 160,
@@ -2945,13 +3017,13 @@ const overlayStyles = StyleSheet.create({
     elevation: 8,
   },
   hazardCalloutTitle: {
-    color: '#FFFFFF',
+    color: colors.text,
     fontSize: 14,
     fontWeight: '700',
     marginBottom: 4,
   },
   hazardCalloutSub: {
-    color: '#888888',
+    color: colors.textMuted,
     fontSize: 11,
     marginBottom: 2,
   },
@@ -2961,24 +3033,27 @@ const overlayStyles = StyleSheet.create({
     marginTop: 8,
     paddingTop: 8,
     borderTopWidth: 1,
-    borderTopColor: '#2A2A2A',
+    borderTopColor: colors.border,
   },
   hazardVoteBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 8,
-    backgroundColor: '#0A0A0A',
+    backgroundColor: colors.bg,
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: colors.border,
   },
   hazardVoteText: {
-    color: '#FFFFFF',
+    color: colors.text,
     fontSize: 13,
     fontWeight: '600',
   },
   hazardQuickPill: {
-    borderColor: '#F59E0B',
+    borderColor: colors.warning,
     backgroundColor: '#1C1000',
     flex: 1,
   },
 });
+}

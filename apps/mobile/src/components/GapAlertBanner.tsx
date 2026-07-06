@@ -1,6 +1,8 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import { Animated, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { HapticService } from '../services/HapticService';
+import { ThemeColors, useTheme } from '../theme';
 
 interface Props {
   memberName: string;
@@ -15,6 +17,8 @@ function formatDist(m: number): string {
 }
 
 function GapAlertBanner({ memberName, distanceM, thresholdM, onDismiss, onSlowDown }: Props) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const slideY = useRef(new Animated.Value(-80)).current;
   const progress = useRef(new Animated.Value(1)).current;
   const dismissTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -60,7 +64,7 @@ function GapAlertBanner({ memberName, distanceM, thresholdM, onDismiss, onSlowDo
       <View style={styles.strip} />
       <View style={styles.content}>
         <View style={styles.main}>
-          <Text style={styles.emoji}>⚠️</Text>
+          <Ionicons name="warning" size={20} color={colors.warning} />
           <View style={styles.textBlock}>
             <Text style={styles.title} numberOfLines={1}>
               <Text style={styles.bold}>{memberName}</Text> is falling behind
@@ -88,7 +92,7 @@ function GapAlertBanner({ memberName, distanceM, thresholdM, onDismiss, onSlowDo
               accessibilityRole="button"
               accessibilityLabel="Dismiss gap alert"
             >
-              <Text style={styles.dismissText}>✕</Text>
+              <Ionicons name="close" size={16} color={colors.textMuted} />
             </TouchableOpacity>
           </View>
         </View>
@@ -104,76 +108,71 @@ const MemoGapAlertBanner = React.memo(GapAlertBanner);
 MemoGapAlertBanner.displayName = 'GapAlertBanner';
 export default MemoGapAlertBanner;
 
-const styles = StyleSheet.create({
-  container: {
-    flexDirection: 'row',
-    backgroundColor: '#1C1C1C',
-    borderBottomLeftRadius: 12,
-    borderBottomRightRadius: 12,
-    overflow: 'hidden',
-  },
-  strip: {
-    width: 4,
-    backgroundColor: '#F59E0B',
-  },
-  content: {
-    flex: 1,
-  },
-  main: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 16,
-    gap: 10,
-  },
-  emoji: {
-    fontSize: 20,
-  },
-  textBlock: {
-    flex: 1,
-  },
-  title: {
-    fontSize: 15,
-    color: '#FFFFFF',
-    lineHeight: 20,
-  },
-  bold: {
-    fontWeight: '700',
-  },
-  subtitle: {
-    fontSize: 13,
-    color: '#888888',
-    marginTop: 2,
-  },
-  actions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  slowBtn: {
-    borderWidth: 1,
-    borderColor: '#F59E0B',
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  slowBtnText: {
-    color: '#F59E0B',
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  dismissBtn: {
-    padding: 4,
-  },
-  dismissText: {
-    color: '#888888',
-    fontSize: 16,
-  },
-  progressTrack: {
-    height: 3,
-    backgroundColor: '#2A2A2A',
-  },
-  progressBar: {
-    height: 3,
-    backgroundColor: '#F59E0B',
-  },
-});
+function makeStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    container: {
+      flexDirection: 'row',
+      backgroundColor: colors.card,
+      borderBottomLeftRadius: 12,
+      borderBottomRightRadius: 12,
+      overflow: 'hidden',
+    },
+    strip: {
+      width: 4,
+      backgroundColor: colors.warning,
+    },
+    content: {
+      flex: 1,
+    },
+    main: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      padding: 16,
+      gap: 10,
+    },
+    textBlock: {
+      flex: 1,
+    },
+    title: {
+      fontSize: 15,
+      color: colors.text,
+      lineHeight: 20,
+    },
+    bold: {
+      fontWeight: '700',
+    },
+    subtitle: {
+      fontSize: 13,
+      color: colors.textMuted,
+      marginTop: 2,
+    },
+    actions: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+    },
+    slowBtn: {
+      borderWidth: 1,
+      borderColor: colors.warning,
+      borderRadius: 8,
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+    },
+    slowBtnText: {
+      color: colors.warning,
+      fontSize: 13,
+      fontWeight: '600',
+    },
+    dismissBtn: {
+      padding: 4,
+    },
+    progressTrack: {
+      height: 3,
+      backgroundColor: colors.border,
+    },
+    progressBar: {
+      height: 3,
+      backgroundColor: colors.warning,
+    },
+  });
+}

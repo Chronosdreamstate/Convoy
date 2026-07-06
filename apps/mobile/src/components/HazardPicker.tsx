@@ -4,7 +4,7 @@
  * Select a type, then confirm with the full-width button.
  */
 
-import React, { useRef, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import {
   Animated,
   Modal,
@@ -14,11 +14,18 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { HAZARD_TYPES, HazardType } from '../services/HazardService';
+import { ThemeColors, useTheme } from '../theme';
 
 // ---------------------------------------------------------------------------
 // Label / emoji mapping for display
 // ---------------------------------------------------------------------------
+// Hazard-type glyphs are deliberately kept as emoji rather than vector icons —
+// they're used for instant visual recognition while driving (Req 31.1/31.2),
+// and the same emoji set backs the corresponding pins on the map itself (see
+// MapScreen's HAZARD_EMOJI), so keeping them in sync here matters more than
+// converting to the icon system.
 
 const HAZARD_LABELS: Record<HazardType, { label: string; emoji: string }> = {
   pothole:    { label: 'Pothole',    emoji: '🕳️' },
@@ -60,9 +67,10 @@ interface CardProps {
   isSelected: boolean;
   size: number;
   onPress: () => void;
+  styles: ReturnType<typeof makeStyles>;
 }
 
-function HazardCard({ label, emoji, isSelected, size, onPress }: CardProps) {
+function HazardCard({ label, emoji, isSelected, size, onPress, styles }: CardProps) {
   const scale = useRef(new Animated.Value(1)).current;
 
   const handlePress = () => {
@@ -101,6 +109,8 @@ function HazardCard({ label, emoji, isSelected, size, onPress }: CardProps) {
 // ---------------------------------------------------------------------------
 
 export default function HazardPicker({ visible, isInMotion, onSelect, onClose }: Props) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const [selectedType, setSelectedType] = useState<HazardType | null>(null);
 
   const types = isInMotion
@@ -149,7 +159,7 @@ export default function HazardPicker({ visible, isInMotion, onSelect, onClose }:
               accessibilityLabel="Close hazard picker"
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             >
-              <Text style={styles.closeIcon}>✕</Text>
+              <Ionicons name="close" size={16} color={colors.textMuted} />
             </TouchableOpacity>
           </View>
 
@@ -166,6 +176,7 @@ export default function HazardPicker({ visible, isInMotion, onSelect, onClose }:
                   isSelected={selectedType === type}
                   size={cardSize}
                   onPress={() => setSelectedType(type === selectedType ? null : type)}
+                  styles={styles}
                 />
               );
             })}
@@ -194,105 +205,106 @@ export default function HazardPicker({ visible, isInMotion, onSelect, onClose }:
 // Styles
 // ---------------------------------------------------------------------------
 
-const styles = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    justifyContent: 'flex-end',
-    backgroundColor: 'rgba(0,0,0,0.55)',
-  },
-  sheet: {
-    backgroundColor: '#0A0A0A',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    borderWidth: 1,
-    borderColor: '#2A2A2A',
-    paddingTop: 8,
-    paddingBottom: 36,
-    paddingHorizontal: 20,
-  },
-  handle: {
-    alignSelf: 'center',
-    width: 36,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: '#444444',
-    marginBottom: 14,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 20,
-  },
-  headerSpacer: {
-    width: 32,
-  },
-  title: {
-    fontSize: 17,
-    fontWeight: '700',
-    color: '#FFFFFF',
-    letterSpacing: 0.3,
-  },
-  closeBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#1C1C1C',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  closeIcon: {
-    fontSize: 14,
-    color: '#888888',
-    fontWeight: '600',
-  },
-  grid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'center',
-    gap: 10,
-    marginBottom: 20,
-  },
-  card: {
-    borderRadius: 12,
-    backgroundColor: '#1C1C1C',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: 'transparent',
-    padding: 8,
-  },
-  cardSelected: {
-    backgroundColor: '#250008',
-    borderColor: '#DC143C',
-  },
-  cardEmoji: {
-    fontSize: 32,
-    marginBottom: 6,
-  },
-  cardLabel: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#888888',
-    textAlign: 'center',
-  },
-  cardLabelSelected: {
-    color: '#FFFFFF',
-  },
-  confirmBtn: {
-    backgroundColor: '#DC143C',
-    borderRadius: 14,
-    paddingVertical: 17,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  confirmBtnDisabled: {
-    backgroundColor: '#3A0A14',
-  },
-  confirmText: {
-    fontSize: 17,
-    fontWeight: '700',
-    color: '#FFFFFF',
-    letterSpacing: 0.3,
-  },
-});
+function makeStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    overlay: {
+      flex: 1,
+      justifyContent: 'flex-end',
+      backgroundColor: 'rgba(0,0,0,0.55)',
+    },
+    sheet: {
+      backgroundColor: colors.bg,
+      borderTopLeftRadius: 20,
+      borderTopRightRadius: 20,
+      borderWidth: 1,
+      borderColor: colors.border,
+      paddingTop: 8,
+      paddingBottom: 36,
+      paddingHorizontal: 20,
+    },
+    handle: {
+      alignSelf: 'center',
+      width: 36,
+      height: 4,
+      borderRadius: 2,
+      backgroundColor: colors.textSubtle,
+      marginBottom: 14,
+    },
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginBottom: 20,
+    },
+    headerSpacer: {
+      width: 32,
+    },
+    title: {
+      fontSize: 17,
+      fontWeight: '700',
+      color: colors.text,
+      letterSpacing: 0.3,
+    },
+    closeBtn: {
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      backgroundColor: colors.card,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    grid: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      justifyContent: 'center',
+      gap: 10,
+      marginBottom: 20,
+    },
+    card: {
+      borderRadius: 12,
+      backgroundColor: colors.card,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 2,
+      borderColor: 'transparent',
+      padding: 8,
+    },
+    cardSelected: {
+      backgroundColor: '#250008',
+      borderColor: colors.accent,
+    },
+    cardEmoji: {
+      fontSize: 32,
+      marginBottom: 6,
+    },
+    cardLabel: {
+      fontSize: 11,
+      fontWeight: '600',
+      color: colors.textMuted,
+      textAlign: 'center',
+    },
+    // cardSelected's background is a fixed dark maroon tint (not a themed surface),
+    // so its label stays fixed white for contrast rather than colors.text.
+    cardLabelSelected: {
+      color: '#FFFFFF',
+    },
+    confirmBtn: {
+      backgroundColor: colors.accent,
+      borderRadius: 14,
+      paddingVertical: 17,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    confirmBtnDisabled: {
+      backgroundColor: '#3A0A14',
+    },
+    // confirmBtn's background is the fixed-value accent color (same in both
+    // themes), so its label stays fixed white for contrast.
+    confirmText: {
+      fontSize: 17,
+      fontWeight: '700',
+      color: '#FFFFFF',
+      letterSpacing: 0.3,
+    },
+  });
+}
