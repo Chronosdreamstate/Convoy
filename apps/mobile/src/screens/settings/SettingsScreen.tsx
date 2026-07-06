@@ -39,6 +39,7 @@ interface Settings {
   notifGroupEvents: boolean;
   notifFriendRequests: boolean;
   notifNavigation: boolean;
+  visibleToNearby: boolean;
 }
 
 const APP_VERSION = Constants.expoConfig?.version ?? '1.0.0';
@@ -218,6 +219,7 @@ export default function SettingsScreen() {
   const [distanceUnit, setDistanceUnit] = useState<'km' | 'miles'>(storedDistanceUnit);
   const [themeMode, setThemeMode] = useState<'light' | 'dark' | 'system'>(storedThemeMode);
   const [autoJoinNearby, setAutoJoinNearby] = useState(false);
+  const [visibleToNearby, setVisibleToNearby] = useState(false);
 
   useEffect(() => {
     loadSettings();
@@ -250,6 +252,7 @@ export default function SettingsScreen() {
     setNotifGroupEvents(s.notifGroupEvents);
     setNotifFriendRequests(s.notifFriendRequests);
     setNotifNavigation(s.notifNavigation);
+    setVisibleToNearby(s.visibleToNearby ?? false);
   };
 
   const handleSave = async () => {
@@ -488,6 +491,40 @@ export default function SettingsScreen() {
                 trackColor={{ false: theme.colors.border, true: theme.colors.accent }}
                 thumbColor={theme.colors.text}
                 accessibilityLabel="Navigation notifications toggle"
+              />
+            }
+            last
+          />
+        </View>
+
+        {/* ── NEARBY ──────────────────────────────────────────────────────── */}
+        <SectionHeader title="NEARBY" />
+        <View style={styles.sectionCard}>
+          <SettingRow
+            icon="radio-outline"
+            label="Visible to Nearby Drivers"
+            subtitle="Let other opted-in drivers see your approximate distance and start a chat"
+            rightSlot={
+              <Switch
+                value={visibleToNearby}
+                // Applied instantly (not gated behind Save) — this controls
+                // whether the user is discoverable by strangers, so "off"
+                // must take effect the moment it's toggled, not whenever the
+                // user next remembers to scroll down and tap Save Settings.
+                onValueChange={async (v) => {
+                  const prev = visibleToNearby;
+                  setVisibleToNearby(v);
+                  try {
+                    const response = await apiClient.patch<Settings>('/api/v1/settings', { visibleToNearby: v });
+                    setSettings(response.data);
+                  } catch {
+                    setVisibleToNearby(prev);
+                    setError('Failed to update nearby visibility. Please try again.');
+                  }
+                }}
+                trackColor={{ false: theme.colors.border, true: theme.colors.accent }}
+                thumbColor={theme.colors.text}
+                accessibilityLabel="Visible to nearby drivers toggle"
               />
             }
             last

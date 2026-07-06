@@ -417,6 +417,7 @@ export default function RootLayout() {
           <Stack.Screen name="(tabs)" options={{ animation: 'fade' }} />
           <Stack.Screen name="(onboarding)" options={{ animation: 'fade' }} />
           <Stack.Screen name="friends" />
+          <Stack.Screen name="nearby" />
           <Stack.Screen name="invite" />
           <Stack.Screen name="group-browse" />
           <Stack.Screen name="notifications" />

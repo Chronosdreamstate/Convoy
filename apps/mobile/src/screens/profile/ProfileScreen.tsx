@@ -522,6 +522,20 @@ export default function ProfileScreen() {
           <Text style={styles.friendsChevron}>›</Text>
         </TouchableOpacity>
 
+        {/* Nearby — opt-in nearby-stranger discovery (#72) */}
+        <TouchableOpacity
+          style={styles.friendsBtn}
+          onPress={() => router.push('/nearby' as never)}
+          accessibilityRole="button"
+          accessibilityLabel="Nearby drivers"
+        >
+          <View style={styles.friendsBtnInner}>
+            <Text style={styles.friendsBtnIcon}>📡</Text>
+            <Text style={styles.friendsBtnText}>Nearby</Text>
+          </View>
+          <Text style={styles.friendsChevron}>›</Text>
+        </TouchableOpacity>
+
         {/* Settings */}
         <TouchableOpacity
           style={styles.settingsBtn}
