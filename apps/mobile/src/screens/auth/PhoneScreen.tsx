@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -14,8 +14,9 @@ import {
   ScrollView,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import { authService } from '../../services/AuthService';
-import { theme } from '../../theme';
+import { useTheme } from '../../theme';
 
 const COUNTRIES = [
   { code: 'US', flag: '🇺🇸', dial: '+1',  label: 'United States'  },
@@ -37,6 +38,8 @@ function formatPhone(raw: string, dial: string): string {
 
 export default function PhoneScreen() {
   const router = useRouter();
+  const theme = useTheme();
+  const styles = useMemo(() => createStyles(theme), [theme]);
   const [country, setCountry] = useState<Country>(COUNTRIES[0]);
   const [digits, setDigits] = useState('');
   const [showPicker, setShowPicker] = useState(false);
@@ -127,7 +130,7 @@ export default function PhoneScreen() {
                 value={formatPhone(digits, country.dial)}
                 onChangeText={handleChangeText}
                 placeholder="(555) 123-4567"
-                placeholderTextColor="#888888"
+                placeholderTextColor={theme.colors.textMuted}
                 keyboardType="phone-pad"
                 autoComplete="tel"
                 textContentType="telephoneNumber"
@@ -150,7 +153,7 @@ export default function PhoneScreen() {
               accessibilityState={{ disabled: isLoading || digits.length < 10 }}
             >
               {isLoading
-                ? <ActivityIndicator color="#FFFFFF" />
+                ? <ActivityIndicator color={theme.colors.text} />
                 : <Text style={styles.buttonText}>Continue →</Text>}
             </TouchableOpacity>
           </View>
@@ -187,7 +190,9 @@ export default function PhoneScreen() {
                 <Text style={styles.countryFlag}>{c.flag}</Text>
                 <Text style={styles.countryLabel}>{c.label}</Text>
                 <Text style={styles.countryDial}>{c.dial}</Text>
-                {country.code === c.code && <Text style={styles.checkmark}>✓</Text>}
+                {country.code === c.code && (
+                  <Ionicons name="checkmark" size={18} color={theme.colors.accent} />
+                )}
               </TouchableOpacity>
             ))}
           </View>
@@ -197,109 +202,110 @@ export default function PhoneScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.colors.bg },
-  keyboardAvoid: { flex: 1 },
-  inner: {
-    paddingHorizontal: theme.spacing.lg,
-    paddingTop: theme.spacing.xl,
-    paddingBottom: theme.spacing.xxl,
-  },
-  backBtn: { paddingTop: 8, paddingBottom: 16, alignSelf: 'flex-start' },
-  backBtnText: { color: theme.colors.accent, fontSize: 16, fontWeight: '600' },
-  // Wordmark: white, 24px, weight-900, letterSpacing 6, centered
-  logo: {
-    fontSize: 24,
-    fontWeight: '900',
-    color: theme.colors.text,
-    letterSpacing: 6,
-    marginBottom: theme.spacing.xl,
-    textAlign: 'center',
-  },
-  header: { marginBottom: 40 },
-  title: { fontSize: 28, fontWeight: '700', color: theme.colors.text, marginBottom: 8 },
-  subtitle: { fontSize: 15, color: theme.colors.textMuted, lineHeight: 22 },
-  form: { gap: 20 },
-  inputArea: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderBottomWidth: 1,
-    borderBottomColor: theme.colors.border,
-    paddingBottom: 12,
-  },
-  countryPicker: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingRight: 14,
-  },
-  flag: { fontSize: 22 },
-  dialCode: { color: theme.colors.text, fontSize: 17, fontWeight: '600' },
-  chevron: { color: theme.colors.textMuted, fontSize: 10 },
-  divider: { width: 1, height: 24, backgroundColor: theme.colors.border, marginRight: 14 },
-  input: {
-    flex: 1,
-    fontSize: 24,
-    color: theme.colors.text,
-    paddingVertical: 0,
-  },
-  errorText: { color: theme.colors.error, fontSize: 13, marginTop: -8 },
-  // Crimson pill button with glow shadow — matches WelcomeScreen CTA
-  button: {
-    backgroundColor: theme.colors.accent,
-    borderRadius: 28,
-    height: 56,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: theme.colors.accent,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.35,
-    shadowRadius: 12,
-    elevation: 6,
-  },
-  buttonDisabled: { opacity: 0.45 },
-  buttonText: { color: theme.colors.text, fontSize: 16, fontWeight: '700', letterSpacing: 0.3 },
-  // Modal
-  overlay: {
-    flex: 1,
-    justifyContent: 'flex-end',
-    backgroundColor: 'rgba(0,0,0,0.65)',
-  },
-  sheet: {
-    backgroundColor: theme.colors.card,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    paddingHorizontal: theme.spacing.lg,
-    paddingTop: 12,
-    paddingBottom: 40,
-  },
-  sheetHandle: {
-    width: 40,
-    height: 4,
-    backgroundColor: theme.colors.border,
-    borderRadius: 2,
-    alignSelf: 'center',
-    marginBottom: 20,
-  },
-  sheetTitle: {
-    color: theme.colors.textMuted,
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 1.5,
-    textTransform: 'uppercase',
-    marginBottom: 8,
-  },
-  countryRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 16,
-    gap: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: theme.colors.cardElevated,
-  },
-  countryRowSelected: { opacity: 1 },
-  countryFlag: { fontSize: 24 },
-  countryLabel: { flex: 1, color: theme.colors.text, fontSize: 16 },
-  countryDial: { color: theme.colors.textMuted, fontSize: 15 },
-  checkmark: { color: theme.colors.accent, fontSize: 16, fontWeight: '700' },
-});
+function createStyles(theme: ReturnType<typeof useTheme>) {
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: theme.colors.bg },
+    keyboardAvoid: { flex: 1 },
+    inner: {
+      paddingHorizontal: theme.spacing.lg,
+      paddingTop: theme.spacing.xl,
+      paddingBottom: theme.spacing.xxl,
+    },
+    backBtn: { paddingTop: 8, paddingBottom: 16, alignSelf: 'flex-start' },
+    backBtnText: { color: theme.colors.accent, fontSize: 16, fontWeight: '600' },
+    // Wordmark: white, 24px, weight-900, letterSpacing 6, centered
+    logo: {
+      fontSize: 24,
+      fontWeight: '900',
+      color: theme.colors.text,
+      letterSpacing: 6,
+      marginBottom: theme.spacing.xl,
+      textAlign: 'center',
+    },
+    header: { marginBottom: 40 },
+    title: { fontSize: 28, fontWeight: '700', color: theme.colors.text, marginBottom: 8 },
+    subtitle: { fontSize: 15, color: theme.colors.textMuted, lineHeight: 22 },
+    form: { gap: 20 },
+    inputArea: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      borderBottomWidth: 1,
+      borderBottomColor: theme.colors.border,
+      paddingBottom: 12,
+    },
+    countryPicker: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      paddingRight: 14,
+    },
+    flag: { fontSize: 22 },
+    dialCode: { color: theme.colors.text, fontSize: 17, fontWeight: '600' },
+    chevron: { color: theme.colors.textMuted, fontSize: 10 },
+    divider: { width: 1, height: 24, backgroundColor: theme.colors.border, marginRight: 14 },
+    input: {
+      flex: 1,
+      fontSize: 24,
+      color: theme.colors.text,
+      paddingVertical: 0,
+    },
+    errorText: { color: theme.colors.error, fontSize: 13, marginTop: -8 },
+    // Crimson pill button with glow shadow — matches WelcomeScreen CTA
+    button: {
+      backgroundColor: theme.colors.accent,
+      borderRadius: 28,
+      height: 56,
+      alignItems: 'center',
+      justifyContent: 'center',
+      shadowColor: theme.colors.accent,
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.35,
+      shadowRadius: 12,
+      elevation: 6,
+    },
+    buttonDisabled: { opacity: 0.45 },
+    buttonText: { color: theme.colors.text, fontSize: 16, fontWeight: '700', letterSpacing: 0.3 },
+    // Modal
+    overlay: {
+      flex: 1,
+      justifyContent: 'flex-end',
+      backgroundColor: 'rgba(0,0,0,0.65)',
+    },
+    sheet: {
+      backgroundColor: theme.colors.card,
+      borderTopLeftRadius: 20,
+      borderTopRightRadius: 20,
+      paddingHorizontal: theme.spacing.lg,
+      paddingTop: 12,
+      paddingBottom: 40,
+    },
+    sheetHandle: {
+      width: 40,
+      height: 4,
+      backgroundColor: theme.colors.border,
+      borderRadius: 2,
+      alignSelf: 'center',
+      marginBottom: 20,
+    },
+    sheetTitle: {
+      color: theme.colors.textMuted,
+      fontSize: 11,
+      fontWeight: '700',
+      letterSpacing: 1.5,
+      textTransform: 'uppercase',
+      marginBottom: 8,
+    },
+    countryRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingVertical: 16,
+      gap: 12,
+      borderBottomWidth: 1,
+      borderBottomColor: theme.colors.cardElevated,
+    },
+    countryRowSelected: { opacity: 1 },
+    countryFlag: { fontSize: 24 },
+    countryLabel: { flex: 1, color: theme.colors.text, fontSize: 16 },
+    countryDial: { color: theme.colors.textMuted, fontSize: 15 },
+  });
+}

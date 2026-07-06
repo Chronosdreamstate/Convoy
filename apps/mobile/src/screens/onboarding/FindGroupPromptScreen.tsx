@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -9,11 +9,15 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import * as SecureStore from 'expo-secure-store';
+import { Ionicons } from '@expo/vector-icons';
 import { useAuthStore } from '../../stores/authStore';
 import { onboardingState } from '../../utils/onboardingState';
+import { useTheme } from '../../theme';
 
 export default function FindGroupPromptScreen() {
   const router = useRouter();
+  const theme = useTheme();
+  const styles = useMemo(() => createStyles(theme), [theme]);
   const setIsFirstLogin = useAuthStore((s) => s.setIsFirstLogin);
 
   const card1Translate = useRef(new Animated.Value(60)).current;
@@ -53,6 +57,7 @@ export default function FindGroupPromptScreen() {
     <SafeAreaView style={styles.safe}>
       <View style={styles.container}>
         <Animated.View style={[styles.header, { opacity: headerOpacity }]}>
+          {/* Decorative hero illustration */}
           <Text style={styles.emoji}>🏁</Text>
           <Text style={styles.heading}>Find your convoy</Text>
           <Text style={styles.body}>Connect with car enthusiasts in your area</Text>
@@ -67,7 +72,8 @@ export default function FindGroupPromptScreen() {
               accessibilityRole="button"
             >
               <View style={styles.cardIconCircle}>
-                <Text style={styles.cardEmoji}>🔍</Text>
+                <View style={styles.cardIconHalo} pointerEvents="none" />
+                <Ionicons name="search" size={24} color={theme.colors.accent} />
               </View>
               <Text style={styles.cardTitle}>Browse Groups</Text>
               <Text style={styles.cardSub}>See what's driving near you</Text>
@@ -82,7 +88,8 @@ export default function FindGroupPromptScreen() {
               accessibilityRole="button"
             >
               <View style={styles.cardIconCircle}>
-                <Text style={styles.cardEmoji}>🔑</Text>
+                <View style={styles.cardIconHalo} pointerEvents="none" />
+                <Ionicons name="key" size={24} color={theme.colors.accent} />
               </View>
               <Text style={styles.cardTitle}>Enter Code</Text>
               <Text style={styles.cardSub}>Got an invite? Enter the 8-digit code</Text>
@@ -101,56 +108,65 @@ export default function FindGroupPromptScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#0A0A0A' },
-  container: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 24,
-    gap: 28,
-  },
-  header: { alignItems: 'center', gap: 10 },
-  emoji: { fontSize: 52 },
-  heading: {
-    fontSize: 28,
-    fontWeight: '800',
-    color: '#FFFFFF',
-    textAlign: 'center',
-    letterSpacing: 0.3,
-  },
-  body: {
-    fontSize: 15,
-    color: '#888888',
-    textAlign: 'center',
-    lineHeight: 21,
-  },
-  cardRow: {
-    flexDirection: 'row',
-    gap: 12,
-    width: '100%',
-  },
-  cardWrap: { flex: 1 },
-  card: {
-    flex: 1,
-    backgroundColor: '#1C1C1C',
-    borderRadius: 20,
-    padding: 20,
-    alignItems: 'center',
-    gap: 10,
-    borderWidth: 1,
-    borderColor: '#2A2A2A',
-  },
-  cardIconCircle: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: 'rgba(220,20,60,0.12)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  cardEmoji: { fontSize: 26 },
-  cardTitle: { fontSize: 15, fontWeight: '700', color: '#FFFFFF', textAlign: 'center' },
-  cardSub: { fontSize: 12, color: '#888888', textAlign: 'center', lineHeight: 17 },
-  skipText: { fontSize: 13, color: '#555555' },
-});
+function createStyles(theme: ReturnType<typeof useTheme>) {
+  return StyleSheet.create({
+    safe: { flex: 1, backgroundColor: theme.colors.bg },
+    container: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: 24,
+      gap: 28,
+    },
+    header: { alignItems: 'center', gap: 10 },
+    emoji: { fontSize: 52 },
+    heading: {
+      fontSize: 28,
+      fontWeight: '800',
+      color: theme.colors.text,
+      textAlign: 'center',
+      letterSpacing: 0.3,
+    },
+    body: {
+      fontSize: 15,
+      color: theme.colors.textMuted,
+      textAlign: 'center',
+      lineHeight: 21,
+    },
+    cardRow: {
+      flexDirection: 'row',
+      gap: 12,
+      width: '100%',
+    },
+    cardWrap: { flex: 1 },
+    card: {
+      flex: 1,
+      backgroundColor: theme.colors.card,
+      borderRadius: 20,
+      padding: 20,
+      alignItems: 'center',
+      gap: 10,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+    },
+    cardIconCircle: {
+      width: 52,
+      height: 52,
+      borderRadius: 26,
+      alignItems: 'center',
+      justifyContent: 'center',
+      overflow: 'hidden',
+    },
+    // Soft accent-tinted halo behind the icon — a translucent layer (rather
+    // than a flat theme color) so it reads as a subtle glow at 12% opacity
+    // instead of a solid muted disc.
+    cardIconHalo: {
+      ...StyleSheet.absoluteFillObject,
+      backgroundColor: theme.colors.accent,
+      opacity: 0.12,
+    },
+    cardTitle: { fontSize: 15, fontWeight: '700', color: theme.colors.text, textAlign: 'center' },
+    cardSub: { fontSize: 12, color: theme.colors.textMuted, textAlign: 'center', lineHeight: 17 },
+    skipText: { fontSize: 13, color: theme.colors.textSubtle },
+  });
+}

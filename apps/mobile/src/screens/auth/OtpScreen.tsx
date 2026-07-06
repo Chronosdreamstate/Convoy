@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -17,11 +17,14 @@ import * as SecureStore from 'expo-secure-store';
 import { authService } from '../../services/AuthService';
 import { useAuthStore } from '../../stores/authStore';
 import { onboardingState } from '../../utils/onboardingState';
+import { useTheme } from '../../theme';
 
 const DIGIT_COUNT = 6;
 
 export default function OtpScreen() {
   const router = useRouter();
+  const theme = useTheme();
+  const styles = useMemo(() => createStyles(theme), [theme]);
   const params = useLocalSearchParams<{ phone: string }>();
   const phone = Array.isArray(params.phone) ? params.phone[0] : params.phone;
   const { setUser, setAccessToken, setIsFirstLogin } = useAuthStore();
@@ -196,7 +199,7 @@ export default function OtpScreen() {
               accessibilityState={{ disabled: isVerifying || otp.length !== DIGIT_COUNT }}
             >
               {isVerifying
-                ? <ActivityIndicator color="#FFFFFF" />
+                ? <ActivityIndicator color={theme.colors.text} />
                 : <Text style={styles.buttonText}>Verify</Text>}
             </TouchableOpacity>
 
@@ -210,7 +213,7 @@ export default function OtpScreen() {
                 accessibilityState={{ disabled: isResending || resendCooldown > 0 }}
               >
                 {isResending ? (
-                  <ActivityIndicator size="small" color="#DC143C" />
+                  <ActivityIndicator size="small" color={theme.colors.accent} />
                 ) : resendCooldown > 0 ? (
                   <Text style={styles.resendDisabled}>Resend code in {resendCooldown}s</Text>
                 ) : (
@@ -225,53 +228,55 @@ export default function OtpScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0A0A0A' },
-  keyboardAvoid: { flex: 1 },
-  inner: { paddingHorizontal: 24, paddingTop: 32, paddingBottom: 48 },
-  backBtn: { paddingTop: 8, paddingBottom: 16, alignSelf: 'flex-start' },
-  backBtnText: { color: '#DC143C', fontSize: 16, fontWeight: '600' },
-  logo: {
-    fontSize: 32,
-    fontWeight: '700',
-    color: '#DC143C',
-    letterSpacing: 6,
-    marginBottom: 32,
-  },
-  header: { marginBottom: 32 },
-  title: { fontSize: 28, fontWeight: '700', color: '#FFFFFF', marginBottom: 8 },
-  subtitle: { fontSize: 15, color: '#888888', lineHeight: 22 },
-  phoneNumber: { color: '#FFFFFF', fontWeight: '600' },
-  form: { gap: 16 },
-  hiddenInput: { position: 'absolute', opacity: 0, width: 1, height: 1 },
-  digitRow: { flexDirection: 'row', justifyContent: 'space-between' },
-  digitBox: {
-    width: 44,
-    height: 56,
-    borderRadius: 8,
-    backgroundColor: '#1C1C1C',
-    borderWidth: 1,
-    borderColor: '#2A2A2A',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  digitBoxActive: { borderColor: '#DC143C' },
-  digitBoxFilled: { backgroundColor: '#242424' },
-  digitText: { color: '#FFFFFF', fontSize: 22, fontWeight: '700' },
-  errorText: { color: '#FF4444', fontSize: 13 },
-  successText: { color: '#44FF88', fontSize: 13 },
-  button: {
-    backgroundColor: '#DC143C',
-    borderRadius: 12,
-    height: 56,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 4,
-  },
-  buttonDisabled: { opacity: 0.5 },
-  buttonText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
-  resendRow: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center' },
-  resendText: { color: '#666666', fontSize: 14 },
-  resendLink: { color: '#DC143C', fontSize: 14, fontWeight: '600' },
-  resendDisabled: { color: '#555555', fontSize: 14 },
-});
+function createStyles(theme: ReturnType<typeof useTheme>) {
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: theme.colors.bg },
+    keyboardAvoid: { flex: 1 },
+    inner: { paddingHorizontal: 24, paddingTop: 32, paddingBottom: 48 },
+    backBtn: { paddingTop: 8, paddingBottom: 16, alignSelf: 'flex-start' },
+    backBtnText: { color: theme.colors.accent, fontSize: 16, fontWeight: '600' },
+    logo: {
+      fontSize: 32,
+      fontWeight: '700',
+      color: theme.colors.accent,
+      letterSpacing: 6,
+      marginBottom: 32,
+    },
+    header: { marginBottom: 32 },
+    title: { fontSize: 28, fontWeight: '700', color: theme.colors.text, marginBottom: 8 },
+    subtitle: { fontSize: 15, color: theme.colors.textMuted, lineHeight: 22 },
+    phoneNumber: { color: theme.colors.text, fontWeight: '600' },
+    form: { gap: 16 },
+    hiddenInput: { position: 'absolute', opacity: 0, width: 1, height: 1 },
+    digitRow: { flexDirection: 'row', justifyContent: 'space-between' },
+    digitBox: {
+      width: 44,
+      height: 56,
+      borderRadius: 8,
+      backgroundColor: theme.colors.card,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    digitBoxActive: { borderColor: theme.colors.accent },
+    digitBoxFilled: { backgroundColor: theme.colors.cardElevated },
+    digitText: { color: theme.colors.text, fontSize: 22, fontWeight: '700' },
+    errorText: { color: theme.colors.error, fontSize: 13 },
+    successText: { color: theme.colors.success, fontSize: 13 },
+    button: {
+      backgroundColor: theme.colors.accent,
+      borderRadius: 12,
+      height: 56,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginTop: 4,
+    },
+    buttonDisabled: { opacity: 0.5 },
+    buttonText: { color: theme.colors.text, fontSize: 16, fontWeight: '700' },
+    resendRow: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center' },
+    resendText: { color: theme.colors.textMuted, fontSize: 14 },
+    resendLink: { color: theme.colors.accent, fontSize: 14, fontWeight: '600' },
+    resendDisabled: { color: theme.colors.textSubtle, fontSize: 14 },
+  });
+}
