@@ -82,6 +82,11 @@ interface GroupRow {
   // inactivity, independent of `status`. Not every query below selects it
   // (only the ones on the join-code path need to check it), hence optional.
   join_code_active?: boolean;
+  // 'dm' for one-off direct-message threads (nearby-stranger chats and
+  // friend DMs both reuse convoy_groups + the group-chat infra — see
+  // migration 014). Not every query below selects it, hence optional;
+  // groupToResponse defaults to 'group' when absent.
+  type?: 'group' | 'dm';
 }
 
 interface MemberRow {
@@ -176,6 +181,7 @@ function groupToResponse(g: GroupRow, memberCount?: number) {
     vehicleFocus: g.vehicle_focus ?? null,
     createdAt: g.created_at,
     endedAt: g.ended_at,
+    type: g.type ?? 'group',
     ...(memberCount !== undefined && { memberCount }),
   };
 }
@@ -441,7 +447,7 @@ async function groupsRoutes(
 
     const result = await fastify.db.query<GroupRow & { member_count: string }>(
       `SELECT g.id, g.name, g.join_code, g.admin_id, g.access_type, g.status,
-              g.gap_threshold_m, g.ptt_max_seconds, g.created_at, g.ended_at, g.join_code_active,
+              g.gap_threshold_m, g.ptt_max_seconds, g.created_at, g.ended_at, g.join_code_active, g.type,
               COUNT(m.id) FILTER (WHERE m.left_at IS NULL) AS member_count
        FROM convoy_groups g
        LEFT JOIN convoy_members m ON m.group_id = g.id
