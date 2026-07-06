@@ -10,6 +10,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { theme } from '../theme';
 import { apiClient } from '../services/apiClient';
 import { SkeletonBox } from '../components/SkeletonLoader';
@@ -28,17 +29,21 @@ interface Achievement {
   total: number;
 }
 
+// NOTE: `unlocked`/`progress` below are placeholder values only — they are what
+// renders if the /api/v1/users/me/achievements call fails (see fetchAchievements
+// below). They must stay at "no progress yet" so a network error can't make up
+// fake accomplishments for the user; real values always come from the API.
 const ACHIEVEMENTS: Achievement[] = [
   { id: 'first_convoy', icon: '🏁', name: 'First Convoy', desc: 'Complete your first convoy', unlocked: false, progress: 0, total: 1 },
-  { id: 'convoy_10', icon: '🎖️', name: 'Road Warrior', desc: 'Complete 10 convoys', unlocked: false, progress: 3, total: 10 },
-  { id: 'convoy_50', icon: '⭐', name: 'Legend', desc: 'Complete 50 convoys', unlocked: false, progress: 3, total: 50 },
-  { id: 'distance_100', icon: '🛣️', name: 'Century Rider', desc: 'Drive 100km in convoys', unlocked: false, progress: 47, total: 100 },
-  { id: 'distance_1000', icon: '🌍', name: 'Globe Trotter', desc: 'Drive 1,000km in convoys', unlocked: false, progress: 47, total: 1000 },
+  { id: 'convoy_10', icon: '🎖️', name: 'Road Warrior', desc: 'Complete 10 convoys', unlocked: false, progress: 0, total: 10 },
+  { id: 'convoy_50', icon: '⭐', name: 'Legend', desc: 'Complete 50 convoys', unlocked: false, progress: 0, total: 50 },
+  { id: 'distance_100', icon: '🛣️', name: 'Century Rider', desc: 'Drive 100km in convoys', unlocked: false, progress: 0, total: 100 },
+  { id: 'distance_1000', icon: '🌍', name: 'Globe Trotter', desc: 'Drive 1,000km in convoys', unlocked: false, progress: 0, total: 1000 },
   { id: 'sos_hero', icon: '🆘', name: 'Road Angel', desc: 'Respond to an SOS alert', unlocked: false, progress: 0, total: 1 },
-  { id: 'streak_7', icon: '🔥', name: 'On Fire', desc: '7-day convoy streak', unlocked: false, progress: 2, total: 7 },
+  { id: 'streak_7', icon: '🔥', name: 'On Fire', desc: '7-day convoy streak', unlocked: false, progress: 0, total: 7 },
   { id: 'group_founder', icon: '👑', name: 'Founder', desc: 'Create a group', unlocked: false, progress: 0, total: 1 },
-  { id: 'ptt_master', icon: '📻', name: 'Radio Master', desc: 'Use PTT 100 times', unlocked: false, progress: 23, total: 100 },
-  { id: 'waypoint_setter', icon: '📍', name: 'Pathfinder', desc: 'Add 10 waypoints', unlocked: false, progress: 4, total: 10 },
+  { id: 'ptt_master', icon: '📻', name: 'Radio Master', desc: 'Use PTT 100 times', unlocked: false, progress: 0, total: 100 },
+  { id: 'waypoint_setter', icon: '📍', name: 'Pathfinder', desc: 'Add 10 waypoints', unlocked: false, progress: 0, total: 10 },
   { id: 'night_owl', icon: '🌙', name: 'Night Owl', desc: 'Complete a convoy after midnight', unlocked: false, progress: 0, total: 1 },
   { id: 'photo_sharer', icon: '📸', name: 'Photographer', desc: 'Share 5 drive photos', unlocked: false, progress: 0, total: 5 },
 ];
@@ -106,6 +111,7 @@ interface DetailModalProps {
 
 function DetailModal({ item, onClose }: DetailModalProps) {
   const slideAnim = useRef(new Animated.Value(300)).current;
+  const insets = useSafeAreaInsets();
 
   React.useEffect(() => {
     if (item) {
@@ -133,7 +139,13 @@ function DetailModal({ item, onClose }: DetailModalProps) {
       onRequestClose={onClose}
     >
       <TouchableOpacity style={styles.modalBackdrop} activeOpacity={1} onPress={onClose} />
-      <Animated.View style={[styles.modalSheet, { transform: [{ translateY: slideAnim }] }]}>
+      <Animated.View
+        style={[
+          styles.modalSheet,
+          { paddingBottom: Math.max(insets.bottom + 16, 36) },
+          { transform: [{ translateY: slideAnim }] },
+        ]}
+      >
         {/* Handle */}
         <View style={styles.modalHandle} />
 
@@ -403,7 +415,6 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     paddingHorizontal: 24,
-    paddingBottom: 36,
     paddingTop: 12,
     alignItems: 'center',
     borderTopWidth: 1,
