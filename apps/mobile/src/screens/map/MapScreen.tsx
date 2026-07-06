@@ -1978,7 +1978,12 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
       )}
 
       {/* SOS person picker modal */}
-      <Modal transparent visible={showSosPicker} animationType="slide">
+      <Modal
+        transparent
+        visible={showSosPicker}
+        animationType="slide"
+        onRequestClose={() => setShowSosPicker(false)}
+      >
         <View style={styles.modalOverlay}>
           <View style={[styles.modalBox, styles.pickerBox]}>
             <Text style={styles.modalTitle}>🆘 SOS — Who needs help?</Text>
@@ -2038,7 +2043,12 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
       </Modal>
 
       {/* SOS confirm modal */}
-      <Modal transparent visible={showSosConfirm} animationType="fade">
+      <Modal
+        transparent
+        visible={showSosConfirm}
+        animationType="fade"
+        onRequestClose={() => { setShowSosConfirm(false); setPendingSosCoord(null); setPendingSosName(''); }}
+      >
         <View style={styles.modalOverlay}>
           <View style={styles.modalBox}>
             <Text style={styles.modalTitle}>🆘 Send SOS Alert?</Text>
@@ -2087,7 +2097,12 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
       />
 
       {/* Route planning modal */}
-      <Modal transparent visible={showRouteModal} animationType="slide">
+      <Modal
+        transparent
+        visible={showRouteModal}
+        animationType="slide"
+        onRequestClose={() => setShowRouteModal(false)}
+      >
         <View style={styles.modalOverlay}>
           <View style={[styles.modalBox, styles.routeModalBox]}>
             <Text style={styles.modalTitle}>🗺  Plan Route</Text>

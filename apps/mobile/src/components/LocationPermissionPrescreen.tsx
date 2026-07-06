@@ -48,7 +48,13 @@ export default function LocationPermissionPrescreen({ visible, onAllow, onSkip }
   }, [visible, fadeAnim, scaleAnim, pinPulse]);
 
   return (
-    <Modal visible={visible} transparent animationType="none" statusBarTranslucent>
+    <Modal
+      visible={visible}
+      transparent
+      animationType="none"
+      statusBarTranslucent
+      onRequestClose={() => onSkip?.()}
+    >
       <Animated.View style={[styles.overlay, { opacity: fadeAnim }]}>
         <SafeAreaView style={styles.safe}>
           <Animated.View style={[styles.card, { transform: [{ scale: scaleAnim }] }]}>
