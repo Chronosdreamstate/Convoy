@@ -39,6 +39,9 @@ interface InMemoryGroup {
   ptt_max_seconds: number;
   created_at: Date;
   ended_at: Date | null;
+  // Req 38.1 — join-code expiry after 24h of inactivity
+  join_code_active: boolean;
+  last_activity_at: Date;
 }
 
 interface InMemoryMember {
@@ -334,11 +337,25 @@ async function clientQuery(sql: string, values?: unknown[]): Promise<{ rows: unk
     return { rows: [], rowCount: 0 };
   }
 
-  // SELECT convoy_groups FOR UPDATE (join-endpoint lock query)
-  if (norm.includes('FROM CONVOY_GROUPS') && norm.includes('FOR UPDATE')) {
+  // UPDATE convoy_groups SET last_activity_at = now() ... RETURNING status, join_code_active
+  // (join-endpoint row lock + activity bump — Req 38.1)
+  if (norm.includes('LAST_ACTIVITY_AT = NOW()') && norm.includes('RETURNING')) {
     const id = values![0] as string;
     const g = groups.find((g) => g.id === id);
-    return { rows: g ? [{ status: g.status }] : [], rowCount: g ? 1 : 0 };
+    if (g) g.last_activity_at = new Date();
+    return {
+      rows: g ? [{ status: g.status, join_code_active: g.join_code_active }] : [],
+      rowCount: g ? 1 : 0,
+    };
+  }
+
+  // UPDATE convoy_groups SET last_activity_at = now() (no RETURNING — direct-join
+  // activity bump, Req 38.1)
+  if (norm.includes('LAST_ACTIVITY_AT = NOW()') && !norm.includes('RETURNING')) {
+    const id = values![0] as string;
+    const g = groups.find((g) => g.id === id);
+    if (g) g.last_activity_at = new Date();
+    return { rows: [], rowCount: g ? 1 : 0 };
   }
 
   // SELECT count of active members (idempotent join check)
@@ -362,6 +379,8 @@ async function clientQuery(sql: string, values?: unknown[]): Promise<{ rows: unk
       ptt_max_seconds: 30,
       created_at: new Date(),
       ended_at: null,
+      join_code_active: true,
+      last_activity_at: new Date(),
     };
     groups.push(g);
     return { rows: [g], rowCount: 1 };
@@ -1520,6 +1539,8 @@ describe('Properties 113–118: GET /groups browse endpoint', () => {
       ptt_max_seconds: 30,
       created_at: new Date(),
       ended_at: null,
+      join_code_active: true,
+      last_activity_at: new Date(),
       ...overrides,
     };
     groups.push(g);

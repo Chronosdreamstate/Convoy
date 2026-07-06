@@ -194,6 +194,12 @@ async function chatRoutes(
       );
       const msg = insertResult.rows[0];
 
+      // A chat message is a meaningful activity signal for join-code expiry
+      // purposes (Req 38.1) — best-effort, must not fail the send.
+      fastify.db
+        .query(`UPDATE convoy_groups SET last_activity_at = now() WHERE id = $1`, [id])
+        .catch((err: unknown) => fastify.log.error({ err }, 'failed to bump group last_activity_at'));
+
       // Fetch the sender's display name and avatar for the socket payload
       const userResult = await fastify.db.query<{ display_name: string; avatar_url: string | null }>(
         'SELECT display_name, avatar_url FROM users WHERE id = $1',

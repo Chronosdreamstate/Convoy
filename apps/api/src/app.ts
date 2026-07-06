@@ -33,6 +33,7 @@ import uploadsRoutes from './uploads/uploads.routes';
 import dmRoutes from './dm/dm.routes';
 import socketioPlugin from './plugins/socketio';
 import notificationsPlugin from './plugins/notifications';
+import groupExpiryPlugin from './plugins/group-expiry';
 import { healthRoutes } from './health/health.routes';
 
 export async function buildApp(): Promise<FastifyInstance> {
@@ -161,6 +162,9 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   // Push notification queue and worker
   await app.register(notificationsPlugin);
+
+  // Hourly group join-code expiry sweep (Req 38.1 — 24h inactivity check)
+  await app.register(groupExpiryPlugin);
 
   // Health check and metrics (no prefix — /health and /metrics are top-level)
   await app.register(healthRoutes);
