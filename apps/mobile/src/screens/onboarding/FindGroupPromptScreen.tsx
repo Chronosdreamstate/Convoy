@@ -92,7 +92,7 @@ export default function FindGroupPromptScreen() {
                 <Ionicons name="key" size={24} color={theme.colors.accent} />
               </View>
               <Text style={styles.cardTitle}>Enter Code</Text>
-              <Text style={styles.cardSub}>Got an invite? Enter the 8-digit code</Text>
+              <Text style={styles.cardSub}>Got an invite? Enter the 6-character code</Text>
             </TouchableOpacity>
           </Animated.View>
         </View>
