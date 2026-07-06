@@ -185,27 +185,27 @@ export default function WaypointManagementScreen() {
 
   // ── Reorder / remove ────────────────────────────────────────────────────────
 
-  const moveUp = (index: number) => {
+  const moveUp = useCallback((index: number) => {
     if (index === 0) return;
     setWaypoints((prev) => {
       const next = [...prev];
       [next[index - 1], next[index]] = [next[index], next[index - 1]];
       return next;
     });
-  };
+  }, []);
 
-  const moveDown = (index: number) => {
+  const moveDown = useCallback((index: number) => {
     setWaypoints((prev) => {
       if (index === prev.length - 1) return prev;
       const next = [...prev];
       [next[index], next[index + 1]] = [next[index + 1], next[index]];
       return next;
     });
-  };
+  }, []);
 
-  const remove = (id: string) => {
+  const remove = useCallback((id: string) => {
     setWaypoints((prev) => prev.filter((w) => w.id !== id));
-  };
+  }, []);
 
   // ── Mark waypoint reached ────────────────────────────────────────────────────
 
@@ -281,6 +281,22 @@ export default function WaypointManagementScreen() {
 
   // ── Render ───────────────────────────────────────────────────────────────────
 
+  const renderWaypointItem = useCallback(
+    ({ item, index }: { item: Waypoint; index: number }) => (
+      <WaypointRow
+        item={item}
+        index={index}
+        total={waypoints.length}
+        reachedIds={reachedIds}
+        onMoveUp={moveUp}
+        onMoveDown={moveDown}
+        onRemove={remove}
+        onMarkReached={markReached}
+      />
+    ),
+    [waypoints.length, reachedIds, moveUp, moveDown, remove, markReached],
+  );
+
   return (
     <SafeAreaView style={styles.container}>
       {/* Header */}
@@ -318,18 +334,7 @@ export default function WaypointManagementScreen() {
             data={waypoints}
             keyExtractor={(item) => item.id}
             contentContainerStyle={styles.list}
-            renderItem={({ item, index }) => (
-              <WaypointRow
-                item={item}
-                index={index}
-                total={waypoints.length}
-                reachedIds={reachedIds}
-                onMoveUp={moveUp}
-                onMoveDown={moveDown}
-                onRemove={remove}
-                onMarkReached={markReached}
-              />
-            )}
+            renderItem={renderWaypointItem}
             ItemSeparatorComponent={() => <View style={styles.separator} />}
           />
 

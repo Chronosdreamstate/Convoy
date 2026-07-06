@@ -334,6 +334,11 @@ export default function NotificationCenterScreen() {
   const unreadCount = notifications.filter((n) => n.readAt === null).length;
   const sections = buildSections(notifications);
 
+  const renderNotificationItem = useCallback(
+    ({ item }: { item: NotificationItem }) => <NotificationRow item={item} onPress={handlePress} />,
+    [handlePress],
+  );
+
   return (
     <SafeAreaView style={styles.container}>
       {/* Header */}
@@ -378,9 +383,7 @@ export default function NotificationCenterScreen() {
         <SectionList
           sections={sections}
           keyExtractor={(item) => item.id}
-          renderItem={({ item }) => (
-            <NotificationRow item={item} onPress={handlePress} />
-          )}
+          renderItem={renderNotificationItem}
           renderSectionHeader={({ section }) => (
             <View style={styles.sectionHeader}>
               <Text style={styles.sectionTitle}>{section.title}</Text>

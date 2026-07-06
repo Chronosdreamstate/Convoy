@@ -90,6 +90,11 @@ export default function GroupPhotoLibraryScreen() {
     }
   }, [groupId, accessToken, apiUrl, uploadingPhoto, load]);
 
+  const renderPhotoItem = useCallback(
+    ({ item }: { item: Photo }) => <PhotoCell photo={item} />,
+    [],
+  );
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
@@ -133,7 +138,7 @@ export default function GroupPhotoLibraryScreen() {
           keyExtractor={(p) => p.id}
           numColumns={2}
           columnWrapperStyle={styles.row}
-          renderItem={({ item }) => <PhotoCell photo={item} />}
+          renderItem={renderPhotoItem}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#DC143C" colors={['#DC143C']} />
           }

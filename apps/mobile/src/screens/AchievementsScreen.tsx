@@ -213,9 +213,9 @@ export default function AchievementsScreen() {
 
   const unlockedCount = achievements.filter((a) => a.unlocked).length;
 
-  const renderItem = ({ item }: { item: Achievement }) => (
+  const renderItem = useCallback(({ item }: { item: Achievement }) => (
     <AchievementCard item={item} onPress={setSelected} />
-  );
+  ), []);
 
   return (
     <SafeAreaView style={styles.container}>

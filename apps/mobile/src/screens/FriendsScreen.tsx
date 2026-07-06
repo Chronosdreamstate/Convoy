@@ -191,14 +191,22 @@ function FriendsTab({ query }: { query: string }) {
     setRefreshing(false);
   }, [load]);
 
-  const handleRemove = async (id: string) => {
+  const handleRemove = useCallback(async (id: string) => {
     setRemoving(id);
     try {
       await apiClient.delete(`/api/v1/friends/${id}`);
       setFriends(p => p.filter(f => f.id !== id));
     } catch { setError('Could not remove friend.'); }
     finally { setRemoving(null); }
-  };
+  }, []);
+
+  const renderFriendItem = useCallback(({ item }: { item: Friend }) => (
+    <FriendRow
+      friend={item}
+      onRemove={handleRemove}
+      removing={removing === item.id}
+    />
+  ), [handleRemove, removing]);
 
   const q = query.toLowerCase().trim();
   const filtered = q
@@ -236,13 +244,7 @@ function FriendsTab({ query }: { query: string }) {
       renderSectionHeader={({ section }) => (
         <Text style={styles.sectionHeader}>{section.title}</Text>
       )}
-      renderItem={({ item }) => (
-        <FriendRow
-          friend={item}
-          onRemove={handleRemove}
-          removing={removing === item.id}
-        />
-      )}
+      renderItem={renderFriendItem}
       renderSectionFooter={({ section }) =>
         section.title === 'Online Now' && offline.length === 0 ? (
           <Text style={styles.onlineEmpty}>None of your other friends are driving right now</Text>
@@ -341,14 +343,18 @@ function RequestsTab({ onCount }: { onCount: (n: number) => void }) {
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { onCount(reqs.length); }, [reqs.length, onCount]);
 
-  const act = async (id: string, action: 'accept' | 'decline') => {
+  const act = useCallback(async (id: string, action: 'accept' | 'decline') => {
     setActing({ id, action });
     try {
       await apiClient.post(`/api/v1/friends/requests/${id}/${action}`);
       setReqs(p => p.filter(r => r.id !== id));
     } catch { setError(`Failed to ${action} request.`); }
     finally { setActing(null); }
-  };
+  }, []);
+
+  const renderRequestItem = useCallback(({ item }: { item: FriendRequest }) => (
+    <RequestRow req={item} onAct={act} acting={acting} />
+  ), [act, acting]);
 
   if (loading) {
     return <View style={styles.skeletonWrap}>{[0, 1, 2].map(i => <SkeletonRow key={i} />)}</View>;
@@ -368,9 +374,7 @@ function RequestsTab({ onCount }: { onCount: (n: number) => void }) {
       renderSectionHeader={({ section }) => (
         <Text style={styles.sectionHeader}>{section.title} ({section.data.length})</Text>
       )}
-      renderItem={({ item }) => (
-        <RequestRow req={item} onAct={act} acting={acting} />
-      )}
+      renderItem={renderRequestItem}
     />
   );
 }

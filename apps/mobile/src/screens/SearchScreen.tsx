@@ -102,23 +102,23 @@ export default function SearchScreen() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab]);
 
-  const handleJoinGroup = async (groupId: string) => {
+  const handleJoinGroup = useCallback(async (groupId: string) => {
     try {
       await apiClient.post(`/api/v1/groups/${groupId}/members`, {});
       router.push(`/group/${groupId}` as never);
     } catch {
       router.push(`/group/${groupId}` as never);
     }
-  };
+  }, [router]);
 
-  const handleAddFriend = async (userId: string) => {
+  const handleAddFriend = useCallback(async (userId: string) => {
     try {
       await apiClient.post('/api/v1/friends/requests', { addresseeId: userId });
       setFriendActions((prev) => ({ ...prev, [userId]: 'pending' }));
     } catch { /* ignore */ }
-  };
+  }, []);
 
-  const renderGroup = ({ item }: { item: Group }) => (
+  const renderGroup = useCallback(({ item }: { item: Group }) => (
     <View style={styles.card}>
       <View style={styles.cardLeft}>
         <Text style={styles.cardName} numberOfLines={1}>{item.name}</Text>
@@ -140,9 +140,9 @@ export default function SearchScreen() {
         <Text style={styles.actionBtnText}>{item.accessType === 'open' ? 'Join' : 'Request'}</Text>
       </TouchableOpacity>
     </View>
-  );
+  ), [handleJoinGroup]);
 
-  const renderPerson = ({ item }: { item: UserResult }) => {
+  const renderPerson = useCallback(({ item }: { item: UserResult }) => {
     const status = friendActions[item.id] ?? item.friendStatus ?? 'none';
     const initial = (item.displayName?.[0] ?? '?').toUpperCase();
     return (
@@ -172,7 +172,7 @@ export default function SearchScreen() {
         )}
       </View>
     );
-  };
+  }, [friendActions, handleAddFriend]);
 
   const showRecent = !query.trim() && recentSearches.length > 0;
 
