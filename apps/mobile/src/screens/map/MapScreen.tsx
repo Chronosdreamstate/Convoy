@@ -902,11 +902,16 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
       setHazardAlerts((prev) => prev.filter((a) => a.id !== id));
     });
 
-    socket.on('route:pushed', (data: { route: { geometry: { coordinates: [number, number][] }; speedLimitKph?: number | null; speedLimitSegmentsKph?: (number | null)[] } }) => {
-      const coords = data.route.geometry.coordinates.map(([lng, lat]) => ({ latitude: lat, longitude: lng }));
+    socket.on('route:pushed', (data: { route?: { geometry?: { coordinates?: [number, number][] }; speedLimitKph?: number | null; speedLimitSegmentsKph?: (number | null)[] } }) => {
+      // Unlike REST responses, socket payloads aren't runtime-validated on the
+      // client, so this guards against a malformed/partial broadcast (e.g. a
+      // future "clear route" push reusing this event) instead of assuming the
+      // TS annotation reflects what actually arrives over the wire.
+      const rawCoords = data.route?.geometry?.coordinates ?? [];
+      const coords = rawCoords.map(([lng, lat]) => ({ latitude: lat, longitude: lng }));
       setRouteCoords(coords);
-      setPostedSpeedLimitKph(data.route.speedLimitKph ?? null);
-      activeRouteSegmentsRef.current = { coords, segmentsKph: data.route.speedLimitSegmentsKph ?? [] };
+      setPostedSpeedLimitKph(data.route?.speedLimitKph ?? null);
+      activeRouteSegmentsRef.current = { coords, segmentsKph: data.route?.speedLimitSegmentsKph ?? [] };
       setShowRouteModal(false);
       Alert.alert('Route Updated', 'The group leader pushed a new route to the convoy.');
     });
