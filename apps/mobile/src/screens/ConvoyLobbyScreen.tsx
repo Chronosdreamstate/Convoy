@@ -16,9 +16,14 @@ import {
 } from 'react-native';
 import { router } from 'expo-router';
 import { apiClient } from '../services/apiClient';
+import { authService } from '../services/AuthService';
+import { WebSocketService } from '../services/WebSocketService';
 import { useAuthStore } from '../stores/authStore';
 import { useGroupStore } from '../stores/groupStore';
 import { useSocketStore } from '../stores/socketStore';
+
+const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
+const SOCKET_URL = API_URL.replace(/^http/, 'ws');
 
 // ---------------------------------------------------------------------------
 // Types
@@ -123,10 +128,47 @@ export default function ConvoyLobbyScreen({ groupId, groupName, onConvoyStart }:
   const [selfReady, setSelfReady] = useState(false);
 
   const user = useAuthStore((s) => s.user);
+  const token = useAuthStore((s) => s.token);
   const adminId = useGroupStore((s) => s.adminId);
   const { socket } = useSocketStore();
 
   const isLeader = !!user && !!adminId && user.id === adminId;
+
+  // -- Socket bootstrap ------------------------------------------------------
+  // The lobby is reached before the (tabs)/convoy screen ever mounts, so —
+  // unlike every other group-scoped screen — there's no live group socket yet
+  // (MapScreen is normally what opens it). Stand one up here so "I'm Ready" /
+  // "Start Convoy" and the convoy:started broadcast all work while waiting.
+  // When the group's own convoy tab mounts afterwards it opens its own socket
+  // and replaces this one via socketStore.setSocket (which disconnects the
+  // stale connection) — same handoff pattern as Idle → active MapScreen.
+  useEffect(() => {
+    if (!token || !groupId) return;
+
+    const wsService = new WebSocketService({
+      url: SOCKET_URL,
+      auth: { token, groupId },
+      onAuthError: async () => {
+        const newToken = await authService.refreshToken();
+        if (!newToken) throw new Error('Token refresh failed');
+        return newToken;
+      },
+      onAuthFailed: () => {
+        useAuthStore.getState().signOut();
+      },
+    });
+    const lobbySocket = wsService.connect();
+    useSocketStore.getState().setSocket(lobbySocket);
+
+    return () => {
+      wsService.disconnect();
+      // Only clear the store if nothing else (e.g. the convoy tab's own
+      // socket) has already taken its place.
+      if (useSocketStore.getState().socket === lobbySocket) {
+        useSocketStore.getState().setSocket(null);
+      }
+    };
+  }, [token, groupId]);
 
   // -- "Waiting for everyone to join..." pulsing label ----------------------
   const waitingOpacity = useRef(new Animated.Value(1)).current;
