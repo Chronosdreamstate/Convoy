@@ -14,12 +14,39 @@ const createFuelLogSchema = z.object({
   pricePerGallon: z.number().positive().max(100),
   notes: z.string().max(500).optional(),
   location: z.string().max(200).optional(),
-  mpg: z.number().positive().max(1000).optional(),
+  // odometerKm: the reading at this fill-up, in km (canonical metric unit —
+  // matches the app's internal-metric / display-converted-by-distanceUnit
+  // pattern). Used server-side to compute `mpg` from the delta against the
+  // user's previous fuel log; not required (first-ever entry has nothing to
+  // diff against, and users may skip it).
+  odometerKm: z.number().positive().max(9_999_999).optional(),
   // Not `.datetime()` — the original behavior accepts any string `new Date()` can parse
   // (e.g. plain "2024-01-01"), not strictly full ISO-8601 with time. Just cap length so
   // an absurdly long string can't be thrown at the date parser.
   date: z.string().max(50).optional(),
 });
+
+const KM_PER_MILE = 1.609344;
+
+/**
+ * Server-side MPG computation — deliberately ignores any client-supplied mpg
+ * so the value is consistent regardless of client. Computes
+ * (distance since previous fill-up, converted to miles) / gallons used at
+ * this fill-up. Returns null when there's no previous entry, either entry is
+ * missing an odometer reading, or the odometer didn't increase (bad data /
+ * out-of-order entry) — never divides by a non-positive distance.
+ */
+export function computeMpg(
+  currentOdometerKm: number | null | undefined,
+  previousOdometerKm: number | null | undefined,
+  gallons: number,
+): number | null {
+  if (currentOdometerKm == null || previousOdometerKm == null) return null;
+  const distanceKm = currentOdometerKm - previousOdometerKm;
+  if (distanceKm <= 0) return null;
+  const distanceMiles = distanceKm / KM_PER_MILE;
+  return Math.round((distanceMiles / gallons) * 100) / 100;
+}
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -142,9 +169,9 @@ const fuelRoutes: FastifyPluginAsync = async (fastify) => {
     const userId = (request.user as { sub: string }).sub;
     const result = await fastify.db.query<{
       id: string; date: Date; gallons: string; price_per_gallon: string;
-      notes: string | null; location: string | null; mpg: string | null;
+      notes: string | null; location: string | null; mpg: string | null; odometer_km: string | null;
     }>(
-      `SELECT id, date, gallons, price_per_gallon, notes, location, mpg
+      `SELECT id, date, gallons, price_per_gallon, notes, location, mpg, odometer_km
        FROM fuel_logs WHERE user_id = $1 ORDER BY date DESC LIMIT 200`,
       [userId],
     );
@@ -157,6 +184,7 @@ const fuelRoutes: FastifyPluginAsync = async (fastify) => {
         notes: r.notes ?? undefined,
         location: r.location ?? undefined,
         mpg: r.mpg != null ? parseFloat(r.mpg) : undefined,
+        odometerKm: r.odometer_km != null ? parseFloat(r.odometer_km) : undefined,
       })),
     });
   });
@@ -169,14 +197,29 @@ const fuelRoutes: FastifyPluginAsync = async (fastify) => {
     const body = parsed.data;
     const gallons = body.gallons;
     const ppg = body.pricePerGallon;
+    const odometerKm = body.odometerKm ?? null;
     const date = body.date ? new Date(body.date) : new Date();
     if (isNaN(date.getTime())) return reply.badRequest('invalid date');
 
-    const result = await fastify.db.query<{ id: string; date: Date; gallons: string; price_per_gallon: string; notes: string | null; location: string | null; mpg: string | null }>(
-      `INSERT INTO fuel_logs (user_id, date, gallons, price_per_gallon, notes, location, mpg)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
-       RETURNING id, date, gallons, price_per_gallon, notes, location, mpg`,
-      [userId, date, gallons, ppg, body.notes ?? null, body.location ?? null, body.mpg ?? null],
+    // Find the user's previous fuel log entry (most recent strictly before
+    // this one's date) to diff odometer readings against. First-ever entry
+    // (or one with no prior odometer reading) legitimately has nothing to
+    // diff against — computeMpg returns null in that case.
+    const prevResult = await fastify.db.query<{ odometer_km: string | null }>(
+      `SELECT odometer_km FROM fuel_logs WHERE user_id = $1 AND date < $2
+       ORDER BY date DESC, created_at DESC LIMIT 1`,
+      [userId, date],
+    );
+    const prevOdometerKm = prevResult.rows[0]?.odometer_km != null
+      ? parseFloat(prevResult.rows[0].odometer_km)
+      : null;
+    const mpg = computeMpg(odometerKm, prevOdometerKm, gallons);
+
+    const result = await fastify.db.query<{ id: string; date: Date; gallons: string; price_per_gallon: string; notes: string | null; location: string | null; mpg: string | null; odometer_km: string | null }>(
+      `INSERT INTO fuel_logs (user_id, date, gallons, price_per_gallon, notes, location, mpg, odometer_km)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       RETURNING id, date, gallons, price_per_gallon, notes, location, mpg, odometer_km`,
+      [userId, date, gallons, ppg, body.notes ?? null, body.location ?? null, mpg, odometerKm],
     );
     const r = result.rows[0];
     return reply.status(201).send({
@@ -184,6 +227,7 @@ const fuelRoutes: FastifyPluginAsync = async (fastify) => {
       gallons: parseFloat(r.gallons), pricePerGallon: parseFloat(r.price_per_gallon),
       notes: r.notes ?? undefined, location: r.location ?? undefined,
       mpg: r.mpg != null ? parseFloat(r.mpg) : undefined,
+      odometerKm: r.odometer_km != null ? parseFloat(r.odometer_km) : undefined,
     });
   });
 
