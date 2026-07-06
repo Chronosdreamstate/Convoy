@@ -488,6 +488,26 @@ async function friendsRoutes(
         [blockerId, blockedId],
       );
 
+      // Defense in depth (Task #87): proactively kick the blocked user out of
+      // any DM-type group they currently share with the blocker, so an
+      // existing 1:1 conversation is severed immediately and permanently
+      // rather than relying solely on the message-time check in
+      // POST /groups/:id/messages. Scoped to type='dm' groups only — this
+      // must never remove anyone from a real multi-person convoy group.
+      await client.query(
+        `UPDATE convoy_members
+         SET left_at = now()
+         WHERE user_id = $2
+           AND left_at IS NULL
+           AND group_id IN (
+             SELECT g.id FROM convoy_groups g
+             JOIN convoy_members m1 ON m1.group_id = g.id AND m1.user_id = $1 AND m1.left_at IS NULL
+             JOIN convoy_members m2 ON m2.group_id = g.id AND m2.user_id = $2 AND m2.left_at IS NULL
+             WHERE g.type = 'dm'
+           )`,
+        [blockerId, blockedId],
+      );
+
       await client.query('COMMIT');
     } catch (err) {
       await client.query('ROLLBACK');

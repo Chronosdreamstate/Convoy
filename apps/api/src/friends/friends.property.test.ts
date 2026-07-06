@@ -54,6 +54,16 @@ let rateLimitStore: Map<string, { count: number; expiry: number }>;
 // (loc:friend:<userId>), used to exercise GET /friends/locations.
 let locShareStore: Map<string, boolean>;
 let friendLocStore: Map<string, Record<string, string>>;
+// Task #87: convoy_groups/convoy_members state used to exercise the
+// proactive-kick side effect of POST /friends/block (removing the blocked
+// user from any shared DM-type group's membership).
+interface InMemoryConvoyMember {
+  groupId: string;
+  userId: string;
+  leftAt: boolean;
+}
+let convoyGroupTypes: Map<string, 'group' | 'dm'>;
+let convoyMembers: InMemoryConvoyMember[];
 
 function nextId(): string {
   return `fs-${++friendshipCounter}`;
@@ -66,6 +76,23 @@ function resetStore(testUsers: InMemoryUser[]) {
   rateLimitStore = new Map();
   locShareStore = new Map();
   friendLocStore = new Map();
+  convoyGroupTypes = new Map();
+  convoyMembers = [];
+}
+
+function addDmGroup(groupId: string, userA: string, userB: string) {
+  convoyGroupTypes.set(groupId, 'dm');
+  convoyMembers.push({ groupId, userId: userA, leftAt: false });
+  convoyMembers.push({ groupId, userId: userB, leftAt: false });
+}
+
+function addConvoyGroupMember(groupId: string, userId: string) {
+  convoyGroupTypes.set(groupId, 'group');
+  convoyMembers.push({ groupId, userId, leftAt: false });
+}
+
+function isActiveMember(groupId: string, userId: string): boolean {
+  return convoyMembers.some((m) => m.groupId === groupId && m.userId === userId && !m.leftAt);
 }
 
 // Shared dispatch used by both the plain pool.query (auto-commit statements)
@@ -291,6 +318,32 @@ function buildMockPool(): Pool {
               });
             }
             return { rows: [], rowCount: 1 };
+          }
+
+          // Task #87: proactive kick — remove the blocked user ($2) from any
+          // DM-type group they currently share (as an active member) with the
+          // blocker ($1).
+          if (
+            normalized.startsWith('UPDATE CONVOY_MEMBERS') &&
+            normalized.includes('LEFT_AT = NOW()') &&
+            normalized.includes('GROUP_ID IN')
+          ) {
+            const [blockerId, blockedId] = params as [string, string];
+            const sharedDmGroupIds = new Set(
+              convoyMembers
+                .filter((m) => m.userId === blockerId && !m.leftAt)
+                .map((m) => m.groupId)
+                .filter((groupId) => convoyGroupTypes.get(groupId) === 'dm')
+                .filter((groupId) => isActiveMember(groupId, blockedId)),
+            );
+            let count = 0;
+            convoyMembers.forEach((m) => {
+              if (m.userId === blockedId && !m.leftAt && sharedDmGroupIds.has(m.groupId)) {
+                m.leftAt = true;
+                count++;
+              }
+            });
+            return { rows: [], rowCount: count };
           }
 
           // Anything else (existing-relationship check, privacy lookup, plain
@@ -659,6 +712,57 @@ describe('Property 28: Blocking prevents further requests', () => {
     });
     const body = JSON.parse(res.body) as { friends: unknown[] };
     expect(body.friends).toHaveLength(0);
+
+    await app.close();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Task #87: POST /friends/block proactively kicks the blocked user out of any
+// shared DM-type group, in addition to the message-time check added in
+// POST /groups/:id/messages (chat.property.test.ts covers that half).
+// ---------------------------------------------------------------------------
+describe('Task #87: POST /friends/block proactively removes the blocked user from shared DM groups', () => {
+  it('removes the blocked user (not the blocker) from a shared DM-type group', async () => {
+    resetStore([REQUESTER, OPEN_USER]);
+    addDmGroup('dm-1', REQUESTER.id, OPEN_USER.id);
+    const app = buildTestApp();
+    await app.ready();
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/friends/block',
+      headers: bearerFor(app, REQUESTER.id),
+      payload: { userId: OPEN_USER.id },
+    });
+    expect(res.statusCode).toBe(200);
+
+    // The blocked user (OPEN_USER) is removed from the DM...
+    expect(isActiveMember('dm-1', OPEN_USER.id)).toBe(false);
+    // ...but the blocker's own membership row is untouched.
+    expect(isActiveMember('dm-1', REQUESTER.id)).toBe(true);
+
+    await app.close();
+  });
+
+  it('does not touch membership in a normal (non-DM) convoy group shared by the pair', async () => {
+    resetStore([REQUESTER, OPEN_USER]);
+    addConvoyGroupMember('grp-1', REQUESTER.id);
+    addConvoyGroupMember('grp-1', OPEN_USER.id);
+    const app = buildTestApp();
+    await app.ready();
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/friends/block',
+      headers: bearerFor(app, REQUESTER.id),
+      payload: { userId: OPEN_USER.id },
+    });
+    expect(res.statusCode).toBe(200);
+
+    // Neither party is removed from a real multi-person convoy group.
+    expect(isActiveMember('grp-1', OPEN_USER.id)).toBe(true);
+    expect(isActiveMember('grp-1', REQUESTER.id)).toBe(true);
 
     await app.close();
   });

@@ -2,6 +2,7 @@ import { FastifyInstance, FastifyPluginOptions, FastifyRequest, FastifyReply } f
 import { z } from 'zod';
 import { authenticate } from '../middleware/authenticate';
 import { generalLimiter } from '../middleware/rateLimiter';
+import { isBlocked } from '../friends/friends.routes';
 
 // ---------------------------------------------------------------------------
 // Schemas
@@ -183,6 +184,37 @@ async function chatRoutes(
       );
       if ((memberCheck.rowCount ?? 0) === 0) {
         return reply.forbidden('You are not a member of this group');
+      }
+
+      // Block enforcement for ongoing DM conversations (Req 17.11 / Task #87).
+      // POST /friends/requests and /nearby/dm already stop a blocked pair from
+      // *starting* (or reusing) a DM, but neither of those guards runs again
+      // once the conversation exists — so without this check, blocking a user
+      // did not actually stop them from continuing to message you in an
+      // existing DM, despite the block-confirmation UI promising it would.
+      //
+      // Scoped to type='dm' groups only: a block between two members of a
+      // real multi-person convoy group must not silently break group chat
+      // for everyone else, so this check is intentionally skipped for
+      // non-DM groups.
+      const groupTypeResult = await fastify.db.query<{ type: string }>(
+        `SELECT type FROM convoy_groups WHERE id = $1`,
+        [id],
+      );
+      if (groupTypeResult.rows[0]?.type === 'dm') {
+        const otherMember = await fastify.db.query<{ user_id: string }>(
+          `SELECT user_id FROM convoy_members
+           WHERE group_id = $1 AND user_id != $2 AND left_at IS NULL
+           LIMIT 1`,
+          [id, userId],
+        );
+        const otherUserId = otherMember.rows[0]?.user_id;
+        if (otherUserId && (await isBlocked(fastify.db, userId, otherUserId))) {
+          // Deliberately generic: does not reveal to the sender that this is
+          // block-related, so a blocked user can't use the error to confirm
+          // they've been blocked.
+          return reply.forbidden('Message not delivered');
+        }
       }
 
       // Insert the message
