@@ -158,6 +158,22 @@ const rallyRoutes: FastifyPluginAsync = async (fastify) => {
       // Emit rally:set to group room (Req 20.1, 20.3)
       fastify.io.to(`group:${groupId}`).emit('rally:set', rallyResponse);
 
+      // Push for members who may be offline/backgrounded (fire-and-forget).
+      fastify.db.query<{ user_id: string }>(
+        `SELECT user_id FROM convoy_members WHERE group_id = $1 AND left_at IS NULL AND user_id != $2`,
+        [groupId, userId],
+      ).then(({ rows }) =>
+        Promise.all(rows.map((r) =>
+          fastify.enqueueNotification({
+            userId: r.user_id,
+            type: 'rally_point',
+            title: 'Rally Point Set',
+            body: 'A rally point has been set for your group',
+            data: { groupId, rallyId: row.id, broadcasterId: userId, lat: String(body.lat), lng: String(body.lng) },
+          }),
+        )),
+      ).catch((err: unknown) => fastify.log.error({ err }, 'rally point push failed'));
+
       return reply.status(201).send(rallyResponse);
     },
   );
