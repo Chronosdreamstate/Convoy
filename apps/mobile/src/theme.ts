@@ -49,7 +49,7 @@ const lightColors: ThemeColors = {
   cardElevated: '#FFFFFF',
   border: '#8A8A8C',
   accent: '#DC143C',
-  accentMuted: '#F5C6D1',
+  accentMuted: '#FDF2F5',
   text: '#0A0A0A',
   textMuted: '#6B6B6E',
   textSubtle: '#707075',
