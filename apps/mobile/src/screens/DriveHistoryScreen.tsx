@@ -22,6 +22,8 @@ import {
 } from 'react-native';
 import MapView, { Polyline, PROVIDER_DEFAULT } from 'react-native-maps';
 import { useRouter } from 'expo-router';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as Sharing from 'expo-sharing';
 import SkeletonCard from '../components/SkeletonLoader';
 import { NetworkError } from '../components/NetworkError';
 import { apiClient } from '../services/apiClient';
@@ -111,6 +113,22 @@ function formatTime(iso: string): string {
 
 function dateKey(iso: string): string {
   return iso.substring(0, 10); // YYYY-MM-DD
+}
+
+// Escapes a single field per RFC 4180: wrap in double quotes and double any
+// internal quotes whenever the value contains a comma, quote, or line break —
+// otherwise a group/drive name like `Weekend Cruise, SF Bay` or one containing
+// a `"` would corrupt the CSV's column structure.
+function csvEscape(value: string | number | null | undefined): string {
+  const str = value == null ? '' : String(value);
+  if (/[",\r\n]/.test(str)) {
+    return `"${str.replace(/"/g, '""')}"`;
+  }
+  return str;
+}
+
+function csvRow(fields: (string | number | null | undefined)[]): string {
+  return fields.map(csvEscape).join(',');
 }
 
 function dateLabel(iso: string): string {
@@ -681,15 +699,38 @@ export default function DriveHistoryScreen() {
   }, []);
 
   const handleExport = useCallback(async () => {
-    const header = 'CORTEGE Drive History\nDate,Distance,Duration,Group\n';
-    const rows = drives
-      .map((d) =>
-        `${formatDate(d.endedAt)},${formatDistance(d.distanceM, distanceUnit)},${formatDuration(d.durationS)},${d.groupId ? 'Group Drive' : 'Solo'}`,
-      )
-      .join('\n');
+    const header = csvRow([
+      'Date', 'Distance', 'Duration', 'Avg Speed (km/h)', 'Top Speed (km/h)', 'Type', 'Group Name', 'Members',
+    ]);
+    const rows = drives.map((d) =>
+      csvRow([
+        formatDate(d.endedAt),
+        formatDistance(d.distanceM, distanceUnit),
+        formatDuration(d.durationS),
+        d.avgSpeedKph != null ? d.avgSpeedKph.toFixed(0) : '',
+        d.topSpeedKph != null ? d.topSpeedKph.toFixed(0) : '',
+        d.groupId ? 'Group Drive' : 'Solo',
+        d.groupId ? (d.groupName ?? '') : '',
+        d.memberCount,
+      ]),
+    );
+    const csv = [header, ...rows].join('\r\n');
+
     try {
-      await Share.share({ message: header + rows, title: 'CORTEGE Drive History' });
-    } catch { /* cancelled */ }
+      const fileUri = `${FileSystem.cacheDirectory}cortege-drive-history.csv`;
+      await FileSystem.writeAsStringAsync(fileUri, csv, { encoding: 'utf8' });
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(fileUri, {
+          mimeType: 'text/csv',
+          UTI: 'public.comma-separated-values-text',
+          dialogTitle: 'CORTEGE Drive History',
+        });
+      } else {
+        // Fallback for environments without a share sheet (e.g. some Android
+        // emulators) — share the raw CSV as text so the data isn't lost.
+        await Share.share({ message: csv, title: 'CORTEGE Drive History' });
+      }
+    } catch { /* cancelled or failed to write/share */ }
   }, [drives, distanceUnit]);
 
   const filteredDrives = useMemo(() => applyFilter(drives, activeFilter), [drives, activeFilter]);
