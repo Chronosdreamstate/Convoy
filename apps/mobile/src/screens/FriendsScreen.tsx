@@ -163,7 +163,7 @@ function FriendRow({
   const handleViewOnMap = () => {
     (router.push as (href: { pathname: string; params?: Record<string, string> }) => void)({
       pathname: '/(tabs)/map',
-      params: { focusFriendId: friend.id, focusFriendName: friend.displayName },
+      params: { focusFriendId: friend.userId, focusFriendName: friend.displayName },
     });
   };
 
