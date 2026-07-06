@@ -289,7 +289,9 @@ export default function DestinationSearch({
                 <Text style={styles.motionText}>Recent destinations — tap to navigate</Text>
               </View>
               {recentDestinations.length > 0 ? (
-                recentDestinations.map((item) => (
+                // Req 33: cap the scrollable recent-destinations list to ~4 rows
+                // while in motion — recentDestinations can hold up to MAX_RECENT (5).
+                recentDestinations.slice(0, 4).map((item) => (
                   <TouchableOpacity
                     key={item.id}
                     style={styles.result}

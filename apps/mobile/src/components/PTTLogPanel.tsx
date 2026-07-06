@@ -42,7 +42,14 @@ interface Props {
   socket: Pick<Socket, 'on' | 'off' | 'emit'>;
   initialEntries?: PttLogEntry[];
   groupId?: string;
+  /** True when the vehicle is in motion (Req 33) — caps the visible log to the
+   *  most recent entries so the scrollable list doesn't invite extended reading
+   *  while driving. Derived via deriveMotionState in the parent screen. */
+  isInMotion?: boolean;
 }
+
+/** Driver Distraction — Scrollable List Limit (Req 33): cap to ~4 rows while in motion. */
+const IN_MOTION_LIST_CAP = 4;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -191,7 +198,7 @@ function LogRow({
 // PTTLogPanel
 // ---------------------------------------------------------------------------
 
-function PTTLogPanel({ socket, initialEntries = [], groupId }: Props) {
+function PTTLogPanel({ socket, initialEntries = [], groupId, isInMotion = false }: Props) {
   const [entries, setEntries] = useState<PttLogEntry[]>(
     initialEntries.slice(-MAX_ENTRIES),
   );
@@ -343,7 +350,7 @@ function PTTLogPanel({ socket, initialEntries = [], groupId }: Props) {
               </TouchableOpacity>
             )}
             <ScrollView style={styles.list} showsVerticalScrollIndicator={false}>
-              {entries.map((entry) => (
+              {(isInMotion ? entries.slice(-IN_MOTION_LIST_CAP) : entries).map((entry) => (
                 <LogRow
                   key={entry.id}
                   entry={entry}
