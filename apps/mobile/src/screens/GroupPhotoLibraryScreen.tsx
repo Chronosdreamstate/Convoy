@@ -5,6 +5,7 @@ import {
   Dimensions,
   FlatList,
   Image,
+  Modal,
   Pressable,
   RefreshControl,
   SafeAreaView,
@@ -16,6 +17,7 @@ import {
 import { useLocalSearchParams, router } from 'expo-router';
 import { apiClient } from '../services/apiClient';
 import { useAuthStore } from '../stores/authStore';
+import { useSocketStore } from '../stores/socketStore';
 import { pickAndUploadPhoto } from '../services/PhotoUploadService';
 import { SkeletonBox } from '../components/SkeletonLoader';
 import { NetworkError } from '../components/NetworkError';
@@ -37,13 +39,14 @@ interface Photo {
 // The API only allows a user to delete their own photos (photos.routes.ts
 // DELETE /groups/:groupId/photos/:photoId scopes on user_id), so the option
 // is only surfaced for photos the current user posted.
-function PhotoCell({ photo, canDelete, onDelete }: {
-  photo: Photo; canDelete: boolean; onDelete: (id: string) => void;
+function PhotoCell({ photo, canDelete, onDelete, onView }: {
+  photo: Photo; canDelete: boolean; onDelete: (id: string) => void; onView: (photo: Photo) => void;
 }) {
   const [open, setOpen] = useState(false);
 
   return (
     <Pressable
+      onPress={() => { if (!open) onView(photo); }}
       onLongPress={() => { if (canDelete) setOpen((prev) => !prev); }}
       style={styles.cell}
       accessibilityRole="button"
@@ -80,14 +83,51 @@ function PhotoCell({ photo, canDelete, onDelete }: {
   );
 }
 
+// Fullscreen lightbox — tap the cell to open, tap the backdrop (or the ✕) to
+// dismiss. Kept intentionally simple (plain Modal, no pinch-zoom) to match the
+// rest of this screen's minimal styling.
+function PhotoViewerModal({ photo, onClose }: { photo: Photo | null; onClose: () => void }) {
+  return (
+    <Modal visible={photo !== null} transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable style={styles.viewerBackdrop} onPress={onClose} accessibilityRole="button" accessibilityLabel="Close photo">
+        {photo && (
+          <SafeAreaView style={styles.viewerSafeArea}>
+            <TouchableOpacity
+              style={styles.viewerCloseBtn}
+              onPress={onClose}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              accessibilityRole="button"
+              accessibilityLabel="Close"
+            >
+              <Text style={styles.viewerCloseText}>✕</Text>
+            </TouchableOpacity>
+
+            {/* Stop propagation so tapping the image itself doesn't dismiss */}
+            <Pressable style={styles.viewerImageWrap} onPress={(e) => e.stopPropagation()}>
+              <Image source={{ uri: photo.photoUrl }} style={styles.viewerImage} resizeMode="contain" />
+            </Pressable>
+
+            <View style={styles.viewerCaptionBox}>
+              <Text style={styles.viewerName}>{photo.displayName}</Text>
+              {photo.caption ? <Text style={styles.viewerCaption}>{photo.caption}</Text> : null}
+            </View>
+          </SafeAreaView>
+        )}
+      </Pressable>
+    </Modal>
+  );
+}
+
 export default function GroupPhotoLibraryScreen() {
   const { groupId } = useLocalSearchParams<{ groupId: string }>();
   const { accessToken, user } = useAuthStore();
+  const { socket } = useSocketStore();
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [viewerPhoto, setViewerPhoto] = useState<Photo | null>(null);
 
   const apiUrl = process.env.EXPO_PUBLIC_API_URL ?? '';
 
@@ -103,6 +143,22 @@ export default function GroupPhotoLibraryScreen() {
   }, [groupId]);
 
   useEffect(() => { void load(); }, [load]);
+
+  // Live updates: the API broadcasts `group:photo_added` to the group's socket
+  // room (see apps/api/src/groups/photos.routes.ts) whenever anyone uploads a
+  // photo. The socket is already joined to this group's room on connection
+  // (apps/api/src/socket/socket.handler.ts), so no explicit room-join call is
+  // needed here — same pattern GroupChatScreen uses for `group:message`.
+  useEffect(() => {
+    if (!socket || !groupId) return;
+
+    const handlePhotoAdded = (photo: Photo) => {
+      setPhotos((prev) => (prev.some((p) => p.id === photo.id) ? prev : [photo, ...prev]));
+    };
+
+    socket.on('group:photo_added', handlePhotoAdded);
+    return () => { socket.off('group:photo_added', handlePhotoAdded); };
+  }, [socket, groupId]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -145,7 +201,7 @@ export default function GroupPhotoLibraryScreen() {
 
   const renderPhotoItem = useCallback(
     ({ item }: { item: Photo }) => (
-      <PhotoCell photo={item} canDelete={item.userId === user?.id} onDelete={handleDelete} />
+      <PhotoCell photo={item} canDelete={item.userId === user?.id} onDelete={handleDelete} onView={setViewerPhoto} />
     ),
     [user?.id, handleDelete],
   );
@@ -200,6 +256,8 @@ export default function GroupPhotoLibraryScreen() {
           contentContainerStyle={styles.list}
         />
       )}
+
+      <PhotoViewerModal photo={viewerPhoto} onClose={() => setViewerPhoto(null)} />
     </SafeAreaView>
   );
 }
@@ -256,4 +314,18 @@ const styles = StyleSheet.create({
   cellDeleteText: { color: '#DC143C', fontSize: 13, fontWeight: '600' },
   cellCancelBtn: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   cellCancelText: { color: '#CCCCCC', fontSize: 13 },
+
+  viewerBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.95)' },
+  viewerSafeArea: { flex: 1 },
+  viewerCloseBtn: {
+    position: 'absolute', top: 12, right: 16, zIndex: 10,
+    width: 36, height: 36, borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.15)', alignItems: 'center', justifyContent: 'center',
+  },
+  viewerCloseText: { color: '#FFFFFF', fontSize: 18, fontWeight: '700' },
+  viewerImageWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  viewerImage: { width: SCREEN_WIDTH, height: '80%' },
+  viewerCaptionBox: { paddingHorizontal: 20, paddingBottom: 32, paddingTop: 8 },
+  viewerName: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
+  viewerCaption: { color: '#CCCCCC', fontSize: 13, marginTop: 4 },
 });
