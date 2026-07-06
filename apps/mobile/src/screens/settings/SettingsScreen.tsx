@@ -39,14 +39,7 @@ interface Settings {
   notifGroupEvents: boolean;
   notifFriendRequests: boolean;
   notifNavigation: boolean;
-  privacy: 'public' | 'friends' | 'private';
 }
-
-const PRIVACY_OPTIONS: Array<{ label: string; value: Settings['privacy']; icon: IoniconName }> = [
-  { label: 'Public', value: 'public', icon: 'globe-outline' },
-  { label: 'Friends', value: 'friends', icon: 'people-outline' },
-  { label: 'Private', value: 'private', icon: 'lock-closed-outline' },
-];
 
 const APP_VERSION = Constants.expoConfig?.version ?? '1.0.0';
 const APP_STORE_URL = 'https://apps.apple.com/app/convoy/id0000000000';
@@ -222,8 +215,6 @@ export default function SettingsScreen() {
   const [notifGroupEvents, setNotifGroupEvents] = useState(true);
   const [notifFriendRequests, setNotifFriendRequests] = useState(true);
   const [notifNavigation, setNotifNavigation] = useState(true);
-  const [privacy, setPrivacy] = useState<Settings['privacy']>('public');
-  const [showInBrowse, setShowInBrowse] = useState(true);
   const [distanceUnit, setDistanceUnit] = useState<'km' | 'miles'>(storedDistanceUnit);
   const [themeMode, setThemeMode] = useState<'light' | 'dark' | 'system'>(storedThemeMode);
   const [autoJoinNearby, setAutoJoinNearby] = useState(false);
@@ -259,7 +250,6 @@ export default function SettingsScreen() {
     setNotifGroupEvents(s.notifGroupEvents);
     setNotifFriendRequests(s.notifFriendRequests);
     setNotifNavigation(s.notifNavigation);
-    if (s.privacy) setPrivacy(s.privacy);
   };
 
   const handleSave = async () => {
@@ -277,7 +267,6 @@ export default function SettingsScreen() {
         notifGroupEvents,
         notifFriendRequests,
         notifNavigation,
-        privacy,
       });
       setSettings(response.data);
       setGlobalSettings({
@@ -682,29 +671,9 @@ export default function SettingsScreen() {
         <View style={styles.sectionCard}>
           <SettingRow
             icon="eye-outline"
-            label="Profile Visibility"
-            subtitle={`Who can see your profile: ${privacy.charAt(0).toUpperCase() + privacy.slice(1)}`}
-            last
-          />
-          <View style={[styles.chipContainer, styles.chipContainerDivider]}>
-            <ChipSelector
-              options={PRIVACY_OPTIONS}
-              selected={privacy}
-              onSelect={(v) => { setPrivacy(v); mark(); }}
-            />
-          </View>
-          <SettingRow
-            icon="search-outline"
-            label="Show in Group Browse"
-            subtitle="Let others find and invite you to convoys"
-            rightSlot={
-              <Switch
-                value={showInBrowse}
-                onValueChange={(v) => { setShowInBrowse(v); mark(); }}
-                trackColor={{ false: theme.colors.border, true: theme.colors.accent }}
-                thumbColor={theme.colors.text}
-              />
-            }
+            label="Friend Request Privacy"
+            subtitle="Choose who can send you friend requests"
+            onPress={() => router.push('/(tabs)/profile')}
             last
           />
         </View>
