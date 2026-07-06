@@ -11,6 +11,7 @@ import MapView, { Marker, PROVIDER_DEFAULT, Polyline } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ExpoLocation from 'expo-location';
 import { useRouter } from 'expo-router';
+import { useSettingsStore } from '../../stores/settingsStore';
 
 const DEFAULT_REGION = {
   latitude: 37.7749,
@@ -77,6 +78,12 @@ export default function GuestMapScreen() {
   const [initialRegion, setInitialRegion] = useState(DEFAULT_REGION);
   const [permissionDenied, setPermissionDenied] = useState(false);
   const mapRef = useRef<MapView>(null);
+  const mapStyle = useSettingsStore((s) => s.mapStyle);
+  const setSettings = useSettingsStore((s) => s.setSettings);
+  const cycleMapType = () => {
+    const next = mapStyle === 'standard' ? 'satellite' : mapStyle === 'satellite' ? 'hybrid' : 'standard';
+    setSettings({ mapStyle: next });
+  };
 
   // Demo marker progress (0-1 per route), staggered starts
   const [markerProgress, setMarkerProgress] = useState<number[]>(
@@ -146,6 +153,7 @@ export default function GuestMapScreen() {
         provider={PROVIDER_DEFAULT}
         style={StyleSheet.absoluteFill}
         initialRegion={initialRegion}
+        mapType={mapStyle}
         showsUserLocation
       >
         {DEMO_ROUTES.map((route, i) => {
@@ -185,6 +193,18 @@ export default function GuestMapScreen() {
         accessibilityLabel="Re-center map"
       >
         <Text style={styles.recenterText}>⊕</Text>
+      </TouchableOpacity>
+
+      {/* Map style cycle button */}
+      <TouchableOpacity
+        style={[styles.mapTypeBtn, { top: insets.top + 8 }]}
+        onPress={cycleMapType}
+        accessibilityRole="button"
+        accessibilityLabel={`Map style: ${mapStyle}. Tap to cycle.`}
+      >
+        <Text style={styles.mapTypeIcon}>
+          {mapStyle === 'standard' ? '🗺️' : mapStyle === 'satellite' ? '🛰️' : '🌍'}
+        </Text>
       </TouchableOpacity>
 
       {/* Preview Mode pill */}
@@ -318,6 +338,26 @@ const styles = StyleSheet.create({
     zIndex: 10,
   },
   recenterText: { fontSize: 22, color: '#FFFFFF' },
+
+  mapTypeBtn: {
+    position: 'absolute',
+    right: 12,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#1C1C1Cf5',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#2A2A2A',
+    shadowColor: '#000',
+    shadowOpacity: 0.4,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 4,
+    zIndex: 10,
+  },
+  mapTypeIcon: { fontSize: 18 },
 
   previewPill: {
     position: 'absolute',

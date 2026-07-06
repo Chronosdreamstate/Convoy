@@ -224,6 +224,17 @@ export default function WelcomeScreen() {
           <Text style={styles.ctaText}>{isLastSlide ? "Let's Go →" : 'Next →'}</Text>
         </TouchableOpacity>
 
+        {/* Guest access — lets an unauthenticated user preview the map (Req 1) */}
+        <TouchableOpacity
+          style={styles.guestButton}
+          onPress={() => router.push('/(tabs)/map')}
+          accessibilityRole="button"
+          accessibilityLabel="Continue as Guest"
+          accessibilityHint="View the map without creating an account"
+        >
+          <Text style={styles.guestButtonText}>Continue as Guest</Text>
+        </TouchableOpacity>
+
         {/* On the last slide, surface the full sign-in / social auth options */}
         {isLastSlide && (
           <>
@@ -426,6 +437,16 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: '700',
     letterSpacing: 0.5,
+  },
+  guestButton: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+  },
+  guestButtonText: {
+    color: theme.colors.textMuted,
+    fontSize: 14,
+    fontWeight: '600',
   },
 
   // ── Last-slide extras (sign-in row + social auth + legal) ───────────────────
