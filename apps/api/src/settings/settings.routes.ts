@@ -14,6 +14,7 @@ const patchSettingsSchema = z.object({
   notifFriendRequests: z.boolean().optional(),
   notifNavigation: z.boolean().optional(),
   shareLocationWithFriends: z.boolean().optional(),
+  visibleToNearby: z.boolean().optional(),
 });
 
 interface SettingsRow {
@@ -28,6 +29,7 @@ interface SettingsRow {
   notif_friend_requests: boolean;
   notif_navigation: boolean;
   share_location_with_friends: boolean;
+  visible_to_nearby: boolean;
 }
 
 function toResponse(s: SettingsRow) {
@@ -42,6 +44,7 @@ function toResponse(s: SettingsRow) {
     notifFriendRequests: s.notif_friend_requests,
     notifNavigation: s.notif_navigation,
     shareLocationWithFriends: s.share_location_with_friends,
+    visibleToNearby: s.visible_to_nearby,
   };
 }
 
@@ -125,6 +128,10 @@ async function settingsRoutes(
     if (data.shareLocationWithFriends !== undefined) {
       setClauses.push(`share_location_with_friends = $${paramIdx++}`);
       values.push(data.shareLocationWithFriends);
+    }
+    if (data.visibleToNearby !== undefined) {
+      setClauses.push(`visible_to_nearby = $${paramIdx++}`);
+      values.push(data.visibleToNearby);
     }
 
     // Ensure the row exists before updating

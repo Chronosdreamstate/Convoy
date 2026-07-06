@@ -32,6 +32,7 @@ import photosRoutes from './groups/photos.routes';
 import joinRequestsRoutes from './groups/joinRequests.routes';
 import uploadsRoutes from './uploads/uploads.routes';
 import dmRoutes from './dm/dm.routes';
+import nearbyRoutes from './nearby/nearby.routes';
 import socketioPlugin from './plugins/socketio';
 import notificationsPlugin from './plugins/notifications';
 import groupExpiryPlugin from './plugins/group-expiry';
@@ -234,6 +235,9 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   // Direct messaging between friends
   await app.register(dmRoutes, { prefix: '/api/v1' });
+
+  // Opt-in "nearby strangers" discovery + one-off DM
+  await app.register(nearbyRoutes, { prefix: '/api/v1' });
 
   // WebSocket server (socket.io, must be last so db/redis decorators are available)
   await app.register(socketioPlugin);
