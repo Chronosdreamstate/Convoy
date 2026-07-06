@@ -469,45 +469,53 @@ export function registerSocketHandlers(
 
     // Auto-rejoin on reconnect: if groupId is absent from auth (e.g. client reconnected
     // with only a JWT), look up the user's current active group membership in the DB.
+    // A user with no active convoy at all (e.g. IdleMapScreen, the groupless/friend-SOS
+    // case) is still a valid connection — they just don't get a group room. They still
+    // need their personal `user:<id>` room joined below so standalone events like a
+    // friend's SOS (`POST /sos` → `sos:alert`) reach them live.
     if (!groupId) {
       const activeGroup = await fastify.db.query<{ group_id: string }>(
         `SELECT group_id FROM convoy_members WHERE user_id = $1 AND left_at IS NULL LIMIT 1`,
         [userId],
       );
-      if (activeGroup.rows.length === 0) {
+      groupId = activeGroup.rows[0]?.group_id ?? '';
+    }
+
+    if (groupId) {
+      // Verify active membership before joining room — prevents unauthorized room access
+      const memberCheck = await fastify.db.query<{ id: string }>(
+        `SELECT id FROM convoy_members WHERE group_id = $1 AND user_id = $2 AND left_at IS NULL`,
+        [groupId, userId],
+      );
+      if (memberCheck.rows.length === 0) {
         socket.disconnect(true);
         return;
       }
-      groupId = activeGroup.rows[0].group_id;
-    }
-
-    // Verify active membership before joining room — prevents unauthorized room access
-    const memberCheck = await fastify.db.query<{ id: string }>(
-      `SELECT id FROM convoy_members WHERE group_id = $1 AND user_id = $2 AND left_at IS NULL`,
-      [groupId, userId],
-    );
-    if (memberCheck.rows.length === 0) {
-      socket.disconnect(true);
-      return;
     }
 
     // Track presence
     presence.set(userId, { isOnline: true, lastSeen: new Date(), socketId: socket.id });
 
-    // Join group room and personal room — must be awaited before broadcasting
-    await socket.join(`group:${groupId}`);
+    // Personal room — joined unconditionally (even with no active group) so
+    // standalone/direct events (friend SOS, PTT DMs, gap alerts, etc.) always reach
+    // this socket.
     await socket.join(`user:${userId}`);
 
-    // Notify other group members (Req 8.3)
-    socket.to(`group:${groupId}`).emit('member:joined', { userId });
-    // Presence: broadcast online status with timestamp to the full group room
-    io.to(`group:${groupId}`).emit('member:online', { userId, ts: Date.now() });
-    // Emit presence snapshot for all current group members to the joining user
-    io.to(`group:${groupId}`).emit('presence:update', {
-      userId,
-      isOnline: true,
-      lastSeen: new Date().toISOString(),
-    });
+    if (groupId) {
+      // Join group room — must be awaited before broadcasting
+      await socket.join(`group:${groupId}`);
+
+      // Notify other group members (Req 8.3)
+      socket.to(`group:${groupId}`).emit('member:joined', { userId });
+      // Presence: broadcast online status with timestamp to the full group room
+      io.to(`group:${groupId}`).emit('member:online', { userId, ts: Date.now() });
+      // Emit presence snapshot for all current group members to the joining user
+      io.to(`group:${groupId}`).emit('presence:update', {
+        userId,
+        isOnline: true,
+        lastSeen: new Date().toISOString(),
+      });
+    }
 
     // Bulk presence query handler — client sends list of userIds, gets back online status
     socket.on('presence:get', (
