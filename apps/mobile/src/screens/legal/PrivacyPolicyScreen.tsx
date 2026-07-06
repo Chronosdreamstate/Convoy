@@ -1,7 +1,7 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View, SafeAreaView } from 'react-native';
 import { useRouter } from 'expo-router';
-import { theme } from '../../theme';
+import { ThemeColors, useTheme } from '../../theme';
 
 const SECTIONS = [
   {
@@ -32,6 +32,8 @@ const SECTIONS = [
 
 export default function PrivacyPolicyScreen() {
   const router = useRouter();
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.header}>
@@ -60,35 +62,37 @@ export default function PrivacyPolicyScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: theme.colors.bg },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: theme.colors.border,
-  },
-  back: { width: 40, alignItems: 'flex-start' },
-  backArrow: { fontSize: 28, color: theme.colors.text, lineHeight: 32 },
-  title: { fontSize: 17, fontWeight: '600', color: theme.colors.text },
-  placeholder: { width: 40 },
-  scroll: { flex: 1 },
-  content: { padding: 20 },
-  updated: { fontSize: 12, color: theme.colors.textMuted, marginBottom: 24 },
-  section: { marginBottom: 28 },
-  sectionTitle: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: theme.colors.text,
-    marginBottom: 8,
-  },
-  body: {
-    fontSize: 14,
-    color: theme.colors.textMuted,
-    lineHeight: 22,
-  },
-  bottomPad: { height: 40 },
-});
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    safe: { flex: 1, backgroundColor: colors.bg },
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+    },
+    back: { width: 40, alignItems: 'flex-start' },
+    backArrow: { fontSize: 28, color: colors.text, lineHeight: 32 },
+    title: { fontSize: 17, fontWeight: '600', color: colors.text },
+    placeholder: { width: 40 },
+    scroll: { flex: 1 },
+    content: { padding: 20 },
+    updated: { fontSize: 12, color: colors.textMuted, marginBottom: 24 },
+    section: { marginBottom: 28 },
+    sectionTitle: {
+      fontSize: 15,
+      fontWeight: '700',
+      color: colors.text,
+      marginBottom: 8,
+    },
+    body: {
+      fontSize: 14,
+      color: colors.textMuted,
+      lineHeight: 22,
+    },
+    bottomPad: { height: 40 },
+  });
+}

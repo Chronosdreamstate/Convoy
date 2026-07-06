@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   RefreshControl,
   SafeAreaView,
@@ -10,9 +10,11 @@ import {
   View,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import { apiClient } from '../services/apiClient';
 import SkeletonCard, { SkeletonBox } from '../components/SkeletonLoader';
 import { NetworkError } from '../components/NetworkError';
+import { ThemeColors, useTheme } from '../theme';
 
 interface TopMember {
   userId: string;
@@ -38,14 +40,16 @@ interface GroupStats {
   monthlyDrives: MonthlyDrive[];
 }
 
+// Medal colors for the top-3 rank circles are intentional gamification
+// accents (gold/silver/bronze) with no equivalent semantic theme token.
 const RANK_COLORS: Record<number, string> = {
   1: '#FFD700',
   2: '#C0C0C0',
   3: '#CD7F32',
 };
 
-function RankCircle({ rank }: { rank: number }) {
-  const bg = RANK_COLORS[rank] ?? '#2A2A2A';
+function RankCircle({ rank, styles, colors }: { rank: number; styles: Styles; colors: ThemeColors }) {
+  const bg = RANK_COLORS[rank] ?? colors.border;
   return (
     <View style={[styles.rankCircle, { backgroundColor: bg }]}>
       <Text style={[styles.rankText, rank <= 3 ? { color: '#000' } : { color: '#fff' }]}>
@@ -55,7 +59,7 @@ function RankCircle({ rank }: { rank: number }) {
   );
 }
 
-function BarChart({ data }: { data: MonthlyDrive[] }) {
+function BarChart({ data, styles }: { data: MonthlyDrive[]; styles: Styles }) {
   const max = Math.max(...data.map((d) => d.count), 1);
   return (
     <View style={styles.chartContainer}>
@@ -71,6 +75,9 @@ function BarChart({ data }: { data: MonthlyDrive[] }) {
 }
 
 export default function GroupStatsScreen() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const [stats, setStats] = useState<GroupStats | null>(null);
@@ -110,8 +117,8 @@ export default function GroupStatsScreen() {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.header}>
-          <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
-            <Text style={styles.backText}>‹ Back</Text>
+          <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} accessibilityRole="button" accessibilityLabel="Go back">
+            <Ionicons name="chevron-back" size={22} color={colors.accent} />
           </TouchableOpacity>
           <Text style={styles.title}>Group Stats</Text>
           <View style={styles.backBtn} />
@@ -135,8 +142,8 @@ export default function GroupStatsScreen() {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.header}>
-          <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
-            <Text style={styles.backText}>‹ Back</Text>
+          <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} accessibilityRole="button" accessibilityLabel="Go back">
+            <Ionicons name="chevron-back" size={22} color={colors.accent} />
           </TouchableOpacity>
           <Text style={styles.title}>Group Stats</Text>
           <View style={styles.backBtn} />
@@ -149,8 +156,8 @@ export default function GroupStatsScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
-          <Text style={styles.backText}>‹ Back</Text>
+        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} accessibilityRole="button" accessibilityLabel="Go back">
+          <Ionicons name="chevron-back" size={22} color={colors.accent} />
         </TouchableOpacity>
         <Text style={styles.title}>{stats.groupName}</Text>
         <TouchableOpacity
@@ -159,7 +166,7 @@ export default function GroupStatsScreen() {
           accessibilityRole="button"
           accessibilityLabel="Share group stats"
         >
-          <Text style={styles.shareIcon}>📤</Text>
+          <Ionicons name="share-outline" size={20} color={colors.text} style={styles.shareIcon} />
         </TouchableOpacity>
       </View>
 
@@ -167,7 +174,7 @@ export default function GroupStatsScreen() {
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor="#DC143C" colors={['#DC143C']} />
+          <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={colors.accent} colors={[colors.accent]} />
         }
       >
         {/* Big 3 stats */}
@@ -201,10 +208,13 @@ export default function GroupStatsScreen() {
         {/* Top Drivers leaderboard */}
         {stats.topMembers.length > 0 && (
           <View style={styles.section}>
-            <Text style={styles.sectionLabel}>🏆 TOP DRIVERS</Text>
+            <View style={styles.sectionLabelRow}>
+              <Ionicons name="trophy-outline" size={13} color={colors.textMuted} />
+              <Text style={styles.sectionLabel}>TOP DRIVERS</Text>
+            </View>
             {stats.topMembers.map((m, i) => (
               <View key={m.userId} style={styles.leaderRow}>
-                <RankCircle rank={i + 1} />
+                <RankCircle rank={i + 1} styles={styles} colors={colors} />
                 <View style={styles.leaderInfo}>
                   <Text style={styles.leaderName}>{m.displayName}</Text>
                   {m.callsign ? <Text style={styles.leaderCallsign}>{m.callsign}</Text> : null}
@@ -221,8 +231,11 @@ export default function GroupStatsScreen() {
         {/* Monthly activity chart */}
         {stats.monthlyDrives.length > 0 && (
           <View style={styles.section}>
-            <Text style={styles.sectionLabel}>📈 MONTHLY ACTIVITY</Text>
-            <BarChart data={stats.monthlyDrives} />
+            <View style={styles.sectionLabelRow}>
+              <Ionicons name="trending-up-outline" size={13} color={colors.textMuted} />
+              <Text style={styles.sectionLabel}>MONTHLY ACTIVITY</Text>
+            </View>
+            <BarChart data={stats.monthlyDrives} styles={styles} />
           </View>
         )}
 
@@ -232,63 +245,67 @@ export default function GroupStatsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0A0A0A' },
-  header: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 16, paddingTop: 8, paddingBottom: 12,
-  },
-  backBtn: { minWidth: 48, paddingVertical: 8 },
-  backText: { color: '#DC143C', fontSize: 16 },
-  shareIcon: { fontSize: 18, textAlign: 'right' },
-  title: { flex: 1, color: '#FFFFFF', fontSize: 18, fontWeight: '700', textAlign: 'center' },
-  content: { paddingHorizontal: 16, paddingTop: 8 },
-  skeletonPad: { paddingHorizontal: 16, paddingTop: 8 },
-  skeletonRow: { flexDirection: 'row', gap: 8, marginBottom: 12 },
-  skeletonBigCard: {
-    flex: 1, backgroundColor: '#1C1C1C', borderRadius: 12, padding: 14,
-    alignItems: 'center', gap: 8,
-  },
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: colors.bg },
+    header: {
+      flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+      paddingHorizontal: 16, paddingTop: 8, paddingBottom: 12,
+    },
+    backBtn: { minWidth: 48, paddingVertical: 8 },
+    shareIcon: { textAlign: 'right' },
+    title: { flex: 1, color: colors.text, fontSize: 18, fontWeight: '700', textAlign: 'center' },
+    content: { paddingHorizontal: 16, paddingTop: 8 },
+    skeletonPad: { paddingHorizontal: 16, paddingTop: 8 },
+    skeletonRow: { flexDirection: 'row', gap: 8, marginBottom: 12 },
+    skeletonBigCard: {
+      flex: 1, backgroundColor: colors.card, borderRadius: 12, padding: 14,
+      alignItems: 'center', gap: 8,
+    },
 
-  bigRow: { flexDirection: 'row', gap: 8, marginBottom: 8 },
-  bigCard: {
-    flex: 1, backgroundColor: '#1C1C1C', borderRadius: 12, padding: 14, alignItems: 'center',
-  },
-  bigValue: { color: '#DC143C', fontSize: 28, fontWeight: '800' },
-  bigLabel: { color: '#888888', fontSize: 11, marginTop: 2, textAlign: 'center' },
+    bigRow: { flexDirection: 'row', gap: 8, marginBottom: 8 },
+    bigCard: {
+      flex: 1, backgroundColor: colors.card, borderRadius: 12, padding: 14, alignItems: 'center',
+    },
+    bigValue: { color: colors.accent, fontSize: 28, fontWeight: '800' },
+    bigLabel: { color: colors.textMuted, fontSize: 11, marginTop: 2, textAlign: 'center' },
 
-  secondaryRow: { flexDirection: 'row', gap: 8, marginBottom: 20 },
-  secondaryCard: {
-    flex: 1, backgroundColor: '#1C1C1C', borderRadius: 10, padding: 12, alignItems: 'center',
-  },
-  secondaryValue: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
-  secondaryLabel: { color: '#888888', fontSize: 11, marginTop: 2 },
+    secondaryRow: { flexDirection: 'row', gap: 8, marginBottom: 20 },
+    secondaryCard: {
+      flex: 1, backgroundColor: colors.card, borderRadius: 10, padding: 12, alignItems: 'center',
+    },
+    secondaryValue: { color: colors.text, fontSize: 16, fontWeight: '700' },
+    secondaryLabel: { color: colors.textMuted, fontSize: 11, marginTop: 2 },
 
-  section: { marginBottom: 24 },
-  sectionLabel: { color: '#888888', fontSize: 11, fontWeight: '600', letterSpacing: 1, marginBottom: 12 },
+    section: { marginBottom: 24 },
+    sectionLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 12 },
+    sectionLabel: { color: colors.textMuted, fontSize: 11, fontWeight: '600', letterSpacing: 1 },
 
-  leaderRow: {
-    flexDirection: 'row', alignItems: 'center', backgroundColor: '#1C1C1C',
-    borderRadius: 10, padding: 12, marginBottom: 8,
-  },
-  rankCircle: {
-    width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center',
-  },
-  rankText: { fontSize: 14, fontWeight: '700' },
-  leaderInfo: { flex: 1, marginLeft: 12 },
-  leaderName: { color: '#FFFFFF', fontSize: 14, fontWeight: '600' },
-  leaderCallsign: { color: '#888888', fontSize: 12, marginTop: 1 },
-  leaderStats: { alignItems: 'flex-end' },
-  leaderDistance: { color: '#DC143C', fontSize: 14, fontWeight: '700' },
-  leaderDrives: { color: '#888888', fontSize: 11, marginTop: 1 },
+    leaderRow: {
+      flexDirection: 'row', alignItems: 'center', backgroundColor: colors.card,
+      borderRadius: 10, padding: 12, marginBottom: 8,
+    },
+    rankCircle: {
+      width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center',
+    },
+    rankText: { fontSize: 14, fontWeight: '700' },
+    leaderInfo: { flex: 1, marginLeft: 12 },
+    leaderName: { color: colors.text, fontSize: 14, fontWeight: '600' },
+    leaderCallsign: { color: colors.textMuted, fontSize: 12, marginTop: 1 },
+    leaderStats: { alignItems: 'flex-end' },
+    leaderDistance: { color: colors.accent, fontSize: 14, fontWeight: '700' },
+    leaderDrives: { color: colors.textMuted, fontSize: 11, marginTop: 1 },
 
-  chartContainer: {
-    flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between',
-    backgroundColor: '#1C1C1C', borderRadius: 12, padding: 16, minHeight: 130,
-  },
-  barWrapper: { flex: 1, alignItems: 'center', justifyContent: 'flex-end' },
-  barCount: { color: '#888888', fontSize: 10, marginBottom: 3 },
-  bar: { width: 16, backgroundColor: '#DC143C', borderRadius: 3, marginBottom: 6 },
-  barLabel: { color: '#888888', fontSize: 10 },
+    chartContainer: {
+      flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between',
+      backgroundColor: colors.card, borderRadius: 12, padding: 16, minHeight: 130,
+    },
+    barWrapper: { flex: 1, alignItems: 'center', justifyContent: 'flex-end' },
+    barCount: { color: colors.textMuted, fontSize: 10, marginBottom: 3 },
+    bar: { width: 16, backgroundColor: colors.accent, borderRadius: 3, marginBottom: 6 },
+    barLabel: { color: colors.textMuted, fontSize: 10 },
 
-});
+  });
+}
+
+type Styles = ReturnType<typeof createStyles>;
