@@ -14,12 +14,13 @@ export default function SplashScreen({ onReady }: SplashScreenProps) {
 
   useEffect(() => {
     // Car pulse: scale 1.0 → 1.15 → 1.0, 1.2s period
-    Animated.loop(
+    const carLoop = Animated.loop(
       Animated.sequence([
         Animated.timing(carScale, { toValue: 1.15, duration: 600, useNativeDriver: true }),
         Animated.timing(carScale, { toValue: 1.0, duration: 600, useNativeDriver: true }),
       ]),
-    ).start();
+    );
+    carLoop.start();
 
     // Loading dots: each loops fade-in/out independently, staggered by 250ms
     const createDotLoop = (opacity: Animated.Value) =>
@@ -51,6 +52,7 @@ export default function SplashScreen({ onReady }: SplashScreenProps) {
       clearTimeout(t1);
       clearTimeout(t2);
       clearTimeout(dismiss);
+      carLoop.stop();
       loop1.stop();
       loop2.stop();
       loop3.stop();

@@ -97,12 +97,14 @@ export default function GuestMapScreen() {
 
   // Pulse preview pill opacity
   useEffect(() => {
-    Animated.loop(
+    const loop = Animated.loop(
       Animated.sequence([
         Animated.timing(pulseAnim, { toValue: 0.5, duration: 1100, useNativeDriver: true }),
         Animated.timing(pulseAnim, { toValue: 1, duration: 1100, useNativeDriver: true }),
       ]),
-    ).start();
+    );
+    loop.start();
+    return () => loop.stop();
   }, [pulseAnim]);
 
   // Slide-up card + pill pop-in on mount

@@ -440,6 +440,18 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
   // Keep mySosIdRef in sync so the socket handler closure always sees the current value
   useEffect(() => { mySosIdRef.current = mySosId; }, [mySosId]);
 
+  // showQuickAlert/showAnnouncement schedule a setTimeout to auto-dismiss their toast
+  // (4s / 6s respectively). Without this, navigating away from MapScreen while one of
+  // those timers is still pending (e.g. leaving the group right after a quick alert
+  // fires) leaves the timer running and calls setQuickAlertText/setAnnouncementText on
+  // an unmounted component once it fires.
+  useEffect(() => {
+    return () => {
+      if (quickAlertTimerRef.current) clearTimeout(quickAlertTimerRef.current);
+      if (announcementTimerRef.current) clearTimeout(announcementTimerRef.current);
+    };
+  }, []);
+
   // Flush any hazard reports queued offline (Req 11.9, 11.10). Runs once on mount so
   // users outside a group (no socket connection) still get their queue drained; the
   // socket 'connect' handler below covers the in-group reconnect case too.

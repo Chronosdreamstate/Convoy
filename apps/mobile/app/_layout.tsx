@@ -149,12 +149,14 @@ function handleDeepLink(router: Router, url: string): void {
 function LoadingSplash() {
   const pulse = useRef(new Animated.Value(0.3)).current;
   useEffect(() => {
-    Animated.loop(
+    const loop = Animated.loop(
       Animated.sequence([
         Animated.timing(pulse, { toValue: 1, duration: 700, useNativeDriver: true }),
         Animated.timing(pulse, { toValue: 0.3, duration: 700, useNativeDriver: true }),
       ]),
-    ).start();
+    );
+    loop.start();
+    return () => loop.stop();
   }, [pulse]);
   return (
     <View style={splashStyles.container}>
