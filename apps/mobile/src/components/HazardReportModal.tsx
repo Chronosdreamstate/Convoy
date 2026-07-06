@@ -84,9 +84,14 @@ export default function HazardReportModal({ visible, onClose, lat, lng, isInMoti
     }
   }, [visible]);
 
+  // Always closeable, even mid-submit — the in-flight request (success, failure,
+  // and offline-queue fallback) already runs to completion independent of whether
+  // this sheet is visible, so gating the close affordance on `submitting` would
+  // strand the user with no way out if the request hangs (apiClient has no
+  // request timeout configured).
   const handleClose = useCallback(() => {
-    if (!submitting) onClose();
-  }, [submitting, onClose]);
+    onClose();
+  }, [onClose]);
 
   const handleSubmit = useCallback(async () => {
     if (!type || lat == null || lng == null) return;

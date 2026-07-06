@@ -30,6 +30,7 @@ export default function PushPermissionModal({ visible, onEnable, onSkip }: Props
       animationType="none"
       statusBarTranslucent
       accessibilityViewIsModal
+      onRequestClose={onSkip}
     >
       <View style={styles.overlay}>
         <Animated.View style={[styles.card, { transform: [{ scale: scaleAnim }], opacity: opacityAnim }]}>
