@@ -1224,6 +1224,15 @@ export default function ConvoyScreen({ userId }: Props) {
           <Text style={styles.quickActionIcon}>📍</Text>
           <Text style={styles.quickActionText}>Waypoints</Text>
         </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.quickActionBtn}
+          onPress={() => router.push({ pathname: '/group-photos/[groupId]' as never, params: { groupId: group.id } })}
+          accessibilityRole="button"
+          accessibilityLabel="View group photos"
+        >
+          <Text style={styles.quickActionIcon}>📷</Text>
+          <Text style={styles.quickActionText}>Photos</Text>
+        </TouchableOpacity>
       </View>
 
       <Text style={styles.sectionLabel}>MEMBERS ({members.length})</Text>

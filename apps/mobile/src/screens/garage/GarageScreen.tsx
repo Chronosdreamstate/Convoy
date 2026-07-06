@@ -3,6 +3,7 @@ import {
   View, Text, TouchableOpacity, StyleSheet, SafeAreaView, Platform,
   ScrollView, ActivityIndicator, TextInput, Modal, Alert, RefreshControl, Switch, KeyboardAvoidingView,
 } from 'react-native';
+import { useRouter } from 'expo-router';
 import { apiClient } from '../../services/apiClient';
 import SkeletonCard from '../../components/SkeletonLoader';
 import { useMotionGuard } from '../../hooks/useMotionGuard';
@@ -81,6 +82,7 @@ function vehicleSubtitle(v: Vehicle): string {
 // ---------- component ----------
 export default function GarageScreen() {
   const guardInMotion = useMotionGuard();
+  const router = useRouter();
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [mods, setMods] = useState<string[]>([]);
   const [newMod, setNewMod] = useState('');
@@ -249,6 +251,22 @@ export default function GarageScreen() {
           <Text style={styles.title}>Garage</Text>
           <Text style={styles.subtitle}>{vehicles.length} vehicle{vehicles.length !== 1 ? 's' : ''}</Text>
         </View>
+
+        <TouchableOpacity
+          style={styles.fuelLogCard}
+          onPress={() => router.push('/fuel')}
+          accessibilityRole="button"
+          accessibilityLabel="Open fuel log"
+        >
+          <View style={styles.fuelLogIconBox}>
+            <Text style={styles.fuelLogIcon}>⛽</Text>
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.fuelLogTitle}>Fuel Log</Text>
+            <Text style={styles.fuelLogSubtitle}>Track fill-ups, spending & MPG</Text>
+          </View>
+          <Text style={styles.fuelLogChevron}>›</Text>
+        </TouchableOpacity>
 
         {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
@@ -542,6 +560,17 @@ const styles = StyleSheet.create({
   title: { fontSize: 28, fontWeight: '700', color: '#F0F0F0' },
   subtitle: { color: '#888888', fontSize: 13 },
   errorText: { color: '#DC143C', fontSize: 13, marginBottom: 12 },
+
+  fuelLogCard: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    backgroundColor: '#1C1C1C', borderRadius: 12, borderWidth: 1, borderColor: '#2A2A2A',
+    padding: 14, marginBottom: 16,
+  },
+  fuelLogIconBox: { width: 44, height: 44, borderRadius: 12, backgroundColor: '#141414', alignItems: 'center', justifyContent: 'center' },
+  fuelLogIcon: { fontSize: 22 },
+  fuelLogTitle: { fontSize: 16, fontWeight: '700', color: '#FFFFFF' },
+  fuelLogSubtitle: { fontSize: 12, color: '#888888', marginTop: 2 },
+  fuelLogChevron: { fontSize: 22, color: '#555555' },
 
   emptyState: { alignItems: 'center', paddingTop: 80, paddingHorizontal: 32 },
   emptyIcon: { fontSize: 64, marginBottom: 16 },
