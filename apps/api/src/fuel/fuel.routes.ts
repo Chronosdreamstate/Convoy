@@ -43,50 +43,72 @@ export interface FuelStation {
   address: string;
 }
 
+interface NominatimPoiResult {
+  place_id: number;
+  display_name: string;
+  name?: string;
+  lat: string;
+  lon: string;
+}
+
 // ---------------------------------------------------------------------------
-// Mapbox Places API proxy — fuel stations near a point
+// Nominatim (OpenStreetMap) POI search — fuel stations near a point.
+//
+// This previously proxied Mapbox's classic Geocoding API (`mapbox.places`)
+// with `types=poi`, but that endpoint is address/place-name search, not a POI
+// category search — it returns zero results for keyword queries like "fuel"
+// or brand names ("shell") even in dense urban areas, so the fuel-stop
+// suggestion feature could never actually find a station. `places.routes.ts`
+// already uses Nominatim for the same kind of nearby-POI lookup (destination
+// search's "fuel station restaurant" fallback) and it does return real
+// results, so this mirrors that working approach.
 // ---------------------------------------------------------------------------
 
 async function searchFuelStations(
   lat: number,
   lng: number,
   radiusM: number,
-  accessToken: string,
+  contactEmail: string,
 ): Promise<FuelStation[]> {
-  const url =
-    `https://api.mapbox.com/geocoding/v5/mapbox.places/fuel.json` +
-    `?proximity=${lng},${lat}&limit=${MAX_FUEL_RESULTS}&types=poi` +
-    `&bbox=${lng - 0.15},${lat - 0.15},${lng + 0.15},${lat + 0.15}` +
-    `&access_token=${accessToken}`;
+  const radiusDeg = radiusM / 111_320; // rough metres → degrees for the bounding viewbox
+  const minLng = Math.max(-180, lng - radiusDeg);
+  const maxLng = Math.min(180, lng + radiusDeg);
+  const maxLat = Math.min(90, lat + radiusDeg);
+  const minLat = Math.max(-90, lat - radiusDeg);
+
+  const url = new URL('https://nominatim.openstreetmap.org/search');
+  url.searchParams.set('format', 'json');
+  url.searchParams.set('q', 'fuel station');
+  url.searchParams.set('limit', String(MAX_FUEL_RESULTS));
+  url.searchParams.set('bounded', '1');
+  url.searchParams.set('viewbox', `${minLng},${maxLat},${maxLng},${minLat}`);
 
   let res: Response;
   try {
-    res = await fetch(url);
+    res = await fetch(url.toString(), {
+      headers: { 'User-Agent': `ConvoyApp/1.0 (${contactEmail})` },
+      signal: AbortSignal.timeout(8000),
+    });
   } catch {
     return [];
   }
   if (!res.ok) return [];
-  const data = (await res.json()) as {
-    features: Array<{
-      id: string;
-      text: string;
-      place_name: string;
-      center: [number, number];
-      properties: Record<string, unknown>;
-    }>;
-  };
+  const data = (await res.json()) as NominatimPoiResult[];
 
   const stations: FuelStation[] = [];
-  for (const f of data.features) {
-    const [fLng, fLat] = f.center;
+  for (const item of data) {
+    const fLat = parseFloat(item.lat);
+    const fLng = parseFloat(item.lon);
+    if (isNaN(fLat) || isNaN(fLng)) continue;
     const dx = (fLng - lng) * 111_320 * Math.cos((lat * Math.PI) / 180);
     const dy = (fLat - lat) * 110_574;
     const distanceM = Math.sqrt(dx * dx + dy * dy);
     if (distanceM <= radiusM) {
+      const parts = item.display_name.split(',');
       stations.push({
-        id: f.id,
-        name: f.text,
-        address: f.place_name,
+        id: String(item.place_id),
+        name: item.name ?? parts[0]?.trim() ?? item.display_name,
+        address: item.display_name,
         lat: fLat,
         lng: fLng,
         distanceM: Math.round(distanceM),
@@ -181,7 +203,7 @@ const fuelRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.status(400).send({ error: 'lat must be -90 to 90 and lng must be -180 to 180' });
     }
 
-    const stations = await searchFuelStations(lat, lng, FUEL_SEARCH_RADIUS_M, env.MAPBOX_API_TOKEN);
+    const stations = await searchFuelStations(lat, lng, FUEL_SEARCH_RADIUS_M, env.NOMINATIM_CONTACT_EMAIL);
 
     if (stations.length === 0) {
       return reply.send({ stations: [], message: 'No fuel stations found nearby' });

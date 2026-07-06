@@ -23,6 +23,8 @@ interface Props {
   userSpeedMph?: number;
   /** Posted speed limit in mph (takes precedence over postedLimitKph; defaults to 65). */
   speedLimitMph?: number;
+  /** App-wide distance unit preference (Req 16 settings, Req 23.4) — 'mph' or 'kmh'. */
+  preferredUnit?: 'mph' | 'kmh';
 }
 
 function SpeedLimitHUD({
@@ -30,6 +32,7 @@ function SpeedLimitHUD({
   currentSpeedKph = 0,
   userSpeedMph,
   speedLimitMph,
+  preferredUnit,
 }: Props) {
   // ── Resolve canonical mph values ──────────────────────────────────────────
   const resolvedSpeedMph: number =
@@ -47,8 +50,14 @@ function SpeedLimitHUD({
         : 65;
 
   // ── Unit toggle (mph ↔ km/h) ──────────────────────────────────────────────
-  const [unit, setUnit] = useState<'mph' | 'kmh'>('mph');
+  // Defaults to (and re-syncs with) the app-wide distance-unit preference
+  // (Req 23.4), but a manual tap can still override it for the current view.
+  const [unit, setUnit] = useState<'mph' | 'kmh'>(preferredUnit ?? 'mph');
   const toggleUnit = () => setUnit(u => (u === 'mph' ? 'kmh' : 'mph'));
+
+  useEffect(() => {
+    if (preferredUnit) setUnit(preferredUnit);
+  }, [preferredUnit]);
 
   const displaySpeed =
     unit === 'mph'

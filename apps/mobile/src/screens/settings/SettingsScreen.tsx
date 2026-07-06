@@ -210,7 +210,11 @@ export default function SettingsScreen() {
   useEffect(() => {
     loadSettings();
     AsyncStorage.getItem(DISTANCE_UNIT_KEY).then((v) => {
-      if (v === 'km' || v === 'miles') setDistanceUnit(v);
+      if (v === 'km' || v === 'miles') {
+        setDistanceUnit(v);
+        // Keep the shared store (read by the Speed Limit HUD, etc.) in sync (Req 23.4 unit preference).
+        setGlobalSettings({ distanceUnit: v });
+      }
     });
     AsyncStorage.getItem(GAP_THRESHOLD_KEY).then((v) => {
       if (v) setGapThresholdM(Number(v));
@@ -271,6 +275,7 @@ export default function SettingsScreen() {
         scenicRouting: response.data.scenicRouting,
         pttMaxSeconds: response.data.pttMaxSeconds,
         pttVolumePercent,
+        distanceUnit,
       });
       await AsyncStorage.setItem(DISTANCE_UNIT_KEY, distanceUnit);
       await AsyncStorage.setItem(GAP_THRESHOLD_KEY, String(gapThresholdM));

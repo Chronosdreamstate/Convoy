@@ -7,6 +7,7 @@ import {
   Platform,
   Pressable,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   TouchableOpacity,
@@ -84,6 +85,25 @@ interface RouteAlternative {
   durationText: string;
   geometry: { type: string; coordinates: [number, number][] };
   speedLimitKph?: number | null;
+  /** Per-segment posted speed limit (kph), aligned to geometry.coordinates (Req 23.1, 23.2). */
+  speedLimitSegmentsKph?: (number | null)[];
+}
+
+/** Index of the coordinate segment nearest (lat, lng) along a route polyline. */
+function nearestSegmentIndex(
+  lat: number,
+  lng: number,
+  coords: Array<{ latitude: number; longitude: number }>,
+): number {
+  let bestIdx = 0;
+  let bestDist = Infinity;
+  for (let i = 0; i < coords.length; i++) {
+    const dLat = coords[i].latitude - lat;
+    const dLng = coords[i].longitude - lng;
+    const d = dLat * dLat + dLng * dLng; // squared degrees — good enough for nearest-point ranking
+    if (d < bestDist) { bestDist = d; bestIdx = i; }
+  }
+  return bestIdx;
 }
 
 interface Props {
@@ -303,6 +323,7 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
   const mapStyle = useSettingsStore((s) => s.mapStyle);
   const setSettings = useSettingsStore((s) => s.setSettings);
   const scenicRouting = useSettingsStore((s) => s.scenicRouting);
+  const distanceUnit = useSettingsStore((s) => s.distanceUnit);
   const pttMaxSeconds = useSettingsStore((s) => s.pttMaxSeconds);
   const pttVolumePercent = useSettingsStore((s) => s.pttVolumePercent);
 
@@ -313,10 +334,14 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
   const micPermGrantedRef = useRef(false); // tracks first PTT permission request (Req 36.6)
   const myLocationRef = useRef<{ lat: number; lng: number } | null>(null); // shadow for callbacks
   const activeDestRef = useRef<{ lat: number; lng: number } | null>(null); // dest of active route
+  // Active route's polyline + per-segment speed limits, used to look up the limit
+  // for the segment nearest the driver's live position (Req 23.1, 23.2).
+  const activeRouteSegmentsRef = useRef<{ coords: Array<{ latitude: number; longitude: number }>; segmentsKph: (number | null)[] }>({ coords: [], segmentsKph: [] });
   const memberNamesRef  = useRef<Record<string, string>>({});
   const memberVehiclesRef = useRef<Record<string, string>>({});
   const memberCallsignsRef = useRef<Record<string, string>>({});
   const driveServiceRef = useRef(new DriveService());
+  const fuelSuggestionShownRef = useRef(false); // fires at most once per session (Req 21.1)
   const memberCountRef  = useRef(0);
   const wsServiceRef    = useRef<WebSocketService | null>(null);
   const lastRecvRef     = useRef<Record<string, number>>({}); // throttle incoming per-userId to 800ms
@@ -472,7 +497,31 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
   // Start a drive recording session for this group
   useEffect(() => {
     driveServiceRef.current.startSession();
+    fuelSuggestionShownRef.current = false;
   }, [groupId]);
+
+  // Req 21.1: poll the group's fuel-suggestion status and auto-surface the
+  // banner to the Admin once the group has covered 150 miles or run for 2
+  // hours, whichever comes first. Backend accumulates true group distance
+  // (all members' movement) in `group:<id>:distance_m` — see
+  // apps/api/src/socket/socket.handler.ts and apps/api/src/fuel/fuel.routes.ts.
+  useEffect(() => {
+    if (!groupId || !isAdmin) return;
+    let cancelled = false;
+    const poll = async () => {
+      if (fuelSuggestionShownRef.current) return;
+      try {
+        const res = await apiClient.get<{ suggest: boolean }>(`/api/v1/groups/${groupId}/fuel/status`);
+        if (!cancelled && res.data.suggest && !fuelSuggestionShownRef.current) {
+          fuelSuggestionShownRef.current = true;
+          setShowFuelBanner(true);
+        }
+      } catch { /* best-effort — retry on next interval */ }
+    };
+    void poll();
+    const interval = setInterval(poll, 60_000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [groupId, isAdmin]);
 
   // Track own location via LocationService (supports background tracking when expo-task-manager is added)
   useEffect(() => {
@@ -485,6 +534,15 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
       setIsInMotion(motionStateService.state === 'in_motion');
       driveServiceRef.current.addPoint(lat, lng, speedKph);
       wsServiceRef.current?.emitLocation({ lat, lng, heading, speed_kph: speedKph, ts });
+
+      // Req 23.1, 23.2: refresh the HUD to the speed limit of whichever route
+      // segment is nearest the driver's current position, so it tracks live
+      // progress along the route instead of showing one static value forever.
+      const { coords, segmentsKph } = activeRouteSegmentsRef.current;
+      if (coords.length > 0 && segmentsKph.length > 0) {
+        const segIdx = Math.min(nearestSegmentIndex(lat, lng, coords), segmentsKph.length - 1);
+        setPostedSpeedLimitKph(segmentsKph[segIdx] ?? null);
+      }
     });
     LocationService.startTracking();
     return () => { LocationService.stopTracking(); };
@@ -595,6 +653,7 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
             const coords = alts[next]?.geometry.coordinates.map(([lng, lat]) => ({ latitude: lat, longitude: lng })) ?? [];
             setRouteCoords(coords);
             setPostedSpeedLimitKph(alts[next]?.speedLimitKph ?? null);
+            activeRouteSegmentsRef.current = { coords, segmentsKph: alts[next]?.speedLimitSegmentsKph ?? [] };
             return next;
           });
         }
@@ -733,16 +792,18 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
       setHazardAlerts((prev) => prev.filter((a) => a.id !== id));
     });
 
-    socket.on('route:pushed', (data: { route: { geometry: { coordinates: [number, number][] }; speedLimitKph?: number | null } }) => {
+    socket.on('route:pushed', (data: { route: { geometry: { coordinates: [number, number][] }; speedLimitKph?: number | null; speedLimitSegmentsKph?: (number | null)[] } }) => {
       const coords = data.route.geometry.coordinates.map(([lng, lat]) => ({ latitude: lat, longitude: lng }));
       setRouteCoords(coords);
       setPostedSpeedLimitKph(data.route.speedLimitKph ?? null);
+      activeRouteSegmentsRef.current = { coords, segmentsKph: data.route.speedLimitSegmentsKph ?? [] };
       setShowRouteModal(false);
       Alert.alert('Route Updated', 'The group leader pushed a new route to the convoy.');
     });
     socket.on('navigation:arrived', () => {
       Alert.alert('Arrived!', 'You have reached the convoy destination.');
       setPostedSpeedLimitKph(null);
+      activeRouteSegmentsRef.current = { coords: [], segmentsKph: [] };
     });
     socket.on('rally:set', (r: RallyPoint) => { setRallyPoints((p) => new Map(p).set(r.id, r)); setRallyAlert(r); });
     socket.on('rally:cancelled', ({ rallyId }: { rallyId: string }) => { setRallyPoints((p) => { const n = new Map(p); n.delete(rallyId); return n; }); setRallyAlert((p) => p?.id === rallyId ? null : p); });
@@ -899,18 +960,29 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
     setIsCalcRoute(true);
     try {
       const routeBody = { origin: { lat: myLocation.lat, lng: myLocation.lng }, destination: dest, scenic: scenicRouting };
-      let routeRes = await apiClient.post<{ routes: RouteAlternative[] }>('/api/v1/routes/calculate', routeBody);
+      let alts: RouteAlternative[] | undefined;
 
-      // If scenic routing yielded no results, fall back to standard routing (Req 22.4)
-      if (scenicRouting && (!routeRes.data.routes?.length)) {
-        Alert.alert('Scenic unavailable', 'Scenic routing is not available for this route. Showing standard routes.');
-        routeRes = await apiClient.post<{ routes: RouteAlternative[] }>('/api/v1/routes/calculate', {
-          ...routeBody,
-          scenic: false,
-        });
+      if (scenicRouting) {
+        // Req 22.3: present the scenic variant as the default selection, with
+        // standard routes still available as alternates — fetch both in parallel.
+        const [scenicRes, standardRes] = await Promise.all([
+          apiClient.post<{ routes: RouteAlternative[] }>('/api/v1/routes/calculate', routeBody),
+          apiClient.post<{ routes: RouteAlternative[] }>('/api/v1/routes/calculate', { ...routeBody, scenic: false }),
+        ]);
+        const scenicAlts = scenicRes.data.routes ?? [];
+        const standardAlts = standardRes.data.routes ?? [];
+        if (!scenicAlts.length) {
+          // Req 22.4: notify and fall back to standard routing when scenic is unavailable.
+          Alert.alert('Scenic unavailable', 'Scenic routing is not available for this route. Showing standard routes.');
+          alts = standardAlts;
+        } else {
+          alts = [...scenicAlts, ...standardAlts];
+        }
+      } else {
+        const routeRes = await apiClient.post<{ routes: RouteAlternative[] }>('/api/v1/routes/calculate', routeBody);
+        alts = routeRes.data.routes;
       }
 
-      const alts = routeRes.data.routes;
       if (!alts?.length) {
         Alert.alert('No route found', 'Could not find a route to that destination.');
         return;
@@ -920,6 +992,7 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
       const coords = alts[0].geometry.coordinates.map(([lng, lat]) => ({ latitude: lat, longitude: lng }));
       setRouteCoords(coords);
       setPostedSpeedLimitKph(alts[0]?.speedLimitKph ?? null);
+      activeRouteSegmentsRef.current = { coords, segmentsKph: alts[0]?.speedLimitSegmentsKph ?? [] };
       activeDestRef.current = dest;
       showQuickAlert(`${alts[0].distanceText} · ${alts[0].durationText}`);
     } catch {
@@ -1007,6 +1080,7 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
     const coords = alt?.geometry.coordinates.map(([lng, lat]) => ({ latitude: lat, longitude: lng })) ?? [];
     setRouteCoords(coords);
     setPostedSpeedLimitKph(alt?.speedLimitKph ?? null);
+    activeRouteSegmentsRef.current = { coords, segmentsKph: alt?.speedLimitSegmentsKph ?? [] };
   }, [routeAlternatives]);
 
   const handlePushRoute = useCallback(async () => {
@@ -1020,6 +1094,8 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
           distanceText: alt.distanceText,
           durationText: alt.durationText,
           geometry: alt.geometry,
+          speedLimitKph: alt.speedLimitKph ?? null,
+          speedLimitSegmentsKph: alt.speedLimitSegmentsKph ?? [],
         },
       });
       setShowRouteModal(false);
@@ -1307,7 +1383,11 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
 
       {/* Speed limit HUD — bottom-left, above member panel (Req 23) */}
       <View style={[styles.speedHudContainer, { bottom: insets.bottom + 96 }]}>
-        <SpeedLimitHUD postedLimitKph={postedSpeedLimitKph} currentSpeedKph={mySpeedKph} />
+        <SpeedLimitHUD
+          postedLimitKph={postedSpeedLimitKph}
+          currentSpeedKph={mySpeedKph}
+          preferredUnit={distanceUnit === 'miles' ? 'mph' : 'kmh'}
+        />
       </View>
 
       {/* Floating action button — hidden in driving mode (Req 28) */}
@@ -1566,9 +1646,14 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
       {rallyAlert && (
         <TouchableOpacity
           style={styles.rallyBanner}
-          onPress={() => { Alert.alert('Rally Point', rallyAlert.address ?? `${rallyAlert.lat.toFixed(5)}, ${rallyAlert.lng.toFixed(5)}`); setRallyAlert(null); }}
+          onPress={() => {
+            // Req 20.4: tapping the Rally_Point alert must calculate an independent
+            // route from this Member's current location to the Rally_Point.
+            void calculateRouteToDestination({ lat: rallyAlert.lat, lng: rallyAlert.lng });
+            setRallyAlert(null);
+          }}
           accessibilityRole="button"
-          accessibilityLabel={`Rally Point${rallyAlert.address ? `: ${rallyAlert.address}` : ''} — tap for details`}
+          accessibilityLabel={`Rally Point${rallyAlert.address ? `: ${rallyAlert.address}` : ''} — tap for directions`}
         >
           <View style={styles.rallyBannerStrip} />
           <Text style={[styles.rallyBannerText, { flex: 1, padding: 10 }]}>
@@ -1813,6 +1898,17 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
               </TouchableOpacity>
             </View>
 
+            {/* Req 22.1: Scenic route preference toggle on the route calculation screen */}
+            <View style={styles.scenicToggleRow}>
+              <Text style={styles.scenicToggleLabel}>🌲 Scenic route</Text>
+              <Switch
+                value={scenicRouting}
+                onValueChange={(v) => setSettings({ scenicRouting: v })}
+                accessibilityRole="switch"
+                accessibilityLabel="Scenic routing preference"
+              />
+            </View>
+
             {routeAlternatives.length > 0 && (
               <View style={styles.routeAlts}>
                 <Text style={styles.routeAltsLabel}>CHOOSE ROUTE</Text>
@@ -1847,7 +1943,7 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
             {routeCoords.length > 0 && routeAlternatives.length > 0 && (
               <TouchableOpacity
                 style={styles.routeClearBtn}
-                onPress={() => { setRouteCoords([]); setRouteAlternatives([]); setRouteDestInput(''); setPostedSpeedLimitKph(null); activeDestRef.current = null; }}
+                onPress={() => { setRouteCoords([]); setRouteAlternatives([]); setRouteDestInput(''); setPostedSpeedLimitKph(null); activeDestRef.current = null; activeRouteSegmentsRef.current = { coords: [], segmentsKph: [] }; }}
                 accessibilityRole="button"
                 accessibilityLabel="Clear current route"
               >
@@ -2367,6 +2463,13 @@ const styles = StyleSheet.create({
     marginHorizontal: 0,
   },
   routeInputRow: { flexDirection: 'row', gap: 8, marginBottom: 16 },
+  scenicToggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+  },
+  scenicToggleLabel: { color: '#F0F0F0', fontSize: 14, fontWeight: '600' },
   routeInput: {
     flex: 1,
     backgroundColor: '#0A0A0A',
