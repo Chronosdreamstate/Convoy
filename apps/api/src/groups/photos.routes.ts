@@ -4,7 +4,7 @@ import { authenticate } from '../middleware/authenticate';
 import { generalLimiter } from '../middleware/rateLimiter';
 
 const createPhotoSchema = z.object({
-  photoUrl: z.string().url().min(1),
+  photoUrl: z.string().url().min(1).max(2048),
   caption: z.string().max(280).optional(),
   driveId: z.string().uuid().optional(),
 });

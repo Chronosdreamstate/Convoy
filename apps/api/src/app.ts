@@ -44,6 +44,25 @@ export async function buildApp(): Promise<FastifyInstance> {
     disableRequestLogging: env.NODE_ENV === 'test',
   });
 
+  // Catch PostgreSQL "Data Exception" errors (SQLSTATE class 22 — malformed/out-of-range
+  // input reaching the database, e.g. invalid UUID syntax 22P02, embedded NUL bytes /
+  // invalid UTF-8 22021, numeric overflow 22003, string right-truncation 22001, bad
+  // datetime format 22007) and return a clean 400 instead of a 500. These all indicate a
+  // client sent malformed data that no zod schema caught before it hit a raw SQL query —
+  // the entire class maps 1:1 to "bad input", never a server bug, so it's safe to blanket
+  // convert to 400 rather than enumerate every SQLSTATE individually.
+  // Must be registered before any routes/plugins are registered — Fastify captures each
+  // encapsulated child context's error handler at registration time, so setting this after
+  // `await app.register(...)` calls silently never applies to any of those routes.
+  app.setErrorHandler(async (error, _request, reply) => {
+    const pgCode = (error as { code?: string }).code;
+    if (pgCode?.startsWith('22')) {
+      return reply.status(400).send({ error: 'Invalid input data' });
+    }
+    // All other errors: re-throw so Fastify's default handler runs.
+    throw error;
+  });
+
   // Slow-request logger — warns when a response takes longer than 1 s
   app.addHook('onResponse', (req, reply, done) => {
     if (process.env.NODE_ENV !== 'test') {
@@ -212,16 +231,6 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   // WebSocket server (socket.io, must be last so db/redis decorators are available)
   await app.register(socketioPlugin);
-
-  // Catch PostgreSQL "invalid input syntax for type uuid" (SQLSTATE 22P02) and return 400.
-  // Without this, malformed UUID path params produce a 500 instead of a clean client error.
-  app.setErrorHandler(async (error, _request, reply) => {
-    if ((error as { code?: string }).code === '22P02') {
-      return reply.status(400).send({ error: 'Invalid ID format â€” expected a UUID' });
-    }
-    // All other errors: re-throw so Fastify's default handler runs.
-    throw error;
-  });
 
   return app;
 }

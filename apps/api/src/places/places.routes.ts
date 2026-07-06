@@ -1,7 +1,16 @@
 ﻿import { FastifyInstance } from 'fastify';
+import { z } from 'zod';
 import { authenticate } from '../middleware/authenticate';
 import { generalLimiter } from '../middleware/rateLimiter';
 import { env } from '../config/env';
+
+const recentPlaceSchema = z.object({
+  placeId: z.string().max(200).optional(),
+  name: z.string().min(1).max(200),
+  address: z.string().max(300).optional().default(''),
+  lat: z.number().min(-90).max(90),
+  lng: z.number().min(-180).max(180),
+});
 
 interface NominatimResult {
   place_id: number;
@@ -49,15 +58,14 @@ export default async function placesRoutes(app: FastifyInstance) {
   });
 
   // POST /places/recent — upsert a destination into the user's recent list
-  app.post<{
-    Body: { placeId?: string; name: string; address?: string; lat: number; lng: number };
-  }>('/places/recent', { preHandler: [authenticate, generalLimiter(app.redis)] }, async (req, reply) => {
+  app.post('/places/recent', { preHandler: [authenticate, generalLimiter(app.redis)] }, async (req, reply) => {
     const userId = (req.user as { sub: string }).sub;
-    const { placeId, name, address = '', lat, lng } = req.body;
 
-    if (!name || typeof lat !== 'number' || typeof lng !== 'number') {
-      return reply.status(400).send({ error: 'name, lat, and lng are required' });
+    const parsed = recentPlaceSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ error: parsed.error.errors[0].message });
     }
+    const { placeId, name, address, lat, lng } = parsed.data;
 
     await app.db.query(
       `INSERT INTO user_recent_places (user_id, place_id, name, address, lat, lng, visited_at)

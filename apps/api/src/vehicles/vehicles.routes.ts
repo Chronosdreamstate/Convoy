@@ -10,7 +10,7 @@ const vehicleBodySchema = z.object({
   make: z.string().max(100).nullable().optional(),
   model: z.string().max(100).nullable().optional(),
   color: z.string().max(50).nullable().optional(),
-  photoUrl: z.string().url().nullable().optional(),
+  photoUrl: z.string().url().max(2048).nullable().optional(),
   primary: z.boolean().optional(),
 });
 
