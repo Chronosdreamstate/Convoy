@@ -136,6 +136,11 @@ export default function LeaderboardScreen() {
     void fetchLeaderboard();
   }, [fetchLeaderboard]);
 
+  const renderLeaderboardItem = useCallback(
+    ({ item }: { item: LeaderboardEntry }) => <LeaderboardRow entry={item} />,
+    [],
+  );
+
   // Loading skeleton
   if (loading) {
     return (
@@ -198,7 +203,7 @@ export default function LeaderboardScreen() {
             </Text>
           </View>
         }
-        renderItem={({ item }) => <LeaderboardRow entry={item} />}
+        renderItem={renderLeaderboardItem}
       />
     </SafeAreaView>
   );

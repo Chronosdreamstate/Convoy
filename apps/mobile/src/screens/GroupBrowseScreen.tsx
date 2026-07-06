@@ -416,6 +416,20 @@ export default function GroupBrowseScreen() {
 
   const isNearby = activeFilter === 'Nearby';
 
+  const renderGroupItem = useCallback(
+    ({ item }: { item: PublicGroup }) => (
+      <GroupCard
+        group={item}
+        onJoin={handleJoin}
+        onView={(id) => router.push(`/group/${id}` as never)}
+        joining={joiningId === item.id}
+        showDistance={isNearby}
+        eventCountdown={eventCountdowns[item.id]}
+      />
+    ),
+    [handleJoin, router, joiningId, isNearby, eventCountdowns],
+  );
+
   return (
     <SafeAreaView style={styles.container}>
       {/* Header */}
@@ -554,16 +568,7 @@ export default function GroupBrowseScreen() {
         <FlatList
           data={filtered}
           keyExtractor={(item) => item.id}
-          renderItem={({ item }) => (
-            <GroupCard
-              group={item}
-              onJoin={handleJoin}
-              onView={(id) => router.push(`/group/${id}` as never)}
-              joining={joiningId === item.id}
-              showDistance={isNearby}
-              eventCountdown={eventCountdowns[item.id]}
-            />
-          )}
+          renderItem={renderGroupItem}
           contentContainerStyle={filtered.length === 0 ? styles.emptyContainer : styles.listContent}
           ListHeaderComponent={
             nearbyQuick.length > 0 && activeFilter !== 'Nearby' ? (

@@ -274,6 +274,13 @@ export default function GroupLeaderboardScreen() {
     router.back();
   }, [router]);
 
+  const renderMemberItem = useCallback(
+    ({ item, index }: { item: LeaderboardMember; index: number }) => (
+      <MemberRow member={item} rank={index + 1} metric={activeMetric} />
+    ),
+    [activeMetric],
+  );
+
   // ------------------------------------------------------------------
   // Loading skeleton
   // ------------------------------------------------------------------
@@ -324,9 +331,7 @@ export default function GroupLeaderboardScreen() {
             </Text>
           </View>
         }
-        renderItem={({ item, index }) => (
-          <MemberRow member={item} rank={index + 1} metric={activeMetric} />
-        )}
+        renderItem={renderMemberItem}
         showsVerticalScrollIndicator={false}
       />
     </SafeAreaView>

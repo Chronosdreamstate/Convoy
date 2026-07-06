@@ -240,6 +240,11 @@ export default function FuelLogScreen() {
     ]);
   }, []);
 
+  const renderEntryItem = useCallback(
+    ({ item }: { item: FuelEntry }) => <EntryRow entry={item} onDelete={onDelete} />,
+    [onDelete],
+  );
+
   const totalGal = entries.reduce((s, e) => s + e.gallons, 0);
   const totalSpent = entries.reduce((s, e) => s + e.gallons * e.pricePerGallon, 0);
   const avgPpg = totalGal > 0 ? entries.reduce((s, e) => s + e.pricePerGallon * e.gallons, 0) / totalGal : 0;
@@ -287,7 +292,7 @@ export default function FuelLogScreen() {
             <Text style={s.hint}>Long-press an entry to delete</Text>
           </>
         ) : null}
-        renderItem={({ item }) => <EntryRow entry={item} onDelete={onDelete} />}
+        renderItem={renderEntryItem}
         ListEmptyComponent={
           <View style={s.empty}>
             <Text style={{ fontSize: 56, marginBottom: 16 }}>⛽</Text>

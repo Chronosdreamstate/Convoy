@@ -143,6 +143,13 @@ export default function GroupPhotoLibraryScreen() {
     ]);
   }, [groupId]);
 
+  const renderPhotoItem = useCallback(
+    ({ item }: { item: Photo }) => (
+      <PhotoCell photo={item} canDelete={item.userId === user?.id} onDelete={handleDelete} />
+    ),
+    [user?.id, handleDelete],
+  );
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
@@ -186,9 +193,7 @@ export default function GroupPhotoLibraryScreen() {
           keyExtractor={(p) => p.id}
           numColumns={2}
           columnWrapperStyle={styles.row}
-          renderItem={({ item }) => (
-            <PhotoCell photo={item} canDelete={item.userId === user?.id} onDelete={handleDelete} />
-          )}
+          renderItem={renderPhotoItem}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#DC143C" colors={['#DC143C']} />
           }

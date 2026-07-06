@@ -105,7 +105,7 @@ export default function SearchScreen() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab]);
 
-  const handleJoinGroup = async (groupId: string) => {
+  const handleJoinGroup = useCallback(async (groupId: string) => {
     if (submittingIds.has(groupId)) return;
     setSubmittingIds((prev) => new Set(prev).add(groupId));
     try {
@@ -116,9 +116,9 @@ export default function SearchScreen() {
     } finally {
       setSubmittingIds((prev) => { const next = new Set(prev); next.delete(groupId); return next; });
     }
-  };
+  }, [submittingIds, router]);
 
-  const handleAddFriend = async (userId: string) => {
+  const handleAddFriend = useCallback(async (userId: string) => {
     if (submittingIds.has(userId)) return;
     setSubmittingIds((prev) => new Set(prev).add(userId));
     try {
@@ -128,9 +128,9 @@ export default function SearchScreen() {
     finally {
       setSubmittingIds((prev) => { const next = new Set(prev); next.delete(userId); return next; });
     }
-  };
+  }, [submittingIds]);
 
-  const renderGroup = ({ item }: { item: Group }) => (
+  const renderGroup = useCallback(({ item }: { item: Group }) => (
     <View style={styles.card}>
       <View style={styles.cardLeft}>
         <Text style={styles.cardName} numberOfLines={1}>{item.name}</Text>
@@ -158,9 +158,9 @@ export default function SearchScreen() {
         </Text>
       </TouchableOpacity>
     </View>
-  );
+  ), [handleJoinGroup]);
 
-  const renderPerson = ({ item }: { item: UserResult }) => {
+  const renderPerson = useCallback(({ item }: { item: UserResult }) => {
     const status = friendActions[item.id] ?? item.friendStatus ?? 'none';
     const initial = (item.displayName?.[0] ?? '?').toUpperCase();
     const isSubmitting = submittingIds.has(item.id);
@@ -195,7 +195,7 @@ export default function SearchScreen() {
         )}
       </View>
     );
-  };
+  }, [friendActions, handleAddFriend]);
 
   const showRecent = !query.trim() && recentSearches.length > 0;
 

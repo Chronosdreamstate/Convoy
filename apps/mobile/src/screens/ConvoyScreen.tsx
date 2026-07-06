@@ -3,7 +3,7 @@
  * Requirements: 7.1–7.9, 8.4–8.5, 9.1–9.3, 15.4, 36.5, 36.6
  */
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -604,6 +604,28 @@ export default function ConvoyScreen({ userId }: Props) {
     ]);
   }, [group]);
 
+  const renderPublicGroupItem = useCallback(
+    ({ item: g }: { item: ConvoyGroup }) => (
+      <View style={styles.discoverRow}>
+        <View style={styles.discoverInfo}>
+          <Text style={styles.discoverName}>{g.name}</Text>
+          <Text style={styles.discoverMeta}>{g.memberCount} member{g.memberCount !== 1 ? 's' : ''} · Open</Text>
+        </View>
+        <TouchableOpacity
+          style={styles.discoverJoinBtn}
+          onPress={() => void handleJoinByCode(g.joinCode)}
+          disabled={loading}
+          accessibilityRole="button"
+          accessibilityLabel={`Join convoy: ${g.name}`}
+          accessibilityState={{ disabled: loading }}
+        >
+          <Text style={styles.discoverJoinText}>Join</Text>
+        </TouchableOpacity>
+      </View>
+    ),
+    [handleJoinByCode, loading],
+  );
+
   // ── Kebab menu for admin actions per member ──────────────────────────────
   const handleMemberMenu = useCallback((m: GroupMember) => {
     Alert.alert(
@@ -623,6 +645,102 @@ export default function ConvoyScreen({ userId }: Props) {
       ],
     );
   }, [handleMute, handleKick]);
+
+  // Sorted member list for the roster FlatList — memoized so a new array isn't
+  // built (and the list doesn't think its data changed) on every unrelated render;
+  // it only needs to resort when membership, admin, or online status changes.
+  const sortedMembers = useMemo(() => {
+    return [...members].sort((a, b) => {
+      // Admin always first
+      if (a.userId === group?.adminId) return -1;
+      if (b.userId === group?.adminId) return 1;
+      // Then online members
+      const aOnline = !!memberLocations[a.userId];
+      const bOnline = !!memberLocations[b.userId];
+      if (aOnline && !bOnline) return -1;
+      if (!aOnline && bOnline) return 1;
+      return 0;
+    });
+  }, [members, group?.adminId, memberLocations]);
+
+  const renderMemberItem = useCallback(
+    ({ item: m }: { item: GroupMember }) => {
+      if (!group) return null;
+      const mLoc = memberLocations[m.userId];
+      const adminLoc = memberLocations[group.adminId];
+      const distFromLead = mLoc && adminLoc && m.userId !== group.adminId
+        ? haversineDistanceM(adminLoc.lat, adminLoc.lng, mLoc.lat, mLoc.lng)
+        : null;
+      const isLive = !!memberLocations[m.userId];
+      const memberIsAdmin = m.userId === group.adminId;
+      const avatarBg = memberIsAdmin ? '#2A0A0A' : '#1C1C1C';
+      const avatarText = memberIsAdmin ? '#DC143C' : '#888888';
+      const distanceStr = distFromLead != null
+        ? `${distFromLead >= 1000 ? `${(distFromLead / 1000).toFixed(1)} km` : `${Math.round(distFromLead)} m`} away`
+        : '';
+      return (
+        <View
+          style={memberStyles.row}
+          accessible={true}
+          accessibilityLabel={`${m.callsign ?? m.displayName}${distanceStr ? `, ${distanceStr}` : ''}`}
+        >
+          {/* Initials avatar */}
+          <View style={[memberStyles.avatar, { backgroundColor: avatarBg }]}>
+            <Text style={[memberStyles.avatarText, { color: avatarText }]}>
+              {memberInitials(m.displayName)}
+            </Text>
+          </View>
+
+          {/* Name + callsign */}
+          <View
+            style={memberStyles.info}
+            accessible={true}
+            accessibilityLabel={`${m.displayName}${m.callsign ? ` ${m.callsign}` : ''}, ${isLive ? 'online' : 'offline'}`}
+          >
+            <View style={memberStyles.nameRow}>
+              <Text style={memberStyles.vehicleEmoji}>{getVehicleEmoji(m.vehicleType)}</Text>
+              <Text style={memberStyles.name}>{m.displayName}</Text>
+              {memberIsAdmin && <Text style={memberStyles.adminBadge}>ADMIN</Text>}
+              {m.isMuted && <Text style={memberStyles.mutedIcon}>🔇</Text>}
+            </View>
+            {m.callsign ? (
+              <Text style={memberStyles.callsign}>{m.callsign}</Text>
+            ) : mLoc ? (
+              <Text style={memberStyles.callsign}>💨 {mLoc.speedKph.toFixed(0)} km/h</Text>
+            ) : null}
+          </View>
+
+          {/* Right side: distance badge + online dot */}
+          <View style={memberStyles.right}>
+            {distFromLead != null && (
+              <View style={memberStyles.distancePill}>
+                <Text style={memberStyles.distanceText}>
+                  {distFromLead >= 1000
+                    ? `${(distFromLead / 1000).toFixed(1)} km`
+                    : `${Math.round(distFromLead)} m`}
+                </Text>
+              </View>
+            )}
+            <PulsingDot online={isLive} />
+          </View>
+
+          {/* Admin kebab menu */}
+          {isAdmin && m.userId !== userId && (
+            <TouchableOpacity
+              style={memberStyles.kebab}
+              onPress={() => handleMemberMenu(m)}
+              accessibilityRole="button"
+              accessibilityLabel={`Options for ${m.displayName}`}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Text style={memberStyles.kebabText}>•••</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      );
+    },
+    [group, memberLocations, isAdmin, userId, handleMemberMenu],
+  );
 
   // ── Home: no group ────────────────────────────────────────────────────────
   if (!group) {
@@ -786,24 +904,7 @@ export default function ConvoyScreen({ userId }: Props) {
           <FlatList
             data={publicGroups}
             keyExtractor={(g) => g.id}
-            renderItem={({ item: g }) => (
-              <View style={styles.discoverRow}>
-                <View style={styles.discoverInfo}>
-                  <Text style={styles.discoverName}>{g.name}</Text>
-                  <Text style={styles.discoverMeta}>{g.memberCount} member{g.memberCount !== 1 ? 's' : ''} · Open</Text>
-                </View>
-                <TouchableOpacity
-                  style={styles.discoverJoinBtn}
-                  onPress={() => void handleJoinByCode(g.joinCode)}
-                  disabled={loading}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Join convoy: ${g.name}`}
-                  accessibilityState={{ disabled: loading }}
-                >
-                  <Text style={styles.discoverJoinText}>Join</Text>
-                </TouchableOpacity>
-              </View>
-            )}
+            renderItem={renderPublicGroupItem}
             ListEmptyComponent={
               <View style={styles.emptyMembers}>
                 <Text style={styles.emptyMembersText}>
@@ -1133,93 +1234,10 @@ export default function ConvoyScreen({ userId }: Props) {
       <Text style={styles.sectionLabel}>MEMBERS ({members.length})</Text>
 
       <FlatList
-        data={[...members].sort((a, b) => {
-          // Admin always first
-          if (a.userId === group.adminId) return -1;
-          if (b.userId === group.adminId) return 1;
-          // Then online members
-          const aOnline = !!memberLocations[a.userId];
-          const bOnline = !!memberLocations[b.userId];
-          if (aOnline && !bOnline) return -1;
-          if (!aOnline && bOnline) return 1;
-          return 0;
-        })}
+        data={sortedMembers}
         keyExtractor={(m) => m.userId}
         style={styles.memberList}
-        renderItem={({ item: m }) => {
-          const mLoc = memberLocations[m.userId];
-          const adminLoc = memberLocations[group.adminId];
-          const distFromLead = mLoc && adminLoc && m.userId !== group.adminId
-            ? haversineDistanceM(adminLoc.lat, adminLoc.lng, mLoc.lat, mLoc.lng)
-            : null;
-          const isLive = !!memberLocations[m.userId];
-          const memberIsAdmin = m.userId === group.adminId;
-          const avatarBg = memberIsAdmin ? '#2A0A0A' : '#1C1C1C';
-          const avatarText = memberIsAdmin ? '#DC143C' : '#888888';
-          const distanceStr = distFromLead != null
-            ? `${distFromLead >= 1000 ? `${(distFromLead / 1000).toFixed(1)} km` : `${Math.round(distFromLead)} m`} away`
-            : '';
-          return (
-            <View
-              style={memberStyles.row}
-              accessible={true}
-              accessibilityLabel={`${m.callsign ?? m.displayName}${distanceStr ? `, ${distanceStr}` : ''}`}
-            >
-              {/* Initials avatar */}
-              <View style={[memberStyles.avatar, { backgroundColor: avatarBg }]}>
-                <Text style={[memberStyles.avatarText, { color: avatarText }]}>
-                  {memberInitials(m.displayName)}
-                </Text>
-              </View>
-
-              {/* Name + callsign */}
-              <View
-                style={memberStyles.info}
-                accessible={true}
-                accessibilityLabel={`${m.displayName}${m.callsign ? ` ${m.callsign}` : ''}, ${isLive ? 'online' : 'offline'}`}
-              >
-                <View style={memberStyles.nameRow}>
-                  <Text style={memberStyles.vehicleEmoji}>{getVehicleEmoji(m.vehicleType)}</Text>
-                  <Text style={memberStyles.name}>{m.displayName}</Text>
-                  {memberIsAdmin && <Text style={memberStyles.adminBadge}>ADMIN</Text>}
-                  {m.isMuted && <Text style={memberStyles.mutedIcon}>🔇</Text>}
-                </View>
-                {m.callsign ? (
-                  <Text style={memberStyles.callsign}>{m.callsign}</Text>
-                ) : mLoc ? (
-                  <Text style={memberStyles.callsign}>💨 {mLoc.speedKph.toFixed(0)} km/h</Text>
-                ) : null}
-              </View>
-
-              {/* Right side: distance badge + online dot */}
-              <View style={memberStyles.right}>
-                {distFromLead != null && (
-                  <View style={memberStyles.distancePill}>
-                    <Text style={memberStyles.distanceText}>
-                      {distFromLead >= 1000
-                        ? `${(distFromLead / 1000).toFixed(1)} km`
-                        : `${Math.round(distFromLead)} m`}
-                    </Text>
-                  </View>
-                )}
-                <PulsingDot online={isLive} />
-              </View>
-
-              {/* Admin kebab menu */}
-              {isAdmin && m.userId !== userId && (
-                <TouchableOpacity
-                  style={memberStyles.kebab}
-                  onPress={() => handleMemberMenu(m)}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Options for ${m.displayName}`}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                >
-                  <Text style={memberStyles.kebabText}>•••</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          );
-        }}
+        renderItem={renderMemberItem}
         ListEmptyComponent={
           <View style={styles.emptyMembers}>
             <Text style={styles.emptyMembersText}>Waiting for members to join…</Text>

@@ -747,6 +747,160 @@ export default function DriveHistoryScreen() {
     return filteredDrives.reduce((best, d) => (d.distanceM > best.distanceM ? d : best)).id;
   }, [filteredDrives]);
 
+  // Stabilized so FlatList doesn't recreate this closure (and re-render every row)
+  // on every parent re-render — the row itself does heavy work (MapThumb, MapView
+  // when expanded), so an unstable renderItem was the costliest inline function here.
+  const renderDriveItem = useCallback(({ item }: { item: ListItem }) => {
+    if (item.type === 'header') {
+      return (
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionHeaderText}>{item.label}</Text>
+        </View>
+      );
+    }
+
+    const { drive } = item;
+    const isLongest = drive.id === longestDriveId;
+    const isExpanded = drive.id === expandedId;
+    const routeCoords = drive.routeTrace?.coordinates.map(([lng, lat]) => ({
+      latitude: lat, longitude: lng,
+    })) ?? [];
+    const region = computeRegion(routeCoords);
+
+    return (
+      <View style={[styles.driveCardOuter, isLongest && styles.driveCardOuterLongest]}>
+        {/* ── Main summary row ── */}
+        <View style={styles.driveCardMainRow}>
+          <TouchableOpacity
+            style={styles.driveCardTouchable}
+            onPress={() => setSelected(drive)}
+            accessibilityRole="button"
+            accessibilityLabel={`Drive on ${formatDate(drive.endedAt)}, ${formatDistance(drive.distanceM, distanceUnit)}`}
+          >
+            <View style={styles.thumbWrapper}>
+              <MapThumb routeTrace={drive.routeTrace} />
+              {isLongest && (
+                <View style={styles.trophyBadge}>
+                  <Text style={styles.trophyText}>🏆</Text>
+                </View>
+              )}
+            </View>
+            <View style={styles.driveCardContent}>
+              <Text style={styles.driveTimeRange}>
+                {formatTime(drive.startedAt)} → {formatTime(drive.endedAt)}
+              </Text>
+              <Text style={styles.driveDistDur}>
+                {formatDistance(drive.distanceM, distanceUnit)} · {formatDuration(drive.durationS)}
+                {drive.avgSpeedKph != null ? `  · ${drive.avgSpeedKph.toFixed(0)} km/h avg` : ''}
+              </Text>
+              <Text style={styles.driveMembers}>
+                {drive.groupId
+                  ? `👥 Group Drive${drive.memberCount > 1 ? ` · ${drive.memberCount} members` : ''}`
+                  : '🚗 Solo Drive'}
+              </Text>
+            </View>
+          </TouchableOpacity>
+
+          {/* Chevron — toggles inline expansion */}
+          <TouchableOpacity
+            style={styles.chevronBtn}
+            onPress={() => toggleExpand(drive.id)}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityRole="button"
+            accessibilityLabel={isExpanded ? 'Collapse details' : 'Expand details'}
+          >
+            <Text style={[styles.chevronText, isExpanded && styles.chevronExpanded]}>›</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* ── Expandable inline detail ── */}
+        {isExpanded && (
+          <Animated.View style={[styles.expandPanel, { height: expandAnim }]}>
+            {/*
+              Measure the real content height and correct the animated target once
+              it's known — the content below is variable-length (group name, number
+              of stat badges, optional Replay button), so a fixed animation target
+              would either clip taller content or leave a gap under shorter content.
+            */}
+            <View
+              onLayout={(e) => {
+                const measured = Math.ceil(e.nativeEvent.layout.height);
+                setExpandContentHeights((prev) =>
+                  prev[drive.id] === measured ? prev : { ...prev, [drive.id]: measured },
+                );
+                if (expandedId === drive.id) {
+                  Animated.timing(expandAnim, { toValue: measured, duration: 120, useNativeDriver: false }).start();
+                }
+              }}
+            >
+              {/* Mini map */}
+              {routeCoords.length > 1 && region ? (
+                <View style={styles.expandMapContainer}>
+                  <MapView
+                    provider={PROVIDER_DEFAULT}
+                    style={StyleSheet.absoluteFillObject}
+                    initialRegion={region}
+                    scrollEnabled={false}
+                    zoomEnabled={false}
+                    rotateEnabled={false}
+                    pitchEnabled={false}
+                  >
+                    <Polyline coordinates={routeCoords} strokeColor="#DC143C" strokeWidth={3} />
+                  </MapView>
+                </View>
+              ) : (
+                <View style={[styles.expandMapContainer, styles.expandMapPlaceholder]}>
+                  <Text style={{ fontSize: 28 }}>🗺</Text>
+                </View>
+              )}
+
+              {/* Quick stats row */}
+              <View style={styles.expandStatsRow}>
+                {drive.topSpeedKph != null && (
+                  <Text style={styles.expandStat}>⚡ {drive.topSpeedKph.toFixed(0)} km/h top</Text>
+                )}
+                {drive.avgSpeedKph != null && (
+                  <Text style={styles.expandStat}>📊 {drive.avgSpeedKph.toFixed(0)} km/h avg</Text>
+                )}
+                <Text style={styles.expandStat}>
+                  {drive.groupId
+                    ? `👥 ${drive.groupName ?? 'Group'} · ${drive.memberCount} member${drive.memberCount !== 1 ? 's' : ''}`
+                    : '🚗 Solo'}
+                </Text>
+              </View>
+
+              {/* Action row: Share + Replay */}
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                <TouchableOpacity
+                  style={[styles.expandShareBtn, { flex: 1 }]}
+                  onPress={() => void handleShare(drive.id)}
+                  disabled={sharingId === drive.id}
+                  accessibilityRole="button"
+                  accessibilityLabel="Share drive"
+                >
+                  {sharingId === drive.id
+                    ? <ActivityIndicator color="#DC143C" size="small" />
+                    : <Text style={styles.expandShareBtnText}>📤 Share</Text>
+                  }
+                </TouchableOpacity>
+                {(drive.routeTrace?.coordinates?.length ?? 0) > 1 && (
+                  <TouchableOpacity
+                    style={[styles.expandShareBtn, { flex: 1, backgroundColor: '#1C1C1C', borderColor: '#DC143C', borderWidth: 1 }]}
+                    onPress={() => router.push(`/replay?driveId=${drive.id}` as never)}
+                    accessibilityRole="button"
+                    accessibilityLabel="Replay drive"
+                  >
+                    <Text style={[styles.expandShareBtnText, { color: '#DC143C' }]}>▶ Replay</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            </View>
+          </Animated.View>
+        )}
+      </View>
+    );
+  }, [longestDriveId, expandedId, distanceUnit, toggleExpand, expandAnim, sharingId, handleShare, router]);
+
   if (selected) {
     return (
       <SafeAreaView style={styles.container}>
@@ -788,8 +942,8 @@ export default function DriveHistoryScreen() {
 
       <FlatList
         data={listData}
-        keyExtractor={(item, index) =>
-          item.type === 'header' ? `header-${item.key}-${index}` : item.drive.id
+        keyExtractor={(item) =>
+          item.type === 'header' ? `header-${item.key}` : item.drive.id
         }
         contentContainerStyle={listData.length === 0 ? styles.listEmpty : styles.list}
         onEndReached={loadMore}
@@ -838,156 +992,7 @@ export default function DriveHistoryScreen() {
             </TouchableOpacity>
           </View>
         }
-        renderItem={({ item }) => {
-          if (item.type === 'header') {
-            return (
-              <View style={styles.sectionHeader}>
-                <Text style={styles.sectionHeaderText}>{item.label}</Text>
-              </View>
-            );
-          }
-
-          const { drive } = item;
-          const isLongest = drive.id === longestDriveId;
-          const isExpanded = drive.id === expandedId;
-          const routeCoords = drive.routeTrace?.coordinates.map(([lng, lat]) => ({
-            latitude: lat, longitude: lng,
-          })) ?? [];
-          const region = computeRegion(routeCoords);
-
-          return (
-            <View style={[styles.driveCardOuter, isLongest && styles.driveCardOuterLongest]}>
-              {/* ── Main summary row ── */}
-              <View style={styles.driveCardMainRow}>
-                <TouchableOpacity
-                  style={styles.driveCardTouchable}
-                  onPress={() => setSelected(drive)}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Drive on ${formatDate(drive.endedAt)}, ${formatDistance(drive.distanceM, distanceUnit)}`}
-                >
-                  <View style={styles.thumbWrapper}>
-                    <MapThumb routeTrace={drive.routeTrace} />
-                    {isLongest && (
-                      <View style={styles.trophyBadge}>
-                        <Text style={styles.trophyText}>🏆</Text>
-                      </View>
-                    )}
-                  </View>
-                  <View style={styles.driveCardContent}>
-                    <Text style={styles.driveTimeRange}>
-                      {formatTime(drive.startedAt)} → {formatTime(drive.endedAt)}
-                    </Text>
-                    <Text style={styles.driveDistDur}>
-                      {formatDistance(drive.distanceM, distanceUnit)} · {formatDuration(drive.durationS)}
-                      {drive.avgSpeedKph != null ? `  · ${drive.avgSpeedKph.toFixed(0)} km/h avg` : ''}
-                    </Text>
-                    <Text style={styles.driveMembers}>
-                      {drive.groupId
-                        ? `👥 Group Drive${drive.memberCount > 1 ? ` · ${drive.memberCount} members` : ''}`
-                        : '🚗 Solo Drive'}
-                    </Text>
-                  </View>
-                </TouchableOpacity>
-
-                {/* Chevron — toggles inline expansion */}
-                <TouchableOpacity
-                  style={styles.chevronBtn}
-                  onPress={() => toggleExpand(drive.id)}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                  accessibilityRole="button"
-                  accessibilityLabel={isExpanded ? 'Collapse details' : 'Expand details'}
-                >
-                  <Text style={[styles.chevronText, isExpanded && styles.chevronExpanded]}>›</Text>
-                </TouchableOpacity>
-              </View>
-
-              {/* ── Expandable inline detail ── */}
-              {isExpanded && (
-                <Animated.View style={[styles.expandPanel, { height: expandAnim }]}>
-                  {/*
-                    Measure the real content height and correct the animated target once
-                    it's known — the content below is variable-length (group name, number
-                    of stat badges, optional Replay button), so a fixed animation target
-                    would either clip taller content or leave a gap under shorter content.
-                  */}
-                  <View
-                    onLayout={(e) => {
-                      const measured = Math.ceil(e.nativeEvent.layout.height);
-                      setExpandContentHeights((prev) =>
-                        prev[drive.id] === measured ? prev : { ...prev, [drive.id]: measured },
-                      );
-                      if (expandedId === drive.id) {
-                        Animated.timing(expandAnim, { toValue: measured, duration: 120, useNativeDriver: false }).start();
-                      }
-                    }}
-                  >
-                    {/* Mini map */}
-                    {routeCoords.length > 1 && region ? (
-                      <View style={styles.expandMapContainer}>
-                        <MapView
-                          provider={PROVIDER_DEFAULT}
-                          style={StyleSheet.absoluteFillObject}
-                          initialRegion={region}
-                          scrollEnabled={false}
-                          zoomEnabled={false}
-                          rotateEnabled={false}
-                          pitchEnabled={false}
-                        >
-                          <Polyline coordinates={routeCoords} strokeColor="#DC143C" strokeWidth={3} />
-                        </MapView>
-                      </View>
-                    ) : (
-                      <View style={[styles.expandMapContainer, styles.expandMapPlaceholder]}>
-                        <Text style={{ fontSize: 28 }}>🗺</Text>
-                      </View>
-                    )}
-
-                    {/* Quick stats row */}
-                    <View style={styles.expandStatsRow}>
-                      {drive.topSpeedKph != null && (
-                        <Text style={styles.expandStat}>⚡ {drive.topSpeedKph.toFixed(0)} km/h top</Text>
-                      )}
-                      {drive.avgSpeedKph != null && (
-                        <Text style={styles.expandStat}>📊 {drive.avgSpeedKph.toFixed(0)} km/h avg</Text>
-                      )}
-                      <Text style={styles.expandStat}>
-                        {drive.groupId
-                          ? `👥 ${drive.groupName ?? 'Group'} · ${drive.memberCount} member${drive.memberCount !== 1 ? 's' : ''}`
-                          : '🚗 Solo'}
-                      </Text>
-                    </View>
-
-                    {/* Action row: Share + Replay */}
-                    <View style={{ flexDirection: 'row', gap: 8 }}>
-                      <TouchableOpacity
-                        style={[styles.expandShareBtn, { flex: 1 }]}
-                        onPress={() => void handleShare(drive.id)}
-                        disabled={sharingId === drive.id}
-                        accessibilityRole="button"
-                        accessibilityLabel="Share drive"
-                      >
-                        {sharingId === drive.id
-                          ? <ActivityIndicator color="#DC143C" size="small" />
-                          : <Text style={styles.expandShareBtnText}>📤 Share</Text>
-                        }
-                      </TouchableOpacity>
-                      {(drive.routeTrace?.coordinates?.length ?? 0) > 1 && (
-                        <TouchableOpacity
-                          style={[styles.expandShareBtn, { flex: 1, backgroundColor: '#1C1C1C', borderColor: '#DC143C', borderWidth: 1 }]}
-                          onPress={() => router.push(`/replay?driveId=${drive.id}` as never)}
-                          accessibilityRole="button"
-                          accessibilityLabel="Replay drive"
-                        >
-                          <Text style={[styles.expandShareBtnText, { color: '#DC143C' }]}>▶ Replay</Text>
-                        </TouchableOpacity>
-                      )}
-                    </View>
-                  </View>
-                </Animated.View>
-              )}
-            </View>
-          );
-        }}
+        renderItem={renderDriveItem}
       />
     </SafeAreaView>
   );

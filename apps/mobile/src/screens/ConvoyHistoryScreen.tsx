@@ -92,6 +92,16 @@ export default function ConvoyHistoryScreen() {
     setRefreshing(false);
   }, [fetchDrives]);
 
+  const renderDriveItem = useCallback(
+    ({ item }: { item: ConvoyDrive }) => (
+      <DriveCard
+        drive={item}
+        onReplay={() => router.push({ pathname: '/replay', params: { driveId: item.id } } as never)}
+      />
+    ),
+    [router],
+  );
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
@@ -119,12 +129,7 @@ export default function ConvoyHistoryScreen() {
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#DC143C" colors={['#DC143C']} />
           }
-          renderItem={({ item }) => (
-            <DriveCard
-              drive={item}
-              onReplay={() => router.push({ pathname: '/replay', params: { driveId: item.id } } as never)}
-            />
-          )}
+          renderItem={renderDriveItem}
           ListEmptyComponent={
             <View style={styles.empty}>
               <Text style={styles.emptyIcon}>🏁</Text>
