@@ -4,7 +4,7 @@
  * Requirements: 11.1, 31.1–31.3
  */
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Modal,
   Pressable,
@@ -14,8 +14,10 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { apiClient } from '../services/apiClient';
 import { SQLiteOfflineDB } from '../services/OfflineCacheService';
+import { ThemeColors, useTheme } from '../theme';
 
 // Shares the same on-disk SQLite file as MapScreen's offline queue (expo-sqlite
 // keys connections by filename), so anything queued here is picked up by the
@@ -28,6 +30,8 @@ const offlineDBReady = offlineDB.init().then(() => true).catch(() => false);
 // ---------------------------------------------------------------------------
 
 // Full 9-type grid shown when parked (Req 31.2, mirrors HazardPicker's HAZARD_TYPES).
+// Kept as emoji rather than vector icons — same rationale as HazardPicker: instant
+// visual recognition of hazard category while driving, matching the map pins.
 const ALL_TYPES = [
   { key: 'pothole',    emoji: '🕳️', label: 'Pothole'   },
   { key: 'accident',   emoji: '🚗', label: 'Accident'  },
@@ -64,6 +68,8 @@ interface Props {
 // ---------------------------------------------------------------------------
 
 export default function HazardReportModal({ visible, onClose, lat, lng, isInMotion = false }: Props) {
+  const { colors } = useTheme();
+  const s = useMemo(() => makeStyles(colors), [colors]);
   const [type,       setType]       = useState<HazardKey | null>(null);
   const [severity,   setSeverity]   = useState<Severity>('medium');
   const [note,       setNote]       = useState('');
@@ -160,7 +166,7 @@ export default function HazardReportModal({ visible, onClose, lat, lng, isInMoti
               accessibilityRole="button"
               accessibilityLabel="Close hazard report"
             >
-              <Text style={s.closeX}>✕</Text>
+              <Ionicons name="close" size={14} color={colors.textMuted} />
             </TouchableOpacity>
           </View>
 
@@ -214,7 +220,7 @@ export default function HazardReportModal({ visible, onClose, lat, lng, isInMoti
               <TextInput
                 style={s.noteInput}
                 placeholder="Add a note…"
-                placeholderTextColor="#888888"
+                placeholderTextColor={colors.textMuted}
                 value={note}
                 onChangeText={(t) => setNote(t.slice(0, 100))}
                 maxLength={100}
@@ -260,32 +266,37 @@ export default function HazardReportModal({ visible, onClose, lat, lng, isInMoti
 // Styles — design tokens inline per project convention
 // ---------------------------------------------------------------------------
 
-const s = StyleSheet.create({
-  overlay:     { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.55)' },
-  sheet:       { backgroundColor: '#0A0A0A', borderTopLeftRadius: 20, borderTopRightRadius: 20, borderWidth: 1, borderColor: '#2A2A2A', paddingTop: 8, paddingBottom: 36, paddingHorizontal: 20 },
-  handle:      { alignSelf: 'center', width: 36, height: 4, borderRadius: 2, backgroundColor: '#444444', marginBottom: 14 },
-  header:      { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 },
-  spacer:      { width: 32 },
-  title:       { fontSize: 17, fontWeight: '700', color: '#FFFFFF', letterSpacing: 0.3 },
-  closeBtn:    { width: 32, height: 32, borderRadius: 16, backgroundColor: '#1C1C1C', alignItems: 'center', justifyContent: 'center' },
-  closeX:      { fontSize: 14, color: '#888888', fontWeight: '600' },
-  sectionLabel:{ fontSize: 11, fontWeight: '600', color: '#888888', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 8 },
-  grid:        { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 16 },
-  card:        { width: '30%', aspectRatio: 1, borderRadius: 12, backgroundColor: '#1C1C1C', alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: 'transparent' },
-  cardOn:      { backgroundColor: '#250008', borderColor: '#DC143C' },
-  cardEmoji:   { fontSize: 26, marginBottom: 4 },
-  cardLabel:   { fontSize: 11, fontWeight: '600', color: '#888888', textAlign: 'center' },
-  cardLabelOn: { color: '#FFFFFF' },
-  pills:       { flexDirection: 'row', gap: 8, marginBottom: 14 },
-  pill:        { flex: 1, paddingVertical: 10, borderRadius: 20, backgroundColor: '#1C1C1C', alignItems: 'center', borderWidth: 1.5, borderColor: 'transparent' },
-  pillOn:      { backgroundColor: '#250008', borderColor: '#DC143C' },
-  pillTxt:     { fontSize: 14, fontWeight: '600', color: '#888888' },
-  pillTxtOn:   { color: '#FFFFFF' },
-  noteInput:   { backgroundColor: '#1C1C1C', borderRadius: 10, borderWidth: 1, borderColor: '#2A2A2A', color: '#FFFFFF', fontSize: 14, paddingHorizontal: 12, paddingVertical: 10, minHeight: 58, textAlignVertical: 'top', marginBottom: 12 },
-  locText:     { fontSize: 13, color: '#888888', marginBottom: 18, fontVariant: ['tabular-nums'] },
-  submitBtn:   { backgroundColor: '#DC143C', borderRadius: 14, paddingVertical: 17, alignItems: 'center' },
-  submitOff:   { backgroundColor: '#3A0A14' },
-  submitTxt:   { fontSize: 17, fontWeight: '700', color: '#FFFFFF', letterSpacing: 0.3 },
-  toast:       { position: 'absolute', left: 20, right: 20, bottom: 44, backgroundColor: '#166534', borderRadius: 12, paddingVertical: 12, paddingHorizontal: 16, alignItems: 'center' },
-  toastTxt:    { fontSize: 13, fontWeight: '600', color: '#DCFCE7', textAlign: 'center' },
-});
+function makeStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    overlay:     { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.55)' },
+    sheet:       { backgroundColor: colors.bg, borderTopLeftRadius: 20, borderTopRightRadius: 20, borderWidth: 1, borderColor: colors.border, paddingTop: 8, paddingBottom: 36, paddingHorizontal: 20 },
+    handle:      { alignSelf: 'center', width: 36, height: 4, borderRadius: 2, backgroundColor: colors.textSubtle, marginBottom: 14 },
+    header:      { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 },
+    spacer:      { width: 32 },
+    title:       { fontSize: 17, fontWeight: '700', color: colors.text, letterSpacing: 0.3 },
+    closeBtn:    { width: 32, height: 32, borderRadius: 16, backgroundColor: colors.card, alignItems: 'center', justifyContent: 'center' },
+    sectionLabel:{ fontSize: 11, fontWeight: '600', color: colors.textMuted, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 8 },
+    grid:        { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 16 },
+    card:        { width: '30%', aspectRatio: 1, borderRadius: 12, backgroundColor: colors.card, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: 'transparent' },
+    // cardOn/pillOn's backgrounds are a fixed dark maroon tint (not a themed
+    // surface), so their "on" labels stay fixed white rather than colors.text.
+    cardOn:      { backgroundColor: '#250008', borderColor: colors.accent },
+    cardEmoji:   { fontSize: 26, marginBottom: 4 },
+    cardLabel:   { fontSize: 11, fontWeight: '600', color: colors.textMuted, textAlign: 'center' },
+    cardLabelOn: { color: '#FFFFFF' },
+    pills:       { flexDirection: 'row', gap: 8, marginBottom: 14 },
+    pill:        { flex: 1, paddingVertical: 10, borderRadius: 20, backgroundColor: colors.card, alignItems: 'center', borderWidth: 1.5, borderColor: 'transparent' },
+    pillOn:      { backgroundColor: '#250008', borderColor: colors.accent },
+    pillTxt:     { fontSize: 14, fontWeight: '600', color: colors.textMuted },
+    pillTxtOn:   { color: '#FFFFFF' },
+    noteInput:   { backgroundColor: colors.card, borderRadius: 10, borderWidth: 1, borderColor: colors.border, color: colors.text, fontSize: 14, paddingHorizontal: 12, paddingVertical: 10, minHeight: 58, textAlignVertical: 'top', marginBottom: 12 },
+    locText:     { fontSize: 13, color: colors.textMuted, marginBottom: 18, fontVariant: ['tabular-nums'] },
+    submitBtn:   { backgroundColor: colors.accent, borderRadius: 14, paddingVertical: 17, alignItems: 'center' },
+    submitOff:   { backgroundColor: '#3A0A14' },
+    // submitBtn's background is the fixed-value accent color (same in both
+    // themes), so its label stays fixed white for contrast.
+    submitTxt:   { fontSize: 17, fontWeight: '700', color: '#FFFFFF', letterSpacing: 0.3 },
+    toast:       { position: 'absolute', left: 20, right: 20, bottom: 44, backgroundColor: '#166534', borderRadius: 12, paddingVertical: 12, paddingHorizontal: 16, alignItems: 'center' },
+    toastTxt:    { fontSize: 13, fontWeight: '600', color: '#DCFCE7', textAlign: 'center' },
+  });
+}

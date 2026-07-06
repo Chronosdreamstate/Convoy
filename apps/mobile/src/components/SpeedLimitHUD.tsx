@@ -2,7 +2,7 @@
  * Speed limit HUD overlay (Req 23.1–23.4)
  * Displays posted speed limit sign + current speed; animates when significantly over limit.
  */
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
   StyleSheet,
@@ -10,6 +10,7 @@ import {
   View,
   Text,
 } from 'react-native';
+import { ThemeColors, useTheme } from '../theme';
 
 const MPH_TO_KMH = 1.60934;
 const AUTO_HIDE_DELAY_MS = 5_000;
@@ -34,6 +35,9 @@ function SpeedLimitHUD({
   speedLimitMph,
   preferredUnit,
 }: Props) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+
   // ── Resolve canonical mph values ──────────────────────────────────────────
   const resolvedSpeedMph: number =
     userSpeedMph !== undefined ? userSpeedMph : currentSpeedKph / MPH_TO_KMH;
@@ -156,7 +160,7 @@ function SpeedLimitHUD({
     : `Speed limit unavailable. Current speed ${displaySpeed} ${unitLabel}`;
 
   // ── Dynamic sign border color ─────────────────────────────────────────────
-  const borderColor = significantlyOver ? '#DC143C' : '#2A2A2A';
+  const borderColor = significantlyOver ? colors.accent : colors.border;
 
   if (!visible) return null;
 
@@ -187,7 +191,9 @@ function SpeedLimitHUD({
         <Text style={styles.unitToggleText}>{unitLabel}</Text>
       </TouchableOpacity>
 
-      {/* Road sign */}
+      {/* Road sign — always rendered in real-world sign colors (white face, black
+          text) regardless of app theme, since it represents an actual roadside
+          speed-limit sign rather than themed app chrome. */}
       <Animated.View
         style={[styles.sign, { borderColor, opacity: borderOpacityAnim }]}
       >
@@ -206,64 +212,66 @@ const MemoSpeedLimitHUD = React.memo(SpeedLimitHUD);
 MemoSpeedLimitHUD.displayName = 'SpeedLimitHUD';
 export default MemoSpeedLimitHUD;
 
-const styles = StyleSheet.create({
-  wrapper: {
-    alignItems: 'center',
-  },
-  currentSpeedRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    marginBottom: 2,
-  },
-  currentSpeed: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#FFFFFF',
-    lineHeight: 22,
-  },
-  currentSpeedOver: {
-    color: '#DC143C',
-  },
-  unitToggle: {
-    marginBottom: 6,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-    backgroundColor: '#1C1C1C',
-  },
-  unitToggleText: {
-    fontSize: 10,
-    fontWeight: '600',
-    color: '#888888',
-    letterSpacing: 0.3,
-  },
-  sign: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 4,
-    borderColor: '#2A2A2A',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOpacity: 0.35,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 6,
-    elevation: 6,
-  },
-  signLimit: {
-    fontSize: 24,
-    fontWeight: '900',
-    color: '#000000',
-    lineHeight: 26,
-    letterSpacing: -0.5,
-  },
-  signUnit: {
-    fontSize: 9,
-    fontWeight: '700',
-    color: '#333333',
-    letterSpacing: 0.5,
-    marginTop: -2,
-  },
-});
+function makeStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    wrapper: {
+      alignItems: 'center',
+    },
+    currentSpeedRow: {
+      flexDirection: 'row',
+      alignItems: 'flex-end',
+      marginBottom: 2,
+    },
+    currentSpeed: {
+      fontSize: 20,
+      fontWeight: '700',
+      color: colors.text,
+      lineHeight: 22,
+    },
+    currentSpeedOver: {
+      color: colors.accent,
+    },
+    unitToggle: {
+      marginBottom: 6,
+      paddingHorizontal: 6,
+      paddingVertical: 2,
+      borderRadius: 4,
+      backgroundColor: colors.card,
+    },
+    unitToggleText: {
+      fontSize: 10,
+      fontWeight: '600',
+      color: colors.textMuted,
+      letterSpacing: 0.3,
+    },
+    sign: {
+      width: 64,
+      height: 64,
+      borderRadius: 32,
+      backgroundColor: '#FFFFFF',
+      borderWidth: 4,
+      borderColor: colors.border,
+      alignItems: 'center',
+      justifyContent: 'center',
+      shadowColor: '#000',
+      shadowOpacity: 0.35,
+      shadowOffset: { width: 0, height: 2 },
+      shadowRadius: 6,
+      elevation: 6,
+    },
+    signLimit: {
+      fontSize: 24,
+      fontWeight: '900',
+      color: '#000000',
+      lineHeight: 26,
+      letterSpacing: -0.5,
+    },
+    signUnit: {
+      fontSize: 9,
+      fontWeight: '700',
+      color: '#333333',
+      letterSpacing: 0.5,
+      marginTop: -2,
+    },
+  });
+}

@@ -13,6 +13,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ExpoLocation from 'expo-location';
 import { useRouter } from 'expo-router';
 import { Socket } from 'socket.io-client';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import LocationPermissionPrescreen from '../../components/LocationPermissionPrescreen';
 import { apiClient } from '../../services/apiClient';
 import { authService } from '../../services/AuthService';
@@ -21,6 +22,7 @@ import { SosPin, SOS_EMOJI } from '../../services/RallyService';
 import { openMapsDirections } from '../../utils/openMapsDirections';
 import { useAuthStore } from '../../stores/authStore';
 import { useSettingsStore } from '../../stores/settingsStore';
+import { ThemeColors, useTheme } from '../../theme';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
 const SOCKET_URL = API_URL.replace(/^http/, 'ws');
@@ -59,6 +61,8 @@ function formatSosTimeAgo(createdAt: string): string {
 export default function IdleMapScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const mapRef = useRef<MapView>(null);
   const user = useAuthStore((s) => s.user);
   const token = useAuthStore((s) => s.token);
@@ -388,8 +392,9 @@ export default function IdleMapScreen() {
           accessibilityRole="button"
           accessibilityLabel={`${nearbyGroups.length} convoys near you, tap to browse`}
         >
+          <Ionicons name="car" size={14} color={colors.text} />
           <Text style={styles.nearbyPillText}>
-            🚗 {nearbyGroups.length} convoy{nearbyGroups.length !== 1 ? 's' : ''} near you
+            {' '}{nearbyGroups.length} convoy{nearbyGroups.length !== 1 ? 's' : ''} near you
           </Text>
         </TouchableOpacity>
       )}
@@ -417,11 +422,11 @@ export default function IdleMapScreen() {
             {speedKph !== null ? `${speedKph}` : '—'}
           </Text>
           <Text style={styles.hudUnit}>km/h</Text>
-          <Animated.Text
-            style={[styles.hudCompass, { transform: [{ rotate: `${headingDeg}deg` }] }]}
+          <Animated.View
+            style={{ transform: [{ rotate: `${headingDeg}deg` }], marginTop: 4 }}
           >
-            ↑
-          </Animated.Text>
+            <Ionicons name="navigate" size={18} color={colors.accent} />
+          </Animated.View>
         </TouchableOpacity>
       )}
 
@@ -432,7 +437,7 @@ export default function IdleMapScreen() {
           accessibilityRole="button"
           accessibilityLabel="Show speed and heading"
         >
-          <Text style={styles.recenterText}>🧭</Text>
+          <Ionicons name="compass" size={22} color={colors.text} />
         </TouchableOpacity>
       )}
 
@@ -443,7 +448,7 @@ export default function IdleMapScreen() {
         accessibilityRole="button"
         accessibilityLabel="Re-center map"
       >
-        <Text style={styles.recenterText}>⊕</Text>
+        <Ionicons name="locate" size={22} color={colors.text} />
       </TouchableOpacity>
 
       {/* Idle engagement suggestion toast */}
@@ -455,7 +460,10 @@ export default function IdleMapScreen() {
             onPress={() => { setShowSuggestion(false); handleBrowseGroups(); }}
             activeOpacity={0.8}
           >
-            <Text style={styles.suggestionText}>🚗 Ready to roll? Find a convoy near you</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Ionicons name="car" size={14} color={colors.text} />
+              <Text style={styles.suggestionText}>Ready to roll? Find a convoy near you</Text>
+            </View>
           </TouchableOpacity>
         </Animated.View>
       )}
@@ -483,7 +491,7 @@ export default function IdleMapScreen() {
               accessibilityLabel="Dismiss group card"
               hitSlop={{ top: 8, bottom: 8, left: 0, right: 8 }}
             >
-              <Text style={styles.dismissText}>✕</Text>
+              <Ionicons name="close" size={16} color={colors.textMuted} />
             </TouchableOpacity>
           </View>
         </Animated.View>
@@ -492,7 +500,10 @@ export default function IdleMapScreen() {
       {/* Bottom CTA sheet */}
       <View style={[styles.bottomSheet, { height: cardHeight }]}>
         <View style={styles.sheetHandle} />
-        <Text style={styles.sheetTitle}>🚗 Start or Join a Convoy</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 10 }}>
+          <Ionicons name="car" size={18} color={colors.text} />
+          <Text style={[styles.sheetTitle, { marginBottom: 0 }]}>Start or Join a Convoy</Text>
+        </View>
 
         {/* Nearby convoys mini-list */}
         {nearbyGroups.length > 0 && (
@@ -509,8 +520,9 @@ export default function IdleMapScreen() {
                 onPress={() => handleJoinGroup(g.id)}
               >
                 <Text style={styles.nearbyGroupName} numberOfLines={1}>{g.name}</Text>
-                <View style={styles.memberPill}>
-                  <Text style={styles.memberPillText}>{g.memberCount} 🚗</Text>
+                <View style={[styles.memberPill, { flexDirection: 'row', alignItems: 'center', gap: 3 }]}>
+                  <Text style={styles.memberPillText}>{g.memberCount}</Text>
+                  <Ionicons name="car" size={10} color={colors.accent} />
                 </View>
               </TouchableOpacity>
             ))}
@@ -520,7 +532,7 @@ export default function IdleMapScreen() {
         {/* Empty state when no nearby groups */}
         {nearbyGroups.length === 0 && !locating && (
           <View style={styles.emptyState}>
-            <Text style={styles.emptyEmoji}>🛣️</Text>
+            <MaterialCommunityIcons name="road-variant" size={28} color={colors.textMuted} style={{ marginBottom: 4 }} />
             <Text style={styles.emptyTitle}>No active convoys nearby</Text>
             <Text style={styles.emptySubtitle}>Start one and invite your crew</Text>
           </View>
@@ -546,16 +558,18 @@ export default function IdleMapScreen() {
           <Text style={styles.outlineBtnSubtitle}>Enter 6-character code</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.ghostBtn} onPress={handleBrowseGroups} accessibilityRole="button">
-          <Text style={styles.ghostBtnText}>🔍 Browse Groups →</Text>
+        <TouchableOpacity style={[styles.ghostBtn, { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 }]} onPress={handleBrowseGroups} accessibilityRole="button">
+          <Ionicons name="search" size={14} color={colors.textMuted} />
+          <Text style={styles.ghostBtnText}>Browse Groups →</Text>
         </TouchableOpacity>
       </View>
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0A0A0A' },
+function makeStyles(colors: ThemeColors) {
+return StyleSheet.create({
+  container: { flex: 1, backgroundColor: colors.bg },
 
   dimOverlay: {
     ...StyleSheet.absoluteFillObject,
@@ -574,17 +588,19 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(220,20,60,0.3)',
   },
 
-  // Convoy map markers
+  // Convoy map markers — these badges float over map imagery (not the app's own
+  // surface), so their ring/label stay fixed white for contrast against the
+  // crimson fill regardless of theme, same rationale as MapScreen's MemberMarkerView.
   convoyMarker: {
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: '#DC143C',
+    backgroundColor: colors.accent,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 2,
     borderColor: '#FFFFFF',
-    shadowColor: '#DC143C',
+    shadowColor: colors.accent,
     shadowOpacity: 0.5,
     shadowRadius: 6,
     shadowOffset: { width: 0, height: 2 },
@@ -601,12 +617,12 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#DC143C',
+    backgroundColor: colors.accent,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 2,
     borderColor: '#FFFFFF',
-    shadowColor: '#DC143C',
+    shadowColor: colors.accent,
     shadowOpacity: 0.7,
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 2 },
@@ -625,9 +641,11 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
     paddingHorizontal: 16,
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: colors.border,
     zIndex: 20,
   },
+  // greetingPill's background is a fixed dark translucent chip regardless of app
+  // theme (it floats over the map), so its text stays fixed white.
   greetingText: {
     color: '#FFFFFF',
     fontSize: 13,
@@ -638,12 +656,14 @@ const styles = StyleSheet.create({
   nearbyPill: {
     position: 'absolute',
     alignSelf: 'center',
-    backgroundColor: '#1C1C1C',
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.card,
     borderRadius: 20,
     paddingVertical: 8,
     paddingHorizontal: 18,
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: colors.border,
     zIndex: 20,
     shadowColor: '#000',
     shadowOpacity: 0.4,
@@ -652,7 +672,7 @@ const styles = StyleSheet.create({
     elevation: 5,
   },
   nearbyPillText: {
-    color: '#FFFFFF',
+    color: colors.text,
     fontSize: 13,
     fontWeight: '600',
     letterSpacing: 0.2,
@@ -666,8 +686,9 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     paddingHorizontal: 18,
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: colors.border,
   },
+  // toast's background is a fixed dark translucent chip regardless of app theme.
   toastText: { color: '#FFFFFF', fontSize: 13, fontWeight: '500', letterSpacing: 0.2 },
 
   // Speed / Compass HUD
@@ -677,7 +698,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(28,28,28,0.92)',
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: colors.border,
     alignItems: 'center',
     paddingVertical: 10,
     shadowColor: '#000',
@@ -687,6 +708,9 @@ const styles = StyleSheet.create({
     elevation: 5,
     zIndex: 15,
   },
+  // hudCard's background is a fixed dark translucent chip regardless of app theme
+  // (it floats over the map surface), so its text stays fixed light rather than
+  // following colors.text/colors.textMuted.
   hudSpeed: {
     color: '#FFFFFF',
     fontSize: 20,
@@ -700,7 +724,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   hudCompass: {
-    color: '#DC143C',
+    color: colors.accent,
     fontSize: 20,
     fontWeight: '700',
     marginTop: 4,
@@ -710,11 +734,11 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: '#1C1C1C',
+    backgroundColor: colors.card,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: colors.border,
     zIndex: 15,
   },
 
@@ -724,7 +748,7 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: '#1C1C1C',
+    backgroundColor: colors.card,
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: '#000',
@@ -734,20 +758,20 @@ const styles = StyleSheet.create({
     elevation: 5,
     zIndex: 10,
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: colors.border,
   },
-  recenterText: { fontSize: 22, color: '#FFFFFF' },
+  recenterText: { fontSize: 22, color: colors.text },
 
   suggestionToast: {
     position: 'absolute',
     left: 16,
     right: 16,
     flexDirection: 'row',
-    backgroundColor: '#1C1C1C',
+    backgroundColor: colors.card,
     borderRadius: 12,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: colors.border,
     shadowColor: '#000',
     shadowOpacity: 0.4,
     shadowRadius: 8,
@@ -755,9 +779,9 @@ const styles = StyleSheet.create({
     elevation: 8,
     zIndex: 30,
   },
-  suggestionStrip: { width: 4, backgroundColor: '#DC143C' },
+  suggestionStrip: { width: 4, backgroundColor: colors.accent },
   suggestionContent: { flex: 1, paddingVertical: 14, paddingHorizontal: 14 },
-  suggestionText: { color: '#FFFFFF', fontSize: 14, fontWeight: '600' },
+  suggestionText: { color: colors.text, fontSize: 14, fontWeight: '600' },
 
   // Selected group card (marker tap)
   selectedCard: {
@@ -769,10 +793,10 @@ const styles = StyleSheet.create({
   selectedCardInner: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#1C1C1C',
+    backgroundColor: colors.card,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: colors.border,
     padding: 14,
     shadowColor: '#000',
     shadowOpacity: 0.5,
@@ -780,31 +804,33 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 3 },
     elevation: 10,
   },
-  selectedCardName: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
-  selectedCardMeta: { color: '#888888', fontSize: 12, marginTop: 2 },
+  selectedCardName: { color: colors.text, fontSize: 15, fontWeight: '700' },
+  selectedCardMeta: { color: colors.textMuted, fontSize: 12, marginTop: 2 },
   joinBtn: {
-    backgroundColor: '#DC143C',
+    backgroundColor: colors.accent,
     borderRadius: 10,
     paddingVertical: 8,
     paddingHorizontal: 14,
     marginLeft: 10,
   },
+  // joinBtn's background is the fixed-value accent color (same in both themes),
+  // so its label stays fixed white for contrast.
   joinBtnText: { color: '#FFFFFF', fontSize: 13, fontWeight: '700' },
   dismissBtn: { paddingLeft: 10, paddingRight: 22, paddingVertical: 13 },
-  dismissText: { color: '#888888', fontSize: 16 },
+  dismissText: { color: colors.textMuted, fontSize: 16 },
 
   bottomSheet: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: '#0A0A0A',
+    backgroundColor: colors.bg,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     borderTopWidth: 1,
     borderLeftWidth: 1,
     borderRightWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: colors.border,
     paddingHorizontal: 24,
     paddingTop: 12,
     shadowColor: '#000',
@@ -817,12 +843,12 @@ const styles = StyleSheet.create({
     width: 36,
     height: 4,
     borderRadius: 2,
-    backgroundColor: '#2A2A2A',
+    backgroundColor: colors.border,
     alignSelf: 'center',
     marginBottom: 12,
   },
   sheetTitle: {
-    color: '#FFFFFF',
+    color: colors.text,
     fontSize: 18,
     fontWeight: '800',
     letterSpacing: 0.3,
@@ -834,10 +860,10 @@ const styles = StyleSheet.create({
   nearbyScroll: { marginBottom: 10, maxHeight: 76 },
   nearbyScrollContent: { paddingHorizontal: 2 },
   nearbyGroupChip: {
-    backgroundColor: '#1C1C1C',
+    backgroundColor: colors.card,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: colors.border,
     paddingVertical: 10,
     paddingHorizontal: 14,
     marginRight: 10,
@@ -846,7 +872,7 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
   },
   nearbyGroupName: {
-    color: '#FFFFFF',
+    color: colors.text,
     fontSize: 13,
     fontWeight: '600',
     marginBottom: 6,
@@ -859,7 +885,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(220,20,60,0.3)',
   },
-  memberPillText: { color: '#DC143C', fontSize: 11, fontWeight: '600' },
+  memberPillText: { color: colors.accent, fontSize: 11, fontWeight: '600' },
 
   // Empty state
   emptyState: {
@@ -868,22 +894,24 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   emptyEmoji: { fontSize: 28, marginBottom: 4 },
-  emptyTitle: { color: '#FFFFFF', fontSize: 14, fontWeight: '600', marginBottom: 2 },
-  emptySubtitle: { color: '#888888', fontSize: 12 },
+  emptyTitle: { color: colors.text, fontSize: 14, fontWeight: '600', marginBottom: 2 },
+  emptySubtitle: { color: colors.textMuted, fontSize: 12 },
 
   primaryBtn: {
-    backgroundColor: '#DC143C',
+    backgroundColor: colors.accent,
     borderRadius: 14,
     paddingVertical: 14,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 10,
-    shadowColor: '#DC143C',
+    shadowColor: colors.accent,
     shadowOpacity: 0.35,
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 2 },
     elevation: 4,
   },
+  // primaryBtn's background is the fixed-value accent color (same in both themes),
+  // so its label stays fixed white for contrast.
   primaryBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700', letterSpacing: 0.3 },
   btnSubtitle: { color: 'rgba(255,255,255,0.65)', fontSize: 12, fontWeight: '400', marginTop: 2 },
   outlineBtn: {
@@ -892,11 +920,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1.5,
-    borderColor: '#DC143C',
+    borderColor: colors.accent,
     marginBottom: 10,
   },
-  outlineBtnText: { color: '#DC143C', fontSize: 16, fontWeight: '600', letterSpacing: 0.3 },
-  outlineBtnSubtitle: { color: '#888888', fontSize: 12, fontWeight: '400', marginTop: 2 },
+  outlineBtnText: { color: colors.accent, fontSize: 16, fontWeight: '600', letterSpacing: 0.3 },
+  outlineBtnSubtitle: { color: colors.textMuted, fontSize: 12, fontWeight: '400', marginTop: 2 },
   ghostBtn: { alignItems: 'center', paddingVertical: 10 },
-  ghostBtnText: { color: '#888888', fontSize: 14, fontWeight: '500' },
+  ghostBtnText: { color: colors.textMuted, fontSize: 14, fontWeight: '500' },
 });
+}

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import {
   Animated,
   StyleSheet,
@@ -6,6 +6,8 @@ import {
   TouchableOpacity,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
+import { ThemeColors, useTheme } from '../theme';
 
 interface Props {
   groupName: string;
@@ -23,6 +25,8 @@ function ConvoyBanner({
   onEndConvoy,
 }: Props) {
   const insets = useSafeAreaInsets();
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const slideAnim = useRef(new Animated.Value(-60)).current;
 
   useEffect(() => {
@@ -50,7 +54,10 @@ function ConvoyBanner({
         accessibilityRole="button"
         accessibilityLabel={`Convoy active: ${groupName}, ${memberCount} riders`}
       >
-        <Text style={styles.icon}>🚗</Text>
+        {/* This pill's background is a fixed dark translucent chip regardless of
+            app theme (it floats over the map at the top of the screen), so its
+            icon/text below stay fixed light/gray rather than following the theme. */}
+        <Ionicons name="car" size={16} color="#FFFFFF" style={styles.icon} />
         <Text style={styles.groupName} numberOfLines={1}>
           {groupName}
         </Text>
@@ -68,7 +75,7 @@ function ConvoyBanner({
             <Text style={styles.endBtnText}>END</Text>
           </TouchableOpacity>
         ) : (
-          <Text style={styles.chevron}>›</Text>
+          <Ionicons name="chevron-forward" size={16} color="#888888" />
         )}
       </TouchableOpacity>
     </Animated.View>
@@ -79,66 +86,62 @@ const MemoConvoyBanner = React.memo(ConvoyBanner);
 MemoConvoyBanner.displayName = 'ConvoyBanner';
 export default MemoConvoyBanner;
 
-const styles = StyleSheet.create({
-  wrapper: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    alignItems: 'center',
-    zIndex: 100,
-  },
-  pill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    height: 44,
-    maxWidth: 360,
-    width: '90%',
-    backgroundColor: 'rgba(28,28,28,0.93)',
-    borderRadius: 22,
-    borderWidth: 1,
-    borderColor: '#2A2A2A',
-    paddingHorizontal: 14,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.45,
-    shadowRadius: 8,
-    elevation: 8,
-  },
-  icon: {
-    fontSize: 16,
-    marginRight: 6,
-  },
-  groupName: {
-    flex: 1,
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#FFFFFF',
-  },
-  dot: {
-    fontSize: 14,
-    color: '#555555',
-    marginHorizontal: 6,
-  },
-  count: {
-    fontSize: 13,
-    color: '#888888',
-    marginRight: 8,
-  },
-  chevron: {
-    fontSize: 18,
-    color: '#888888',
-    lineHeight: 22,
-  },
-  endBtn: {
-    backgroundColor: '#DC143C',
-    borderRadius: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-  },
-  endBtnText: {
-    color: '#FFFFFF',
-    fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 0.5,
-  },
-});
+function makeStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    wrapper: {
+      position: 'absolute',
+      left: 0,
+      right: 0,
+      alignItems: 'center',
+      zIndex: 100,
+    },
+    pill: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      height: 44,
+      maxWidth: 360,
+      width: '90%',
+      backgroundColor: 'rgba(28,28,28,0.93)',
+      borderRadius: 22,
+      borderWidth: 1,
+      borderColor: '#2A2A2A',
+      paddingHorizontal: 14,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.45,
+      shadowRadius: 8,
+      elevation: 8,
+    },
+    icon: {
+      marginRight: 6,
+    },
+    groupName: {
+      flex: 1,
+      fontSize: 14,
+      fontWeight: '700',
+      color: '#FFFFFF',
+    },
+    dot: {
+      fontSize: 14,
+      color: '#555555',
+      marginHorizontal: 6,
+    },
+    count: {
+      fontSize: 13,
+      color: '#888888',
+      marginRight: 8,
+    },
+    endBtn: {
+      backgroundColor: colors.accent,
+      borderRadius: 10,
+      paddingHorizontal: 10,
+      paddingVertical: 4,
+    },
+    endBtnText: {
+      color: '#FFFFFF',
+      fontSize: 11,
+      fontWeight: '800',
+      letterSpacing: 0.5,
+    },
+  });
+}

@@ -3,7 +3,7 @@
  * Requirements: 21.1–21.5
  */
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -13,7 +13,9 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { apiClient } from '../services/apiClient';
+import { ThemeColors, useTheme } from '../theme';
 
 interface FuelStation {
   id: string;
@@ -41,6 +43,8 @@ function formatDist(m: number): string {
 function FuelSuggestionBanner({
   myLat, myLng, isAdmin, onSelectStation, onDismiss,
 }: Props) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const [stations, setStations] = useState<FuelStation[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [noResults, setNoResults] = useState(false);
@@ -106,13 +110,13 @@ function FuelSuggestionBanner({
       <View style={styles.leftStrip} />
 
       <View style={styles.body}>
-        {/* Header row: counter | emoji + title | close */}
+        {/* Header row: counter | icon + title | close */}
         <View style={styles.headerRow}>
           {total > 1 && (
             <Text style={styles.counter}>{stationIndex + 1}/{total}</Text>
           )}
           <View style={styles.titleRow}>
-            <Text style={styles.emoji}>⛽</Text>
+            <MaterialCommunityIcons name="gas-station" size={18} color={colors.warning} />
             <Text style={styles.title} numberOfLines={1}>{titleText}</Text>
           </View>
           <TouchableOpacity
@@ -120,8 +124,9 @@ function FuelSuggestionBanner({
             hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
             accessibilityRole="button"
             accessibilityLabel="Dismiss fuel suggestion"
+            style={styles.closeBtn}
           >
-            <Text style={styles.closeBtn}>✕</Text>
+            <Ionicons name="close" size={16} color={colors.textSubtle} />
           </TouchableOpacity>
         </View>
 
@@ -152,7 +157,11 @@ function FuelSuggestionBanner({
               accessibilityRole="button"
               accessibilityLabel="Previous station"
             >
-              <Text style={[styles.arrowText, stationIndex === 0 && styles.arrowDisabled]}>←</Text>
+              <Ionicons
+                name="chevron-back"
+                size={20}
+                color={stationIndex === 0 ? '#333333' : colors.warning}
+              />
             </TouchableOpacity>
             {isAdmin && current && (
               <TouchableOpacity
@@ -171,7 +180,11 @@ function FuelSuggestionBanner({
               accessibilityRole="button"
               accessibilityLabel="Next station"
             >
-              <Text style={[styles.arrowText, stationIndex === total - 1 && styles.arrowDisabled]}>→</Text>
+              <Ionicons
+                name="chevron-forward"
+                size={20}
+                color={stationIndex === total - 1 ? '#333333' : colors.warning}
+              />
             </TouchableOpacity>
           </View>
         )}
@@ -226,112 +239,102 @@ const MemoFuelSuggestionBanner = React.memo(FuelSuggestionBanner);
 MemoFuelSuggestionBanner.displayName = 'FuelSuggestionBanner';
 export default MemoFuelSuggestionBanner;
 
-const styles = StyleSheet.create({
-  wrapper: {
-    flexDirection: 'row',
-    backgroundColor: '#1C1C1C',
-    borderRadius: 12,
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4,
-    shadowRadius: 8,
-    elevation: 8,
-  },
-  leftStrip: {
-    width: 4,
-    backgroundColor: '#F59E0B',
-  },
-  body: {
-    flex: 1,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-  },
-  headerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 4,
-  },
-  counter: {
-    color: '#F59E0B',
-    fontSize: 11,
-    fontWeight: '700',
-    marginRight: 8,
-    minWidth: 28,
-  },
-  titleRow: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  emoji: {
-    fontSize: 18,
-  },
-  title: {
-    color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '700',
-    flexShrink: 1,
-  },
-  closeBtn: {
-    color: '#555555',
-    fontSize: 16,
-    fontWeight: '600',
-    paddingLeft: 10,
-  },
-  subtitle: {
-    color: '#888888',
-    fontSize: 13,
-    marginTop: 2,
-    marginBottom: 10,
-  },
-  cycleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  arrowBtn: {
-    minWidth: 36,
-    minHeight: 36,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  arrowText: {
-    color: '#F59E0B',
-    fontSize: 20,
-    fontWeight: '700',
-  },
-  arrowDisabled: {
-    color: '#333333',
-  },
-  actionRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  primaryBtn: {
-    flex: 1,
-    backgroundColor: '#DC143C',
-    borderRadius: 8,
-    paddingVertical: 10,
-    alignItems: 'center',
-    minHeight: 44,
-    justifyContent: 'center',
-  },
-  primaryBtnText: {
-    color: '#FFFFFF',
-    fontWeight: '700',
-    fontSize: 13,
-  },
-  ghostBtn: {
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    minHeight: 44,
-    justifyContent: 'center',
-  },
-  ghostBtnText: {
-    color: '#888888',
-    fontSize: 13,
-  },
-});
+function makeStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    wrapper: {
+      flexDirection: 'row',
+      backgroundColor: colors.card,
+      borderRadius: 12,
+      overflow: 'hidden',
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.4,
+      shadowRadius: 8,
+      elevation: 8,
+    },
+    leftStrip: {
+      width: 4,
+      backgroundColor: colors.warning,
+    },
+    body: {
+      flex: 1,
+      paddingHorizontal: 14,
+      paddingVertical: 12,
+    },
+    headerRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginBottom: 4,
+    },
+    counter: {
+      color: colors.warning,
+      fontSize: 11,
+      fontWeight: '700',
+      marginRight: 8,
+      minWidth: 28,
+    },
+    titleRow: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+    },
+    title: {
+      color: colors.text,
+      fontSize: 15,
+      fontWeight: '700',
+      flexShrink: 1,
+    },
+    closeBtn: {
+      paddingLeft: 10,
+    },
+    subtitle: {
+      color: colors.textMuted,
+      fontSize: 13,
+      marginTop: 2,
+      marginBottom: 10,
+    },
+    cycleRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+    },
+    arrowBtn: {
+      minWidth: 36,
+      minHeight: 36,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    actionRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+    },
+    primaryBtn: {
+      flex: 1,
+      backgroundColor: colors.accent,
+      borderRadius: 8,
+      paddingVertical: 10,
+      alignItems: 'center',
+      minHeight: 44,
+      justifyContent: 'center',
+    },
+    // primaryBtn's background is the fixed-value accent color (same in both
+    // themes), so its label stays fixed white for contrast.
+    primaryBtnText: {
+      color: '#FFFFFF',
+      fontWeight: '700',
+      fontSize: 13,
+    },
+    ghostBtn: {
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+      minHeight: 44,
+      justifyContent: 'center',
+    },
+    ghostBtnText: {
+      color: colors.textMuted,
+      fontSize: 13,
+    },
+  });
+}

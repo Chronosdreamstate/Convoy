@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
   Linking,
@@ -8,7 +8,9 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { HapticService } from '../services/HapticService';
+import { ThemeColors, useTheme } from '../theme';
 
 const COUNTDOWN_START = 5;
 
@@ -33,6 +35,8 @@ export default function SosAlertModal({
   onDismiss,
   onAcknowledge,
 }: Props) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const pulse = useRef(new Animated.Value(1)).current;
   const [countdown, setCountdown] = useState(COUNTDOWN_START);
   const [cancelled, setCancelled] = useState(false);
@@ -141,7 +145,7 @@ export default function SosAlertModal({
 
           {/* Pulsing SOS icon */}
           <Animated.View style={[styles.iconCircle, { transform: [{ scale: pulse }] }]}>
-            <Text style={styles.iconText}>🆘</Text>
+            <MaterialIcons name="sos" size={36} color="#FFFFFF" />
           </Animated.View>
 
           {/* Timestamp beneath the icon */}
@@ -168,7 +172,8 @@ export default function SosAlertModal({
             accessibilityRole="button"
             accessibilityLabel="Call 911"
           >
-            <Text style={styles.call911BtnText}>📞  Call 911</Text>
+            <Ionicons name="call" size={18} color="#FFFFFF" />
+            <Text style={styles.call911BtnText}>  Call 911</Text>
           </TouchableOpacity>
 
           {/* Countdown banner with Cancel chip */}
@@ -193,7 +198,8 @@ export default function SosAlertModal({
             accessibilityRole="button"
             accessibilityLabel="View location on map"
           >
-            <Text style={styles.shareBtnText}>📍  View Location</Text>
+            <Ionicons name="location" size={18} color={colors.accent} />
+            <Text style={styles.shareBtnText}>  View Location</Text>
           </TouchableOpacity>
 
           {/* Acknowledge — the group has already been alerted; this confirms you've seen it */}
@@ -203,7 +209,8 @@ export default function SosAlertModal({
             accessibilityRole="button"
             accessibilityLabel="Acknowledge alert"
           >
-            <Text style={styles.alertGroupBtnText}>✅  Acknowledge</Text>
+            <Ionicons name="megaphone" size={18} color={colors.success} />
+            <Text style={styles.alertGroupBtnText}>  Acknowledge</Text>
           </TouchableOpacity>
 
           {/* Dismiss */}
@@ -228,170 +235,174 @@ export default function SosAlertModal({
   );
 }
 
-const styles = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.85)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 24,
-  },
-  card: {
-    backgroundColor: '#1C1C1C',
-    borderRadius: 20,
-    padding: 32,
-    width: '100%',
-    maxWidth: 360,
-    alignItems: 'center',
-  },
-  iconCircle: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: '#DC143C',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 8,
-  },
-  iconText: {
-    fontSize: 36,
-  },
-  timestamp: {
-    fontSize: 12,
-    color: '#888888',
-    marginBottom: 12,
-  },
-  title: {
-    fontSize: 22,
-    fontWeight: '900',
-    color: '#DC143C',
-    letterSpacing: 3,
-    marginBottom: 10,
-    textAlign: 'center',
-  },
-  body: {
-    fontSize: 16,
-    color: '#FFFFFF',
-    textAlign: 'center',
-    lineHeight: 22,
-    marginBottom: 16,
-  },
-  memberName: {
-    fontWeight: '700',
-  },
-  messageCard: {
-    backgroundColor: '#0A0A0A',
-    borderRadius: 10,
-    padding: 12,
-    width: '100%',
-    marginBottom: 12,
-  },
-  messageText: {
-    fontSize: 14,
-    color: '#CCCCCC',
-    lineHeight: 20,
-    textAlign: 'center',
-    fontStyle: 'italic',
-  },
-  coords: {
-    fontSize: 12,
-    color: '#888888',
-    marginBottom: 20,
-    textAlign: 'center',
-  },
-  // Call 911 — large, crimson, prominent
-  call911Btn: {
-    backgroundColor: '#DC143C',
-    borderRadius: 14,
-    paddingVertical: 16,
-    width: '100%',
-    alignItems: 'center',
-    marginBottom: 12,
-    minHeight: 56,
-    justifyContent: 'center',
-  },
-  call911BtnText: {
-    color: '#FFFFFF',
-    fontSize: 18,
-    fontWeight: '900',
-    letterSpacing: 1,
-  },
-  // Countdown row
-  countdownRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 12,
-  },
-  countdownText: {
-    color: '#F59E0B',
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  cancelChip: {
-    backgroundColor: '#2C2C2C',
-    borderRadius: 20,
-    paddingVertical: 4,
-    paddingHorizontal: 12,
-    borderWidth: 1,
-    borderColor: '#444444',
-    marginLeft: 10,
-  },
-  cancelChipText: {
-    color: '#888888',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  // View Location — outlined crimson
-  shareBtn: {
-    borderRadius: 12,
-    paddingVertical: 14,
-    width: '100%',
-    alignItems: 'center',
-    borderWidth: 1.5,
-    borderColor: '#DC143C',
-    marginBottom: 10,
-    minHeight: 50,
-    justifyContent: 'center',
-  },
-  shareBtnText: {
-    color: '#DC143C',
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  // Acknowledge — outlined green
-  alertGroupBtn: {
-    borderRadius: 12,
-    paddingVertical: 14,
-    width: '100%',
-    alignItems: 'center',
-    borderWidth: 1.5,
-    borderColor: '#22C55E',
-    marginBottom: 10,
-    minHeight: 50,
-    justifyContent: 'center',
-  },
-  alertGroupBtnText: {
-    color: '#22C55E',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  dismissBtn: {
-    paddingVertical: 10,
-    alignItems: 'center',
-    minHeight: 44,
-    justifyContent: 'center',
-    marginBottom: 10,
-  },
-  dismissBtnText: {
-    color: '#888888',
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  footerNote: {
-    fontSize: 12,
-    color: '#888888',
-    textAlign: 'center',
-    lineHeight: 18,
-  },
-});
+function makeStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    overlay: {
+      flex: 1,
+      backgroundColor: 'rgba(0,0,0,0.85)',
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: 24,
+    },
+    card: {
+      backgroundColor: colors.card,
+      borderRadius: 20,
+      padding: 32,
+      width: '100%',
+      maxWidth: 360,
+      alignItems: 'center',
+    },
+    // iconCircle/call911Btn use the fixed-value accent color (same in both
+    // themes), so their icon/text stay fixed white for contrast.
+    iconCircle: {
+      width: 72,
+      height: 72,
+      borderRadius: 36,
+      backgroundColor: colors.accent,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginBottom: 8,
+    },
+    timestamp: {
+      fontSize: 12,
+      color: colors.textMuted,
+      marginBottom: 12,
+    },
+    title: {
+      fontSize: 22,
+      fontWeight: '900',
+      color: colors.accent,
+      letterSpacing: 3,
+      marginBottom: 10,
+      textAlign: 'center',
+    },
+    body: {
+      fontSize: 16,
+      color: colors.text,
+      textAlign: 'center',
+      lineHeight: 22,
+      marginBottom: 16,
+    },
+    memberName: {
+      fontWeight: '700',
+    },
+    messageCard: {
+      backgroundColor: colors.bg,
+      borderRadius: 10,
+      padding: 12,
+      width: '100%',
+      marginBottom: 12,
+    },
+    messageText: {
+      fontSize: 14,
+      color: '#CCCCCC',
+      lineHeight: 20,
+      textAlign: 'center',
+      fontStyle: 'italic',
+    },
+    coords: {
+      fontSize: 12,
+      color: colors.textMuted,
+      marginBottom: 20,
+      textAlign: 'center',
+    },
+    // Call 911 — large, crimson, prominent
+    call911Btn: {
+      flexDirection: 'row',
+      backgroundColor: colors.accent,
+      borderRadius: 14,
+      paddingVertical: 16,
+      width: '100%',
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginBottom: 12,
+      minHeight: 56,
+    },
+    call911BtnText: {
+      color: '#FFFFFF',
+      fontSize: 18,
+      fontWeight: '900',
+      letterSpacing: 1,
+    },
+    // Countdown row
+    countdownRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginBottom: 12,
+    },
+    countdownText: {
+      color: colors.warning,
+      fontSize: 13,
+      fontWeight: '600',
+    },
+    cancelChip: {
+      backgroundColor: '#2C2C2C',
+      borderRadius: 20,
+      paddingVertical: 4,
+      paddingHorizontal: 12,
+      borderWidth: 1,
+      borderColor: '#444444',
+      marginLeft: 10,
+    },
+    cancelChipText: {
+      color: '#888888',
+      fontSize: 12,
+      fontWeight: '600',
+    },
+    // Share Location — outlined crimson
+    shareBtn: {
+      flexDirection: 'row',
+      borderRadius: 12,
+      paddingVertical: 14,
+      width: '100%',
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 1.5,
+      borderColor: colors.accent,
+      marginBottom: 10,
+      minHeight: 50,
+    },
+    shareBtnText: {
+      color: colors.accent,
+      fontSize: 16,
+      fontWeight: '700',
+    },
+    // Alert Group — outlined green
+    alertGroupBtn: {
+      flexDirection: 'row',
+      borderRadius: 12,
+      paddingVertical: 14,
+      width: '100%',
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 1.5,
+      borderColor: colors.success,
+      marginBottom: 10,
+      minHeight: 50,
+    },
+    alertGroupBtnText: {
+      color: colors.success,
+      fontSize: 16,
+      fontWeight: '600',
+    },
+    dismissBtn: {
+      paddingVertical: 10,
+      alignItems: 'center',
+      minHeight: 44,
+      justifyContent: 'center',
+      marginBottom: 10,
+    },
+    dismissBtnText: {
+      color: colors.textMuted,
+      fontSize: 14,
+      fontWeight: '500',
+    },
+    footerNote: {
+      fontSize: 12,
+      color: colors.textMuted,
+      textAlign: 'center',
+      lineHeight: 18,
+    },
+  });
+}

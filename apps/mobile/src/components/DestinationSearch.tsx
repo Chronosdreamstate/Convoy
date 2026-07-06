@@ -2,7 +2,7 @@
  * Destination search component — floating search bar that queries the
  * API Mapbox geocoding proxy at GET /api/v1/places/search?q=<query>.
  */
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -13,8 +13,10 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { apiClient } from '../services/apiClient';
 import { useRecentDestinationsStore, RecentDestination } from '../stores/recentDestinationsStore';
+import { ThemeColors, useTheme } from '../theme';
 
 export interface SearchResult {
   id: string;
@@ -51,15 +53,16 @@ interface Props {
   userLng?: number | null;
 }
 
-function SkeletonRows() {
+function SkeletonRows({ colors }: { colors: ThemeColors }) {
+  const styles = useMemo(() => makeSkeletonStyles(colors), [colors]);
   return (
     <>
       {[0, 1, 2].map((i) => (
-        <View key={i} style={skeletonStyles.row}>
-          <View style={skeletonStyles.circle} />
-          <View style={skeletonStyles.lines}>
-            <View style={[skeletonStyles.bar, skeletonStyles.namebar]} />
-            <View style={[skeletonStyles.bar, skeletonStyles.addrbar]} />
+        <View key={i} style={styles.row}>
+          <View style={styles.circle} />
+          <View style={styles.lines}>
+            <View style={[styles.bar, styles.namebar]} />
+            <View style={[styles.bar, styles.addrbar]} />
           </View>
         </View>
       ))}
@@ -67,31 +70,33 @@ function SkeletonRows() {
   );
 }
 
-const skeletonStyles = StyleSheet.create({
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    height: 60,
-    paddingHorizontal: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#2A2A2A',
-  },
-  circle: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: '#2A2A2A',
-    marginRight: 10,
-  },
-  lines: { flex: 1 },
-  bar: {
-    borderRadius: 4,
-    backgroundColor: '#2A2A2A',
-    height: 10,
-  },
-  namebar: { width: '50%', marginBottom: 8 },
-  addrbar: { width: '75%' },
-});
+function makeSkeletonStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    row: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      height: 60,
+      paddingHorizontal: 12,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.border,
+    },
+    circle: {
+      width: 30,
+      height: 30,
+      borderRadius: 15,
+      backgroundColor: colors.border,
+      marginRight: 10,
+    },
+    lines: { flex: 1 },
+    bar: {
+      borderRadius: 4,
+      backgroundColor: colors.border,
+      height: 10,
+    },
+    namebar: { width: '50%', marginBottom: 8 },
+    addrbar: { width: '75%' },
+  });
+}
 
 export default function DestinationSearch({
   isOnline,
@@ -101,6 +106,8 @@ export default function DestinationSearch({
   userLat = null,
   userLng = null,
 }: Props) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchResult[]>([]);
   const [loading, setLoading] = useState(false);
@@ -202,7 +209,7 @@ export default function DestinationSearch({
     <View style={styles.wrapper}>
       {/* Input row */}
       <View style={[styles.card, focused && styles.cardFocused]}>
-        <Text style={styles.searchIcon}>🔍</Text>
+        <Ionicons name="search" size={16} color={colors.textMuted} style={styles.searchIcon} />
         <TextInput
           style={styles.input}
           value={query}
@@ -216,12 +223,12 @@ export default function DestinationSearch({
               ? placeholder
               : 'Search unavailable offline'
           }
-          placeholderTextColor="#555555"
+          placeholderTextColor={colors.textSubtle}
           editable={isOnline && !isInMotion}
           returnKeyType="search"
           accessibilityLabel="Destination search"
         />
-        {loading && <ActivityIndicator style={styles.spinner} size="small" color="#DC143C" />}
+        {loading && <ActivityIndicator style={styles.spinner} size="small" color={colors.accent} />}
         {!loading && query.length > 0 && (
           <TouchableOpacity
             onPress={() => { setQuery(''); setResults([]); }}
@@ -230,7 +237,7 @@ export default function DestinationSearch({
             accessibilityRole="button"
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
-            <Text style={styles.clearIcon}>✕</Text>
+            <Ionicons name="close" size={14} color={colors.textMuted} />
           </TouchableOpacity>
         )}
       </View>
@@ -255,7 +262,7 @@ export default function DestinationSearch({
                     accessibilityLabel={`Navigate to recent: ${item.name}`}
                     accessibilityRole="button"
                   >
-                    <Text style={styles.chipIcon}>🕐</Text>
+                    <Ionicons name="time-outline" size={12} color={colors.textMuted} style={styles.chipIcon} />
                     <Text style={styles.chipText} numberOfLines={1}>{item.name}</Text>
                   </TouchableOpacity>
                 ))}
@@ -299,7 +306,7 @@ export default function DestinationSearch({
                     accessibilityLabel={`Navigate to recent destination: ${item.name}`}
                     accessibilityRole="button"
                   >
-                    <Text style={styles.resultIcon}>🕐</Text>
+                    <Ionicons name="time-outline" size={18} color={colors.textMuted} style={styles.resultIcon} />
                     <View style={styles.resultBody}>
                       <Text style={styles.resultName} numberOfLines={1}>{item.name}</Text>
                       <Text style={styles.resultAddress} numberOfLines={1}>{item.address}</Text>
@@ -313,7 +320,7 @@ export default function DestinationSearch({
           )}
 
           {/* Skeleton loading rows */}
-          {!isInMotion && loading && <SkeletonRows />}
+          {!isInMotion && loading && <SkeletonRows colors={colors} />}
 
           {/* Search results */}
           {!isInMotion && !loading && results.length > 0 && (
@@ -329,7 +336,7 @@ export default function DestinationSearch({
                   accessibilityLabel={`Select destination: ${item.name}`}
                   accessibilityRole="button"
                 >
-                  <Text style={styles.resultIcon}>📍</Text>
+                  <Ionicons name="location" size={18} color={colors.textMuted} style={styles.resultIcon} />
                   <View style={styles.resultBody}>
                     <Text style={styles.resultName} numberOfLines={1}>{item.name}</Text>
                     <Text style={styles.resultAddress} numberOfLines={1}>{item.address}</Text>
@@ -352,125 +359,121 @@ export default function DestinationSearch({
   );
 }
 
-const styles = StyleSheet.create({
-  wrapper: {},
-  card: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#1C1C1C',
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    height: 48,
-    borderWidth: 1,
-    borderColor: '#2A2A2A',
-    shadowColor: '#000',
-    shadowOpacity: 0.4,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 5,
-  },
-  cardFocused: {
-    borderColor: '#DC143C',
-  },
-  searchIcon: { fontSize: 16, marginRight: 8 },
-  input: {
-    flex: 1,
-    height: 48,
-    fontSize: 15,
-    color: '#F0F0F0',
-  },
-  spinner: { marginLeft: 8 },
-  clearButton: {
-    marginLeft: 8,
-    padding: 4,
-  },
-  clearIcon: {
-    fontSize: 14,
-    color: '#888888',
-    fontWeight: '600',
-  },
+function makeStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    wrapper: {},
+    card: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: colors.card,
+      borderRadius: 12,
+      paddingHorizontal: 12,
+      height: 48,
+      borderWidth: 1,
+      borderColor: colors.border,
+      shadowColor: '#000',
+      shadowOpacity: 0.4,
+      shadowRadius: 8,
+      shadowOffset: { width: 0, height: 2 },
+      elevation: 5,
+    },
+    cardFocused: {
+      borderColor: colors.accent,
+    },
+    searchIcon: { marginRight: 8 },
+    input: {
+      flex: 1,
+      height: 48,
+      fontSize: 15,
+      color: colors.text,
+    },
+    spinner: { marginLeft: 8 },
+    clearButton: {
+      marginLeft: 8,
+      padding: 4,
+    },
 
-  dropdown: {
-    marginTop: 4,
-    backgroundColor: '#1C1C1C',
-    borderRadius: 12,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: '#2A2A2A',
-    shadowColor: '#000',
-    shadowOpacity: 0.4,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 4,
-  },
+    dropdown: {
+      marginTop: 4,
+      backgroundColor: colors.card,
+      borderRadius: 12,
+      overflow: 'hidden',
+      borderWidth: 1,
+      borderColor: colors.border,
+      shadowColor: '#000',
+      shadowOpacity: 0.4,
+      shadowRadius: 8,
+      shadowOffset: { width: 0, height: 2 },
+      elevation: 4,
+    },
 
-  recentSection: {
-    paddingTop: 10,
-    paddingBottom: 8,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#2A2A2A',
-  },
-  recentLabel: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#555555',
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
-    paddingHorizontal: 12,
-    marginBottom: 8,
-  },
-  chipsRow: {
-    paddingHorizontal: 10,
-    flexDirection: 'row',
-  },
-  chip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#242424',
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: '#2A2A2A',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    marginRight: 8,
-    maxWidth: 160,
-  },
-  chipIcon: { fontSize: 12, marginRight: 4 },
-  chipText: {
-    fontSize: 13,
-    color: '#F0F0F0',
-    fontWeight: '500',
-  },
+    recentSection: {
+      paddingTop: 10,
+      paddingBottom: 8,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.border,
+    },
+    recentLabel: {
+      fontSize: 11,
+      fontWeight: '700',
+      color: colors.textSubtle,
+      textTransform: 'uppercase',
+      letterSpacing: 0.8,
+      paddingHorizontal: 12,
+      marginBottom: 8,
+    },
+    chipsRow: {
+      paddingHorizontal: 10,
+      flexDirection: 'row',
+    },
+    chip: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: colors.cardElevated,
+      borderRadius: 20,
+      borderWidth: 1,
+      borderColor: colors.border,
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+      marginRight: 8,
+      maxWidth: 160,
+    },
+    chipIcon: { marginRight: 4 },
+    chipText: {
+      fontSize: 13,
+      color: colors.text,
+      fontWeight: '500',
+    },
 
-  errorRow: { padding: 12, backgroundColor: 'rgba(220,20,60,0.10)' },
-  errorText: { color: '#DC143C', fontSize: 13 },
+    errorRow: { padding: 12, backgroundColor: 'rgba(220,20,60,0.10)' },
+    errorText: { color: colors.accent, fontSize: 13 },
 
-  offlineBanner: { padding: 12, backgroundColor: '#2A2A2A' },
-  offlineText: { color: '#888888', fontSize: 13, textAlign: 'center' },
-  motionBanner: { padding: 10, paddingBottom: 4, backgroundColor: '#1A1505' },
-  motionText: { color: '#B8860B', fontSize: 12, fontWeight: '600', textAlign: 'center' },
+    offlineBanner: { padding: 12, backgroundColor: colors.border },
+    offlineText: { color: colors.textMuted, fontSize: 13, textAlign: 'center' },
+    motionBanner: { padding: 10, paddingBottom: 4, backgroundColor: '#1A1505' },
+    motionText: { color: '#B8860B', fontSize: 12, fontWeight: '600', textAlign: 'center' },
 
-  list: { maxHeight: 320 },
-  result: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    height: 60,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#2A2A2A',
-  },
-  resultIcon: {
-    fontSize: 18,
-    marginRight: 10,
-  },
-  resultBody: { flex: 1 },
-  resultName: { fontSize: 16, fontWeight: '700', color: '#FFFFFF' },
-  resultAddress: { fontSize: 13, color: '#888888', marginTop: 2 },
-  resultCategory: {
-    fontSize: 11,
-    color: '#DC143C',
-    marginTop: 2,
-    textTransform: 'capitalize',
-  },
-  noResults: { padding: 16, color: '#888888', textAlign: 'center', fontSize: 13 },
-});
+    list: { maxHeight: 320 },
+    result: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: 12,
+      height: 60,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.border,
+    },
+    resultIcon: {
+      marginRight: 10,
+    },
+    resultBody: { flex: 1 },
+    resultName: { fontSize: 16, fontWeight: '700', color: colors.text },
+    resultAddress: { fontSize: 13, color: colors.textMuted, marginTop: 2 },
+    resultCategory: {
+      fontSize: 11,
+      color: colors.accent,
+      marginTop: 2,
+      textTransform: 'capitalize',
+    },
+    noResults: { padding: 16, color: colors.textMuted, textAlign: 'center', fontSize: 13 },
+  });
+}
