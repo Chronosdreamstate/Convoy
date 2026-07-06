@@ -371,6 +371,20 @@ export default function GroupChatScreen() {
   const [isRecording, setIsRecording] = useState(false);
   const [recordingDuration, setRecordingDuration] = useState(0);
 
+  // This screen is reused verbatim for one-off DMs — both the Friends
+  // screen's "Message" action and the Nearby screen's "Chat" button navigate
+  // here with a groupId that points at a convoy_groups row of type 'dm'
+  // (see migration 014_direct_messages.sql). `otherParticipant` is only
+  // populated for DM-type groups, driving both the header identity display
+  // and the in-chat block affordance below.
+  const [groupType, setGroupType] = useState<'group' | 'dm'>('group');
+  const [otherParticipant, setOtherParticipant] = useState<{
+    userId: string;
+    displayName: string;
+    avatarUrl: string | null;
+  } | null>(null);
+  const [blocking, setBlocking] = useState(false);
+
   const flatListRef = useRef<FlatList<Message>>(null);
   const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const typingClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -402,6 +416,32 @@ export default function GroupChatScreen() {
   useEffect(() => {
     void loadInitialMessages();
   }, [loadInitialMessages]);
+
+  // Determine whether this is a real convoy group or a one-off DM thread,
+  // and — for DMs — who the other participant is, so the header can show
+  // their identity instead of the generic "GROUP CHAT" label (and so the
+  // block affordance below knows who to block).
+  const loadGroupInfo = useCallback(async () => {
+    if (!groupId || !accessToken) return;
+    try {
+      const { data } = await apiClient.get<{ type?: 'group' | 'dm' }>(`/api/v1/groups/${groupId}`);
+      const type = data.type ?? 'group';
+      setGroupType(type);
+      if (type === 'dm') {
+        const membersRes = await apiClient.get<{
+          members: Array<{ userId: string; displayName: string; avatarUrl: string | null }>;
+        }>(`/api/v1/groups/${groupId}/members`);
+        const other = membersRes.data.members.find((m) => m.userId !== currentUserId) ?? null;
+        setOtherParticipant(other);
+      }
+    } catch {
+      // silently fail — header falls back to the generic "GROUP CHAT" label
+    }
+  }, [groupId, accessToken, currentUserId]);
+
+  useEffect(() => {
+    void loadGroupInfo();
+  }, [loadGroupInfo]);
 
   const loadMoreMessages = useCallback(async () => {
     if (!groupId || !accessToken || !nextCursor || loadingMore) return;
@@ -603,6 +643,58 @@ export default function GroupChatScreen() {
   }, [reactionTarget, handleReact]);
 
   // ---------------------------------------------------------------------------
+  // Block (DM safety affordance) — mirrors the confirm-then-block convention
+  // used by UserProfileScreen.handleBlock / FriendsScreen.handleBlock: a
+  // destructive confirmation dialog, then the shared block endpoint, then a
+  // success dialog. Continuing to message someone right after blocking them
+  // doesn't make sense, so on success we navigate back out of the chat —
+  // same as UserProfileScreen does after a successful block.
+  // ---------------------------------------------------------------------------
+
+  const handleBlockPress = useCallback(() => {
+    if (!otherParticipant || blocking) return;
+    const name = otherParticipant.displayName;
+    Alert.alert(
+      'Block User',
+      `Block ${name}? They won't be able to send you friend requests or see your location, any existing friendship will be removed, and you won't be able to continue this conversation.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Block',
+          style: 'destructive',
+          onPress: () => {
+            void (async () => {
+              setBlocking(true);
+              try {
+                await apiClient.post('/api/v1/friends/block', { userId: otherParticipant.userId });
+                Alert.alert('User Blocked', `${name} has been blocked.`, [
+                  { text: 'OK', onPress: () => router.back() },
+                ]);
+              } catch {
+                Alert.alert('Error', 'Could not block this user. Please try again.');
+              } finally {
+                setBlocking(false);
+              }
+            })();
+          },
+        },
+      ],
+    );
+  }, [otherParticipant, blocking, router]);
+
+  const handleHeaderMenu = useCallback(() => {
+    if (!otherParticipant) return;
+    Alert.alert(
+      otherParticipant.displayName,
+      undefined,
+      [
+        { text: '⛔ Block User', style: 'destructive', onPress: handleBlockPress },
+        { text: 'Cancel', style: 'cancel' },
+      ],
+    );
+  }, [otherParticipant, handleBlockPress]);
+
+  // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
 
@@ -634,8 +726,43 @@ export default function GroupChatScreen() {
         >
           <Ionicons name="chevron-back" size={22} color={colors.textMuted} style={styles.backBtn} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>GROUP CHAT</Text>
-        <View style={styles.headerRight} />
+        <View style={styles.headerTitleWrap}>
+          {groupType === 'dm' && otherParticipant ? (
+            <>
+              <View style={styles.headerAvatar}>
+                {otherParticipant.avatarUrl ? (
+                  <Image
+                    source={{ uri: otherParticipant.avatarUrl }}
+                    style={styles.headerAvatarImage}
+                    accessibilityLabel={`${otherParticipant.displayName}'s avatar`}
+                  />
+                ) : (
+                  <Text style={styles.headerAvatarInitials}>
+                    {avatarInitials(otherParticipant.displayName)}
+                  </Text>
+                )}
+              </View>
+              <Text style={styles.headerTitleDm} numberOfLines={1}>
+                {otherParticipant.displayName}
+              </Text>
+            </>
+          ) : (
+            <Text style={styles.headerTitle}>GROUP CHAT</Text>
+          )}
+        </View>
+        {groupType === 'dm' ? (
+          <TouchableOpacity
+            style={styles.headerKebab}
+            onPress={handleHeaderMenu}
+            hitSlop={theme.hitSlop}
+            accessibilityRole="button"
+            accessibilityLabel="Chat options"
+          >
+            <Text style={styles.headerKebabText}>•••</Text>
+          </TouchableOpacity>
+        ) : (
+          <View style={styles.headerRight} />
+        )}
       </View>
 
       <KeyboardAvoidingView
@@ -811,6 +938,52 @@ function createStyles(colors: ThemeColors) {
   },
   headerRight: {
     width: 32,
+  },
+  headerTitleWrap: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingHorizontal: 8,
+  },
+  headerTitleDm: {
+    color: theme.colors.text,
+    fontSize: 15,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+    flexShrink: 1,
+  },
+  headerAvatar: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: theme.colors.card,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  headerAvatarImage: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+  },
+  headerAvatarInitials: {
+    color: theme.colors.textMuted,
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  headerKebab: {
+    width: 32,
+    alignItems: 'flex-end',
+    paddingVertical: 4,
+  },
+  headerKebabText: {
+    color: theme.colors.textMuted,
+    fontSize: 16,
+    letterSpacing: -1,
   },
 
   // Skeleton loading
