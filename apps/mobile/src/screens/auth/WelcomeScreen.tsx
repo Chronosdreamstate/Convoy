@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
   View,
@@ -12,9 +12,10 @@ import {
   Dimensions,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import { authService } from '../../services/AuthService';
 import { useAuthStore } from '../../stores/authStore';
-import { theme } from '../../theme';
+import { useTheme } from '../../theme';
 import { useAccessibilitySettings } from '../../hooks/useAccessibilitySettings';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -47,6 +48,8 @@ const TERMS_URL = 'https://convoy.app/terms';
 
 export default function WelcomeScreen() {
   const router = useRouter();
+  const theme = useTheme();
+  const styles = useMemo(() => createStyles(theme), [theme]);
   const { setUser, setAccessToken } = useAuthStore();
   const { reduceMotion } = useAccessibilitySettings();
 
@@ -172,7 +175,7 @@ export default function WelcomeScreen() {
             accessibilityElementsHidden={i !== currentSlide}
             importantForAccessibility={i !== currentSlide ? 'no-hide-descendants' : 'yes'}
           >
-            {/* Large background watermark emoji (opacity 0.06) */}
+            {/* Large background watermark emoji (opacity 0.06) — decorative illustration */}
             <Text style={styles.watermarkEmoji} accessibilityElementsHidden={true}>
               {slide.emoji}
             </Text>
@@ -193,7 +196,7 @@ export default function WelcomeScreen() {
         ))}
       </View>
 
-      {/* Progress dots — 4 dots, active = crimson pill (24×8), inactive = #444 circle (8×8) */}
+      {/* Progress dots — 4 dots, active = crimson pill (24×8), inactive = subtle circle (8×8) */}
       <View style={styles.dotsRow} accessibilityRole="tablist" accessibilityLabel="Slide indicators">
         {SLIDES.map((_, i) => (
           <Animated.View
@@ -264,7 +267,8 @@ export default function WelcomeScreen() {
                 accessibilityLabel="Sign in with Apple"
                 accessibilityHint="Signs you in with your Apple ID"
               >
-                <Text style={styles.appleButtonText}> Sign in with Apple</Text>
+                <Ionicons name="logo-apple" size={20} color={theme.colors.text} />
+                <Text style={styles.appleButtonText}>Sign in with Apple</Text>
               </TouchableOpacity>
             )}
 
@@ -275,7 +279,8 @@ export default function WelcomeScreen() {
               accessibilityLabel="Sign in with Google"
               accessibilityHint="Signs you in with your Google account"
             >
-              <Text style={styles.googleButtonText}>G  Sign in with Google</Text>
+              <Ionicons name="logo-google" size={18} color="#4285F4" />
+              <Text style={styles.googleButtonText}>Sign in with Google</Text>
             </TouchableOpacity>
 
             <View style={styles.legalSection}>
@@ -307,233 +312,243 @@ export default function WelcomeScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: theme.colors.bg,
-  },
+function createStyles(theme: ReturnType<typeof useTheme>) {
+  return StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: theme.colors.bg,
+    },
 
-  // ── Top bar ─────────────────────────────────────────────────────────────────
-  topBar: {
-    height: 48,
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    alignItems: 'center',
-    paddingHorizontal: theme.spacing.lg,
-  },
-  skipButton: {
-    paddingVertical: 6,
-    paddingHorizontal: 4,
-  },
-  skipText: {
-    color: theme.colors.textMuted,
-    fontSize: 15,
-    fontWeight: '500',
-  },
+    // ── Top bar ─────────────────────────────────────────────────────────────────
+    topBar: {
+      height: 48,
+      flexDirection: 'row',
+      justifyContent: 'flex-end',
+      alignItems: 'center',
+      paddingHorizontal: theme.spacing.lg,
+    },
+    skipButton: {
+      paddingVertical: 6,
+      paddingHorizontal: 4,
+    },
+    skipText: {
+      color: theme.colors.textMuted,
+      fontSize: 15,
+      fontWeight: '500',
+    },
 
-  // ── Slide stack ─────────────────────────────────────────────────────────────
-  slidesContainer: {
-    flex: 1,
-    overflow: 'hidden',
-    position: 'relative',
-  },
-  slide: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    width: SCREEN_WIDTH,
-    height: '100%',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: theme.spacing.xl,
-  },
-  // Giant background watermark — centered, very faint
-  watermarkEmoji: {
-    position: 'absolute',
-    fontSize: 200,
-    opacity: 0.06,
-    textAlign: 'center',
-  },
-  slideContent: {
-    alignItems: 'center',
-    gap: theme.spacing.md,
-    zIndex: 1,
-  },
-  // Crimson radial glow behind the foreground emoji
-  glowOrb: {
-    position: 'absolute',
-    width: 220,
-    height: 220,
-    borderRadius: 110,
-    backgroundColor: theme.colors.accent,
-    opacity: 0.1,
-    top: -80,
-  },
-  emojiWrapper: {
-    shadowColor: theme.colors.accent,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.45,
-    shadowRadius: 14,
-    elevation: 10,
-  },
-  emojiText: {
-    fontSize: 72,
-    textAlign: 'center',
-  },
-  slideTitle: {
-    fontSize: 30,
-    fontWeight: '800',
-    color: theme.colors.text,
-    textAlign: 'center',
-    letterSpacing: 0.4,
-    marginTop: theme.spacing.sm,
-  },
-  slideBody: {
-    fontSize: 16,
-    color: theme.colors.textMuted,
-    textAlign: 'center',
-    lineHeight: 24,
-  },
+    // ── Slide stack ─────────────────────────────────────────────────────────────
+    slidesContainer: {
+      flex: 1,
+      overflow: 'hidden',
+      position: 'relative',
+    },
+    slide: {
+      position: 'absolute',
+      top: 0,
+      left: 0,
+      width: SCREEN_WIDTH,
+      height: '100%',
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: theme.spacing.xl,
+    },
+    // Giant background watermark — centered, very faint
+    watermarkEmoji: {
+      position: 'absolute',
+      fontSize: 200,
+      opacity: 0.06,
+      textAlign: 'center',
+    },
+    slideContent: {
+      alignItems: 'center',
+      gap: theme.spacing.md,
+      zIndex: 1,
+    },
+    // Crimson radial glow behind the foreground emoji
+    glowOrb: {
+      position: 'absolute',
+      width: 220,
+      height: 220,
+      borderRadius: 110,
+      backgroundColor: theme.colors.accent,
+      opacity: 0.1,
+      top: -80,
+    },
+    emojiWrapper: {
+      shadowColor: theme.colors.accent,
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.45,
+      shadowRadius: 14,
+      elevation: 10,
+    },
+    emojiText: {
+      fontSize: 72,
+      textAlign: 'center',
+    },
+    slideTitle: {
+      fontSize: 30,
+      fontWeight: '800',
+      color: theme.colors.text,
+      textAlign: 'center',
+      letterSpacing: 0.4,
+      marginTop: theme.spacing.sm,
+    },
+    slideBody: {
+      fontSize: 16,
+      color: theme.colors.textMuted,
+      textAlign: 'center',
+      lineHeight: 24,
+    },
 
-  // ── Progress dots ────────────────────────────────────────────────────────────
-  dotsRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 8,
-    paddingVertical: theme.spacing.lg,
-  },
-  dot: {
-    height: 8,
-    borderRadius: 4,
-  },
-  dotActive: {
-    backgroundColor: theme.colors.accent,   // crimson #DC143C
-  },
-  dotInactive: {
-    backgroundColor: '#444444',
-  },
+    // ── Progress dots ────────────────────────────────────────────────────────────
+    dotsRow: {
+      flexDirection: 'row',
+      justifyContent: 'center',
+      alignItems: 'center',
+      gap: 8,
+      paddingVertical: theme.spacing.lg,
+    },
+    dot: {
+      height: 8,
+      borderRadius: 4,
+    },
+    dotActive: {
+      backgroundColor: theme.colors.accent,   // crimson
+    },
+    dotInactive: {
+      backgroundColor: theme.colors.textSubtle,
+    },
 
-  // ── CTA section ─────────────────────────────────────────────────────────────
-  ctaSection: {
-    paddingHorizontal: theme.spacing.lg,
-    paddingBottom: theme.spacing.lg,
-  },
-  // Crimson pill button — "Next →" / "Let's Go →"
-  ctaButton: {
-    backgroundColor: theme.colors.accent,
-    borderRadius: 28,
-    height: 56,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: theme.colors.accent,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.35,
-    shadowRadius: 12,
-    elevation: 6,
-  },
-  ctaText: {
-    color: theme.colors.text,
-    fontSize: 17,
-    fontWeight: '700',
-    letterSpacing: 0.5,
-  },
-  guestButton: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 14,
-  },
-  guestButtonText: {
-    color: theme.colors.textMuted,
-    fontSize: 14,
-    fontWeight: '600',
-  },
+    // ── CTA section ─────────────────────────────────────────────────────────────
+    ctaSection: {
+      paddingHorizontal: theme.spacing.lg,
+      paddingBottom: theme.spacing.lg,
+    },
+    // Crimson pill button — "Next →" / "Let's Go →"
+    ctaButton: {
+      backgroundColor: theme.colors.accent,
+      borderRadius: 28,
+      height: 56,
+      alignItems: 'center',
+      justifyContent: 'center',
+      shadowColor: theme.colors.accent,
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.35,
+      shadowRadius: 12,
+      elevation: 6,
+    },
+    ctaText: {
+      color: theme.colors.text,
+      fontSize: 17,
+      fontWeight: '700',
+      letterSpacing: 0.5,
+    },
+    guestButton: {
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingVertical: 14,
+    },
+    guestButtonText: {
+      color: theme.colors.textMuted,
+      fontSize: 14,
+      fontWeight: '600',
+    },
 
-  // ── Last-slide extras (sign-in row + social auth + legal) ───────────────────
-  signInRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginTop: 14,
-  },
-  signInHint: {
-    color: theme.colors.textMuted,
-    fontSize: 14,
-  },
-  signInLink: {
-    color: theme.colors.accent,
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  dividerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginVertical: 14,
-  },
-  dividerLine: {
-    flex: 1,
-    height: 1,
-    backgroundColor: theme.colors.border,
-  },
-  dividerText: {
-    color: theme.colors.textSubtle,
-    fontSize: 13,
-    marginHorizontal: 12,
-  },
-  appleButton: {
-    backgroundColor: '#000000',
-    borderRadius: 14,
-    paddingVertical: 18,
-    paddingHorizontal: theme.spacing.lg,
-    alignItems: 'center',
-    minHeight: 56,
-    justifyContent: 'center',
-    marginBottom: 10,
-    borderWidth: 1,
-    borderColor: '#333333',
-  },
-  appleButtonText: {
-    color: theme.colors.text,
-    fontSize: 16,
-    fontWeight: '600',
-    letterSpacing: 0.3,
-  },
-  googleButton: {
-    backgroundColor: theme.colors.card,
-    borderRadius: 14,
-    paddingVertical: 18,
-    paddingHorizontal: theme.spacing.lg,
-    alignItems: 'center',
-    minHeight: 56,
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: '#4285F4',
-  },
-  googleButtonAfterApple: {
-    // appleButton already has marginBottom: 10 — no extra needed
-  },
-  googleButtonText: {
-    color: '#4285F4',
-    fontSize: 16,
-    fontWeight: '600',
-    letterSpacing: 0.3,
-  },
-  legalSection: {
-    alignItems: 'center',
-    paddingTop: theme.spacing.md,
-  },
-  legalLinks: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'center',
-  },
-  legalText: {
-    color: theme.colors.textMuted,
-    ...theme.typography.tiny,
-  },
-  legalLink: {
-    color: theme.colors.accent,
-    ...theme.typography.tiny,
-    textDecorationLine: 'underline',
-  },
-});
+    // ── Last-slide extras (sign-in row + social auth + legal) ───────────────────
+    signInRow: {
+      flexDirection: 'row',
+      justifyContent: 'center',
+      alignItems: 'center',
+      marginTop: 14,
+    },
+    signInHint: {
+      color: theme.colors.textMuted,
+      fontSize: 14,
+    },
+    signInLink: {
+      color: theme.colors.accent,
+      fontSize: 14,
+      fontWeight: '600',
+    },
+    dividerRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginVertical: 14,
+    },
+    dividerLine: {
+      flex: 1,
+      height: 1,
+      backgroundColor: theme.colors.border,
+    },
+    dividerText: {
+      color: theme.colors.textSubtle,
+      fontSize: 13,
+      marginHorizontal: 12,
+    },
+    // Apple's Sign in with Apple button is brand-mandated to be solid black
+    // with a near-black hairline border regardless of app theme — intentionally
+    // not themed.
+    appleButton: {
+      flexDirection: 'row',
+      backgroundColor: '#000000',
+      borderRadius: 14,
+      paddingVertical: 18,
+      paddingHorizontal: theme.spacing.lg,
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 8,
+      minHeight: 56,
+      marginBottom: 10,
+      borderWidth: 1,
+      borderColor: '#333333',
+    },
+    appleButtonText: {
+      color: theme.colors.text,
+      fontSize: 16,
+      fontWeight: '600',
+      letterSpacing: 0.3,
+    },
+    googleButton: {
+      flexDirection: 'row',
+      backgroundColor: theme.colors.card,
+      borderRadius: 14,
+      paddingVertical: 18,
+      paddingHorizontal: theme.spacing.lg,
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 8,
+      minHeight: 56,
+      borderWidth: 1,
+      // Google's brand blue border — intentionally not themed, see appleButton.
+      borderColor: '#4285F4',
+    },
+    googleButtonAfterApple: {
+      // appleButton already has marginBottom: 10 — no extra needed
+    },
+    googleButtonText: {
+      color: '#4285F4',
+      fontSize: 16,
+      fontWeight: '600',
+      letterSpacing: 0.3,
+    },
+    legalSection: {
+      alignItems: 'center',
+      paddingTop: theme.spacing.md,
+    },
+    legalLinks: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      justifyContent: 'center',
+    },
+    legalText: {
+      color: theme.colors.textMuted,
+      ...theme.typography.tiny,
+    },
+    legalLink: {
+      color: theme.colors.accent,
+      ...theme.typography.tiny,
+      textDecorationLine: 'underline',
+    },
+  });
+}

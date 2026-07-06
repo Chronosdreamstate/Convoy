@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -8,9 +8,13 @@ import {
   Animated,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
+import { useTheme } from '../../theme';
 
 export default function PTTTutorialScreen() {
   const router = useRouter();
+  const theme = useTheme();
+  const styles = useMemo(() => createStyles(theme), [theme]);
 
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const opacityAnim = useRef(new Animated.Value(1)).current;
@@ -70,7 +74,7 @@ export default function PTTTutorialScreen() {
 
             {/* Mock PTT button — non-functional UI demo */}
             <View style={styles.pttButton}>
-              <Text style={styles.pttIcon}>🎙️</Text>
+              <Ionicons name="mic" size={36} color={theme.colors.text} />
             </View>
           </View>
 
@@ -101,77 +105,76 @@ export default function PTTTutorialScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#0A0A0A' },
-  container: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 24,
-    paddingVertical: 48,
-  },
-  topSection: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 24,
-  },
-  buttonWrapper: {
-    width: 160,
-    height: 160,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  pulseRing: {
-    position: 'absolute',
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    borderWidth: 3,
-    borderColor: '#DC143C',
-  },
-  pttButton: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: '#DC143C',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  pttIcon: {
-    fontSize: 36,
-  },
-  holdToTalk: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: '#FFFFFF',
-    textAlign: 'center',
-  },
-  subText: {
-    fontSize: 15,
-    color: '#888888',
-    textAlign: 'center',
-    lineHeight: 22,
-  },
-  bottomSection: {
-    width: '100%',
-    alignItems: 'center',
-    gap: 16,
-  },
-  gotItBtn: {
-    width: '100%',
-    backgroundColor: '#DC143C',
-    borderRadius: 12,
-    paddingVertical: 16,
-    alignItems: 'center',
-  },
-  gotItText: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#FFFFFF',
-  },
-  skipText: {
-    fontSize: 14,
-    color: '#888888',
-  },
-});
+function createStyles(theme: ReturnType<typeof useTheme>) {
+  return StyleSheet.create({
+    safe: { flex: 1, backgroundColor: theme.colors.bg },
+    container: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: 24,
+      paddingVertical: 48,
+    },
+    topSection: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 24,
+    },
+    buttonWrapper: {
+      width: 160,
+      height: 160,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    pulseRing: {
+      position: 'absolute',
+      width: 80,
+      height: 80,
+      borderRadius: 40,
+      borderWidth: 3,
+      borderColor: theme.colors.accent,
+    },
+    pttButton: {
+      width: 80,
+      height: 80,
+      borderRadius: 40,
+      backgroundColor: theme.colors.accent,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    holdToTalk: {
+      fontSize: 22,
+      fontWeight: '700',
+      color: theme.colors.text,
+      textAlign: 'center',
+    },
+    subText: {
+      fontSize: 15,
+      color: theme.colors.textMuted,
+      textAlign: 'center',
+      lineHeight: 22,
+    },
+    bottomSection: {
+      width: '100%',
+      alignItems: 'center',
+      gap: 16,
+    },
+    gotItBtn: {
+      width: '100%',
+      backgroundColor: theme.colors.accent,
+      borderRadius: 12,
+      paddingVertical: 16,
+      alignItems: 'center',
+    },
+    gotItText: {
+      fontSize: 16,
+      fontWeight: '700',
+      color: theme.colors.text,
+    },
+    skipText: {
+      fontSize: 14,
+      color: theme.colors.textMuted,
+    },
+  });
+}

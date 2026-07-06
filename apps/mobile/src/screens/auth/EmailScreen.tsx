@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
   View,
@@ -13,9 +13,10 @@ import {
   ScrollView,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import { authService } from '../../services/AuthService';
 import { useAuthStore } from '../../stores/authStore';
-import { theme } from '../../theme';
+import { useTheme } from '../../theme';
 
 type Mode = 'signin' | 'signup';
 
@@ -25,6 +26,8 @@ function isValidEmail(e: string): boolean {
 
 export default function EmailScreen() {
   const router = useRouter();
+  const theme = useTheme();
+  const styles = useMemo(() => createStyles(theme), [theme]);
   const { setUser, setAccessToken } = useAuthStore();
 
   const [mode, setMode] = useState<Mode>('signin');
@@ -185,7 +188,12 @@ export default function EmailScreen() {
                   accessibilityLabel="Email address, required"
                 />
                 {emailValid ? (
-                  <Text style={styles.validIcon}>✓</Text>
+                  <Ionicons
+                    name="checkmark-circle"
+                    size={20}
+                    color={theme.colors.success}
+                    style={styles.validIcon}
+                  />
                 ) : null}
               </View>
               {emailError ? <Text style={styles.fieldError}>{emailError}</Text> : null}
@@ -214,7 +222,11 @@ export default function EmailScreen() {
                   accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
                   hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                 >
-                  <Text style={styles.eyeIcon}>{showPassword ? '🙈' : '👁'}</Text>
+                  <Ionicons
+                    name={showPassword ? 'eye-off' : 'eye'}
+                    size={20}
+                    color={theme.colors.textMuted}
+                  />
                 </TouchableOpacity>
               </View>
               {passwordError ? <Text style={styles.fieldError}>{passwordError}</Text> : null}
@@ -258,143 +270,139 @@ export default function EmailScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: theme.colors.bg,
-  },
-  keyboardAvoid: {
-    flex: 1,
-  },
-  inner: {
-    paddingHorizontal: theme.spacing.lg,
-    paddingTop: theme.spacing.xl,
-    paddingBottom: theme.spacing.xxl,
-  },
-  backBtn: {
-    paddingTop: 8,
-    paddingBottom: 16,
-    alignSelf: 'flex-start',
-  },
-  backBtnText: {
-    color: theme.colors.accent,
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  // Subtle CORTEGE wordmark centered at top
-  wordmarkRow: {
-    alignItems: 'center',
-    marginBottom: theme.spacing.xl,
-  },
-  wordmark: {
-    fontSize: 24,
-    fontWeight: '900',
-    color: theme.colors.text,
-    letterSpacing: 6,
-  },
-  header: {
-    marginBottom: theme.spacing.xl,
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: '700',
-    color: theme.colors.text,
-    marginBottom: 8,
-  },
-  subtitle: {
-    fontSize: 15,
-    color: theme.colors.textMuted,
-    lineHeight: 22,
-  },
-  form: {
-    gap: 8,
-  },
-  label: {
-    fontSize: 13,
-    color: '#AAAAAA',
-  },
-  labelSpacing: {
-    marginTop: 8,
-  },
-  inputRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  inputFlex: {
-    flex: 1,
-  },
-  input: {
-    backgroundColor: theme.colors.card,
-    borderRadius: theme.radius.md,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    fontSize: 16,
-    color: theme.colors.text,
-  },
-  inputError: {
-    borderColor: theme.colors.error,
-  },
-  validIcon: {
-    color: theme.colors.success,
-    fontSize: 18,
-    fontWeight: '700',
-    marginLeft: 10,
-  },
-  eyeBtn: {
-    marginLeft: 10,
-    padding: 4,
-  },
-  eyeIcon: {
-    fontSize: 18,
-  },
-  fieldError: {
-    color: theme.colors.error,
-    fontSize: 12,
-    marginTop: 4,
-    marginLeft: 4,
-  },
-  submitError: {
-    color: theme.colors.error,
-    fontSize: 13,
-    marginTop: 8,
-    textAlign: 'center',
-  },
-  button: {
-    backgroundColor: theme.colors.accent,
-    borderRadius: 28,
-    height: 56,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 12,
-    shadowColor: theme.colors.accent,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.35,
-    shadowRadius: 12,
-    elevation: 6,
-  },
-  buttonDisabled: {
-    opacity: 0.5,
-  },
-  buttonText: {
-    color: theme.colors.text,
-    fontSize: 16,
-    fontWeight: '700',
-    letterSpacing: 0.3,
-  },
-  toggleRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    marginTop: 16,
-  },
-  toggleText: {
-    color: theme.colors.textMuted,
-    fontSize: 14,
-  },
-  toggleLink: {
-    color: theme.colors.accent,
-    fontSize: 14,
-    fontWeight: '600',
-  },
-});
+function createStyles(theme: ReturnType<typeof useTheme>) {
+  return StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: theme.colors.bg,
+    },
+    keyboardAvoid: {
+      flex: 1,
+    },
+    inner: {
+      paddingHorizontal: theme.spacing.lg,
+      paddingTop: theme.spacing.xl,
+      paddingBottom: theme.spacing.xxl,
+    },
+    backBtn: {
+      paddingTop: 8,
+      paddingBottom: 16,
+      alignSelf: 'flex-start',
+    },
+    backBtnText: {
+      color: theme.colors.accent,
+      fontSize: 16,
+      fontWeight: '600',
+    },
+    // Subtle CORTEGE wordmark centered at top
+    wordmarkRow: {
+      alignItems: 'center',
+      marginBottom: theme.spacing.xl,
+    },
+    wordmark: {
+      fontSize: 24,
+      fontWeight: '900',
+      color: theme.colors.text,
+      letterSpacing: 6,
+    },
+    header: {
+      marginBottom: theme.spacing.xl,
+    },
+    title: {
+      fontSize: 28,
+      fontWeight: '700',
+      color: theme.colors.text,
+      marginBottom: 8,
+    },
+    subtitle: {
+      fontSize: 15,
+      color: theme.colors.textMuted,
+      lineHeight: 22,
+    },
+    form: {
+      gap: 8,
+    },
+    label: {
+      fontSize: 13,
+      color: theme.colors.textMuted,
+    },
+    labelSpacing: {
+      marginTop: 8,
+    },
+    inputRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    inputFlex: {
+      flex: 1,
+    },
+    input: {
+      backgroundColor: theme.colors.card,
+      borderRadius: theme.radius.md,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+      paddingHorizontal: 16,
+      paddingVertical: 14,
+      fontSize: 16,
+      color: theme.colors.text,
+    },
+    inputError: {
+      borderColor: theme.colors.error,
+    },
+    validIcon: {
+      marginLeft: 10,
+    },
+    eyeBtn: {
+      marginLeft: 10,
+      padding: 4,
+    },
+    fieldError: {
+      color: theme.colors.error,
+      fontSize: 12,
+      marginTop: 4,
+      marginLeft: 4,
+    },
+    submitError: {
+      color: theme.colors.error,
+      fontSize: 13,
+      marginTop: 8,
+      textAlign: 'center',
+    },
+    button: {
+      backgroundColor: theme.colors.accent,
+      borderRadius: 28,
+      height: 56,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginTop: 12,
+      shadowColor: theme.colors.accent,
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.35,
+      shadowRadius: 12,
+      elevation: 6,
+    },
+    buttonDisabled: {
+      opacity: 0.5,
+    },
+    buttonText: {
+      color: theme.colors.text,
+      fontSize: 16,
+      fontWeight: '700',
+      letterSpacing: 0.3,
+    },
+    toggleRow: {
+      flexDirection: 'row',
+      justifyContent: 'center',
+      marginTop: 16,
+    },
+    toggleText: {
+      color: theme.colors.textMuted,
+      fontSize: 14,
+    },
+    toggleLink: {
+      color: theme.colors.accent,
+      fontSize: 14,
+      fontWeight: '600',
+    },
+  });
+}
