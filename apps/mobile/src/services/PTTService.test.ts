@@ -23,6 +23,7 @@ function buildEngine(connected = true): IAgoraEngine & { volumeCalls: VolumeCall
     adjustPlaybackSignalVolume: jest.fn((volume: number) => { volumeCalls.push({ volume }); }),
     isConnected: jest.fn(() => connected),
     onTokenPrivilegeWillExpire: jest.fn(),
+    renewToken: jest.fn(),
     destroy: jest.fn(),
   };
 }
@@ -141,6 +142,33 @@ describe('PTTService volume restore after ducking', () => {
     svc.holdEnd();
     expect(engine.volumeCalls.at(-1)?.volume).toBe(300);
     jest.useRealTimers();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Token refresh on onTokenPrivilegeWillExpire — Req 38.2
+// ---------------------------------------------------------------------------
+
+describe('PTTService token refresh (onTokenPrivilegeWillExpire)', () => {
+  it('fetches a fresh token and applies it via renewToken, without rejoining the channel', async () => {
+    const engine = buildEngine();
+    const tokenFetcher = buildTokenFetcher();
+    (tokenFetcher.fetchToken as jest.Mock)
+      .mockResolvedValueOnce({ token: 'tok-initial', uid: 1, channelName: 'ch', expiresAt: '' })
+      .mockResolvedValueOnce({ token: 'tok-renewed', uid: 1, channelName: 'ch', expiresAt: '' });
+    const svc = new PTTService(engine, tokenFetcher, buildSocket(), haptic);
+
+    await svc.joinChannel(session);
+    expect(engine.joinChannel).toHaveBeenCalledTimes(1);
+
+    // Simulate Agora firing the expiry callback registered via onTokenPrivilegeWillExpire
+    const expiryCallback = (engine.onTokenPrivilegeWillExpire as jest.Mock).mock.calls[0][0];
+    await expiryCallback();
+
+    expect(tokenFetcher.fetchToken).toHaveBeenCalledTimes(2);
+    expect(engine.renewToken).toHaveBeenCalledWith('tok-renewed');
+    // Must not rejoin — that would risk an audible interruption mid-session
+    expect(engine.joinChannel).toHaveBeenCalledTimes(1);
   });
 });
 
