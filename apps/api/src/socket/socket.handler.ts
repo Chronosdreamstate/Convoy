@@ -5,6 +5,7 @@ import { Pool } from 'pg';
 import Redis from 'ioredis';
 import { canTransmit, isDurationExceeded } from '../ptt/ptt.routes';
 import { computeExpiresAt } from '../hazards/hazards.routes';
+import { incrementStatCounter } from '../db/statCounters';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -829,10 +830,22 @@ export function registerSocketHandlers(
     });
 
     // sos:acknowledge — relay SOS acknowledgment to group
+    //
+    // sos_hero achievement (target: 1 — "respond to an SOS alert"): this is the
+    // one concrete "responding to an SOS" action the app already has. When
+    // another member's SosAlertModal is shown (mobile MapScreen.tsx), tapping
+    // "Alert Group" or letting its countdown expire fires onAcknowledge, which
+    // emits this event. We treat the acknowledging member — the one who saw the
+    // alert and responded — as the "hero", and increment their counter here.
+    // (The person who *raised* the SOS is not the one credited; this is about
+    // group members responding to help someone else.)
     socket.on('sos:acknowledge', (data: unknown) => {
       const { sosId, memberName } = (data as { sosId?: string; memberName?: string }) ?? {};
       if (!sosId) return;
       socket.to(`group:${groupId}`).emit('sos:acknowledged', { sosId, memberName, acknowledgedBy: userId });
+      incrementStatCounter(fastify.db, userId, 'sos_hero', 1).catch((err: unknown) =>
+        fastify.log.error({ err }, 'sos_hero counter increment error'),
+      );
     });
 
     // waypoint:reached — relay waypoint arrival notification to group
