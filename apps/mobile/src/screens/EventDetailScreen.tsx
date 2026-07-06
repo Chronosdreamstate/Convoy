@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   RefreshControl,
@@ -9,6 +9,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { apiClient } from '../services/apiClient';
@@ -16,6 +17,7 @@ import { useAuthStore } from '../stores/authStore';
 import { useGroupStore } from '../stores/groupStore';
 import { SkeletonBox } from '../components/SkeletonLoader';
 import { NetworkError } from '../components/NetworkError';
+import { ThemeColors, useTheme, withAlpha } from '../theme';
 
 type RsvpStatus = 'going' | 'maybe' | 'not_going';
 
@@ -53,7 +55,7 @@ function formatEventDate(iso: string): string {
   });
 }
 
-function InitialsCircle({ name, size = 32 }: { name: string; size?: number }) {
+function InitialsCircle({ name, size = 32, styles }: { name: string; size?: number; styles: ReturnType<typeof createStyles> }) {
   const initials = name
     .split(' ')
     .map((w) => w[0])
@@ -83,6 +85,8 @@ export default function EventDetailScreen() {
   const user = useAuthStore((s) => s.user);
   const activeGroupId = useGroupStore((s) => s.activeGroupId);
   const resolvedGroupId = groupId ?? activeGroupId ?? '';
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
 
   const [event, setEvent] = useState<EventData | null>(null);
   const [rsvps, setRsvps] = useState<RsvpEntry[]>([]);
@@ -173,7 +177,8 @@ export default function EventDetailScreen() {
     return (
       <View style={[styles.root, { paddingTop: insets.top }]}>
         <TouchableOpacity style={styles.backRow} onPress={() => router.back()}>
-          <Text style={styles.backLink}>‹ Back</Text>
+          <Ionicons name="chevron-back" size={14} color={colors.accent} />
+          <Text style={styles.backLink}> Back</Text>
         </TouchableOpacity>
         <View style={{ padding: 16, gap: 16 }}>
           <SkeletonBox width="70%" height={28} />
@@ -190,7 +195,8 @@ export default function EventDetailScreen() {
     return (
       <View style={[styles.root, { paddingTop: insets.top }]}>
         <TouchableOpacity style={styles.backRow} onPress={() => router.back()}>
-          <Text style={styles.backLink}>‹ Back</Text>
+          <Ionicons name="chevron-back" size={14} color={colors.accent} />
+          <Text style={styles.backLink}> Back</Text>
         </TouchableOpacity>
         <NetworkError onRetry={() => void load()} message="Event not found." />
       </View>
@@ -202,7 +208,7 @@ export default function EventDetailScreen() {
       style={styles.root}
       contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 32 }]}
       refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#DC143C" colors={['#DC143C']} />
+        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.accent} colors={[colors.accent]} />
       }
     >
       {/* Header */}
@@ -213,7 +219,7 @@ export default function EventDetailScreen() {
           accessibilityRole="button"
           accessibilityLabel="Go back"
         >
-          <Text style={styles.backArrow}>←</Text>
+          <Ionicons name="chevron-back" size={24} color={colors.text} />
         </TouchableOpacity>
         <Text style={styles.screenTitle}>Event Details</Text>
         <View style={{ width: 44 }} />
@@ -222,7 +228,9 @@ export default function EventDetailScreen() {
       {/* Event card */}
       <View style={styles.card}>
         <Text style={styles.eventTitle}>{event.title}</Text>
-        <Text style={styles.eventDate}>📅 {formatEventDate(event.scheduledFor)}</Text>
+        <Text style={styles.eventDate}>
+          <Ionicons name="calendar-outline" size={13} color={colors.accent} /> {formatEventDate(event.scheduledFor)}
+        </Text>
         {event.description ? (
           <Text style={styles.eventDesc}>{event.description}</Text>
         ) : null}
@@ -251,11 +259,11 @@ export default function EventDetailScreen() {
       <View style={styles.rsvpRow}>
         {(
           [
-            { status: 'going' as RsvpStatus, label: '✅ Going' },
-            { status: 'maybe' as RsvpStatus, label: '🤔 Maybe' },
-            { status: 'not_going' as RsvpStatus, label: '❌ Can\'t Go' },
+            { status: 'going' as RsvpStatus, icon: 'checkmark-circle' as const, label: 'Going' },
+            { status: 'maybe' as RsvpStatus, icon: 'help-circle-outline' as const, label: 'Maybe' },
+            { status: 'not_going' as RsvpStatus, icon: 'close-circle-outline' as const, label: "Can't Go" },
           ] as const
-        ).map(({ status, label }) => {
+        ).map(({ status, icon, label }) => {
           const active = myStatus === status;
           return (
             <TouchableOpacity
@@ -266,9 +274,8 @@ export default function EventDetailScreen() {
               accessibilityRole="button"
               accessibilityState={{ selected: active, disabled: rsvpLoading }}
             >
-              <Text style={[styles.rsvpPillText, active && styles.rsvpPillTextActive]}>
-                {label}
-              </Text>
+              <Ionicons name={icon} size={14} color={active ? colors.text : colors.textMuted} />
+              <Text style={[styles.rsvpPillText, active && styles.rsvpPillTextActive]}> {label}</Text>
             </TouchableOpacity>
           );
         })}
@@ -281,7 +288,7 @@ export default function EventDetailScreen() {
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.avatarScroll}>
             {goingRsvps.slice(0, 12).map((r) => (
               <View key={r.userId} style={styles.avatarItem}>
-                <InitialsCircle name={r.callsign ?? r.displayName} size={40} />
+                <InitialsCircle name={r.callsign ?? r.displayName} size={40} styles={styles} />
                 <Text style={styles.avatarName} numberOfLines={1}>
                   {r.callsign ?? r.displayName.split(' ')[0]}
                 </Text>
@@ -297,7 +304,7 @@ export default function EventDetailScreen() {
           <Text style={styles.sectionLabel}>ALL RESPONSES</Text>
           {rsvps.map((r) => (
             <View key={r.userId} style={styles.rsvpListRow}>
-              <InitialsCircle name={r.callsign ?? r.displayName} size={36} />
+              <InitialsCircle name={r.callsign ?? r.displayName} size={36} styles={styles} />
               <View style={styles.rsvpListInfo}>
                 <Text style={styles.rsvpListName}>
                   {r.callsign ?? r.displayName}
@@ -323,17 +330,19 @@ export default function EventDetailScreen() {
       {/* Admin: remind all */}
       {isAdmin && (
         <TouchableOpacity style={styles.remindBtn} onPress={() => { void handleRemindAll(); }}>
-          <Text style={styles.remindBtnText}>📢 Remind All Members</Text>
+          <Ionicons name="megaphone-outline" size={15} color={colors.text} />
+          <Text style={styles.remindBtnText}> Remind All Members</Text>
         </TouchableOpacity>
       )}
     </ScrollView>
   );
 }
 
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#0A0A0A' },
-  center: { flex: 1, backgroundColor: '#0A0A0A', alignItems: 'center', justifyContent: 'center', gap: 12 },
-  backRow: { paddingHorizontal: 16, paddingVertical: 12 },
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+  root: { flex: 1, backgroundColor: colors.bg },
+  center: { flex: 1, backgroundColor: colors.bg, alignItems: 'center', justifyContent: 'center', gap: 12 },
+  backRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12 },
   content: { paddingHorizontal: 16 },
 
   headerRow: {
@@ -343,39 +352,38 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   backBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
-  backArrow: { fontSize: 24, color: '#FFFFFF' },
-  screenTitle: { fontSize: 17, fontWeight: '700', color: '#FFFFFF' },
+  screenTitle: { fontSize: 17, fontWeight: '700', color: colors.text },
 
   card: {
-    backgroundColor: '#1C1C1C',
+    backgroundColor: colors.card,
     borderRadius: 16,
     padding: 20,
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: colors.border,
     marginBottom: 20,
   },
-  eventTitle: { fontSize: 22, fontWeight: '800', color: '#FFFFFF', marginBottom: 8 },
-  eventDate: { fontSize: 15, color: '#DC143C', fontWeight: '600', marginBottom: 8 },
-  eventDesc: { fontSize: 14, color: '#888', lineHeight: 20 },
+  eventTitle: { fontSize: 22, fontWeight: '800', color: colors.text, marginBottom: 8 },
+  eventDate: { fontSize: 15, color: colors.accent, fontWeight: '600', marginBottom: 8 },
+  eventDesc: { fontSize: 14, color: colors.textMuted, lineHeight: 20 },
 
   countsRow: {
     flexDirection: 'row',
-    backgroundColor: '#1C1C1C',
+    backgroundColor: colors.card,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: colors.border,
     marginBottom: 24,
     overflow: 'hidden',
   },
   countChip: { flex: 1, paddingVertical: 16, alignItems: 'center' },
-  countNumber: { fontSize: 22, fontWeight: '800', color: '#FFFFFF' },
-  countLabel: { fontSize: 11, color: '#888', marginTop: 2, textTransform: 'uppercase', letterSpacing: 0.5 },
-  countDivider: { width: 1, backgroundColor: '#2A2A2A', marginVertical: 10 },
+  countNumber: { fontSize: 22, fontWeight: '800', color: colors.text },
+  countLabel: { fontSize: 11, color: colors.textMuted, marginTop: 2, textTransform: 'uppercase', letterSpacing: 0.5 },
+  countDivider: { width: 1, backgroundColor: colors.border, marginVertical: 10 },
 
   sectionLabel: {
     fontSize: 11,
     fontWeight: '700',
-    color: '#888',
+    color: colors.textMuted,
     textTransform: 'uppercase',
     letterSpacing: 1,
     marginBottom: 10,
@@ -384,55 +392,60 @@ const styles = StyleSheet.create({
   rsvpRow: { flexDirection: 'row', gap: 8, marginBottom: 24 },
   rsvpPill: {
     flex: 1,
+    flexDirection: 'row',
     paddingVertical: 12,
     borderRadius: 12,
     borderWidth: 1.5,
-    borderColor: '#2A2A2A',
+    borderColor: colors.border,
     alignItems: 'center',
-    backgroundColor: '#1C1C1C',
+    justifyContent: 'center',
+    backgroundColor: colors.card,
   },
-  rsvpPillActive: { borderColor: '#DC143C', backgroundColor: '#1A0508' },
-  rsvpPillText: { fontSize: 12, fontWeight: '600', color: '#888' },
-  rsvpPillTextActive: { color: '#FFFFFF' },
+  rsvpPillActive: { borderColor: colors.accent, backgroundColor: withAlpha(colors.accent, 0.1) },
+  rsvpPillText: { fontSize: 12, fontWeight: '600', color: colors.textMuted },
+  rsvpPillTextActive: { color: colors.text },
 
   avatarScroll: { marginBottom: 24 },
   avatarItem: { alignItems: 'center', marginRight: 14, maxWidth: 52 },
-  avatarCircle: { backgroundColor: '#DC143C', alignItems: 'center', justifyContent: 'center' },
+  avatarCircle: { backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center' },
   avatarInitials: { color: '#FFFFFF', fontWeight: '700' },
-  avatarName: { fontSize: 10, color: '#888', marginTop: 4, textAlign: 'center' },
+  avatarName: { fontSize: 10, color: colors.textMuted, marginTop: 4, textAlign: 'center' },
 
   rsvpListRow: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#1C1C1C',
+    borderBottomColor: colors.card,
     gap: 12,
   },
   rsvpListInfo: { flex: 1 },
-  rsvpListName: { fontSize: 15, fontWeight: '600', color: '#FFFFFF' },
+  rsvpListName: { fontSize: 15, fontWeight: '600', color: colors.text },
 
   statusBadge: {
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 8,
   },
-  badgeGoing: { backgroundColor: '#0F2A18' },
-  badgeMaybe: { backgroundColor: '#2A1F06' },
-  badgeNotGoing: { backgroundColor: '#2A0A0A' },
-  statusBadgeText: { fontSize: 12, fontWeight: '600', color: '#FFFFFF' },
+  badgeGoing: { backgroundColor: withAlpha(colors.success, 0.18) },
+  badgeMaybe: { backgroundColor: withAlpha(colors.warning, 0.18) },
+  badgeNotGoing: { backgroundColor: withAlpha(colors.error, 0.18) },
+  statusBadgeText: { fontSize: 12, fontWeight: '600', color: colors.text },
 
   remindBtn: {
     marginTop: 24,
-    backgroundColor: '#1C1C1C',
+    flexDirection: 'row',
+    backgroundColor: colors.card,
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: colors.border,
     borderRadius: 14,
     paddingVertical: 16,
     alignItems: 'center',
+    justifyContent: 'center',
   },
-  remindBtnText: { fontSize: 15, fontWeight: '600', color: '#FFFFFF' },
+  remindBtnText: { fontSize: 15, fontWeight: '600', color: colors.text },
 
-  emptyText: { fontSize: 16, color: '#888' },
-  backLink: { fontSize: 14, color: '#DC143C' },
-});
+  emptyText: { fontSize: 16, color: colors.textMuted },
+  backLink: { fontSize: 14, color: colors.accent },
+  });
+}

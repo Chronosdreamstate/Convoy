@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
   PanResponder,
@@ -11,10 +11,12 @@ import {
   View,
 } from 'react-native';
 import MapView, { Marker, Polyline } from 'react-native-maps';
+import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { apiClient } from '../services/apiClient';
 import { SkeletonBox } from '../components/SkeletonLoader';
 import { NetworkError } from '../components/NetworkError';
+import { ThemeColors, useTheme } from '../theme';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -84,6 +86,8 @@ type Speed = (typeof SPEEDS)[number];
 export default function RouteReplayScreen() {
   const { driveId } = useLocalSearchParams<{ driveId: string }>();
   const router = useRouter();
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
 
   const [drive, setDrive] = useState<DriveDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -274,11 +278,12 @@ export default function RouteReplayScreen() {
   if (coords.length === 0) {
     return (
       <SafeAreaView style={styles.center}>
-        <Text style={styles.emptyEmoji}>🗺️</Text>
+        <Ionicons name="map-outline" size={56} color={colors.textMuted} style={styles.emptyIcon} />
         <Text style={styles.emptyTitle}>No GPS data available</Text>
         <Text style={styles.muted}>This drive has no recorded route trace.</Text>
         <Pressable style={styles.backBtn} onPress={() => router.back()}>
-          <Text style={styles.backBtnText}>← Back</Text>
+          <Ionicons name="chevron-back" size={15} color={colors.accent} />
+          <Text style={styles.backBtnText}> Back</Text>
         </Pressable>
       </SafeAreaView>
     );
@@ -289,13 +294,15 @@ export default function RouteReplayScreen() {
       {/* Header */}
       <View style={styles.header}>
         <Pressable onPress={() => { stopPlayback(); router.back(); }} style={styles.headerBack}>
-          <Text style={styles.headerBackText}>‹ Back</Text>
+          <Ionicons name="chevron-back" size={17} color={colors.accent} />
+          <Text style={styles.headerBackText}> Back</Text>
         </Pressable>
         <Text style={styles.headerTitle}>
           {new Date(drive.startedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
         </Text>
         <Pressable onPress={handleShare} style={styles.shareBtn}>
-          <Text style={styles.shareBtnText}>📤 Share</Text>
+          <Ionicons name="share-social-outline" size={15} color={colors.accent} />
+          <Text style={styles.shareBtnText}> Share</Text>
         </Pressable>
       </View>
 
@@ -309,20 +316,22 @@ export default function RouteReplayScreen() {
         mapType="standard"
       >
         {/* Full route polyline in gray */}
-        <Polyline coordinates={coords} strokeColor="#555555" strokeWidth={3} lineDashPattern={[6, 4]} />
+        <Polyline coordinates={coords} strokeColor={colors.textSubtle} strokeWidth={3} lineDashPattern={[6, 4]} />
         {/* Driven portion in crimson */}
         {markerIndex > 0 && (
           <Polyline
             coordinates={coords.slice(0, markerIndex + 1)}
-            strokeColor="#DC143C"
+            strokeColor={colors.accent}
             strokeWidth={3}
           />
         )}
-        {/* Moving car marker */}
+        {/* Moving car marker — fixed contrast on purpose: this floats over map
+            imagery (not the app's light/dark surface), so it stays legible
+            regardless of theme, matching MapScreen's marker convention. */}
         {currentMarker && (
           <Marker coordinate={currentMarker} anchor={{ x: 0.5, y: 0.5 }} title="Current replay position">
             <View style={styles.carMarker}>
-              <Text style={{ fontSize: 20 }}>🚗</Text>
+              <Ionicons name="car" size={18} color="#FFFFFF" />
             </View>
           </Marker>
         )}
@@ -405,7 +414,7 @@ export default function RouteReplayScreen() {
             accessibilityRole="button"
             accessibilityLabel={playing ? 'Pause' : 'Play'}
           >
-            <Text style={styles.playBtnText}>{playing ? '⏸' : '▶'}</Text>
+            <Ionicons name={playing ? 'pause' : 'play'} size={22} color="#FFFFFF" />
           </Pressable>
           <View style={styles.speedPills}>
             {SPEEDS.map((s) => (
@@ -433,59 +442,62 @@ export default function RouteReplayScreen() {
 // Styles
 // ---------------------------------------------------------------------------
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0A0A0A' },
-  center: { flex: 1, backgroundColor: '#0A0A0A', alignItems: 'center', justifyContent: 'center', padding: 24 },
-  skeletonContainer: { flex: 1, backgroundColor: '#0A0A0A' },
-  skeletonStats: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, padding: 16, justifyContent: 'space-between' },
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: colors.bg },
+    center: { flex: 1, backgroundColor: colors.bg, alignItems: 'center', justifyContent: 'center', padding: 24 },
+    skeletonContainer: { flex: 1, backgroundColor: colors.bg },
+    skeletonStats: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, padding: 16, justifyContent: 'space-between' },
 
-  // Header
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12 },
-  headerBack: { paddingVertical: 4, paddingRight: 8 },
-  headerBackText: { color: '#DC143C', fontSize: 17, fontWeight: '600' },
-  headerTitle: { color: '#FFFFFF', fontSize: 15, fontWeight: '600' },
-  shareBtn: { paddingVertical: 4, paddingLeft: 8 },
-  shareBtnText: { color: '#DC143C', fontSize: 14 },
+    // Header
+    header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12 },
+    headerBack: { flexDirection: 'row', alignItems: 'center', paddingVertical: 4, paddingRight: 8 },
+    headerBackText: { color: colors.accent, fontSize: 17, fontWeight: '600' },
+    headerTitle: { color: colors.text, fontSize: 15, fontWeight: '600' },
+    shareBtn: { flexDirection: 'row', alignItems: 'center', paddingVertical: 4, paddingLeft: 8 },
+    shareBtnText: { color: colors.accent, fontSize: 14 },
 
-  // Map
-  map: { flex: 1 },
+    // Map
+    map: { flex: 1 },
 
-  // Markers
-  carMarker: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center' },
-  pinStart: { width: 24, height: 24, borderRadius: 12, backgroundColor: '#22C55E', alignItems: 'center', justifyContent: 'center' },
-  pinEnd: { width: 24, height: 24, borderRadius: 12, backgroundColor: '#DC143C', alignItems: 'center', justifyContent: 'center' },
-  pinText: { color: '#FFFFFF', fontSize: 11, fontWeight: '700' },
+    // Markers — fixed contrast on purpose: these float over map imagery
+    // (not the app's light/dark surface), so they stay legible regardless
+    // of theme, matching MapScreen's marker convention.
+    carMarker: { width: 32, height: 32, borderRadius: 16, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center' },
+    pinStart: { width: 24, height: 24, borderRadius: 12, backgroundColor: colors.success, alignItems: 'center', justifyContent: 'center' },
+    pinEnd: { width: 24, height: 24, borderRadius: 12, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center' },
+    pinText: { color: '#FFFFFF', fontSize: 11, fontWeight: '700' },
 
-  // Controls panel
-  controls: { backgroundColor: '#1C1C1C', paddingHorizontal: 16, paddingTop: 12, paddingBottom: 20, borderTopWidth: 1, borderTopColor: '#2A2A2A' },
+    // Controls panel
+    controls: { backgroundColor: colors.card, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 20, borderTopWidth: 1, borderTopColor: colors.border },
 
-  statsScroll: { marginBottom: 10 },
-  statsRow: { flexDirection: 'row', gap: 8 },
-  statPill: { backgroundColor: '#0A0A0A', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6, alignItems: 'center' },
-  statValue: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
-  statLabel: { color: '#888888', fontSize: 11, marginTop: 1 },
+    statsScroll: { marginBottom: 10 },
+    statsRow: { flexDirection: 'row', gap: 8 },
+    statPill: { backgroundColor: colors.bg, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6, alignItems: 'center' },
+    statValue: { color: colors.text, fontSize: 14, fontWeight: '700' },
+    statLabel: { color: colors.textMuted, fontSize: 11, marginTop: 1 },
 
-  durationRow: { alignItems: 'center', marginBottom: 8 },
-  durationText: { color: '#FFFFFF', fontSize: 15, fontWeight: '600', fontVariant: ['tabular-nums'] },
-  durationMuted: { color: '#888888', fontWeight: '400' },
+    durationRow: { alignItems: 'center', marginBottom: 8 },
+    durationText: { color: colors.text, fontSize: 15, fontWeight: '600', fontVariant: ['tabular-nums'] },
+    durationMuted: { color: colors.textMuted, fontWeight: '400' },
 
-  progressTouchArea: { paddingVertical: 10, marginBottom: 4 },
-  progressTrack: { height: 4, backgroundColor: '#2A2A2A', borderRadius: 2, overflow: 'hidden' },
-  progressFill: { height: '100%', backgroundColor: '#DC143C', borderRadius: 2 },
+    progressTouchArea: { paddingVertical: 10, marginBottom: 4 },
+    progressTrack: { height: 4, backgroundColor: colors.border, borderRadius: 2, overflow: 'hidden' },
+    progressFill: { height: '100%', backgroundColor: colors.accent, borderRadius: 2 },
 
-  playRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  playBtn: { width: 52, height: 52, borderRadius: 26, backgroundColor: '#DC143C', alignItems: 'center', justifyContent: 'center' },
-  playBtnText: { fontSize: 22, color: '#FFFFFF' },
-  speedPills: { flexDirection: 'row', gap: 8 },
-  speedPill: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, borderWidth: 1, borderColor: '#2A2A2A' },
-  speedPillActive: { backgroundColor: '#DC143C', borderColor: '#DC143C' },
-  speedPillText: { color: '#888888', fontSize: 14, fontWeight: '600' },
-  speedPillTextActive: { color: '#FFFFFF' },
+    playRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+    playBtn: { width: 52, height: 52, borderRadius: 26, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center' },
+    speedPills: { flexDirection: 'row', gap: 8 },
+    speedPill: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, borderWidth: 1, borderColor: colors.border },
+    speedPillActive: { backgroundColor: colors.accent, borderColor: colors.accent },
+    speedPillText: { color: colors.textMuted, fontSize: 14, fontWeight: '600' },
+    speedPillTextActive: { color: '#FFFFFF' },
 
-  // Empty/error states
-  emptyEmoji: { fontSize: 64, marginBottom: 16 },
-  emptyTitle: { color: '#FFFFFF', fontSize: 20, fontWeight: '700', marginBottom: 8 },
-  muted: { color: '#888888', fontSize: 15, textAlign: 'center', marginBottom: 24 },
-  backBtn: { paddingVertical: 12, paddingHorizontal: 24, borderRadius: 12, borderWidth: 1, borderColor: '#DC143C' },
-  backBtnText: { color: '#DC143C', fontSize: 15, fontWeight: '600' },
-});
+    // Empty/error states
+    emptyIcon: { marginBottom: 16 },
+    emptyTitle: { color: colors.text, fontSize: 20, fontWeight: '700', marginBottom: 8 },
+    muted: { color: colors.textMuted, fontSize: 15, textAlign: 'center', marginBottom: 24 },
+    backBtn: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 24, borderRadius: 12, borderWidth: 1, borderColor: colors.accent },
+    backBtnText: { color: colors.accent, fontSize: 15, fontWeight: '600' },
+  });
+}

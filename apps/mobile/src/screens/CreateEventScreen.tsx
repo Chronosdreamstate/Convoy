@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -11,13 +11,17 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { apiClient } from '../services/apiClient';
+import { ThemeColors, useTheme } from '../theme';
 
 export default function CreateEventScreen() {
   const { groupId } = useLocalSearchParams<{ groupId: string }>();
   const insets = useSafeAreaInsets();
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
 
   const [title, setTitle] = useState('');
   const [month, setMonth] = useState('');
@@ -95,7 +99,7 @@ export default function CreateEventScreen() {
         <TextInput
           style={styles.input}
           placeholder="e.g. Sunday Morning Cruise"
-          placeholderTextColor="#555"
+          placeholderTextColor={colors.textSubtle}
           value={title}
           onChangeText={t => setTitle(t.slice(0, 100))}
           maxLength={100}
@@ -108,7 +112,7 @@ export default function CreateEventScreen() {
           <TextInput
             style={[styles.input, styles.dateSegment]}
             placeholder="MM"
-            placeholderTextColor="#555"
+            placeholderTextColor={colors.textSubtle}
             keyboardType="number-pad"
             maxLength={2}
             value={month}
@@ -119,7 +123,7 @@ export default function CreateEventScreen() {
           <TextInput
             style={[styles.input, styles.dateSegment]}
             placeholder="DD"
-            placeholderTextColor="#555"
+            placeholderTextColor={colors.textSubtle}
             keyboardType="number-pad"
             maxLength={2}
             value={day}
@@ -130,7 +134,7 @@ export default function CreateEventScreen() {
           <TextInput
             style={[styles.input, styles.yearSegment]}
             placeholder="YYYY"
-            placeholderTextColor="#555"
+            placeholderTextColor={colors.textSubtle}
             keyboardType="number-pad"
             maxLength={4}
             value={year}
@@ -144,7 +148,7 @@ export default function CreateEventScreen() {
           <TextInput
             style={[styles.input, styles.dateSegment]}
             placeholder="HH"
-            placeholderTextColor="#555"
+            placeholderTextColor={colors.textSubtle}
             keyboardType="number-pad"
             maxLength={2}
             value={hour}
@@ -155,7 +159,7 @@ export default function CreateEventScreen() {
           <TextInput
             style={[styles.input, styles.dateSegment]}
             placeholder="MM"
-            placeholderTextColor="#555"
+            placeholderTextColor={colors.textSubtle}
             keyboardType="number-pad"
             maxLength={2}
             value={minute}
@@ -182,7 +186,7 @@ export default function CreateEventScreen() {
         <TextInput
           style={[styles.input, styles.multiline]}
           placeholder="Meeting point, route notes…"
-          placeholderTextColor="#555"
+          placeholderTextColor={colors.textSubtle}
           value={description}
           onChangeText={setDescription}
           multiline
@@ -201,7 +205,12 @@ export default function CreateEventScreen() {
         >
           {loading
             ? <ActivityIndicator color="#fff" />
-            : <Text style={styles.btnText}>📅 Schedule Convoy</Text>
+            : (
+              <View style={styles.btnContent}>
+                <Ionicons name="calendar-outline" size={16} color="#FFFFFF" />
+                <Text style={styles.btnText}> Schedule Convoy</Text>
+              </View>
+            )
           }
         </TouchableOpacity>
       </ScrollView>
@@ -209,49 +218,52 @@ export default function CreateEventScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#0A0A0A' },
-  scroll: { flex: 1 },
-  content: { padding: 20 },
-  heading: { fontSize: 26, fontWeight: '800', color: '#FFFFFF', marginBottom: 6 },
-  sub: { fontSize: 14, color: '#888', marginBottom: 28 },
-  label: { fontSize: 12, fontWeight: '600', color: '#888', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8, marginTop: 20 },
-  input: {
-    backgroundColor: '#1C1C1C',
-    borderWidth: 1,
-    borderColor: '#2A2A2A',
-    borderRadius: 12,
-    color: '#FFFFFF',
-    fontSize: 16,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-  },
-  charCount: { fontSize: 11, color: '#555', textAlign: 'right', marginTop: 4 },
-  dateRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  timeRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  dateSegment: { flex: 1, textAlign: 'center', paddingHorizontal: 8 },
-  yearSegment: { flex: 1.6, textAlign: 'center', paddingHorizontal: 8 },
-  dateSep: { color: '#555', fontSize: 20, fontWeight: '300' },
-  ampmRow: { flexDirection: 'row', gap: 6, marginLeft: 4 },
-  ampmPill: {
-    paddingHorizontal: 14,
-    paddingVertical: 14,
-    borderRadius: 10,
-    backgroundColor: '#1C1C1C',
-    borderWidth: 1,
-    borderColor: '#2A2A2A',
-  },
-  ampmPillActive: { backgroundColor: '#DC143C', borderColor: '#DC143C' },
-  ampmText: { color: '#888', fontSize: 13, fontWeight: '600' },
-  ampmTextActive: { color: '#FFFFFF' },
-  multiline: { minHeight: 100, paddingTop: 14 },
-  btn: {
-    backgroundColor: '#DC143C',
-    borderRadius: 14,
-    paddingVertical: 18,
-    alignItems: 'center',
-    marginTop: 36,
-  },
-  btnDisabled: { opacity: 0.4 },
-  btnText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
-});
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    root: { flex: 1, backgroundColor: colors.bg },
+    scroll: { flex: 1 },
+    content: { padding: 20 },
+    heading: { fontSize: 26, fontWeight: '800', color: colors.text, marginBottom: 6 },
+    sub: { fontSize: 14, color: colors.textMuted, marginBottom: 28 },
+    label: { fontSize: 12, fontWeight: '600', color: colors.textMuted, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8, marginTop: 20 },
+    input: {
+      backgroundColor: colors.card,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: 12,
+      color: colors.text,
+      fontSize: 16,
+      paddingHorizontal: 16,
+      paddingVertical: 14,
+    },
+    charCount: { fontSize: 11, color: colors.textSubtle, textAlign: 'right', marginTop: 4 },
+    dateRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    timeRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    dateSegment: { flex: 1, textAlign: 'center', paddingHorizontal: 8 },
+    yearSegment: { flex: 1.6, textAlign: 'center', paddingHorizontal: 8 },
+    dateSep: { color: colors.textSubtle, fontSize: 20, fontWeight: '300' },
+    ampmRow: { flexDirection: 'row', gap: 6, marginLeft: 4 },
+    ampmPill: {
+      paddingHorizontal: 14,
+      paddingVertical: 14,
+      borderRadius: 10,
+      backgroundColor: colors.card,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    ampmPillActive: { backgroundColor: colors.accent, borderColor: colors.accent },
+    ampmText: { color: colors.textMuted, fontSize: 13, fontWeight: '600' },
+    ampmTextActive: { color: '#FFFFFF' },
+    multiline: { minHeight: 100, paddingTop: 14 },
+    btn: {
+      backgroundColor: colors.accent,
+      borderRadius: 14,
+      paddingVertical: 18,
+      alignItems: 'center',
+      marginTop: 36,
+    },
+    btnDisabled: { opacity: 0.4 },
+    btnContent: { flexDirection: 'row', alignItems: 'center' },
+    btnText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
+  });
+}
