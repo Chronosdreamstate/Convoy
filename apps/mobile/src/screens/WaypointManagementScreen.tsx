@@ -18,6 +18,7 @@ import { apiClient } from '../services/apiClient';
 import { theme } from '../theme';
 import { useSocketStore } from '../stores/socketStore';
 import { useFuelPrice } from '../hooks/useFuelPrice';
+import { useMotionGuard } from '../hooks/useMotionGuard';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -174,6 +175,7 @@ export default function WaypointManagementScreen() {
   const { groupId } = useLocalSearchParams<{ groupId?: string }>();
   const router = useRouter();
   const socket = useSocketStore((s) => s.socket);
+  const guardInMotion = useMotionGuard();
 
   const [waypoints, setWaypoints]       = useState<Waypoint[]>([]);
   const [modalVisible, setModalVisible] = useState(false);
@@ -227,6 +229,8 @@ export default function WaypointManagementScreen() {
   // ── Modal helpers ────────────────────────────────────────────────────────────
 
   const openModal = () => {
+    // Req 34 — block the add-waypoint form entry point while in motion
+    if (guardInMotion()) return;
     setDraftName('');
     setDraftAddress('');
     setDraftType('waypoint');

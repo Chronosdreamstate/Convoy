@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import { apiClient } from '../../services/apiClient';
 import SkeletonCard from '../../components/SkeletonLoader';
+import { useMotionGuard } from '../../hooks/useMotionGuard';
 
 // ---------- type helpers ----------
 const TYPE_EMOJI: Record<string, string> = {
@@ -79,6 +80,7 @@ function vehicleSubtitle(v: Vehicle): string {
 
 // ---------- component ----------
 export default function GarageScreen() {
+  const guardInMotion = useMotionGuard();
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [mods, setMods] = useState<string[]>([]);
   const [newMod, setNewMod] = useState('');
@@ -112,6 +114,8 @@ export default function GarageScreen() {
   };
 
   const openAddModal = () => {
+    // Req 34 — block the add-vehicle form entry point while in motion
+    if (guardInMotion()) return;
     setEditingId(null); setForm(EMPTY_FORM); setFormError(null); setModalVisible(true);
   };
   const openEditModal = (v: Vehicle) => {
