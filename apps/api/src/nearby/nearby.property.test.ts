@@ -37,6 +37,9 @@ interface MockState {
   existingDmGroupId: string | null;
   createdGroups: string[];
   memberInserts: unknown[][];
+  // Set of unordered pair-keys (`${a}|${b}` sorted) that are blocked, mirroring
+  // friendships.status = 'blocked' in either direction (Req 17.11).
+  blockedPairs: Set<string>;
 }
 
 let state: MockState;
@@ -48,7 +51,20 @@ function resetState() {
     existingDmGroupId: null,
     createdGroups: [],
     memberInserts: [],
+    blockedPairs: new Set(),
   };
+}
+
+function pairKey(a: string, b: string): string {
+  return [a, b].sort().join('|');
+}
+
+function block(a: string, b: string) {
+  state.blockedPairs.add(pairKey(a, b));
+}
+
+function isPairBlocked(a: string, b: string): boolean {
+  return state.blockedPairs.has(pairKey(a, b));
 }
 
 function buildMockPool(): Pool {
@@ -77,9 +93,21 @@ function buildMockPool(): Pool {
         return { rows: [], rowCount: 0 };
       }
 
-      // Main nearby query
+      // Main nearby query — the real SQL includes a `NOT EXISTS (... status =
+      // 'blocked' ...)` anti-join against `friendships`, so the mock filters
+      // out any candidate row that is blocked (either direction) w.r.t. the
+      // requester ($1), mirroring what Postgres would do.
       if (norm.includes('FROM NEARBY_PRESENCE NP') && norm.includes('ST_DWITHIN')) {
-        return { rows: state.nearbyRows, rowCount: state.nearbyRows.length };
+        const requesterId = params![0] as string;
+        const rows = state.nearbyRows.filter((r) => !isPairBlocked(requesterId, r.user_id));
+        return { rows, rowCount: rows.length };
+      }
+
+      // Standalone block check (isBlocked() helper, used by POST /nearby/dm)
+      if (norm.includes("STATUS = 'BLOCKED'") && norm.includes('LIMIT 1')) {
+        const [a, b] = params as [string, string];
+        const found = isPairBlocked(a, b);
+        return { rows: found ? [{}] : [], rowCount: found ? 1 : 0 };
       }
 
       // Existing DM group lookup
@@ -207,6 +235,63 @@ describe('GET /nearby', () => {
     expect(JSON.stringify(u)).not.toContain('40.123456');
     await app.close();
   });
+
+  // -------------------------------------------------------------------------
+  // Req 17.11: blocking must prevent location visibility via nearby discovery
+  // -------------------------------------------------------------------------
+  it('excludes a user the requester has blocked, even when opted-in and in radius', async () => {
+    const app = buildTestApp();
+    resetState();
+    state.optedIn.add('u1');
+    state.nearbyRows = [
+      {
+        user_id: 'stranger-1',
+        display_name: 'Alex',
+        avatar_url: null,
+        approx_lat: 40.123,
+        approx_lng: -70.654,
+        distance_m: 500,
+      },
+    ];
+    block('u1', 'stranger-1'); // u1 blocked stranger-1 (or vice versa — either direction)
+    const token = await makeToken(app, 'u1');
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/nearby?lat=40.1&lng=-70.6&radiusM=5000',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body) as { users: { userId: string }[] };
+    expect(body.users).toHaveLength(0);
+    await app.close();
+  });
+
+  it('excludes a user who has blocked the requester (block is symmetric)', async () => {
+    const app = buildTestApp();
+    resetState();
+    state.optedIn.add('u1');
+    state.nearbyRows = [
+      {
+        user_id: 'stranger-1',
+        display_name: 'Alex',
+        avatar_url: null,
+        approx_lat: 40.123,
+        approx_lng: -70.654,
+        distance_m: 500,
+      },
+    ];
+    block('stranger-1', 'u1'); // stranger-1 blocked u1 (reverse direction)
+    const token = await makeToken(app, 'u1');
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/nearby?lat=40.1&lng=-70.6&radiusM=5000',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body) as { users: { userId: string }[] };
+    expect(body.users).toHaveLength(0);
+    await app.close();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -281,6 +366,67 @@ describe('POST /nearby/dm', () => {
     const body = JSON.parse(res.body) as { groupId: string };
     expect(body.groupId).toBe('existing-grp');
     expect(state.createdGroups).toHaveLength(0);
+    await app.close();
+  });
+
+  // -------------------------------------------------------------------------
+  // Req 17.11: a block must reject the DM, checked before any group lookup/
+  // creation — reusing an existing DM group must also be blocked.
+  // -------------------------------------------------------------------------
+  it('rejects the DM when the requester has blocked the target', async () => {
+    const app = buildTestApp();
+    resetState();
+    const stranger = '11111111-1111-1111-1111-111111111111';
+    state.optedIn.add('u1');
+    state.optedIn.add(stranger);
+    block('u1', stranger);
+    const token = await makeToken(app, 'u1');
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/nearby/dm',
+      headers: { Authorization: `Bearer ${token}` },
+      payload: { userId: stranger },
+    });
+    expect(res.statusCode).toBe(403);
+    expect(state.createdGroups).toHaveLength(0);
+    await app.close();
+  });
+
+  it('rejects the DM when the target has blocked the requester', async () => {
+    const app = buildTestApp();
+    resetState();
+    const stranger = '11111111-1111-1111-1111-111111111111';
+    state.optedIn.add('u1');
+    state.optedIn.add(stranger);
+    block(stranger, 'u1');
+    const token = await makeToken(app, 'u1');
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/nearby/dm',
+      headers: { Authorization: `Bearer ${token}` },
+      payload: { userId: stranger },
+    });
+    expect(res.statusCode).toBe(403);
+    expect(state.createdGroups).toHaveLength(0);
+    await app.close();
+  });
+
+  it('rejects the DM on a blocked pair even when an existing DM group is present', async () => {
+    const app = buildTestApp();
+    resetState();
+    const stranger = '11111111-1111-1111-1111-111111111111';
+    state.optedIn.add('u1');
+    state.optedIn.add(stranger);
+    state.existingDmGroupId = 'existing-grp';
+    block('u1', stranger);
+    const token = await makeToken(app, 'u1');
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/nearby/dm',
+      headers: { Authorization: `Bearer ${token}` },
+      payload: { userId: stranger },
+    });
+    expect(res.statusCode).toBe(403);
     await app.close();
   });
 });
