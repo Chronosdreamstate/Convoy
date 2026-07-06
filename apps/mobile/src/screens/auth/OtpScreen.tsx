@@ -16,6 +16,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import * as SecureStore from 'expo-secure-store';
 import { authService } from '../../services/AuthService';
 import { useAuthStore } from '../../stores/authStore';
+import { onboardingState } from '../../utils/onboardingState';
 
 const DIGIT_COUNT = 6;
 
@@ -81,7 +82,10 @@ export default function OtpScreen() {
       setAccessToken(result.accessToken);
       if (!onboardingDone) {
         setIsFirstLogin(true);
-        router.replace('/(onboarding)/vehicle' as never);
+        // Resume at whichever onboarding step is next, rather than always
+        // restarting from the first step for a returning-but-incomplete user.
+        const resumeRoute = await onboardingState.getResumeRoute();
+        router.replace((resumeRoute ?? '/(onboarding)/vehicle') as never);
       } else {
         router.replace('/(tabs)/map');
       }

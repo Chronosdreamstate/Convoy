@@ -37,6 +37,31 @@ export const onboardingState = {
     return skipped.some((s) => !completed.includes(s));
   },
 
+  /**
+   * Which onboarding route a returning-but-incomplete user should land on,
+   * based on which of the tracked steps ('vehicle', 'group') they've already
+   * completed or explicitly skipped. A step counts as "done" either way —
+   * skipping is a deliberate choice not to be undone by re-showing the screen.
+   *
+   * 'ptt-tutorial' sits between 'vehicle' and 'group' in the screen flow but
+   * has no persisted state of its own (it's a non-interactive interstitial),
+   * so finishing 'vehicle' resumes there rather than at a tracked step.
+   *
+   * Returns null when every tracked step is already done — callers should
+   * not enter the onboarding stack at all in that case.
+   */
+  async getResumeRoute(): Promise<string | null> {
+    const [completed, skipped] = await Promise.all([
+      this.getCompletedSteps(),
+      this.getSkippedSteps(),
+    ]);
+    const isDone = (step: OnboardingStep) => completed.includes(step) || skipped.includes(step);
+
+    if (!isDone('vehicle')) return '/(onboarding)/vehicle';
+    if (!isDone('group')) return '/(onboarding)/ptt-tutorial';
+    return null;
+  },
+
   async reset(): Promise<void> {
     await AsyncStorage.multiRemove([
       '@convoy/onboarding_completed',
