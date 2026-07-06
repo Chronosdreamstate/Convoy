@@ -13,6 +13,7 @@ const patchSettingsSchema = z.object({
   notifGroupEvents: z.boolean().optional(),
   notifFriendRequests: z.boolean().optional(),
   notifNavigation: z.boolean().optional(),
+  shareLocationWithFriends: z.boolean().optional(),
 });
 
 interface SettingsRow {
@@ -26,6 +27,7 @@ interface SettingsRow {
   notif_group_events: boolean;
   notif_friend_requests: boolean;
   notif_navigation: boolean;
+  share_location_with_friends: boolean;
 }
 
 function toResponse(s: SettingsRow) {
@@ -39,6 +41,7 @@ function toResponse(s: SettingsRow) {
     notifGroupEvents: s.notif_group_events,
     notifFriendRequests: s.notif_friend_requests,
     notifNavigation: s.notif_navigation,
+    shareLocationWithFriends: s.share_location_with_friends,
   };
 }
 
@@ -119,6 +122,10 @@ async function settingsRoutes(
       setClauses.push(`notif_navigation = $${paramIdx++}`);
       values.push(data.notifNavigation);
     }
+    if (data.shareLocationWithFriends !== undefined) {
+      setClauses.push(`share_location_with_friends = $${paramIdx++}`);
+      values.push(data.shareLocationWithFriends);
+    }
 
     // Ensure the row exists before updating
     await fastify.db.query(
@@ -142,6 +149,16 @@ async function settingsRoutes(
        RETURNING *`,
       values,
     );
+
+    // Defense in depth: the GET /friends/locations hard-filter already checks
+    // share_location_with_friends in the DB before returning anything, but we
+    // don't want a stale cached fix to linger in Redis for up to 35s after
+    // opt-out — delete it immediately so the cache can't outlive the toggle.
+    if (data.shareLocationWithFriends === false) {
+      await fastify.redis.del(`loc:friend:${userId}`).catch((err: unknown) => {
+        fastify.log.error({ err }, 'failed to delete loc:friend key on opt-out');
+      });
+    }
 
     return reply.send(toResponse(result.rows[0]));
   });

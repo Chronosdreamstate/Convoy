@@ -35,6 +35,7 @@ interface SettingsRow {
   notif_group_events: boolean;
   notif_friend_requests: boolean;
   notif_navigation: boolean;
+  share_location_with_friends: boolean;
 }
 
 const DEFAULTS: Omit<SettingsRow, 'user_id'> = {
@@ -47,12 +48,15 @@ const DEFAULTS: Omit<SettingsRow, 'user_id'> = {
   notif_group_events: true,
   notif_friend_requests: true,
   notif_navigation: true,
+  share_location_with_friends: false,
 };
 
 let settingsStore: Map<string, SettingsRow>;
+let redisDelCalls: string[];
 
 function resetStore() {
   settingsStore = new Map();
+  redisDelCalls = [];
 }
 
 function buildMockPool(): Pool {
@@ -103,6 +107,7 @@ function buildMockPool(): Pool {
         if ('notif_group_events' in colValues) updated.notif_group_events = colValues['notif_group_events'] as boolean;
         if ('notif_friend_requests' in colValues) updated.notif_friend_requests = colValues['notif_friend_requests'] as boolean;
         if ('notif_navigation' in colValues) updated.notif_navigation = colValues['notif_navigation'] as boolean;
+        if ('share_location_with_friends' in colValues) updated.share_location_with_friends = colValues['share_location_with_friends'] as boolean;
 
         settingsStore.set(userId, updated);
         return { rows: [updated], rowCount: 1 };
@@ -125,7 +130,12 @@ function buildTestApp(): FastifyInstance {
   app.register(fastifySensible);
 
   app.register(fp(async (inst) => { inst.decorate('db', buildMockPool()); }, { name: 'db' }));
-  app.register(fp(async (inst) => { inst.decorate('redis', {} as Redis); }, { name: 'redis' }));
+  app.register(fp(async (inst) => {
+    // Task #69: PATCH /settings deletes loc:friend:<userId> on opt-out.
+    inst.decorate('redis', {
+      del: async (key: string) => { redisDelCalls.push(key); return 1; },
+    } as unknown as Redis);
+  }, { name: 'redis' }));
 
   app.register(settingsRoutes, { prefix: '/api/v1' });
   return app;
@@ -419,6 +429,63 @@ describe('Property 54: GET /settings always returns a valid settings shape', () 
 
     const res = await app.inject({ method: 'GET', url: '/api/v1/settings' });
     expect(res.statusCode).toBe(401);
+
+    await app.close();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Task #69: shareLocationWithFriends toggle
+// ---------------------------------------------------------------------------
+describe('Task #69: shareLocationWithFriends setting', () => {
+  it('defaults to false and can be toggled on', async () => {
+    const app = buildTestApp();
+    resetStore();
+    const token = await makeToken(app, 'u-share');
+
+    const getRes = await app.inject({
+      method: 'GET',
+      url: '/api/v1/settings',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect((JSON.parse(getRes.body) as { shareLocationWithFriends: boolean }).shareLocationWithFriends).toBe(false);
+
+    const onRes = await app.inject({
+      method: 'PATCH',
+      url: '/api/v1/settings',
+      headers: { Authorization: `Bearer ${token}` },
+      payload: { shareLocationWithFriends: true },
+    });
+    expect(onRes.statusCode).toBe(200);
+    expect((JSON.parse(onRes.body) as { shareLocationWithFriends: boolean }).shareLocationWithFriends).toBe(true);
+    // Turning on must NOT delete the cache key.
+    expect(redisDelCalls).toHaveLength(0);
+
+    await app.close();
+  });
+
+  it('deletes the cached loc:friend key when toggled off', async () => {
+    const app = buildTestApp();
+    resetStore();
+    const userId = 'u-optout';
+    const token = await makeToken(app, userId);
+
+    // Turn on first, then off.
+    await app.inject({
+      method: 'PATCH',
+      url: '/api/v1/settings',
+      headers: { Authorization: `Bearer ${token}` },
+      payload: { shareLocationWithFriends: true },
+    });
+    const offRes = await app.inject({
+      method: 'PATCH',
+      url: '/api/v1/settings',
+      headers: { Authorization: `Bearer ${token}` },
+      payload: { shareLocationWithFriends: false },
+    });
+    expect(offRes.statusCode).toBe(200);
+    expect((JSON.parse(offRes.body) as { shareLocationWithFriends: boolean }).shareLocationWithFriends).toBe(false);
+    expect(redisDelCalls).toContain(`loc:friend:${userId}`);
 
     await app.close();
   });

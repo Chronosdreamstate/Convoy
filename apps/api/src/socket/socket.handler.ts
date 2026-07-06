@@ -29,7 +29,7 @@ export interface IoBroadcaster {
   to(room: string): { emit(event: string, data: unknown): void };
 }
 
-const locationSchema = z.object({
+export const locationSchema = z.object({
   lat: z.number().min(-90).max(90),
   lng: z.number().min(-180).max(180),
   heading: z.number().min(0).max(360),
@@ -195,6 +195,48 @@ export async function handleLocationUpdate(params: {
       }
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// Groupless friend-level location sharing — exported for unit testing
+//
+// A user with no active convoy can still opt in (user_settings.
+// share_location_with_friends) to share their live location with their
+// accepted friends. This is intentionally independent of handleLocationUpdate
+// above: no group room to broadcast to, no gap-alert/distance-counter/arrival
+// logic applies, and it must work with zero group membership at all. The
+// cached fix is picked up by polling GET /api/v1/friends/locations rather
+// than pushed live, so this is just a cache write (short TTL, mirrors the
+// existing loc:<groupId>:<userId> 35s pattern) gated on the DB flag.
+// ---------------------------------------------------------------------------
+export const FRIEND_LOC_TTL_SECONDS = 35;
+
+export async function handleFriendLocationUpdate(params: {
+  userId: string;
+  location: LocationPayload;
+  redis: Redis;
+  db: Pool;
+}): Promise<void> {
+  const { userId, location, redis, db } = params;
+
+  const settingsResult = await db.query<{ share_location_with_friends: boolean }>(
+    `SELECT share_location_with_friends FROM user_settings WHERE user_id = $1`,
+    [userId],
+  );
+
+  // Hard gate: never cache a location update unless the user has explicitly
+  // opted in. No row at all (settings never initialized) defaults to "off".
+  if (!settingsResult.rows[0]?.share_location_with_friends) return;
+
+  const locKey = `loc:friend:${userId}`;
+  await redis.hset(locKey, {
+    lat: String(location.lat),
+    lng: String(location.lng),
+    heading: String(location.heading),
+    speed_kph: String(location.speed_kph),
+    ts: String(location.ts),
+  });
+  await redis.expire(locKey, FRIEND_LOC_TTL_SECONDS);
 }
 
 // ---------------------------------------------------------------------------
@@ -552,15 +594,27 @@ export function registerSocketHandlers(
 
       const parsed = locationSchema.safeParse(data);
       if (!parsed.success) return;
-      handleLocationUpdate({
-        groupId,
-        userId,
-        location: parsed.data,
-        redis: fastify.redis,
-        db: fastify.db,
-        io,
-        enqueueNotification: fastify.enqueueNotification,
-      }).catch((err: unknown) => fastify.log.error({ err }, 'location update error'));
+      if (groupId) {
+        handleLocationUpdate({
+          groupId,
+          userId,
+          location: parsed.data,
+          redis: fastify.redis,
+          db: fastify.db,
+          io,
+          enqueueNotification: fastify.enqueueNotification,
+        }).catch((err: unknown) => fastify.log.error({ err }, 'location update error'));
+      } else {
+        // Groupless connection (e.g. IdleMapScreen) — no convoy to broadcast
+        // to, so just cache for GET /friends/locations if the user has opted
+        // into friend-level location sharing.
+        handleFriendLocationUpdate({
+          userId,
+          location: parsed.data,
+          redis: fastify.redis,
+          db: fastify.db,
+        }).catch((err: unknown) => fastify.log.error({ err }, 'friend location update error'));
+      }
       // Proximity check runs alongside gap-alert logic (Req 11.7, 11.8, 15.1)
       handleHazardProximity({
         userId,
