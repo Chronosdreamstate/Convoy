@@ -99,6 +99,7 @@ export default function GarageScreen() {
   const [error, setError] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isActivating, setIsActivating] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<VehicleForm>(EMPTY_FORM);
@@ -189,10 +190,12 @@ export default function GarageScreen() {
     Alert.alert('Delete Vehicle', `Remove "${vehicleDisplayName(v)}" from your Garage?`, [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Delete', style: 'destructive', onPress: async () => {
+        setDeletingId(v.id);
         try {
           await apiClient.delete(`/api/v1/vehicles/${v.id}`);
           setVehicles((prev) => prev.filter((veh) => veh.id !== v.id));
         } catch { Alert.alert('Error', 'Failed to delete vehicle.'); }
+        finally { setDeletingId(null); }
       }},
     ]);
   };
@@ -229,16 +232,20 @@ export default function GarageScreen() {
   const handleAddMod = async () => {
     const mod = newMod.trim();
     if (!mod || mods.length >= 10) return;
+    const previous = mods;
     const updated = [...mods, mod];
     setMods(updated);
     setNewMod('');
-    try { await apiClient.patch('/api/v1/users/me', { mods: updated }); } catch { /* non-fatal */ }
+    try { await apiClient.patch('/api/v1/users/me', { mods: updated }); }
+    catch { setMods(previous); setNewMod(mod); Alert.alert('Error', 'Failed to save mod. Please try again.'); }
   };
 
   const handleRemoveMod = async (index: number) => {
+    const previous = mods;
     const updated = mods.filter((_, i) => i !== index);
     setMods(updated);
-    try { await apiClient.patch('/api/v1/users/me', { mods: updated }); } catch { /* non-fatal */ }
+    try { await apiClient.patch('/api/v1/users/me', { mods: updated }); }
+    catch { setMods(previous); Alert.alert('Error', 'Failed to remove mod. Please try again.'); }
   };
 
   if (isLoading) {
@@ -279,9 +286,21 @@ export default function GarageScreen() {
           <Text style={styles.fuelLogChevron}>›</Text>
         </TouchableOpacity>
 
-        {error ? <Text style={styles.errorText}>{error}</Text> : null}
+        {error && vehicles.length > 0 ? <Text style={styles.errorText}>{error}</Text> : null}
 
-        {vehicles.length === 0 ? (
+        {vehicles.length === 0 && error ? (
+          // Distinct from the true "no vehicles yet" empty state below — a
+          // failed load must never be mistaken for an empty garage, or the
+          // user might think they need to re-add vehicles they already have.
+          <View style={styles.emptyState}>
+            <MaterialCommunityIcons name="alert-circle-outline" size={64} color={colors.textMuted} style={styles.emptyIcon} />
+            <Text style={styles.emptyTitle}>Couldn't load your garage</Text>
+            <Text style={styles.emptySubtitle}>{error}</Text>
+            <TouchableOpacity style={styles.emptyButton} onPress={() => loadVehicles()} accessibilityRole="button" accessibilityLabel="Retry loading garage">
+              <Text style={styles.emptyButtonText}>Retry</Text>
+            </TouchableOpacity>
+          </View>
+        ) : vehicles.length === 0 ? (
           <View style={styles.emptyState}>
             <MaterialCommunityIcons name="car" size={64} color={colors.textMuted} style={styles.emptyIcon} />
             <Text style={styles.emptyTitle}>Add your first ride</Text>
@@ -297,13 +316,15 @@ export default function GarageScreen() {
             const primary = isPrimary(v);
             const subtitle = vehicleSubtitle(v);
             const colorH = colorHex(v.color);
+            const isDeleting = deletingId === v.id;
             return (
               <TouchableOpacity
                 key={v.id}
-                style={[styles.vehicleCard, primary && styles.vehicleCardPrimary]}
+                style={[styles.vehicleCard, primary && styles.vehicleCardPrimary, isDeleting && styles.vehicleCardDeleting]}
                 onPress={() => void handleSetPrimary(v)}
                 onLongPress={() => openActionSheet(v)}
                 activeOpacity={primary ? 1 : 0.7}
+                disabled={isDeleting}
                 accessibilityRole="button"
                 accessibilityLabel={`${vehicleDisplayName(v)}${primary ? ', main ride' : ', tap to set as main ride'}`}
               >
@@ -340,15 +361,21 @@ export default function GarageScreen() {
                   </View>
                 </View>
 
-                <TouchableOpacity
-                  style={styles.menuButton}
-                  onPress={() => openActionSheet(v)}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Options for ${vehicleDisplayName(v)}`}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                >
-                  <Text style={styles.menuButtonText}>···</Text>
-                </TouchableOpacity>
+                {isDeleting ? (
+                  <View style={styles.menuButton}>
+                    <ActivityIndicator size="small" color={colors.accent} />
+                  </View>
+                ) : (
+                  <TouchableOpacity
+                    style={styles.menuButton}
+                    onPress={() => openActionSheet(v)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Options for ${vehicleDisplayName(v)}`}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <Text style={styles.menuButtonText}>···</Text>
+                  </TouchableOpacity>
+                )}
               </TouchableOpacity>
             );
           })
@@ -435,6 +462,7 @@ export default function GarageScreen() {
                       key={t}
                       style={[styles.typePill, form.type === t && styles.typePillActive]}
                       onPress={() => setForm((p) => ({ ...p, type: t }))}
+                      hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
                       accessibilityRole="button"
                       accessibilityLabel={t}
                       accessibilityState={{ selected: form.type === t }}
@@ -519,6 +547,7 @@ export default function GarageScreen() {
                         form.color === c.name && styles.colorOptionSelected,
                       ]}
                       onPress={() => setForm((p) => ({ ...p, color: p.color === c.name ? '' : c.name }))}
+                      hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
                       accessibilityRole="button"
                       accessibilityLabel={c.name}
                       accessibilityState={{ selected: form.color === c.name }}
@@ -605,6 +634,7 @@ function createStyles(colors: ThemeColors) {
       gap: 12, minHeight: 72, overflow: 'hidden',
     },
     vehicleCardPrimary: { borderColor: withAlpha(colors.accent, 0.4), backgroundColor: colors.cardElevated },
+    vehicleCardDeleting: { opacity: 0.5 },
     activeStrip: { position: 'absolute', left: 0, top: 0, bottom: 0, width: 4, backgroundColor: colors.accent },
     primaryBadge: {
       // right: 60 clears the 36px-wide menuButton (right padding 16 + width 36 = 52),
