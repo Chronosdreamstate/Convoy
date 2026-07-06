@@ -23,6 +23,7 @@ import { FileSystemUploadType } from 'expo-file-system/legacy';
 import ProfileCompletionBar from '../../components/ProfileCompletionBar';
 import { apiClient } from '../../services/apiClient';
 import { SkeletonBox } from '../../components/SkeletonLoader';
+import { NetworkError } from '../../components/NetworkError';
 import { authService } from '../../services/AuthService';
 import { useAuthStore } from '../../stores/authStore';
 import { useTheme, ThemeColors } from '../../theme';
@@ -341,6 +342,18 @@ export default function ProfileScreen() {
             </View>
           ))}
         </ScrollView>
+      </SafeAreaView>
+    );
+  }
+
+  // Profile failed to load — nothing to edit yet, so show a full retry state
+  // instead of an inline banner over an otherwise-empty form. Save failures
+  // (which also set `error`, below) happen once `profile` is already
+  // populated, so this only catches the initial-load case.
+  if (error && !profile) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <NetworkError onRetry={() => void loadProfile()} message={error} />
       </SafeAreaView>
     );
   }

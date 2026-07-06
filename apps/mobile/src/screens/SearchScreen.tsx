@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -12,9 +12,11 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import { apiClient } from '../services/apiClient';
+import { ThemeColors, useTheme } from '../theme';
 
 const STORAGE_KEY = 'convoy:recent_searches';
 const MAX_RECENT = 5;
@@ -35,6 +37,9 @@ interface UserResult {
   friendStatus?: 'none' | 'pending' | 'friends';
 }
 
+// Avatar colors — deterministic per name. Intentionally a fixed decorative
+// palette (not theme chrome) so a given user's initials bubble looks the
+// same regardless of light/dark mode.
 function avatarColor(name: string): string {
   const colors = ['#DC143C', '#3B82F6', '#22C55E', '#F59E0B', '#8B5CF6', '#EC4899', '#06B6D4', '#F97316'];
   let hash = 0;
@@ -45,6 +50,8 @@ function avatarColor(name: string): string {
 export default function SearchScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const inputRef = useRef<TextInput>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -53,6 +60,7 @@ export default function SearchScreen() {
   const [groups, setGroups] = useState<Group[]>([]);
   const [people, setPeople] = useState<UserResult[]>([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
   const [friendActions, setFriendActions] = useState<Partial<Record<string, 'pending' | 'friends'>>>({});
   // Tracks in-flight join/add-friend requests by id so a rapid double-tap
@@ -81,8 +89,9 @@ export default function SearchScreen() {
   }, []);
 
   const search = useCallback(async (q: string) => {
-    if (!q.trim()) { setGroups([]); setPeople([]); return; }
+    if (!q.trim()) { setGroups([]); setPeople([]); setError(null); return; }
     setLoading(true);
+    setError(null);
     try {
       if (activeTab === 'groups') {
         const res = await apiClient.get<{ groups: Group[] }>(`/api/v1/groups?q=${encodeURIComponent(q)}`);
@@ -93,7 +102,7 @@ export default function SearchScreen() {
       }
       saveRecent(q);
     } catch {
-      // silently fail
+      setError('Search failed. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -152,8 +161,9 @@ export default function SearchScreen() {
     try {
       await apiClient.post('/api/v1/friends/requests', { addresseeId: userId });
       setFriendActions((prev) => ({ ...prev, [userId]: 'pending' }));
-    } catch { /* ignore */ }
-    finally {
+    } catch {
+      Alert.alert('Error', 'Could not send friend request. Please try again.');
+    } finally {
       setSubmittingIds((prev) => { const next = new Set(prev); next.delete(userId); return next; });
     }
   }, [submittingIds]);
@@ -170,29 +180,36 @@ export default function SearchScreen() {
             <Text style={styles.pillText}>{item.accessType === 'open' ? 'Public' : 'Invite'}</Text>
           </View>
           {item.nextEvent && (
-            <View style={[styles.pill, styles.pillAmber]}>
-              <Text style={styles.pillText}>📅 {new Date(item.nextEvent.scheduledFor).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</Text>
+            <View style={[styles.pill, styles.pillAmber, styles.pillWithIcon]}>
+              <Ionicons name="calendar-outline" size={11} color={colors.textMuted} />
+              <Text style={styles.pillText}>
+                {new Date(item.nextEvent.scheduledFor).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+              </Text>
             </View>
           )}
         </View>
       </View>
       {requestedIds.has(item.id) ? (
         <View style={[styles.actionBtn, styles.actionBtnMuted]}>
-          <Text style={[styles.actionBtnText, { color: '#888' }]}>Requested</Text>
+          <Text style={[styles.actionBtnText, styles.actionBtnTextMuted]}>Requested</Text>
         </View>
       ) : (
         <TouchableOpacity
           style={styles.actionBtn}
           onPress={() => { void handleJoinGroup(item); }}
           disabled={submittingIds.has(item.id)}
+          accessibilityRole="button"
+          accessibilityLabel={item.accessType === 'open' ? `Join ${item.name}` : `Request to join ${item.name}`}
         >
-          <Text style={styles.actionBtnText}>
-            {submittingIds.has(item.id) ? '…' : item.accessType === 'open' ? 'Join' : 'Request'}
-          </Text>
+          {submittingIds.has(item.id) ? (
+            <ActivityIndicator color={colors.accent} size="small" />
+          ) : (
+            <Text style={styles.actionBtnText}>{item.accessType === 'open' ? 'Join' : 'Request'}</Text>
+          )}
         </TouchableOpacity>
       )}
     </View>
-  ), [handleJoinGroup, submittingIds, requestedIds]);
+  ), [handleJoinGroup, submittingIds, requestedIds, colors, styles]);
 
   const renderPerson = useCallback(({ item }: { item: UserResult }) => {
     const status = friendActions[item.id] ?? item.friendStatus ?? 'none';
@@ -213,23 +230,29 @@ export default function SearchScreen() {
             style={styles.actionBtn}
             onPress={() => { void handleAddFriend(item.id); }}
             disabled={isSubmitting}
+            accessibilityRole="button"
+            accessibilityLabel={`Add ${item.displayName} as a friend`}
           >
-            <Text style={styles.actionBtnText}>{isSubmitting ? '…' : 'Add'}</Text>
+            {isSubmitting ? (
+              <ActivityIndicator color={colors.accent} size="small" />
+            ) : (
+              <Text style={styles.actionBtnText}>Add</Text>
+            )}
           </TouchableOpacity>
         )}
         {status === 'pending' && (
           <View style={[styles.actionBtn, styles.actionBtnMuted]}>
-            <Text style={[styles.actionBtnText, { color: '#888' }]}>Pending</Text>
+            <Text style={[styles.actionBtnText, styles.actionBtnTextMuted]}>Pending</Text>
           </View>
         )}
         {status === 'friends' && (
           <View style={[styles.actionBtn, styles.actionBtnMuted]}>
-            <Text style={[styles.actionBtnText, { color: '#22C55E' }]}>Friends ✓</Text>
+            <Text style={[styles.actionBtnText, styles.actionBtnTextSuccess]}>Friends</Text>
           </View>
         )}
       </View>
     );
-  }, [friendActions, handleAddFriend]);
+  }, [friendActions, handleAddFriend, submittingIds, colors, styles]);
 
   const showRecent = !query.trim() && recentSearches.length > 0;
 
@@ -250,12 +273,12 @@ export default function SearchScreen() {
           <Text style={styles.backText}>‹</Text>
         </TouchableOpacity>
         <View style={styles.inputWrap}>
-          <Text style={styles.searchIcon}>🔍</Text>
+          <Ionicons name="search" size={16} color={colors.textMuted} style={styles.searchIcon} />
           <TextInput
             ref={inputRef}
             style={styles.input}
             placeholder="Search groups, people..."
-            placeholderTextColor="#555"
+            placeholderTextColor={colors.textSubtle}
             value={query}
             onChangeText={handleQueryChange}
             returnKeyType="search"
@@ -274,6 +297,7 @@ export default function SearchScreen() {
             style={[styles.tab, activeTab === tab && styles.tabActive]}
             onPress={() => setActiveTab(tab)}
             accessibilityRole="tab"
+            accessibilityLabel={tab === 'groups' ? 'Groups' : 'People'}
             accessibilityState={{ selected: activeTab === tab }}
           >
             <Text style={[styles.tabText, activeTab === tab && styles.tabTextActive]}>
@@ -288,8 +312,14 @@ export default function SearchScreen() {
         <View style={styles.recentSection}>
           <Text style={styles.sectionLabel}>RECENT</Text>
           {recentSearches.map((s) => (
-            <TouchableOpacity key={s} style={styles.recentRow} onPress={() => { setQuery(s); search(s); }}>
-              <Text style={styles.recentIcon}>🕐</Text>
+            <TouchableOpacity
+              key={s}
+              style={styles.recentRow}
+              onPress={() => { setQuery(s); search(s); }}
+              accessibilityRole="button"
+              accessibilityLabel={`Search for ${s}`}
+            >
+              <Ionicons name="time-outline" size={16} color={colors.textMuted} />
               <Text style={styles.recentText}>{s}</Text>
             </TouchableOpacity>
           ))}
@@ -298,9 +328,22 @@ export default function SearchScreen() {
 
       {/* Results */}
       {loading ? (
-        <ActivityIndicator color="#DC143C" style={{ marginTop: 32 }} />
+        <ActivityIndicator color={colors.accent} style={styles.loadingIndicator} />
       ) : query.trim() ? (
-        activeTab === 'groups' ? (
+        error ? (
+          <View style={styles.errorWrap}>
+            <Ionicons name="alert-circle-outline" size={32} color={colors.textMuted} />
+            <Text style={styles.errorText}>{error}</Text>
+            <TouchableOpacity
+              style={styles.retryBtn}
+              onPress={() => void search(query)}
+              accessibilityRole="button"
+              accessibilityLabel="Retry search"
+            >
+              <Text style={styles.retryBtnText}>Try Again</Text>
+            </TouchableOpacity>
+          </View>
+        ) : activeTab === 'groups' ? (
           <FlatList
             data={groups}
             keyExtractor={(g) => g.id}
@@ -326,56 +369,72 @@ export default function SearchScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0A0A0A' },
-  header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 8, gap: 8 },
-  backBtn: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
-  backText: { fontSize: 28, color: '#fff', lineHeight: 32 },
-  inputWrap: {
-    flex: 1, flexDirection: 'row', alignItems: 'center',
-    backgroundColor: '#1C1C1C', borderRadius: 12, paddingHorizontal: 12, height: 48,
-  },
-  searchIcon: { fontSize: 16, marginRight: 8 },
-  input: { flex: 1, color: '#fff', fontSize: 16 },
-  tabs: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: '#2A2A2A' },
-  tab: { flex: 1, paddingVertical: 12, alignItems: 'center' },
-  tabActive: { borderBottomWidth: 2, borderBottomColor: '#DC143C' },
-  tabText: { fontSize: 15, color: '#888' },
-  tabTextActive: { color: '#fff', fontWeight: '600' },
-  list: { padding: 12, gap: 8 },
-  card: {
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-    backgroundColor: '#1C1C1C', borderRadius: 12, padding: 14,
-  },
-  cardLeft: { flex: 1 },
-  cardName: { fontSize: 15, fontWeight: '600', color: '#fff', marginBottom: 4 },
-  pillRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 4 },
-  pill: { backgroundColor: '#242424', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 },
-  pillGreen: { backgroundColor: 'rgba(34,197,94,0.15)' },
-  pillAmber: { backgroundColor: 'rgba(245,158,11,0.15)' },
-  pillMuted: { backgroundColor: '#242424' },
-  pillText: { fontSize: 11, color: '#aaa' },
-  actionBtn: {
-    borderWidth: 1, borderColor: '#DC143C', borderRadius: 8,
-    paddingHorizontal: 14, paddingVertical: 8,
-  },
-  actionBtnMuted: { borderColor: '#2A2A2A' },
-  actionBtnText: { fontSize: 13, fontWeight: '600', color: '#DC143C' },
-  avatar: {
-    width: 44, height: 44, borderRadius: 22,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  avatarText: { fontSize: 18, fontWeight: '700', color: '#fff' },
-  onlineDot: {
-    position: 'absolute', bottom: 1, right: 1,
-    width: 10, height: 10, borderRadius: 5,
-    backgroundColor: '#22C55E', borderWidth: 1.5, borderColor: '#1C1C1C',
-  },
-  muted: { fontSize: 12, color: '#888' },
-  recentSection: { padding: 16 },
-  sectionLabel: { fontSize: 11, color: '#555', fontWeight: '700', letterSpacing: 1, marginBottom: 8 },
-  recentRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, gap: 10 },
-  recentIcon: { fontSize: 16 },
-  recentText: { fontSize: 15, color: '#ccc' },
-  emptyText: { textAlign: 'center', color: '#555', fontSize: 14, marginTop: 40 },
-});
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: colors.bg },
+    header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 8, gap: 8 },
+    backBtn: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
+    backText: { fontSize: 28, color: colors.text, lineHeight: 32 },
+    inputWrap: {
+      flex: 1, flexDirection: 'row', alignItems: 'center',
+      backgroundColor: colors.card, borderRadius: 12, paddingHorizontal: 12, height: 48,
+      borderWidth: 1, borderColor: colors.border,
+    },
+    searchIcon: { marginRight: 8 },
+    input: { flex: 1, color: colors.text, fontSize: 16 },
+    tabs: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: colors.border },
+    tab: { flex: 1, paddingVertical: 12, alignItems: 'center', minHeight: 44, justifyContent: 'center' },
+    tabActive: { borderBottomWidth: 2, borderBottomColor: colors.accent },
+    tabText: { fontSize: 15, color: colors.textMuted },
+    tabTextActive: { color: colors.text, fontWeight: '600' },
+    list: { padding: 12, gap: 8 },
+    card: {
+      flexDirection: 'row', alignItems: 'center', gap: 12,
+      backgroundColor: colors.card, borderRadius: 12, padding: 14,
+      borderWidth: 1, borderColor: colors.border,
+    },
+    cardLeft: { flex: 1 },
+    cardName: { fontSize: 15, fontWeight: '600', color: colors.text, marginBottom: 4 },
+    pillRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 4 },
+    pill: { backgroundColor: colors.cardElevated, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 },
+    pillWithIcon: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+    pillGreen: { backgroundColor: 'rgba(34,197,94,0.15)' },
+    pillAmber: { backgroundColor: 'rgba(245,158,11,0.15)' },
+    pillMuted: { backgroundColor: colors.cardElevated },
+    pillText: { fontSize: 11, color: colors.textMuted },
+    actionBtn: {
+      borderWidth: 1, borderColor: colors.accent, borderRadius: 8,
+      paddingHorizontal: 14, paddingVertical: 8, minWidth: 44, minHeight: 36,
+      alignItems: 'center', justifyContent: 'center',
+    },
+    actionBtnMuted: { borderColor: colors.border },
+    actionBtnText: { fontSize: 13, fontWeight: '600', color: colors.accent },
+    actionBtnTextMuted: { color: colors.textMuted },
+    actionBtnTextSuccess: { color: colors.success },
+    avatar: {
+      width: 44, height: 44, borderRadius: 22,
+      alignItems: 'center', justifyContent: 'center',
+    },
+    avatarText: { fontSize: 18, fontWeight: '700', color: '#FFFFFF' },
+    onlineDot: {
+      position: 'absolute', bottom: 1, right: 1,
+      width: 10, height: 10, borderRadius: 5,
+      backgroundColor: colors.success, borderWidth: 1.5, borderColor: colors.card,
+    },
+    muted: { fontSize: 12, color: colors.textMuted },
+    recentSection: { padding: 16 },
+    sectionLabel: { fontSize: 11, color: colors.textSubtle, fontWeight: '700', letterSpacing: 1, marginBottom: 8 },
+    recentRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, gap: 10, minHeight: 44 },
+    recentText: { fontSize: 15, color: colors.text },
+    emptyText: { textAlign: 'center', color: colors.textSubtle, fontSize: 14, marginTop: 40 },
+    loadingIndicator: { marginTop: 32 },
+    errorWrap: { alignItems: 'center', paddingTop: 48, paddingHorizontal: 32, gap: 10 },
+    errorText: { color: colors.textMuted, fontSize: 14, textAlign: 'center' },
+    retryBtn: {
+      marginTop: 10, backgroundColor: colors.accent, borderRadius: 10,
+      paddingHorizontal: 20, paddingVertical: 10, minHeight: 44,
+      alignItems: 'center', justifyContent: 'center',
+    },
+    retryBtnText: { color: colors.text, fontSize: 14, fontWeight: '700' },
+  });
+}

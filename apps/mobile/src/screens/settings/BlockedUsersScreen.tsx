@@ -107,6 +107,20 @@ export default function BlockedUsersScreen() {
         <View style={styles.skeletonWrap}>
           {[0, 1].map((i) => <SkeletonRow key={i} />)}
         </View>
+      ) : error && blocked.length === 0 ? (
+        <View style={styles.empty}>
+          <Ionicons name="alert-circle-outline" size={44} color={colors.textMuted} style={styles.emptyIcon} />
+          <Text style={styles.emptyTitle}>Couldn't load blocked users</Text>
+          <Text style={styles.emptySub}>{error}</Text>
+          <TouchableOpacity
+            style={styles.retryBtn}
+            onPress={() => void load()}
+            accessibilityRole="button"
+            accessibilityLabel="Retry loading blocked users"
+          >
+            <Text style={styles.retryBtnText}>Try Again</Text>
+          </TouchableOpacity>
+        </View>
       ) : blocked.length === 0 ? (
         <View style={styles.empty}>
           <Ionicons name="ban-outline" size={44} color={colors.textMuted} style={styles.emptyIcon} />
@@ -199,5 +213,16 @@ function createStyles(colors: ThemeColors) {
     emptyIcon: { marginBottom: 12 },
     emptyTitle: { fontSize: 17, fontWeight: '700', color: colors.text, marginBottom: 6 },
     emptySub: { fontSize: 13, color: colors.textMuted, textAlign: 'center', lineHeight: 19 },
+    retryBtn: {
+      marginTop: 20,
+      backgroundColor: colors.accent,
+      borderRadius: 12,
+      paddingHorizontal: 24,
+      paddingVertical: 12,
+      minHeight: 48,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    retryBtnText: { color: colors.text, fontSize: 15, fontWeight: '700' },
   });
 }

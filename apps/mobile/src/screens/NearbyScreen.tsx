@@ -14,7 +14,7 @@
  *  2. Location permission is missing/denied — prompt to enable it.
  *  3. Opted in with location, but no one else nearby is visible right now.
  */
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -27,12 +27,13 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useRouter } from 'expo-router';
 import * as ExpoLocation from 'expo-location';
 import { apiClient } from '../services/apiClient';
 import { SkeletonRow } from '../components/SkeletonLoader';
 import { useSettingsStore } from '../stores/settingsStore';
-import { theme } from '../theme';
+import { ThemeColors, useTheme } from '../theme';
 
 // ---------------------------------------------------------------------------
 // Types — mirrors the #71 backend contract (GET /api/v1/nearby, POST
@@ -53,6 +54,9 @@ interface NearbyResponse {
   radiusM: number;
 }
 
+// Avatar colors — deterministic per name. Intentionally a fixed decorative
+// palette (not theme chrome) so a given user's initials bubble looks the
+// same regardless of light/dark mode.
 const AVATAR_COLORS = ['#DC143C', '#6366F1', '#0EA5E9', '#10B981', '#F59E0B', '#EC4899', '#8B5CF6', '#14B8A6'];
 function avatarColor(name: string): string {
   let h = 0;
@@ -78,6 +82,8 @@ type LoadState = 'loading' | 'opted-out' | 'needs-location' | 'location-error' |
 
 export default function NearbyScreen() {
   const router = useRouter();
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const distanceUnit = useSettingsStore((s) => s.distanceUnit);
   const [state, setState] = useState<LoadState>('loading');
   const [refreshing, setRefreshing] = useState(false);
@@ -173,7 +179,10 @@ export default function NearbyScreen() {
         </View>
         <View style={styles.cardInfo}>
           <Text style={styles.cardName} numberOfLines={1}>{item.displayName}</Text>
-          <Text style={styles.cardSub}>📍 {formatDistance(item.distanceM, distanceUnit)} away</Text>
+          <View style={styles.cardSubRow}>
+            <Ionicons name="location-outline" size={12} color={colors.textMuted} />
+            <Text style={styles.cardSub}>{formatDistance(item.distanceM, distanceUnit)} away</Text>
+          </View>
         </View>
         <TouchableOpacity
           style={styles.chatBtn}
@@ -183,13 +192,18 @@ export default function NearbyScreen() {
           accessibilityLabel={`Chat with ${item.displayName}`}
           accessibilityState={{ disabled: isConnecting }}
         >
-          {isConnecting
-            ? <ActivityIndicator color="#FFFFFF" size="small" />
-            : <Text style={styles.chatBtnText}>💬 Chat</Text>}
+          {isConnecting ? (
+            <ActivityIndicator color={colors.accent} size="small" />
+          ) : (
+            <>
+              <Ionicons name="chatbubble-outline" size={13} color={colors.accent} style={styles.chatBtnIcon} />
+              <Text style={styles.chatBtnText}>Chat</Text>
+            </>
+          )}
         </TouchableOpacity>
       </View>
     );
-  }, [connectingId, handleChat, distanceUnit]);
+  }, [connectingId, handleChat, distanceUnit, colors, styles]);
 
   const isLoading = state === 'loading';
   const isOptedOut = state === 'opted-out';
@@ -199,7 +213,8 @@ export default function NearbyScreen() {
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton} accessibilityRole="button" accessibilityLabel="Go back">
-          <Text style={styles.backText}>‹ Back</Text>
+          <Ionicons name="chevron-back" size={22} color={colors.accent} />
+          <Text style={styles.backText}>Back</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Nearby</Text>
         <View style={styles.backButton} />
@@ -209,7 +224,7 @@ export default function NearbyScreen() {
         <View style={styles.skeletonWrap}>{[0, 1, 2].map((i) => <SkeletonRow key={i} />)}</View>
       ) : isOptedOut ? (
         <View style={styles.empty}>
-          <Text style={styles.emptyIcon}>📡</Text>
+          <Ionicons name="radio-outline" size={44} color={colors.textMuted} style={styles.emptyIcon} />
           <Text style={styles.emptyTitle}>See who's driving nearby</Text>
           <Text style={styles.emptySub}>
             Turn on "Visible to nearby drivers" in Settings to see other opted-in
@@ -228,7 +243,7 @@ export default function NearbyScreen() {
         </View>
       ) : needsLocation ? (
         <View style={styles.empty}>
-          <Text style={styles.emptyIcon}>📍</Text>
+          <Ionicons name="location-outline" size={44} color={colors.textMuted} style={styles.emptyIcon} />
           <Text style={styles.emptyTitle}>Location needed</Text>
           <Text style={styles.emptySub}>
             {locationError ?? 'Enable location access to see drivers nearby.'}
@@ -249,13 +264,13 @@ export default function NearbyScreen() {
           renderItem={renderItem}
           contentContainerStyle={styles.list}
           refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={() => { void onRefresh(); }} tintColor={theme.colors.accent} colors={[theme.colors.accent]} />
+            <RefreshControl refreshing={refreshing} onRefresh={() => { void onRefresh(); }} tintColor={colors.accent} colors={[colors.accent]} />
           }
           ListHeaderComponent={error ? <Text style={styles.errorTxt}>{error}</Text> : null}
           ListEmptyComponent={
             !error ? (
               <View style={styles.empty}>
-                <Text style={styles.emptyIcon}>🌙</Text>
+                <Ionicons name="moon-outline" size={44} color={colors.textMuted} style={styles.emptyIcon} />
                 <Text style={styles.emptyTitle}>No one nearby right now</Text>
                 <Text style={styles.emptySub}>
                   Nobody who's opted in to Nearby is around at the moment. Check
@@ -270,62 +285,67 @@ export default function NearbyScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0A0A0A' },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingTop: 8,
-    paddingBottom: 12,
-  },
-  backButton: { width: 60 },
-  backText: { color: '#DC143C', fontSize: 17, fontWeight: '600' },
-  headerTitle: { color: '#FFFFFF', fontSize: 17, fontWeight: '700', letterSpacing: 0.3 },
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: colors.bg },
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: 16,
+      paddingTop: 8,
+      paddingBottom: 12,
+    },
+    backButton: { width: 70, flexDirection: 'row', alignItems: 'center', minHeight: 44 },
+    backText: { color: colors.accent, fontSize: 17, fontWeight: '600', marginLeft: -2 },
+    headerTitle: { color: colors.text, fontSize: 17, fontWeight: '700', letterSpacing: 0.3 },
 
-  skeletonWrap: { paddingHorizontal: 16, paddingTop: 12, gap: 12 },
+    skeletonWrap: { paddingHorizontal: 16, paddingTop: 12, gap: 12 },
 
-  list: { padding: 16, gap: 10 },
-  card: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    backgroundColor: '#1C1C1C',
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: '#2A2A2A',
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    minHeight: 72,
-  },
-  avatar: {
-    width: 44, height: 44, borderRadius: 22,
-    alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-  },
-  avatarImage: { width: 44, height: 44, borderRadius: 22 },
-  avatarText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
-  cardInfo: { flex: 1, marginRight: 8 },
-  cardName: { fontSize: 15, fontWeight: '700', color: '#FFFFFF' },
-  cardSub: { fontSize: 12, color: '#888888', marginTop: 2 },
+    list: { padding: 16, gap: 10 },
+    card: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+      backgroundColor: colors.card,
+      borderRadius: 14,
+      borderWidth: 1,
+      borderColor: colors.border,
+      paddingHorizontal: 14,
+      paddingVertical: 12,
+      minHeight: 72,
+    },
+    avatar: {
+      width: 44, height: 44, borderRadius: 22,
+      alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+    },
+    avatarImage: { width: 44, height: 44, borderRadius: 22 },
+    avatarText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
+    cardInfo: { flex: 1, marginRight: 8 },
+    cardName: { fontSize: 15, fontWeight: '700', color: colors.text },
+    cardSubRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 },
+    cardSub: { fontSize: 12, color: colors.textMuted },
 
-  chatBtn: {
-    borderWidth: 1, borderColor: '#DC143C', borderRadius: 8,
-    paddingHorizontal: 14, paddingVertical: 8, minWidth: 44, minHeight: 36,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  chatBtnText: { fontSize: 13, fontWeight: '700', color: '#DC143C' },
+    chatBtn: {
+      flexDirection: 'row', alignItems: 'center',
+      borderWidth: 1, borderColor: colors.accent, borderRadius: 8,
+      paddingHorizontal: 14, paddingVertical: 8, minWidth: 44, minHeight: 36,
+      justifyContent: 'center',
+    },
+    chatBtnIcon: { marginRight: 5 },
+    chatBtnText: { fontSize: 13, fontWeight: '700', color: colors.accent },
 
-  empty: { alignItems: 'center', paddingTop: 72, paddingHorizontal: 32 },
-  emptyIcon: { fontSize: 44, marginBottom: 14 },
-  emptyTitle: { fontSize: 18, fontWeight: '700', color: '#FFFFFF', marginBottom: 8, textAlign: 'center' },
-  emptySub: { fontSize: 14, color: '#888888', textAlign: 'center', lineHeight: 20 },
-  errorTxt: { color: '#DC143C', fontSize: 13, marginBottom: 10, textAlign: 'center' },
+    empty: { alignItems: 'center', paddingTop: 72, paddingHorizontal: 32 },
+    emptyIcon: { marginBottom: 14 },
+    emptyTitle: { fontSize: 18, fontWeight: '700', color: colors.text, marginBottom: 8, textAlign: 'center' },
+    emptySub: { fontSize: 14, color: colors.textMuted, textAlign: 'center', lineHeight: 20 },
+    errorTxt: { color: colors.accent, fontSize: 13, marginBottom: 10, textAlign: 'center' },
 
-  settingsBtn: {
-    marginTop: 20, backgroundColor: '#DC143C', borderRadius: 12,
-    paddingHorizontal: 24, paddingVertical: 12, minHeight: 48,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  settingsBtnText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
-});
+    settingsBtn: {
+      marginTop: 20, backgroundColor: colors.accent, borderRadius: 12,
+      paddingHorizontal: 24, paddingVertical: 12, minHeight: 48,
+      alignItems: 'center', justifyContent: 'center',
+    },
+    settingsBtnText: { color: colors.text, fontSize: 15, fontWeight: '700' },
+  });
+}

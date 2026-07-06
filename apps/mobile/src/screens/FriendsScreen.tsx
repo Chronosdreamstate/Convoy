@@ -199,6 +199,7 @@ function FriendRow({
           onPress={handleViewOnMap}
           accessibilityRole="button"
           accessibilityLabel={`View ${friend.displayName} on map`}
+          hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
         >
           <Text style={styles.mapBtnTxt}>↗</Text>
         </TouchableOpacity>
@@ -209,6 +210,7 @@ function FriendRow({
           accessibilityRole="button"
           accessibilityLabel={`Remove ${friend.displayName}`}
           accessibilityState={{ disabled: busy }}
+          hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
         >
           {removing
             ? <ActivityIndicator color={colors.accent} size="small" />
@@ -372,6 +374,7 @@ function RequestRow({
           accessibilityRole="button"
           accessibilityLabel={`Accept ${req.displayName}`}
           accessibilityState={{ disabled: !!isMe }}
+          hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
         >
           {isMe && acting?.action === 'accept'
             ? <ActivityIndicator color={colors.text} size="small" />
@@ -384,6 +387,7 @@ function RequestRow({
           accessibilityRole="button"
           accessibilityLabel={`Decline ${req.displayName}`}
           accessibilityState={{ disabled: !!isMe }}
+          hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
         >
           {isMe && acting?.action === 'decline'
             ? <ActivityIndicator color={colors.textMuted} size="small" />
@@ -484,6 +488,7 @@ function UserSearchResults({
               disabled={adding === u.id}
               accessibilityRole="button"
               accessibilityLabel={`Add ${u.displayName}`}
+              hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
             >
               {adding === u.id
                 ? <ActivityIndicator color={colors.text} size="small" />
@@ -692,7 +697,10 @@ function createStyles(colors: ThemeColors) {
   },
   avatarWrap: { marginRight: 12, flexShrink: 0, position: 'relative', width: 44, height: 44 },
   avatar: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
-  avatarText: { color: colors.text, fontSize: 15, fontWeight: '700' },
+  // Fixed white (not colors.text) — this sits on a saturated decorative
+  // AVATAR_COLORS background, not theme chrome, so it must stay legible in
+  // light mode too (where colors.text is near-black).
+  avatarText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
   onlineDot: {
     position: 'absolute', bottom: 0, right: 0,
     width: 12, height: 12, borderRadius: 6,
