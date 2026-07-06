@@ -100,79 +100,108 @@ function resetStore(
   ioEmissions = [];
 }
 
+// Shared routing logic used by both the pool-level `query` and the
+// transaction-scoped `client.query` (DELETE /account now runs inside a
+// `pool.connect()` transaction, so both entry points must resolve consistently).
+async function routeMockQuery(sql: string, params?: unknown[]) {
+  const norm = sql.replace(/\s+/g, ' ').trim().toUpperCase();
+
+  // BEGIN / COMMIT / ROLLBACK — no-op in this in-memory mock
+  if (norm === 'BEGIN' || norm === 'COMMIT' || norm === 'ROLLBACK') {
+    return { rows: [], rowCount: 0 };
+  }
+
+  // GET /account/export — user profile
+  if (norm.includes('SELECT ID, DISPLAY_NAME, PHONE_NUMBER, EMAIL, AVATAR_URL') && norm.includes('FROM USERS WHERE ID')) {
+    const userId = params![0] as string;
+    const u = usersDb.get(userId);
+    return { rows: u ? [u] : [], rowCount: u ? 1 : 0 };
+  }
+
+  // GET /account/export — drive history
+  if (norm.includes('FROM DRIVE_HISTORY WHERE USER_ID')) {
+    const userId = params![0] as string;
+    const rows = drivesDb.get(userId) ?? [];
+    return { rows, rowCount: rows.length };
+  }
+
+  // GET /account/export — friends
+  if (norm.includes('FROM FRIENDSHIPS WHERE')) {
+    const userId = params![0] as string;
+    const rows = friendsDb.get(userId) ?? [];
+    return { rows, rowCount: rows.length };
+  }
+
+  // DELETE /account — hard-delete user
+  if (norm.includes('DELETE FROM USERS WHERE ID')) {
+    const userId = params![0] as string;
+    deletedUsers.add(userId);
+    usersDb.delete(userId);
+    return { rows: [], rowCount: 1 };
+  }
+
+  // DELETE /account — find groups where user is admin (any status — an
+  // already-ended group still has admin_id set and must be resolved too)
+  if (norm.includes('FROM CONVOY_GROUPS WHERE ADMIN_ID')) {
+    const userId = params![0] as string;
+    const rows = [...groupsDb.values()].filter((g) => g.admin_id === userId);
+    return { rows, rowCount: rows.length };
+  }
+
+  // DELETE /account — find next admin candidate (active member preferred,
+  // earliest-joined first; falls back to a past member of an ended group)
+  if (norm.includes('FROM CONVOY_MEMBERS') && norm.includes('USER_ID !=')) {
+    const groupId = params![0] as string;
+    const excludeId = params![1] as string;
+    const eligible = (membersDb.get(groupId) ?? [])
+      .filter((m) => m.user_id !== excludeId)
+      .sort((a, b) => {
+        const activeRank = (m: MemberRow) => (m.left_at === null ? 0 : 1);
+        const rankDiff = activeRank(a) - activeRank(b);
+        return rankDiff !== 0 ? rankDiff : a.joined_at.getTime() - b.joined_at.getTime();
+      });
+    return { rows: eligible.slice(0, 1), rowCount: eligible.length > 0 ? 1 : 0 };
+  }
+
+  // DELETE /account — transfer admin to next member
+  if (norm.includes('UPDATE CONVOY_GROUPS SET ADMIN_ID =')) {
+    const newAdminId = params![0] as string;
+    const groupId = params![1] as string;
+    const group = groupsDb.get(groupId);
+    if (group) group.admin_id = newAdminId;
+    return { rows: [], rowCount: 1 };
+  }
+
+  // DELETE /account — sole-member group: drive_history.group_id has no
+  // cascade, so it's nulled out before the group itself is deleted
+  if (norm.includes('UPDATE DRIVE_HISTORY SET GROUP_ID = NULL')) {
+    return { rows: [], rowCount: 0 };
+  }
+
+  // DELETE /account — sole-member group is exclusively the user's own data
+  if (norm.includes('DELETE FROM CONVOY_GROUPS WHERE ID')) {
+    const groupId = params![0] as string;
+    groupsDb.delete(groupId);
+    return { rows: [], rowCount: 1 };
+  }
+
+  // DELETE /account — own-data cleanup for tables without ON DELETE CASCADE
+  if (
+    norm.includes('DELETE FROM HAZARD_VOTES')
+    || norm.includes('DELETE FROM HAZARD_REPORTS')
+    || norm.includes('DELETE FROM PTT_LOG')
+    || norm.includes('DELETE FROM RALLY_POINTS')
+  ) {
+    return { rows: [], rowCount: 0 };
+  }
+
+  return { rows: [], rowCount: 0 };
+}
+
 function buildMockPool(): Pool {
   return {
-    query: async (sql: string, params?: unknown[]) => {
-      const norm = sql.replace(/\s+/g, ' ').trim().toUpperCase();
-
-      // GET /account/export — user profile
-      if (norm.includes('SELECT ID, DISPLAY_NAME, PHONE_NUMBER, EMAIL, AVATAR_URL') && norm.includes('FROM USERS WHERE ID')) {
-        const userId = params![0] as string;
-        const u = usersDb.get(userId);
-        return { rows: u ? [u] : [], rowCount: u ? 1 : 0 };
-      }
-
-      // GET /account/export — drive history
-      if (norm.includes('FROM DRIVE_HISTORY WHERE USER_ID')) {
-        const userId = params![0] as string;
-        const rows = drivesDb.get(userId) ?? [];
-        return { rows, rowCount: rows.length };
-      }
-
-      // GET /account/export — friends
-      if (norm.includes('FROM FRIENDSHIPS WHERE')) {
-        const userId = params![0] as string;
-        const rows = friendsDb.get(userId) ?? [];
-        return { rows, rowCount: rows.length };
-      }
-
-      // DELETE /account — hard-delete user
-      if (norm.includes('DELETE FROM USERS WHERE ID')) {
-        const userId = params![0] as string;
-        deletedUsers.add(userId);
-        usersDb.delete(userId);
-        return { rows: [], rowCount: 1 };
-      }
-
-      // DELETE /account — find groups where user is admin
-      if (norm.includes('FROM CONVOY_GROUPS WHERE ADMIN_ID') && norm.includes("STATUS = 'ACTIVE'")) {
-        const userId = params![0] as string;
-        const rows = [...groupsDb.values()].filter(
-          (g) => g.admin_id === userId && g.status === 'active',
-        );
-        return { rows, rowCount: rows.length };
-      }
-
-      // DELETE /account — find next admin candidate (earliest-joined active member)
-      if (norm.includes('FROM CONVOY_MEMBERS') && norm.includes('USER_ID !=') && norm.includes('LEFT_AT IS NULL')) {
-        const groupId = params![0] as string;
-        const excludeId = params![1] as string;
-        const eligible = (membersDb.get(groupId) ?? [])
-          .filter((m) => m.user_id !== excludeId && m.left_at === null)
-          .sort((a, b) => a.joined_at.getTime() - b.joined_at.getTime());
-        return { rows: eligible.slice(0, 1), rowCount: eligible.length > 0 ? 1 : 0 };
-      }
-
-      // DELETE /account — transfer admin to next member
-      if (norm.includes('UPDATE CONVOY_GROUPS SET ADMIN_ID =')) {
-        const newAdminId = params![0] as string;
-        const groupId = params![1] as string;
-        const group = groupsDb.get(groupId);
-        if (group) group.admin_id = newAdminId;
-        return { rows: [], rowCount: 1 };
-      }
-
-      // DELETE /account — end group when user is sole member
-      if (norm.includes('UPDATE CONVOY_GROUPS') && norm.includes("STATUS = 'ENDED'")) {
-        const groupId = params![0] as string;
-        const group = groupsDb.get(groupId);
-        if (group) { group.status = 'ended'; group.ended_at = new Date(); }
-        return { rows: [], rowCount: 1 };
-      }
-
-      return { rows: [], rowCount: 0 };
-    },
-    connect: async () => ({ query: async () => ({ rows: [] }), release: () => {} }),
+    query: routeMockQuery,
+    connect: async () => ({ query: routeMockQuery, release: () => {} }),
   } as unknown as Pool;
 }
 
@@ -615,9 +644,9 @@ describe('Property 68: DELETE /account ends group when deleted user is the sole 
           });
 
           expect(res.statusCode).toBe(200);
-          // Group must be ended
-          expect(groupsDb.get(groupId)?.status).toBe('ended');
-          expect(groupsDb.get(groupId)?.ended_at).not.toBeNull();
+          // Sole-member group is exclusively the deleted user's data — it's
+          // removed entirely rather than left behind in an 'ended' state.
+          expect(groupsDb.has(groupId)).toBe(false);
           // group:ended socket event must be emitted to the group room
           const groupEndedEvents = ioEmissions.filter((e) => e.event === 'group:ended');
           expect(groupEndedEvents).toHaveLength(1);
