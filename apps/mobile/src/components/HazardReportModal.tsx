@@ -15,6 +15,13 @@ import {
   View,
 } from 'react-native';
 import { apiClient } from '../services/apiClient';
+import { SQLiteOfflineDB } from '../services/OfflineCacheService';
+
+// Shares the same on-disk SQLite file as MapScreen's offline queue (expo-sqlite
+// keys connections by filename), so anything queued here is picked up by the
+// same flush-on-reconnect logic (Req 11.9, 11.10).
+const offlineDB = new SQLiteOfflineDB();
+const offlineDBReady = offlineDB.init().then(() => true).catch(() => false);
 
 // ---------------------------------------------------------------------------
 // Types
@@ -83,7 +90,21 @@ export default function HazardReportModal({ visible, onClose, lat, lng }: Props)
         onClose();
       }, 2200);
     } catch {
-      // Network failure — offline queue in HazardService handles retry
+      // Network/offline failure — queue for sync later (Req 11.9, 11.10) instead of
+      // silently dropping the report. Severity isn't carried by the offline queue
+      // (POST /hazards/bulk doesn't accept it), so it's lost for queued reports only.
+      const ready = await offlineDBReady;
+      if (ready) {
+        await offlineDB.saveHazard({
+          id: `offline-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          lat,
+          lng,
+          type,
+          description: note.trim() || undefined,
+          createdAt: Date.now(),
+        }).catch(() => {});
+      }
+      onClose();
     } finally {
       setSubmitting(false);
     }
