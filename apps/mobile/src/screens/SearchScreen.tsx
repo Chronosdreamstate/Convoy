@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   KeyboardAvoidingView,
   Platform,
@@ -57,6 +58,10 @@ export default function SearchScreen() {
   // Tracks in-flight join/add-friend requests by id so a rapid double-tap
   // can't fire the same request twice while the first is still pending.
   const [submittingIds, setSubmittingIds] = useState<Set<string>>(new Set());
+  // Groups where a join *request* (invite-only) has been sent and is awaiting
+  // admin approval — distinct from `groups` state since it doesn't change
+  // membership, just shows a "Requested" pill instead of "Request".
+  const [requestedIds, setRequestedIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     AsyncStorage.getItem(STORAGE_KEY)
@@ -105,9 +110,32 @@ export default function SearchScreen() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab]);
 
-  const handleJoinGroup = useCallback(async (groupId: string) => {
-    if (submittingIds.has(groupId)) return;
+  const handleJoinGroup = useCallback(async (group: Group) => {
+    const { id: groupId, accessType } = group;
+    if (submittingIds.has(groupId) || requestedIds.has(groupId)) return;
     setSubmittingIds((prev) => new Set(prev).add(groupId));
+
+    // Invite-only groups have no direct-join route — send an admin-approval
+    // request instead and just flip the button to "Requested" in place.
+    if (accessType === 'invite_only') {
+      try {
+        await apiClient.post(`/api/v1/groups/${groupId}/join-request`, {});
+        setRequestedIds((prev) => new Set(prev).add(groupId));
+      } catch (e: unknown) {
+        const status = (e as { status?: number }).status;
+        if (status === 409) {
+          // Already a member, or already has a pending request — either way
+          // there's nothing more for this tap to do.
+          setRequestedIds((prev) => new Set(prev).add(groupId));
+        } else {
+          Alert.alert('Could not send request', 'Please try again in a moment.');
+        }
+      } finally {
+        setSubmittingIds((prev) => { const next = new Set(prev); next.delete(groupId); return next; });
+      }
+      return;
+    }
+
     try {
       await apiClient.post(`/api/v1/groups/${groupId}/members`, {});
       router.push(`/group/${groupId}` as never);
@@ -116,7 +144,7 @@ export default function SearchScreen() {
     } finally {
       setSubmittingIds((prev) => { const next = new Set(prev); next.delete(groupId); return next; });
     }
-  }, [submittingIds, router]);
+  }, [submittingIds, requestedIds, router]);
 
   const handleAddFriend = useCallback(async (userId: string) => {
     if (submittingIds.has(userId)) return;
@@ -148,17 +176,23 @@ export default function SearchScreen() {
           )}
         </View>
       </View>
-      <TouchableOpacity
-        style={styles.actionBtn}
-        onPress={() => { void handleJoinGroup(item.id); }}
-        disabled={submittingIds.has(item.id)}
-      >
-        <Text style={styles.actionBtnText}>
-          {submittingIds.has(item.id) ? '…' : item.accessType === 'open' ? 'Join' : 'Request'}
-        </Text>
-      </TouchableOpacity>
+      {requestedIds.has(item.id) ? (
+        <View style={[styles.actionBtn, styles.actionBtnMuted]}>
+          <Text style={[styles.actionBtnText, { color: '#888' }]}>Requested</Text>
+        </View>
+      ) : (
+        <TouchableOpacity
+          style={styles.actionBtn}
+          onPress={() => { void handleJoinGroup(item); }}
+          disabled={submittingIds.has(item.id)}
+        >
+          <Text style={styles.actionBtnText}>
+            {submittingIds.has(item.id) ? '…' : item.accessType === 'open' ? 'Join' : 'Request'}
+          </Text>
+        </TouchableOpacity>
+      )}
     </View>
-  ), [handleJoinGroup]);
+  ), [handleJoinGroup, submittingIds, requestedIds]);
 
   const renderPerson = useCallback(({ item }: { item: UserResult }) => {
     const status = friendActions[item.id] ?? item.friendStatus ?? 'none';

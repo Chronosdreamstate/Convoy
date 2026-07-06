@@ -36,6 +36,15 @@ interface GroupMember {
   isAdmin: boolean;
 }
 
+interface JoinRequest {
+  id: string;
+  userId: string;
+  displayName: string;
+  avatarUrl: string | null;
+  callsign: string | null;
+  createdAt: string;
+}
+
 // ---------------------------------------------------------------------------
 // Pill selector
 // ---------------------------------------------------------------------------
@@ -119,6 +128,10 @@ export default function GroupSettingsScreen() {
   const [members, setMembers] = useState<GroupMember[]>([]);
   const [transferring, setTransferring] = useState(false);
 
+  // Join requests state (invite-only groups, admin only)
+  const [joinRequests, setJoinRequests] = useState<JoinRequest[]>([]);
+  const [actingRequest, setActingRequest] = useState<{ id: string; action: 'approve' | 'reject' } | null>(null);
+
   // Announcement state
   const [announcement, setAnnouncement] = useState('');
   const [sendingAnnouncement, setSendingAnnouncement] = useState(false);
@@ -128,10 +141,13 @@ export default function GroupSettingsScreen() {
     setLoading(true);
     setError(null);
     try {
-      const [settingsRes, membersRes] = await Promise.all([
+      const [settingsRes, membersRes, joinRequestsRes] = await Promise.all([
         apiClient.get<GroupSettings>(`/api/v1/groups/${groupId}`),
         isAdmin
           ? apiClient.get<{ members: GroupMember[] }>(`/api/v1/groups/${groupId}/members`)
+          : Promise.resolve(null),
+        isAdmin
+          ? apiClient.get<{ requests: JoinRequest[] }>(`/api/v1/groups/${groupId}/join-requests`).catch(() => null)
           : Promise.resolve(null),
       ]);
       const g = settingsRes.data;
@@ -143,6 +159,9 @@ export default function GroupSettingsScreen() {
       if (membersRes) {
         setMembers(membersRes.data.members.filter((m) => !m.isAdmin));
       }
+      if (joinRequestsRes) {
+        setJoinRequests(joinRequestsRes.data.requests);
+      }
     } catch {
       setError('Could not load group settings. Please try again.');
     } finally {
@@ -151,6 +170,19 @@ export default function GroupSettingsScreen() {
   }, [groupId, isAdmin]);
 
   useEffect(() => { void loadSettings(); }, [loadSettings]);
+
+  const handleJoinRequestAction = async (requestId: string, action: 'approve' | 'reject') => {
+    if (!groupId) return;
+    setActingRequest({ id: requestId, action });
+    try {
+      await apiClient.post(`/api/v1/groups/${groupId}/join-requests/${requestId}/${action}`);
+      setJoinRequests((prev) => prev.filter((r) => r.id !== requestId));
+    } catch {
+      Alert.alert('Error', `Failed to ${action} request. Please try again.`);
+    } finally {
+      setActingRequest(null);
+    }
+  };
 
   const handleSave = async () => {
     if (!groupId || !isAdmin) return;
@@ -336,6 +368,65 @@ export default function GroupSettingsScreen() {
               ? <ActivityIndicator color="#fff" size="small" />
               : <Text style={styles.saveBtnText}>Save Changes</Text>}
           </TouchableOpacity>
+        )}
+
+        {/* Join Requests (admin only, invite-only groups) */}
+        {isAdmin && joinRequests.length > 0 && (
+          <>
+            <Text style={[styles.sectionHeader, { marginTop: 32 }]}>
+              JOIN REQUESTS ({joinRequests.length})
+            </Text>
+            <View style={styles.card}>
+              {joinRequests.map((r) => {
+                const isActing = actingRequest?.id === r.id;
+                return (
+                  <View key={r.id} style={styles.memberRow}>
+                    <View style={styles.memberInfo}>
+                      <View style={styles.memberAvatar}>
+                        <Text style={styles.memberAvatarText}>
+                          {r.displayName.trim()[0]?.toUpperCase() ?? '?'}
+                        </Text>
+                      </View>
+                      <View>
+                        <Text style={styles.memberName}>{r.displayName}</Text>
+                        {r.callsign ? (
+                          <Text style={styles.memberCallsign}>📻 {r.callsign}</Text>
+                        ) : (
+                          <Text style={styles.memberCallsign}>Wants to join</Text>
+                        )}
+                      </View>
+                    </View>
+                    <View style={{ flexDirection: 'row', gap: 8 }}>
+                      <TouchableOpacity
+                        style={styles.acceptBtn}
+                        onPress={() => { void handleJoinRequestAction(r.id, 'approve'); }}
+                        disabled={isActing}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Approve ${r.displayName}`}
+                        accessibilityState={{ disabled: isActing }}
+                      >
+                        {isActing && actingRequest?.action === 'approve'
+                          ? <ActivityIndicator color="#fff" size="small" />
+                          : <Text style={styles.acceptBtnTxt}>✓</Text>}
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={styles.declineBtn}
+                        onPress={() => { void handleJoinRequestAction(r.id, 'reject'); }}
+                        disabled={isActing}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Reject ${r.displayName}`}
+                        accessibilityState={{ disabled: isActing }}
+                      >
+                        {isActing && actingRequest?.action === 'reject'
+                          ? <ActivityIndicator color="#888" size="small" />
+                          : <Text style={styles.declineBtnTxt}>✕</Text>}
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
+          </>
         )}
 
         {/* Schedule event (admin only) */}
@@ -651,6 +742,11 @@ const styles = StyleSheet.create({
   memberName: { color: '#FFFFFF', fontSize: 14, fontWeight: '600' },
   memberCallsign: { color: '#888888', fontSize: 12, marginTop: 2 },
   transferArrow: { color: '#DC143C', fontSize: 20, fontWeight: '700', paddingLeft: 8 },
+
+  acceptBtn: { width: 38, height: 38, borderRadius: 8, backgroundColor: '#22C55E', alignItems: 'center', justifyContent: 'center' },
+  acceptBtnTxt: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
+  declineBtn: { width: 38, height: 38, borderRadius: 8, borderWidth: 1, borderColor: '#2A2A2A', backgroundColor: 'transparent', alignItems: 'center', justifyContent: 'center' },
+  declineBtnTxt: { color: '#888888', fontSize: 15, fontWeight: '700' },
 
   announcementInput: {
     color: '#FFFFFF',

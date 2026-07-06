@@ -29,6 +29,7 @@ import notificationsRoutes from './notifications/notifications.routes';
 import analyticsRoutes from './analytics/analytics.routes';
 import speedCamerasRoutes from './speed-cameras/speed-cameras.routes';
 import photosRoutes from './groups/photos.routes';
+import joinRequestsRoutes from './groups/joinRequests.routes';
 import uploadsRoutes from './uploads/uploads.routes';
 import dmRoutes from './dm/dm.routes';
 import socketioPlugin from './plugins/socketio';
@@ -183,6 +184,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   // Convoy group management
   await app.register(groupsRoutes, { prefix: '/api/v1' });
   await app.register(registerGroupStatsRoute, { prefix: '/api/v1' });
+  await app.register(joinRequestsRoutes, { prefix: '/api/v1' });
 
   // Group text chat
   await app.register(chatRoutes, { prefix: '/api/v1' });
