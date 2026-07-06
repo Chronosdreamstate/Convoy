@@ -5,8 +5,6 @@ import * as SecureStore from 'expo-secure-store';
 export type MapStyle = 'standard' | 'satellite' | 'hybrid';
 export type DistanceUnit = 'km' | 'miles';
 
-export type DistanceUnit = 'km' | 'miles';
-
 interface SettingsState {
   mapStyle: MapStyle;
   hazardAlertDistanceM: number;
