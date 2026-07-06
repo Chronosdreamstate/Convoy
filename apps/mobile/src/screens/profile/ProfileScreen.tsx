@@ -546,7 +546,7 @@ export default function ProfileScreen() {
           accessibilityLabel="Nearby drivers"
         >
           <View style={styles.friendsBtnInner}>
-            <Text style={styles.friendsBtnIcon}>📡</Text>
+            <Ionicons name="locate-outline" size={20} color={colors.text} style={styles.friendsBtnIcon} />
             <Text style={styles.friendsBtnText}>Nearby</Text>
           </View>
           <Text style={styles.friendsChevron}>›</Text>

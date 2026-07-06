@@ -141,7 +141,7 @@ export default function UserProfileScreen() {
             accessibilityLabel="Go back"
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
-            <Text style={styles.backIcon}>‹</Text>
+            <Ionicons name="chevron-back" size={26} color={colors.text} />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Profile</Text>
           <View style={styles.backBtn} />
@@ -178,7 +178,7 @@ export default function UserProfileScreen() {
             accessibilityLabel="Go back"
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
-            <Text style={styles.backIcon}>‹</Text>
+            <Ionicons name="chevron-back" size={26} color={colors.text} />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Profile</Text>
           <View style={styles.backBtn} />
@@ -211,7 +211,7 @@ export default function UserProfileScreen() {
           accessibilityLabel="Go back"
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         >
-          <Text style={styles.backIcon}>‹</Text>
+          <Ionicons name="chevron-back" size={26} color={colors.text} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Profile</Text>
         <TouchableOpacity
@@ -368,7 +368,6 @@ function createStyles(colors: ThemeColors) {
       borderBottomColor: colors.border,
     },
     backBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
-    backIcon: { color: colors.text, fontSize: 28, fontWeight: '300', lineHeight: 32 },
     headerTitle: { color: colors.text, fontSize: 16, fontWeight: '700', letterSpacing: 0.5 },
     shareBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
 

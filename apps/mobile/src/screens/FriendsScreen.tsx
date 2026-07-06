@@ -83,6 +83,29 @@ function Empty({ icon, title, sub }: { icon: keyof typeof Ionicons.glyphMap; tit
   );
 }
 
+// Full error state with an explicit retry control — used when a list fails to
+// load and there's nothing to show behind an inline banner.
+function ListError({ message, onRetry }: { message: string; onRetry: () => void }) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+  return (
+    <View style={styles.empty}>
+      <Ionicons name="cloud-offline-outline" size={44} color={colors.textMuted} style={styles.emptyIcon} />
+      <Text style={styles.emptyTitle}>Something went wrong</Text>
+      <Text style={styles.emptySub}>{message}</Text>
+      <TouchableOpacity
+        style={styles.retryBtn}
+        onPress={onRetry}
+        accessibilityRole="button"
+        accessibilityLabel="Try again"
+      >
+        <Ionicons name="refresh" size={16} color={colors.text} style={styles.retryIcon} />
+        <Text style={styles.retryBtnTxt}>Try Again</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
 // Friend row with slide-out animation
 function FriendRow({
   friend,
@@ -201,7 +224,7 @@ function FriendRow({
           accessibilityLabel={`View ${friend.displayName} on map`}
           hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
         >
-          <Text style={styles.mapBtnTxt}>↗</Text>
+          <Ionicons name="map-outline" size={18} color={colors.textMuted} />
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.trashBtn}
@@ -214,7 +237,7 @@ function FriendRow({
         >
           {removing
             ? <ActivityIndicator color={colors.accent} size="small" />
-            : <Text style={styles.trashBtnTxt}>✕</Text>}
+            : <Ionicons name="person-remove-outline" size={17} color={colors.accent} />}
         </TouchableOpacity>
       </View>
     </Animated.View>
@@ -289,8 +312,15 @@ function FriendsTab({ query }: { query: string }) {
     return <View style={styles.skeletonWrap}>{[0, 1, 2, 3].map(i => <SkeletonRow key={i} />)}</View>;
   }
 
+  // Load failed with nothing to show — full error state with a retry control.
+  if (error && friends.length === 0) {
+    return <ListError message={error} onRetry={() => void load()} />;
+  }
+
   if (filtered.length === 0 && !error) {
-    return <Empty icon="people-outline" title="No friends yet" sub="Use the + button to invite your crew." />;
+    return q
+      ? <Empty icon="search-outline" title="No matches" sub={`No friends match "${query.trim()}".`} />
+      : <Empty icon="people-outline" title="No friends yet" sub="Use the + button to invite your crew." />;
   }
 
   const online = filtered.filter(f => f.isOnline);
@@ -378,7 +408,7 @@ function RequestRow({
         >
           {isMe && acting?.action === 'accept'
             ? <ActivityIndicator color={colors.text} size="small" />
-            : <Text style={styles.acceptBtnTxt}>✓</Text>}
+            : <Ionicons name="checkmark" size={20} color={colors.text} />}
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.declineBtn}
@@ -391,7 +421,7 @@ function RequestRow({
         >
           {isMe && acting?.action === 'decline'
             ? <ActivityIndicator color={colors.textMuted} size="small" />
-            : <Text style={styles.declineBtnTxt}>✕</Text>}
+            : <Ionicons name="close" size={18} color={colors.textMuted} />}
         </TouchableOpacity>
       </View>
     </Animated.View>
@@ -404,6 +434,7 @@ function RequestsTab({ onCount }: { onCount: (n: number) => void }) {
   const styles = useMemo(() => createStyles(colors), [colors]);
   const [reqs, setReqs] = useState<FriendRequest[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [acting, setActing] = useState<{ id: string; action: 'accept' | 'decline' } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -418,6 +449,12 @@ function RequestsTab({ onCount }: { onCount: (n: number) => void }) {
 
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { onCount(reqs.length); }, [reqs.length, onCount]);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await load();
+    setRefreshing(false);
+  }, [load]);
 
   const act = useCallback(async (id: string, action: 'accept' | 'decline') => {
     setActing({ id, action });
@@ -436,6 +473,11 @@ function RequestsTab({ onCount }: { onCount: (n: number) => void }) {
     return <View style={styles.skeletonWrap}>{[0, 1, 2].map(i => <SkeletonRow key={i} />)}</View>;
   }
 
+  // Load failed with nothing to show — full error state with a retry control.
+  if (error && reqs.length === 0) {
+    return <ListError message={error} onRetry={() => void load()} />;
+  }
+
   return (
     <SectionList
       sections={reqs.length > 0 ? [{ title: 'Pending', data: reqs }] : []}
@@ -443,6 +485,9 @@ function RequestsTab({ onCount }: { onCount: (n: number) => void }) {
       contentContainerStyle={styles.listPad}
       showsVerticalScrollIndicator={false}
       stickySectionHeadersEnabled={false}
+      refreshControl={
+        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.accent} colors={[colors.accent]} />
+      }
       ListHeaderComponent={error ? <Text style={styles.errorTxt}>{error}</Text> : null}
       ListEmptyComponent={
         !error ? <Empty icon="mail-unread-outline" title="No pending requests" sub="When someone adds you, they'll appear here." /> : null
@@ -604,7 +649,7 @@ export default function FriendsScreen() {
                 accessibilityRole="button"
                 accessibilityLabel="Clear search"
               >
-                <Text style={styles.searchClear}>✕</Text>
+                <Ionicons name="close-circle" size={18} color={colors.textMuted} style={styles.searchClear} />
               </TouchableOpacity>
             )}
           </View>
@@ -645,7 +690,7 @@ export default function FriendsScreen() {
         accessibilityLabel="Invite friends"
         accessibilityState={{ disabled: inviting }}
       >
-        {inviting ? <ActivityIndicator color={colors.text} size="small" /> : <Text style={styles.fabIcon}>+</Text>}
+        {inviting ? <ActivityIndicator color={colors.text} size="small" /> : <Ionicons name="add" size={30} color={colors.text} />}
       </TouchableOpacity>
     </SafeAreaView>
   );
@@ -665,7 +710,7 @@ function createStyles(colors: ThemeColors) {
   },
   searchIco: { marginRight: 8 },
   searchInput: { flex: 1, fontSize: 15, color: colors.text, paddingVertical: 10 },
-  searchClear: { color: colors.textMuted, fontSize: 15, paddingLeft: 8 },
+  searchClear: { paddingLeft: 8 },
   searchDropdown: {
     backgroundColor: colors.card, borderRadius: 12, borderWidth: 1, borderColor: colors.border,
     marginTop: 4, overflow: 'hidden',
@@ -715,13 +760,9 @@ function createStyles(colors: ThemeColors) {
   cardBtns: { flexDirection: 'row', gap: 8 },
 
   mapBtn: { width: 38, height: 38, borderRadius: 8, backgroundColor: colors.cardElevated, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
-  mapBtnTxt: { color: colors.textMuted, fontSize: 16, fontWeight: '700' },
   trashBtn: { width: 38, height: 38, borderRadius: 8, borderWidth: 1, borderColor: colors.accent, backgroundColor: 'transparent', alignItems: 'center', justifyContent: 'center' },
-  trashBtnTxt: { color: colors.accent, fontSize: 15, fontWeight: '700' },
   acceptBtn: { width: 38, height: 38, borderRadius: 8, backgroundColor: colors.success, alignItems: 'center', justifyContent: 'center' },
-  acceptBtnTxt: { color: colors.text, fontSize: 16, fontWeight: '700' },
   declineBtn: { width: 38, height: 38, borderRadius: 8, borderWidth: 1, borderColor: colors.border, backgroundColor: 'transparent', alignItems: 'center', justifyContent: 'center' },
-  declineBtnTxt: { color: colors.textMuted, fontSize: 15, fontWeight: '700' },
 
   addBtn: { paddingHorizontal: 14, height: 34, borderRadius: 8, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center' },
   addBtnTxt: { color: colors.text, fontSize: 13, fontWeight: '700' },
@@ -735,12 +776,17 @@ function createStyles(colors: ThemeColors) {
   emptyTitle: { fontSize: 18, fontWeight: '700', color: colors.text, marginBottom: 6, textAlign: 'center' },
   emptySub: { fontSize: 14, color: colors.textMuted, textAlign: 'center', lineHeight: 20 },
   errorTxt: { color: colors.accent, fontSize: 13, marginBottom: 10, textAlign: 'center' },
+  retryBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    marginTop: 20, paddingHorizontal: 22, height: 44, borderRadius: 10, backgroundColor: colors.accent,
+  },
+  retryIcon: { marginRight: 6 },
+  retryBtnTxt: { color: colors.text, fontSize: 14, fontWeight: '700' },
 
   fab: {
     position: 'absolute', bottom: 28, right: 24, width: 56, height: 56, borderRadius: 28,
     backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center',
     shadowColor: colors.accent, shadowOpacity: 0.45, shadowRadius: 14, shadowOffset: { width: 0, height: 4 }, elevation: 8,
   },
-  fabIcon: { color: colors.text, fontSize: 30, fontWeight: '300', lineHeight: 34 },
   });
 }
