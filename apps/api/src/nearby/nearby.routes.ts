@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { randomBytes } from 'crypto';
 import { authenticate } from '../middleware/authenticate';
 import { generalLimiter } from '../middleware/rateLimiter';
+import { isBlocked } from '../friends/friends.routes';
 
 // ---------------------------------------------------------------------------
 // Privacy constants
@@ -98,6 +99,15 @@ async function nearbyRoutes(
       );
 
       // Find other opted-in, recently-active users within the radius.
+      // Req 17.11: a block in either direction must hide both the blocker's
+      // and the blocked user's location from each other, so nearby-strangers
+      // discovery (which is exactly a location-viewing feature) is not a
+      // backdoor around a block. Enforced here as a SQL-level NOT EXISTS
+      // anti-join (mirroring the same pattern used by /friends/search) rather
+      // than an application-level filter, so a blocked pair never shows up in
+      // the result set or its ORDER BY / LIMIT 100 windowing at all — this
+      // avoids any response-shape or timing side channel that a post-hoc
+      // filter could leak.
       const result = await fastify.db.query<NearbyRow>(
         `SELECT np.user_id,
                 u.display_name,
@@ -111,6 +121,12 @@ async function nearbyRoutes(
          WHERE np.user_id <> $1
            AND np.updated_at > now() - INTERVAL '${PRESENCE_FRESHNESS}'
            AND ST_DWithin(np.approx_location, ST_SetSRID(ST_MakePoint($2, $3), 4326)::geography, $4)
+           AND NOT EXISTS (
+             SELECT 1 FROM friendships b
+             WHERE b.status = 'blocked'
+               AND ((b.requester_id = $1 AND b.addressee_id = np.user_id)
+                 OR (b.requester_id = np.user_id AND b.addressee_id = $1))
+           )
          ORDER BY distance_m ASC
          LIMIT 100`,
         [userId, snappedLng, snappedLat, radiusM],
@@ -162,6 +178,14 @@ async function nearbyRoutes(
         return reply.forbidden('Enable "Visible to nearby" to message nearby people');
       }
       if (!optedInIds.has(strangerId)) {
+        return reply.forbidden('This user is not available for nearby messages');
+      }
+
+      // Block enforcement (Req 17.11) — checked BEFORE any DM group lookup/
+      // creation so a blocked pair can neither reuse nor open a new DM.
+      // Reuses the same isBlocked() helper as friends.routes.ts rather than
+      // reimplementing block detection here.
+      if (await isBlocked(fastify.db, userId, strangerId)) {
         return reply.forbidden('This user is not available for nearby messages');
       }
 

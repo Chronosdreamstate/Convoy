@@ -1,4 +1,5 @@
 ﻿import { FastifyInstance, FastifyPluginOptions } from 'fastify';
+import { Pool } from 'pg';
 import { z } from 'zod';
 import { authenticate } from '../middleware/authenticate';
 import { generalLimiter } from '../middleware/rateLimiter';
@@ -30,25 +31,27 @@ interface UserPublic {
   privacy: string;
 }
 
+// ---------------------------------------------------------------------------
+// Helper: check if a block exists in either direction between two users
+// (Req 17.11). Exported so other route modules (e.g. nearby.routes.ts) can
+// reuse the same block-detection logic rather than reimplementing it.
+// ---------------------------------------------------------------------------
+export async function isBlocked(db: Pool, userA: string, userB: string): Promise<boolean> {
+  const result = await db.query(
+    `SELECT 1 FROM friendships
+     WHERE status = 'blocked'
+       AND ((requester_id = $1 AND addressee_id = $2)
+         OR (requester_id = $2 AND addressee_id = $1))
+     LIMIT 1`,
+    [userA, userB],
+  );
+  return (result.rowCount ?? 0) > 0;
+}
+
 async function friendsRoutes(
   fastify: FastifyInstance,
   _opts: FastifyPluginOptions,
 ): Promise<void> {
-  // -------------------------------------------------------------------------
-  // Helper: check if a block exists in either direction between two users
-  // -------------------------------------------------------------------------
-  async function isBlocked(userA: string, userB: string): Promise<boolean> {
-    const result = await fastify.db.query(
-      `SELECT 1 FROM friendships
-       WHERE status = 'blocked'
-         AND ((requester_id = $1 AND addressee_id = $2)
-           OR (requester_id = $2 AND addressee_id = $1))
-       LIMIT 1`,
-      [userA, userB],
-    );
-    return (result.rowCount ?? 0) > 0;
-  }
-
   // -------------------------------------------------------------------------
   // GET /friends/invite-link — generate a deep-link invite (Req 17.1, 17.2)
   // -------------------------------------------------------------------------
@@ -130,7 +133,7 @@ async function friendsRoutes(
     }
 
     // Block enforcement (Req 17.11)
-    if (await isBlocked(requesterId, addresseeId)) {
+    if (await isBlocked(fastify.db, requesterId, addresseeId)) {
       return reply.forbidden('Unable to send friend request');
     }
 
