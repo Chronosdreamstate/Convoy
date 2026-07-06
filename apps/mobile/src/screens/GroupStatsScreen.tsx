@@ -117,7 +117,7 @@ export default function GroupStatsScreen() {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.header}>
-          <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} accessibilityRole="button" accessibilityLabel="Go back">
+          <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} accessibilityRole="button" accessibilityLabel="Go back">
             <Ionicons name="chevron-back" size={22} color={colors.accent} />
           </TouchableOpacity>
           <Text style={styles.title}>Group Stats</Text>
@@ -142,7 +142,7 @@ export default function GroupStatsScreen() {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.header}>
-          <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} accessibilityRole="button" accessibilityLabel="Go back">
+          <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} accessibilityRole="button" accessibilityLabel="Go back">
             <Ionicons name="chevron-back" size={22} color={colors.accent} />
           </TouchableOpacity>
           <Text style={styles.title}>Group Stats</Text>
@@ -156,7 +156,7 @@ export default function GroupStatsScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} accessibilityRole="button" accessibilityLabel="Go back">
+        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} accessibilityRole="button" accessibilityLabel="Go back">
           <Ionicons name="chevron-back" size={22} color={colors.accent} />
         </TouchableOpacity>
         <Text style={styles.title}>{stats.groupName}</Text>
@@ -165,6 +165,7 @@ export default function GroupStatsScreen() {
           onPress={handleShare}
           accessibilityRole="button"
           accessibilityLabel="Share group stats"
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         >
           <Ionicons name="share-outline" size={20} color={colors.text} style={styles.shareIcon} />
         </TouchableOpacity>

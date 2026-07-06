@@ -102,6 +102,7 @@ export default function UserProfileScreen() {
             onPress={() => router.back()}
             accessibilityRole="button"
             accessibilityLabel="Go back"
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
             <Text style={styles.backIcon}>‹</Text>
           </TouchableOpacity>
@@ -138,6 +139,7 @@ export default function UserProfileScreen() {
             onPress={() => router.back()}
             accessibilityRole="button"
             accessibilityLabel="Go back"
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
             <Text style={styles.backIcon}>‹</Text>
           </TouchableOpacity>
@@ -160,11 +162,23 @@ export default function UserProfileScreen() {
     <SafeAreaView style={styles.root} edges={['top']}>
       {/* Header bar */}
       <View style={styles.header}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} accessibilityRole="button" accessibilityLabel="Go back">
+        <TouchableOpacity
+          style={styles.backBtn}
+          onPress={() => router.back()}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        >
           <Text style={styles.backIcon}>‹</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Profile</Text>
-        <TouchableOpacity style={styles.shareBtn} onPress={() => void handleShare()} accessibilityRole="button" accessibilityLabel="Share profile">
+        <TouchableOpacity
+          style={styles.shareBtn}
+          onPress={() => void handleShare()}
+          accessibilityRole="button"
+          accessibilityLabel="Share profile"
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        >
           <Text style={styles.shareIcon}>↑</Text>
         </TouchableOpacity>
       </View>

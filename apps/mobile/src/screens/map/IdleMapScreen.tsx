@@ -481,6 +481,7 @@ export default function IdleMapScreen() {
               style={styles.dismissBtn}
               accessibilityRole="button"
               accessibilityLabel="Dismiss group card"
+              hitSlop={{ top: 8, bottom: 8, left: 0, right: 8 }}
             >
               <Text style={styles.dismissText}>✕</Text>
             </TouchableOpacity>
@@ -789,7 +790,7 @@ const styles = StyleSheet.create({
     marginLeft: 10,
   },
   joinBtnText: { color: '#FFFFFF', fontSize: 13, fontWeight: '700' },
-  dismissBtn: { paddingLeft: 10, paddingVertical: 4 },
+  dismissBtn: { paddingLeft: 10, paddingRight: 22, paddingVertical: 13 },
   dismissText: { color: '#888888', fontSize: 16 },
 
   bottomSheet: {
