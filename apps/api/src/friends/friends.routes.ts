@@ -500,6 +500,65 @@ async function friendsRoutes(
   });
 
   // -------------------------------------------------------------------------
+  // GET /friends/blocked — list users the current user has blocked (Req 17.11)
+  // Only returns blocks the current user initiated (requester_id = self) —
+  // being blocked by someone else never appears in your own blocked list.
+  // -------------------------------------------------------------------------
+  fastify.get('/friends/blocked', { preHandler: [authenticate, generalLimiter(fastify.redis)] }, async (request, reply) => {
+    const userId = (request.user as { sub: string }).sub;
+
+    const result = await fastify.db.query<
+      { friendship_id: string; created_at: Date } & UserPublic
+    >(
+      `SELECT f.id AS friendship_id, f.created_at,
+              u.id, u.display_name, u.avatar_url, u.ptt_callsign, u.privacy
+       FROM friendships f
+       JOIN users u ON u.id = f.addressee_id
+       WHERE f.status = 'blocked' AND f.requester_id = $1
+       ORDER BY u.display_name ASC`,
+      [userId],
+    );
+
+    return reply.send({
+      blocked: result.rows.map((r) => ({
+        id: r.friendship_id,
+        userId: r.id,
+        displayName: r.display_name,
+        avatarUrl: r.avatar_url,
+        callsign: r.ptt_callsign,
+        blockedAt: r.created_at,
+      })),
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // POST /friends/unblock — reverse a block the current user placed (Req 17.11)
+  // Only removes a block the current user is the requester of — you cannot
+  // unblock someone who has blocked you.
+  // -------------------------------------------------------------------------
+  fastify.post('/friends/unblock', { preHandler: [authenticate, generalLimiter(fastify.redis)] }, async (request, reply) => {
+    const userId = (request.user as { sub: string }).sub;
+
+    const parsed = blockBodySchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.badRequest(parsed.error.errors[0].message);
+    }
+    const { userId: blockedId } = parsed.data;
+
+    const result = await fastify.db.query(
+      `DELETE FROM friendships
+       WHERE requester_id = $1 AND addressee_id = $2 AND status = 'blocked'`,
+      [userId, blockedId],
+    );
+
+    if ((result.rowCount ?? 0) === 0) {
+      return reply.notFound('Block not found');
+    }
+
+    return reply.status(200).send({ message: 'User unblocked' });
+  });
+
+  // -------------------------------------------------------------------------
   // GET /friends/requests/sent — outgoing pending requests the current user sent
   // -------------------------------------------------------------------------
   fastify.get('/friends/requests/sent', { preHandler: [authenticate, generalLimiter(fastify.redis)] }, async (request, reply) => {
