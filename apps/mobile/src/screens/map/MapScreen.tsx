@@ -1266,6 +1266,8 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
             isOnline={isOnline}
             isInMotion={deriveMotionState(mySpeedKph) === 'in_motion'}
             onSelect={handleSearchSelect}
+            userLat={myLocation?.lat ?? null}
+            userLng={myLocation?.lng ?? null}
           />
         </View>
       )}
