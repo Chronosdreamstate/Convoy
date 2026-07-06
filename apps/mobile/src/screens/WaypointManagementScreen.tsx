@@ -416,6 +416,7 @@ export default function WaypointManagementScreen() {
               onChangeText={setDraftName}
               autoFocus
               returnKeyType="next"
+              accessibilityLabel="Location name"
             />
             <TextInput
               style={[styles.input, styles.inputSpaced]}
@@ -425,6 +426,7 @@ export default function WaypointManagementScreen() {
               onChangeText={setDraftAddress}
               returnKeyType="done"
               onSubmitEditing={addWaypoint}
+              accessibilityLabel="Address"
             />
 
             <TouchableOpacity

@@ -138,7 +138,7 @@ export default function HazardReportModal({ visible, onClose, lat, lng, isInMoti
       onRequestClose={handleClose}
     >
       <View style={s.overlay}>
-        <Pressable style={StyleSheet.absoluteFillObject} onPress={handleClose} />
+        <Pressable style={StyleSheet.absoluteFillObject} onPress={handleClose} accessible={false} />
 
         <View style={s.sheet}>
           {/* Drag handle */}

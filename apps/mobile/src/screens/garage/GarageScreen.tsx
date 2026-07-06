@@ -331,7 +331,12 @@ export default function GarageScreen() {
               <View key={i} style={styles.modRow}>
                 <Text style={styles.modBullet}>🔧</Text>
                 <Text style={styles.modText}>{mod}</Text>
-                <TouchableOpacity onPress={() => void handleRemoveMod(i)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <TouchableOpacity
+                  onPress={() => void handleRemoveMod(i)}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Remove ${mod}`}
+                >
                   <Text style={styles.modRemove}>✕</Text>
                 </TouchableOpacity>
               </View>
@@ -348,11 +353,14 @@ export default function GarageScreen() {
                   onSubmitEditing={handleAddMod}
                   returnKeyType="done"
                   maxLength={60}
+                  accessibilityLabel="New modification"
                 />
                 <TouchableOpacity
                   style={[styles.modAddBtn, !newMod.trim() && { opacity: 0.4 }]}
                   onPress={handleAddMod}
                   disabled={!newMod.trim()}
+                  accessibilityRole="button"
+                  accessibilityLabel="Add mod"
                 >
                   <Text style={styles.modAddBtnText}>+</Text>
                 </TouchableOpacity>

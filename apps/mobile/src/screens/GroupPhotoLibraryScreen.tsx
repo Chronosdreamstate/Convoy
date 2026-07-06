@@ -34,7 +34,12 @@ interface Photo {
 function PhotoCell({ photo }: { photo: Photo }) {
   return (
     <View style={styles.cell}>
-      <Image source={{ uri: photo.photoUrl }} style={styles.cellImage} resizeMode="cover" />
+      <Image
+        source={{ uri: photo.photoUrl }}
+        style={styles.cellImage}
+        resizeMode="cover"
+        accessibilityLabel={`Photo by ${photo.displayName}`}
+      />
       <View style={styles.cellOverlay}>
         <Text style={styles.cellName} numberOfLines={1}>{photo.displayName}</Text>
         {photo.caption ? (

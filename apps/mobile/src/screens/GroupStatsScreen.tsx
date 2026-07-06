@@ -153,7 +153,12 @@ export default function GroupStatsScreen() {
           <Text style={styles.backText}>‹ Back</Text>
         </TouchableOpacity>
         <Text style={styles.title}>{stats.groupName}</Text>
-        <TouchableOpacity style={styles.backBtn} onPress={handleShare}>
+        <TouchableOpacity
+          style={styles.backBtn}
+          onPress={handleShare}
+          accessibilityRole="button"
+          accessibilityLabel="Share group stats"
+        >
           <Text style={styles.shareIcon}>📤</Text>
         </TouchableOpacity>
       </View>

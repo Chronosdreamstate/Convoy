@@ -104,6 +104,7 @@ export default function MemberDetailModal({
         style={styles.overlay}
         activeOpacity={1}
         onPress={onClose}
+        accessible={false}
       />
 
       <View style={styles.sheet}>
@@ -208,6 +209,8 @@ export default function MemberDetailModal({
                 }}
                 disabled={muting}
                 accessibilityRole="button"
+                accessibilityLabel={member.isMuted ? 'Unmute' : 'Mute'}
+                accessibilityState={{ disabled: muting, busy: muting }}
               >
                 {muting
                   ? <ActivityIndicator color="#FFFFFF" size="small" />
@@ -218,6 +221,7 @@ export default function MemberDetailModal({
                 style={styles.outlineBtn}
                 onPress={() => { onNavigateTo?.(member.userId); onClose(); }}
                 accessibilityRole="button"
+                accessibilityLabel="Navigate to member"
               >
                 <Text style={styles.outlineBtnText}>🗺️ Navigate to</Text>
               </TouchableOpacity>
@@ -255,6 +259,8 @@ export default function MemberDetailModal({
                 );
               }}
               accessibilityRole="button"
+              accessibilityLabel="Remove from group"
+              accessibilityState={{ disabled: kicking, busy: kicking }}
             >
               {kicking
                 ? <ActivityIndicator color="#DC143C" size="small" />

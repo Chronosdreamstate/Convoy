@@ -320,19 +320,19 @@ export default function RouteReplayScreen() {
         )}
         {/* Moving car marker */}
         {currentMarker && (
-          <Marker coordinate={currentMarker} anchor={{ x: 0.5, y: 0.5 }}>
+          <Marker coordinate={currentMarker} anchor={{ x: 0.5, y: 0.5 }} title="Current replay position">
             <View style={styles.carMarker}>
               <Text style={{ fontSize: 20 }}>🚗</Text>
             </View>
           </Marker>
         )}
         {/* Start / end pins */}
-        <Marker coordinate={coords[0]} anchor={{ x: 0.5, y: 0.5 }}>
+        <Marker coordinate={coords[0]} anchor={{ x: 0.5, y: 0.5 }} title="Start of route">
           <View style={styles.pinStart}>
             <Text style={styles.pinText}>S</Text>
           </View>
         </Marker>
-        <Marker coordinate={coords[coords.length - 1]} anchor={{ x: 0.5, y: 0.5 }}>
+        <Marker coordinate={coords[coords.length - 1]} anchor={{ x: 0.5, y: 0.5 }} title="End of route">
           <View style={styles.pinEnd}>
             <Text style={styles.pinText}>F</Text>
           </View>
@@ -399,7 +399,12 @@ export default function RouteReplayScreen() {
 
         {/* Play/pause + speed */}
         <View style={styles.playRow}>
-          <Pressable onPress={togglePlay} style={styles.playBtn}>
+          <Pressable
+            onPress={togglePlay}
+            style={styles.playBtn}
+            accessibilityRole="button"
+            accessibilityLabel={playing ? 'Pause' : 'Play'}
+          >
             <Text style={styles.playBtnText}>{playing ? '⏸' : '▶'}</Text>
           </Pressable>
           <View style={styles.speedPills}>
@@ -408,6 +413,9 @@ export default function RouteReplayScreen() {
                 key={s}
                 onPress={() => setSpeed(s)}
                 style={[styles.speedPill, speed === s && styles.speedPillActive]}
+                accessibilityRole="button"
+                accessibilityLabel={`${s}x speed`}
+                accessibilityState={{ selected: speed === s }}
               >
                 <Text style={[styles.speedPillText, speed === s && styles.speedPillTextActive]}>
                   {s}x

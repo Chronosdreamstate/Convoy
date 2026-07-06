@@ -246,6 +246,7 @@ export default function IdleMapScreen() {
               key={group.id}
               coordinate={{ latitude: group.lat, longitude: group.lng }}
               onPress={() => setSelectedGroup(group)}
+              title={`${group.name} — ${group.memberCount} members`}
             >
               <View style={styles.convoyMarker}>
                 <Text style={styles.convoyMarkerText}>{group.memberCount}</Text>
@@ -303,6 +304,8 @@ export default function IdleMapScreen() {
           style={[styles.hudCard, { top: insets.top + 12, right: 12 }]}
           onPress={() => setHudVisible(false)}
           activeOpacity={0.85}
+          accessibilityRole="button"
+          accessibilityLabel={`Speed ${speedKph !== null ? `${speedKph} kilometers per hour` : 'unavailable'}. Tap to hide.`}
         >
           <Text style={styles.hudSpeed}>
             {speedKph !== null ? `${speedKph}` : '—'}
@@ -320,6 +323,8 @@ export default function IdleMapScreen() {
         <TouchableOpacity
           style={[styles.hudToggle, { top: insets.top + 12, right: 12 }]}
           onPress={() => setHudVisible(true)}
+          accessibilityRole="button"
+          accessibilityLabel="Show speed and heading"
         >
           <Text style={styles.recenterText}>🧭</Text>
         </TouchableOpacity>
@@ -365,7 +370,12 @@ export default function IdleMapScreen() {
             <TouchableOpacity style={styles.joinBtn} onPress={() => handleJoinGroup(selectedGroup.id)}>
               <Text style={styles.joinBtnText}>Join →</Text>
             </TouchableOpacity>
-            <TouchableOpacity onPress={() => setSelectedGroup(null)} style={styles.dismissBtn}>
+            <TouchableOpacity
+              onPress={() => setSelectedGroup(null)}
+              style={styles.dismissBtn}
+              accessibilityRole="button"
+              accessibilityLabel="Dismiss group card"
+            >
               <Text style={styles.dismissText}>✕</Text>
             </TouchableOpacity>
           </View>

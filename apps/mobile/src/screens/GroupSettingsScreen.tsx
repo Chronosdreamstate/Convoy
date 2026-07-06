@@ -283,6 +283,7 @@ export default function GroupSettingsScreen() {
             editable={!readOnly}
             maxLength={60}
             returnKeyType="done"
+            accessibilityLabel="Group name"
           />
         </View>
 
@@ -429,6 +430,7 @@ export default function GroupSettingsScreen() {
                 multiline
                 maxLength={200}
                 returnKeyType="default"
+                accessibilityLabel="Announcement message"
               />
               <Text style={styles.charCount}>{announcement.length}/200</Text>
               <TouchableOpacity

@@ -47,6 +47,9 @@ export default function Button({
         style,
       ]}
       hitSlop={theme.hitSlop}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ disabled: isDisabled, busy: loading }}
     >
       {loading ? (
         <ActivityIndicator

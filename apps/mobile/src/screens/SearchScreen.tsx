@@ -183,7 +183,12 @@ export default function SearchScreen() {
     >
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+        <TouchableOpacity
+          style={styles.backBtn}
+          onPress={() => router.back()}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+        >
           <Text style={styles.backText}>‹</Text>
         </TouchableOpacity>
         <View style={styles.inputWrap}>
@@ -198,6 +203,7 @@ export default function SearchScreen() {
             returnKeyType="search"
             onSubmitEditing={() => search(query)}
             clearButtonMode="while-editing"
+            accessibilityLabel="Search groups and people"
           />
         </View>
       </View>
@@ -209,6 +215,8 @@ export default function SearchScreen() {
             key={tab}
             style={[styles.tab, activeTab === tab && styles.tabActive]}
             onPress={() => setActiveTab(tab)}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: activeTab === tab }}
           >
             <Text style={[styles.tabText, activeTab === tab && styles.tabTextActive]}>
               {tab === 'groups' ? 'Groups' : 'People'}
