@@ -511,7 +511,12 @@ export default function FriendsScreen() {
               accessibilityLabel="Search friends or find new people"
             />
             {query.length > 0 && (
-              <TouchableOpacity onPress={() => { setQuery(''); setSearchResults([]); }} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <TouchableOpacity
+                onPress={() => { setQuery(''); setSearchResults([]); }}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                accessibilityRole="button"
+                accessibilityLabel="Clear search"
+              >
                 <Text style={styles.searchClear}>✕</Text>
               </TouchableOpacity>
             )}

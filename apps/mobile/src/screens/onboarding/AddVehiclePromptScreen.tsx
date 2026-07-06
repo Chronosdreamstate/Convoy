@@ -91,6 +91,7 @@ export default function AddVehiclePromptScreen() {
           autoCapitalize="words"
           returnKeyType="done"
           onSubmitEditing={handleSubmit}
+          accessibilityLabel="Vehicle name"
         />
 
         <View style={styles.pillRow}>
@@ -100,6 +101,9 @@ export default function AddVehiclePromptScreen() {
                 style={[styles.pill, selectedType === t.key && styles.pillActive]}
                 onPress={() => handleSelectType(t.key, idx)}
                 activeOpacity={0.8}
+                accessibilityRole="button"
+                accessibilityLabel={t.label}
+                accessibilityState={{ selected: selectedType === t.key }}
               >
                 <Text style={styles.pillIcon}>{t.icon}</Text>
                 <Text style={[styles.pillText, selectedType === t.key && styles.pillTextActive]}>
@@ -115,6 +119,9 @@ export default function AddVehiclePromptScreen() {
           onPress={handleSubmit}
           disabled={!vehicleName.trim() || loading}
           activeOpacity={0.85}
+          accessibilityRole="button"
+          accessibilityLabel="Add My Ride"
+          accessibilityState={{ disabled: !vehicleName.trim() || loading, busy: loading }}
         >
           {loading ? (
             <ActivityIndicator color="#fff" />

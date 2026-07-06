@@ -307,6 +307,9 @@ export default function GroupDetailScreen() {
               style={[styles.joinBtn, { flex: 1 }, joining && styles.joinBtnDisabled]}
               onPress={handleJoin}
               disabled={joining}
+              accessibilityRole="button"
+              accessibilityLabel="Join Convoy"
+              accessibilityState={{ disabled: joining, busy: joining }}
             >
               {joining ? (
                 <ActivityIndicator color="#FFFFFF" />

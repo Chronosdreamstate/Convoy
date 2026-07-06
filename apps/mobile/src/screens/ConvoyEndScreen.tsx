@@ -627,7 +627,12 @@ export default function ConvoyEndScreen() {
       {/* Full-screen photo preview modal */}
       <Modal visible={previewPhoto !== null} transparent animationType="fade" onRequestClose={() => setPreviewPhoto(null)}>
         <View style={styles.photoModalBg}>
-          <TouchableOpacity style={styles.photoModalClose} onPress={() => setPreviewPhoto(null)}>
+          <TouchableOpacity
+            style={styles.photoModalClose}
+            onPress={() => setPreviewPhoto(null)}
+            accessibilityRole="button"
+            accessibilityLabel="Close photo preview"
+          >
             <Text style={styles.photoModalCloseText}>✕</Text>
           </TouchableOpacity>
           {previewPhoto && (
@@ -694,11 +699,21 @@ export default function ConvoyEndScreen() {
           ) : (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.photoScroll}>
               {photos.map((uri, idx) => (
-                <TouchableOpacity key={idx} onPress={() => setPreviewPhoto(uri)}>
+                <TouchableOpacity
+                  key={idx}
+                  onPress={() => setPreviewPhoto(uri)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`View photo ${idx + 1} of ${photos.length}`}
+                >
                   <Image source={{ uri }} style={styles.photoThumb} resizeMode="cover" />
                 </TouchableOpacity>
               ))}
-              <TouchableOpacity style={styles.photoAddThumb} onPress={pickFromLibrary}>
+              <TouchableOpacity
+                style={styles.photoAddThumb}
+                onPress={pickFromLibrary}
+                accessibilityRole="button"
+                accessibilityLabel="Add photo"
+              >
                 <Text style={styles.photoAddThumbIcon}>+</Text>
               </TouchableOpacity>
             </ScrollView>

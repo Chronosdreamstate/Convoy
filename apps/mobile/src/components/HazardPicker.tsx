@@ -133,7 +133,7 @@ export default function HazardPicker({ visible, isInMotion, onSelect, onClose }:
       accessibilityViewIsModal
     >
       <View style={styles.overlay}>
-        <Pressable style={StyleSheet.absoluteFillObject} onPress={handleClose} />
+        <Pressable style={StyleSheet.absoluteFillObject} onPress={handleClose} accessible={false} />
         <View style={styles.sheet}>
           {/* Drag handle */}
           <View style={styles.handle} />

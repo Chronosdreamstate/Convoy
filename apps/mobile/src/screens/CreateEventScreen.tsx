@@ -99,6 +99,7 @@ export default function CreateEventScreen() {
           value={title}
           onChangeText={t => setTitle(t.slice(0, 100))}
           maxLength={100}
+          accessibilityLabel="Event title"
         />
         <Text style={styles.charCount}>{title.length}/100</Text>
 
@@ -112,6 +113,7 @@ export default function CreateEventScreen() {
             maxLength={2}
             value={month}
             onChangeText={setMonth}
+            accessibilityLabel="Month"
           />
           <Text style={styles.dateSep}>/</Text>
           <TextInput
@@ -122,6 +124,7 @@ export default function CreateEventScreen() {
             maxLength={2}
             value={day}
             onChangeText={setDay}
+            accessibilityLabel="Day"
           />
           <Text style={styles.dateSep}>/</Text>
           <TextInput
@@ -132,6 +135,7 @@ export default function CreateEventScreen() {
             maxLength={4}
             value={year}
             onChangeText={setYear}
+            accessibilityLabel="Year"
           />
         </View>
 
@@ -145,6 +149,7 @@ export default function CreateEventScreen() {
             maxLength={2}
             value={hour}
             onChangeText={setHour}
+            accessibilityLabel="Hour"
           />
           <Text style={styles.dateSep}>:</Text>
           <TextInput
@@ -155,6 +160,7 @@ export default function CreateEventScreen() {
             maxLength={2}
             value={minute}
             onChangeText={setMinute}
+            accessibilityLabel="Minute"
           />
           <View style={styles.ampmRow}>
             {(['AM', 'PM'] as const).map(v => (
@@ -162,6 +168,9 @@ export default function CreateEventScreen() {
                 key={v}
                 style={[styles.ampmPill, ampm === v && styles.ampmPillActive]}
                 onPress={() => setAmpm(v)}
+                accessibilityRole="button"
+                accessibilityLabel={v}
+                accessibilityState={{ selected: ampm === v }}
               >
                 <Text style={[styles.ampmText, ampm === v && styles.ampmTextActive]}>{v}</Text>
               </TouchableOpacity>
@@ -179,12 +188,16 @@ export default function CreateEventScreen() {
           multiline
           numberOfLines={4}
           textAlignVertical="top"
+          accessibilityLabel="Description"
         />
 
         <TouchableOpacity
           style={[styles.btn, (!isValid || loading) && styles.btnDisabled]}
           onPress={handleSubmit}
           disabled={!isValid || loading}
+          accessibilityRole="button"
+          accessibilityLabel="Schedule Convoy"
+          accessibilityState={{ disabled: !isValid || loading, busy: loading }}
         >
           {loading
             ? <ActivityIndicator color="#fff" />

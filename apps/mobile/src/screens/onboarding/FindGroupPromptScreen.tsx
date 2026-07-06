@@ -64,6 +64,7 @@ export default function FindGroupPromptScreen() {
               style={styles.card}
               onPress={() => void completeOnboarding('/group-browse')}
               activeOpacity={0.8}
+              accessibilityRole="button"
             >
               <View style={styles.cardIconCircle}>
                 <Text style={styles.cardEmoji}>🔍</Text>
@@ -78,6 +79,7 @@ export default function FindGroupPromptScreen() {
               style={styles.card}
               onPress={() => void completeOnboarding('/join')}
               activeOpacity={0.8}
+              accessibilityRole="button"
             >
               <View style={styles.cardIconCircle}>
                 <Text style={styles.cardEmoji}>🔑</Text>

@@ -35,7 +35,12 @@ export default function PrivacyPolicyScreen() {
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.back}>
+        <TouchableOpacity
+          onPress={() => router.back()}
+          style={styles.back}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+        >
           <Text style={styles.backArrow}>‹</Text>
         </TouchableOpacity>
         <Text style={styles.title}>Privacy Policy</Text>

@@ -207,7 +207,12 @@ export default function EventDetailScreen() {
     >
       {/* Header */}
       <View style={[styles.headerRow, { paddingTop: insets.top + 16 }]}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+        <TouchableOpacity
+          onPress={() => router.back()}
+          style={styles.backBtn}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+        >
           <Text style={styles.backArrow}>←</Text>
         </TouchableOpacity>
         <Text style={styles.screenTitle}>Event Details</Text>
@@ -258,6 +263,8 @@ export default function EventDetailScreen() {
               style={[styles.rsvpPill, active && styles.rsvpPillActive]}
               onPress={() => { void handleRsvp(status); }}
               disabled={rsvpLoading}
+              accessibilityRole="button"
+              accessibilityState={{ selected: active, disabled: rsvpLoading }}
             >
               <Text style={[styles.rsvpPillText, active && styles.rsvpPillTextActive]}>
                 {label}

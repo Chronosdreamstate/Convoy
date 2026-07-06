@@ -1395,6 +1395,7 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
             key={h.id}
             coordinate={{ latitude: h.lat, longitude: h.lng }}
             pinColor="#f59e0b"
+            title={hazardLabel(h.type)}
           >
             <Callout tooltip onPress={() => {}}>
               <View style={overlayStyles.hazardCallout}>
@@ -1417,6 +1418,8 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
                     style={overlayStyles.hazardVoteBtn}
                     onPress={() => voteHazard(h.id, 'up')}
                     hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Confirm hazard still there, ${h.thumbsUp} votes`}
                   >
                     <Text style={overlayStyles.hazardVoteText}>👍 {h.thumbsUp}</Text>
                   </TouchableOpacity>
@@ -1424,6 +1427,8 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
                     style={overlayStyles.hazardVoteBtn}
                     onPress={() => voteHazard(h.id, 'down')}
                     hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Report hazard not there, ${h.thumbsDown} votes`}
                   >
                     <Text style={overlayStyles.hazardVoteText}>👎 {h.thumbsDown}</Text>
                   </TouchableOpacity>

@@ -138,7 +138,7 @@ function DetailModal({ item, onClose }: DetailModalProps) {
       animationType="none"
       onRequestClose={onClose}
     >
-      <TouchableOpacity style={styles.modalBackdrop} activeOpacity={1} onPress={onClose} />
+      <TouchableOpacity style={styles.modalBackdrop} activeOpacity={1} onPress={onClose} accessible={false} />
       <Animated.View
         style={[
           styles.modalSheet,
@@ -146,6 +146,7 @@ function DetailModal({ item, onClose }: DetailModalProps) {
           { transform: [{ translateY: slideAnim }] },
         ]}
       >
+
         {/* Handle */}
         <View style={styles.modalHandle} />
 

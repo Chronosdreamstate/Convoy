@@ -433,7 +433,13 @@ function MapThumb({ routeTrace }: { routeTrace?: DriveRecord['routeTrace'] }) {
     : null;
 
   if (url) {
-    return <Image source={{ uri: url }} style={styles.mapThumb} />;
+    return (
+      <Image
+        source={{ uri: url }}
+        style={styles.mapThumb}
+        accessibilityLabel="Route map preview"
+      />
+    );
   }
   return (
     <View style={styles.mapThumb}>

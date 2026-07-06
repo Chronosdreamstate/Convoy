@@ -97,7 +97,12 @@ export default function UserProfileScreen() {
     return (
       <SafeAreaView style={styles.root} edges={['top']}>
         <View style={styles.header}>
-          <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+          <TouchableOpacity
+            style={styles.backBtn}
+            onPress={() => router.back()}
+            accessibilityRole="button"
+            accessibilityLabel="Go back"
+          >
             <Text style={styles.backIcon}>‹</Text>
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Profile</Text>
@@ -128,7 +133,12 @@ export default function UserProfileScreen() {
     return (
       <SafeAreaView style={styles.root} edges={['top']}>
         <View style={styles.header}>
-          <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+          <TouchableOpacity
+            style={styles.backBtn}
+            onPress={() => router.back()}
+            accessibilityRole="button"
+            accessibilityLabel="Go back"
+          >
             <Text style={styles.backIcon}>‹</Text>
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Profile</Text>
