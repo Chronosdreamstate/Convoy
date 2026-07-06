@@ -4,6 +4,7 @@ import * as SecureStore from 'expo-secure-store';
 
 export type MapStyle = 'standard' | 'satellite' | 'hybrid';
 export type DistanceUnit = 'km' | 'miles';
+export type ThemeMode = 'light' | 'dark' | 'system';
 
 interface SettingsState {
   mapStyle: MapStyle;
@@ -12,7 +13,8 @@ interface SettingsState {
   pttMaxSeconds: number;
   pttVolumePercent: number;
   distanceUnit: DistanceUnit;
-  setSettings: (s: Partial<Pick<SettingsState, 'mapStyle' | 'hazardAlertDistanceM' | 'scenicRouting' | 'pttMaxSeconds' | 'pttVolumePercent' | 'distanceUnit'>>) => void;
+  themeMode: ThemeMode;
+  setSettings: (s: Partial<Pick<SettingsState, 'mapStyle' | 'hazardAlertDistanceM' | 'scenicRouting' | 'pttMaxSeconds' | 'pttVolumePercent' | 'distanceUnit' | 'themeMode'>>) => void;
 }
 
 // SecureStore adapter for zustand/persist (non-sensitive app preferences)
@@ -31,6 +33,7 @@ export const useSettingsStore = create<SettingsState>()(
       pttMaxSeconds: 30,
       pttVolumePercent: 100,
       distanceUnit: 'miles',
+      themeMode: 'system',
       setSettings: (s) => set(s),
     }),
     {
@@ -43,6 +46,7 @@ export const useSettingsStore = create<SettingsState>()(
         pttMaxSeconds: state.pttMaxSeconds,
         pttVolumePercent: state.pttVolumePercent,
         distanceUnit: state.distanceUnit,
+        themeMode: state.themeMode,
       }),
     },
   ),

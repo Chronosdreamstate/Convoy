@@ -57,6 +57,11 @@ const DISTANCE_UNITS: Array<{ label: string; value: 'km' | 'miles' }> = [
   { label: 'Kilometres', value: 'km' },
   { label: 'Miles', value: 'miles' },
 ];
+const THEME_MODES: Array<{ label: string; value: 'light' | 'dark' | 'system' }> = [
+  { label: 'System', value: 'system' },
+  { label: 'Light', value: 'light' },
+  { label: 'Dark', value: 'dark' },
+];
 const HAZARD_DISTANCES = [
   { label: '0.25 mi', metres: 402 },
   { label: '0.5 mi', metres: 805 },
@@ -167,6 +172,7 @@ export default function SettingsScreen() {
   const setGlobalSettings = useSettingsStore((s) => s.setSettings);
   const storedVolumePercent = useSettingsStore((s) => s.pttVolumePercent);
   const storedDistanceUnit = useSettingsStore((s) => s.distanceUnit);
+  const storedThemeMode = useSettingsStore((s) => s.themeMode);
   const [, setSettings] = useState<Settings | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -196,6 +202,7 @@ export default function SettingsScreen() {
   const [privacy, setPrivacy] = useState<Settings['privacy']>('public');
   const [showInBrowse, setShowInBrowse] = useState(true);
   const [distanceUnit, setDistanceUnit] = useState<'km' | 'miles'>(storedDistanceUnit);
+  const [themeMode, setThemeMode] = useState<'light' | 'dark' | 'system'>(storedThemeMode);
   const [autoJoinNearby, setAutoJoinNearby] = useState(false);
 
   useEffect(() => {
@@ -473,6 +480,27 @@ export default function SettingsScreen() {
             }
             last
           />
+        </View>
+
+        {/* ── APPEARANCE ──────────────────────────────────────────────────── */}
+        <SectionHeader title="APPEARANCE" />
+        <View style={styles.sectionCard}>
+          <SettingRow
+            icon="🌗"
+            label="Theme"
+            subtitle={themeMode === 'system' ? 'Follows system setting' : themeMode === 'dark' ? 'Dark' : 'Light'}
+            last
+          />
+          <View style={styles.chipContainer}>
+            <ChipSelector
+              options={THEME_MODES}
+              selected={themeMode}
+              // Applied instantly (not gated behind Save) — a pure device
+              // rendering preference with no server component, unlike the
+              // other settings on this screen.
+              onSelect={(v) => { setThemeMode(v); setGlobalSettings({ themeMode: v }); }}
+            />
+          </View>
         </View>
 
         {/* ── MAP ─────────────────────────────────────────────────────────── */}

@@ -27,6 +27,7 @@ import { offlineQueue } from '../src/services/OfflineQueueService';
 import { analytics } from '../src/services/AnalyticsService';
 import { carPlayService } from '../src/services/CarPlayService';
 import { androidAutoService } from '../src/services/AndroidAutoService';
+import { ThemeProvider } from '../src/theme';
 
 // Set up foreground notification display behaviour at module load time,
 // before any notifications can arrive.
@@ -358,9 +359,11 @@ export default function RootLayout() {
 
   if (isLoading) {
     return (
-      <SafeAreaProvider>
-        <LoadingSplash />
-      </SafeAreaProvider>
+      <ThemeProvider>
+        <SafeAreaProvider>
+          <LoadingSplash />
+        </SafeAreaProvider>
+      </ThemeProvider>
     );
   }
 
@@ -370,6 +373,7 @@ export default function RootLayout() {
   const showLowBatteryWarning = false;
 
   return (
+    <ThemeProvider>
     <SafeAreaProvider>
       {showLowBatteryWarning && (
         <View style={{
@@ -463,5 +467,6 @@ export default function RootLayout() {
         }}
       />
     </SafeAreaProvider>
+    </ThemeProvider>
   );
 }
