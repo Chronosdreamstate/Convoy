@@ -48,6 +48,20 @@ const leaderboardSchema = z.object({
   limit: z.coerce.number().int().min(1).max(50).optional().default(20),
 });
 
+const createEventSchema = z.object({
+  title: z.string().min(1, 'title is required').max(100, 'title must be 100 characters or fewer'),
+  scheduledFor: z.string().datetime({ message: 'scheduledFor must be a valid ISO date' }),
+  description: z.string().max(1000, 'description must be 1000 characters or fewer').optional(),
+});
+
+const rsvpSchema = z.object({
+  status: z.enum(['going', 'maybe', 'not_going']),
+});
+
+const announcementSchema = z.object({
+  message: z.string().min(1, 'message is required').max(200, 'message must be 200 characters or fewer'),
+});
+
 // ---------------------------------------------------------------------------
 // Row types
 // ---------------------------------------------------------------------------
@@ -1069,18 +1083,13 @@ async function groupsRoutes(
       const userId = (request.user as { sub: string }).sub;
       const { id } = request.params as { id: string };
 
-      const { title, scheduledFor, description } = request.body as {
-        title?: string;
-        scheduledFor?: string;
-        description?: string;
-      };
+      const parsedEvent = createEventSchema.safeParse(request.body);
+      if (!parsedEvent.success) return reply.badRequest(parsedEvent.error.errors[0].message);
+      const { title, scheduledFor, description } = parsedEvent.data;
 
-      if (!title || title.trim().length === 0) return reply.badRequest('title is required');
-      if (title.length > 100) return reply.badRequest('title must be 100 characters or fewer');
-      if (!scheduledFor) return reply.badRequest('scheduledFor is required');
+      if (title.trim().length === 0) return reply.badRequest('title is required');
 
       const scheduledDate = new Date(scheduledFor);
-      if (isNaN(scheduledDate.getTime())) return reply.badRequest('scheduledFor must be a valid ISO date');
       if (scheduledDate <= new Date()) return reply.badRequest('scheduledFor must be a future date');
 
       const groupResult = await fastify.db.query<{ admin_id: string; status: string }>(
@@ -1272,10 +1281,9 @@ async function groupsRoutes(
       const userId = (request.user as { sub: string }).sub;
       const { id, eventId } = request.params as { id: string; eventId: string };
 
-      const { status } = request.body as { status?: string };
-      if (!status || !['going', 'maybe', 'not_going'].includes(status)) {
-        return reply.badRequest('status must be going, maybe, or not_going');
-      }
+      const parsedRsvp = rsvpSchema.safeParse(request.body);
+      if (!parsedRsvp.success) return reply.badRequest('status must be going, maybe, or not_going');
+      const { status } = parsedRsvp.data;
 
       const member = await getActiveMember(id, userId, fastify.db);
       if (!member) return reply.forbidden('You are not a member of this group');
@@ -1572,9 +1580,10 @@ async function groupsRoutes(
       const userId = (request.user as { sub: string }).sub;
       const { id } = request.params as { id: string };
 
-      const { message } = request.body as { message?: string };
-      if (!message || message.trim().length === 0) return reply.badRequest('message is required');
-      if (message.length > 200) return reply.badRequest('message must be 200 characters or fewer');
+      const parsedAnnouncement = announcementSchema.safeParse(request.body);
+      if (!parsedAnnouncement.success) return reply.badRequest(parsedAnnouncement.error.errors[0].message);
+      const { message } = parsedAnnouncement.data;
+      if (message.trim().length === 0) return reply.badRequest('message is required');
 
       const groupResult = await fastify.db.query<{ admin_id: string; status: string }>(
         'SELECT admin_id, status FROM convoy_groups WHERE id = $1',
