@@ -1,6 +1,7 @@
 import * as SecureStore from 'expo-secure-store';
 import { useAuthStore } from '../stores/authStore';
 import type { User } from '../stores/authStore';
+import { onboardingState } from '../utils/onboardingState';
 
 const SECURE_STORE_KEY = 'convoy_access_token';
 
@@ -96,6 +97,12 @@ export class AuthService {
       // Best-effort logout — always clear local state regardless of server response
     } finally {
       await SecureStore.deleteItemAsync(SECURE_STORE_KEY);
+      // Clear the local onboarding flags too — they aren't scoped to a user id,
+      // so leaving them set would cause the *next* account signed into this
+      // device (a different person, or a fresh signup) to have onboarding
+      // silently skipped because a previous account had already completed it.
+      await SecureStore.deleteItemAsync('onboarding_complete').catch(() => {});
+      await onboardingState.reset().catch(() => {});
       useAuthStore.getState().signOut();
     }
   }

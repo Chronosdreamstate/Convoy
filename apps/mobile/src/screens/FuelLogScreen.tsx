@@ -33,9 +33,14 @@ const todayMDY = () => {
 };
 const parseMDY = (s: string): string | null => {
   const p = s.split('/').map(Number);
-  return p.length === 3 && p[0] && p[1] && p[2] > 2000
-    ? new Date(p[2], p[0] - 1, p[1]).toISOString()
-    : null;
+  if (p.length !== 3 || !p[0] || !p[1] || !p[2] || p[2] <= 2000) return null;
+  const [month, day, year] = p;
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+  const d = new Date(year, month - 1, day);
+  // Date() silently rolls invalid combinations (e.g. Feb 30) into the next
+  // month — reject anything that didn't land on the month the user typed.
+  if (d.getMonth() !== month - 1) return null;
+  return d.toISOString();
 };
 
 // --- MPG week bar chart ---
@@ -160,7 +165,7 @@ function AddModal({ visible, onClose, onSaved }: {
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={close}>
-      <KeyboardAvoidingView style={s.overlay} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <KeyboardAvoidingView style={s.overlay} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <View style={s.sheet}>
           <View style={s.sheetHeader}>
             <Text style={s.sheetTitle}>Add Fill-Up</Text>

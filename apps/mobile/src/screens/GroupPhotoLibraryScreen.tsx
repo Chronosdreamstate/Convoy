@@ -5,6 +5,7 @@ import {
   Dimensions,
   FlatList,
   Image,
+  Pressable,
   RefreshControl,
   SafeAreaView,
   StyleSheet,
@@ -31,9 +32,23 @@ interface Photo {
   createdAt: string;
 }
 
-function PhotoCell({ photo }: { photo: Photo }) {
+// Long-press a photo you own to reveal a delete overlay — mirrors the
+// long-press-to-delete pattern used for fuel log entries (FuelLogScreen).
+// The API only allows a user to delete their own photos (photos.routes.ts
+// DELETE /groups/:groupId/photos/:photoId scopes on user_id), so the option
+// is only surfaced for photos the current user posted.
+function PhotoCell({ photo, canDelete, onDelete }: {
+  photo: Photo; canDelete: boolean; onDelete: (id: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+
   return (
-    <View style={styles.cell}>
+    <Pressable
+      onLongPress={() => { if (canDelete) setOpen((prev) => !prev); }}
+      style={styles.cell}
+      accessibilityRole="button"
+      accessibilityLabel={`Photo by ${photo.displayName}`}
+    >
       <Image source={{ uri: photo.photoUrl }} style={styles.cellImage} resizeMode="cover" />
       <View style={styles.cellOverlay}>
         <Text style={styles.cellName} numberOfLines={1}>{photo.displayName}</Text>
@@ -41,13 +56,33 @@ function PhotoCell({ photo }: { photo: Photo }) {
           <Text style={styles.cellCaption} numberOfLines={2}>{photo.caption}</Text>
         ) : null}
       </View>
-    </View>
+      {open && (
+        <View style={styles.cellDeleteOverlay}>
+          <TouchableOpacity
+            style={styles.cellDeleteBtn}
+            onPress={() => { setOpen(false); onDelete(photo.id); }}
+            accessibilityRole="button"
+            accessibilityLabel="Delete photo"
+          >
+            <Text style={styles.cellDeleteText}>🗑 Delete</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.cellCancelBtn}
+            onPress={() => setOpen(false)}
+            accessibilityRole="button"
+            accessibilityLabel="Cancel"
+          >
+            <Text style={styles.cellCancelText}>Cancel</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+    </Pressable>
   );
 }
 
 export default function GroupPhotoLibraryScreen() {
   const { groupId } = useLocalSearchParams<{ groupId: string }>();
-  const { accessToken } = useAuthStore();
+  const { accessToken, user } = useAuthStore();
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -89,6 +124,24 @@ export default function GroupPhotoLibraryScreen() {
       setUploadingPhoto(false);
     }
   }, [groupId, accessToken, apiUrl, uploadingPhoto, load]);
+
+  const handleDelete = useCallback((photoId: string) => {
+    if (!groupId) return;
+    Alert.alert('Delete Photo', 'Remove this photo from the group library?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete', style: 'destructive',
+        onPress: async () => {
+          try {
+            await apiClient.delete(`/api/v1/groups/${groupId}/photos/${photoId}`);
+            setPhotos((prev) => prev.filter((p) => p.id !== photoId));
+          } catch {
+            Alert.alert('Error', 'Could not delete photo.');
+          }
+        },
+      },
+    ]);
+  }, [groupId]);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -133,7 +186,9 @@ export default function GroupPhotoLibraryScreen() {
           keyExtractor={(p) => p.id}
           numColumns={2}
           columnWrapperStyle={styles.row}
-          renderItem={({ item }) => <PhotoCell photo={item} />}
+          renderItem={({ item }) => (
+            <PhotoCell photo={item} canDelete={item.userId === user?.id} onDelete={handleDelete} />
+          )}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#DC143C" colors={['#DC143C']} />
           }
@@ -177,4 +232,23 @@ const styles = StyleSheet.create({
   cellName: { fontSize: 11, fontWeight: '600', color: '#FFFFFF' },
   cellCaption: { fontSize: 10, color: '#CCCCCC', marginTop: 2 },
   uploadBtn: { fontSize: 15, color: '#DC143C', fontWeight: '700' },
+  cellDeleteOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.75)',
+    flexDirection: 'row',
+  },
+  cellDeleteBtn: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRightWidth: 1,
+    borderRightColor: 'rgba(255,255,255,0.15)',
+  },
+  cellDeleteText: { color: '#DC143C', fontSize: 13, fontWeight: '600' },
+  cellCancelBtn: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  cellCancelText: { color: '#CCCCCC', fontSize: 13 },
 });
