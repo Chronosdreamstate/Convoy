@@ -138,6 +138,7 @@ export default function OtpScreen() {
           <TouchableOpacity
             style={styles.backBtn}
             onPress={() => router.back()}
+            activeOpacity={0.7}
             accessibilityRole="button"
             accessibilityLabel="Go back"
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
@@ -145,7 +146,7 @@ export default function OtpScreen() {
             <Text style={styles.backBtnText}>← Back</Text>
           </TouchableOpacity>
 
-          <Text style={styles.logo}>CORTEGE</Text>
+          <Text style={styles.logo} accessibilityLabel="CORTEGE">CORTEGE</Text>
 
           <View style={styles.header}>
             <Text style={styles.title}>Enter the code</Text>
@@ -180,7 +181,8 @@ export default function OtpScreen() {
                   ]}
                   onPress={() => inputRef.current?.focus()}
                   activeOpacity={0.7}
-                  accessibilityRole="none"
+                  accessibilityElementsHidden
+                  importantForAccessibility="no-hide-descendants"
                 >
                   <Text style={styles.digitText}>{otp[i] ?? ''}</Text>
                 </TouchableOpacity>
@@ -194,6 +196,7 @@ export default function OtpScreen() {
               style={[styles.button, (isVerifying || otp.length !== DIGIT_COUNT) && styles.buttonDisabled]}
               onPress={() => { void handleVerify(); }}
               disabled={isVerifying || otp.length !== DIGIT_COUNT}
+              activeOpacity={0.8}
               accessibilityRole="button"
               accessibilityLabel="Verify code"
               accessibilityState={{ disabled: isVerifying || otp.length !== DIGIT_COUNT }}
@@ -208,6 +211,7 @@ export default function OtpScreen() {
               <TouchableOpacity
                 onPress={() => { void handleResend(); }}
                 disabled={isResending || resendCooldown > 0}
+                activeOpacity={0.7}
                 accessibilityRole="button"
                 accessibilityLabel={resendCooldown > 0 ? `Resend code available in ${resendCooldown} seconds` : 'Resend code'}
                 accessibilityState={{ disabled: isResending || resendCooldown > 0 }}
@@ -232,15 +236,23 @@ function createStyles(theme: ReturnType<typeof useTheme>) {
   return StyleSheet.create({
     container: { flex: 1, backgroundColor: theme.colors.bg },
     keyboardAvoid: { flex: 1 },
-    inner: { paddingHorizontal: 24, paddingTop: 32, paddingBottom: 48 },
+    inner: {
+      paddingHorizontal: theme.spacing.lg,
+      paddingTop: theme.spacing.xl,
+      paddingBottom: theme.spacing.xxl,
+    },
     backBtn: { paddingTop: 8, paddingBottom: 16, alignSelf: 'flex-start' },
     backBtnText: { color: theme.colors.accent, fontSize: 16, fontWeight: '600' },
+    // Matches the CORTEGE wordmark treatment on PhoneScreen/EmailScreen (same
+    // fontSize/weight/color/letterSpacing/centering) — previously a one-off
+    // style that was bigger, bolder-colored, and left-aligned on this screen only.
     logo: {
-      fontSize: 32,
-      fontWeight: '700',
-      color: theme.colors.accent,
+      fontSize: 24,
+      fontWeight: '900',
+      color: theme.colors.text,
       letterSpacing: 6,
-      marginBottom: 32,
+      marginBottom: theme.spacing.xl,
+      textAlign: 'center',
     },
     header: { marginBottom: 32 },
     title: { fontSize: 28, fontWeight: '700', color: theme.colors.text, marginBottom: 8 },
@@ -264,13 +276,21 @@ function createStyles(theme: ReturnType<typeof useTheme>) {
     digitText: { color: theme.colors.text, fontSize: 22, fontWeight: '700' },
     errorText: { color: theme.colors.error, fontSize: 13 },
     successText: { color: theme.colors.success, fontSize: 13 },
+    // Pill shape + glow shadow — matches the primary CTA on WelcomeScreen/
+    // PhoneScreen/EmailScreen instead of the plain rounded-rect button this
+    // screen used to have.
     button: {
       backgroundColor: theme.colors.accent,
-      borderRadius: 12,
+      borderRadius: 28,
       height: 56,
       alignItems: 'center',
       justifyContent: 'center',
       marginTop: 4,
+      shadowColor: theme.colors.accent,
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.35,
+      shadowRadius: 12,
+      elevation: 6,
     },
     buttonDisabled: { opacity: 0.5 },
     buttonText: { color: theme.colors.text, fontSize: 16, fontWeight: '700' },
