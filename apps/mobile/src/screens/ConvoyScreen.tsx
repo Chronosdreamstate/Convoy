@@ -29,7 +29,7 @@ import { haversineDistanceM } from '../services/DriveService';
 import { useGroupStore } from '../stores/groupStore';
 import { useSocketStore } from '../stores/socketStore';
 import { useLocationStore } from '../stores/locationStore';
-import { useMotionStore } from '../stores/motionStore';
+import { useMotionGuard } from '../hooks/useMotionGuard';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -178,7 +178,6 @@ export default function ConvoyScreen({ userId }: Props) {
 
   const { socket } = useSocketStore();
   const { memberLocations } = useLocationStore();
-  const isInMotion = useMotionStore((s) => s.isInMotion);
 
   const activeGroupId = useGroupStore((s) => s.activeGroupId);
   const setActiveGroupId = useGroupStore((s) => s.setActiveGroupId);
@@ -480,11 +479,7 @@ export default function ConvoyScreen({ userId }: Props) {
   }, [joinCode]);
 
   // Req 34 — block multi-step flows when in motion
-  const guardInMotion = useCallback((): boolean => {
-    if (!isInMotion) return false;
-    Alert.alert('Park to continue', 'Please park before making group settings changes.');
-    return true;
-  }, [isInMotion]);
+  const guardInMotion = useMotionGuard();
 
   // ── Share join code (Req 7.3) ─────────────────────────────────────────────
   const handleShareCode = useCallback(async () => {
@@ -925,7 +920,7 @@ export default function ConvoyScreen({ userId }: Props) {
           <Text style={styles.subtitle}>Start or join a driving group</Text>
         </View>
         <View style={styles.homeActions}>
-          <TouchableOpacity style={styles.primaryBtn} onPress={() => router.push('/create-group' as never)} accessibilityRole="button" accessibilityLabel="Create a new convoy group">
+          <TouchableOpacity style={styles.primaryBtn} onPress={() => { if (!guardInMotion()) router.push('/create-group' as never); }} accessibilityRole="button" accessibilityLabel="Create a new convoy group">
             <Text style={styles.primaryBtnText}>Create Group</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.secondaryBtn} onPress={() => setView('join')} accessibilityRole="button" accessibilityLabel="Join a convoy with a code">
