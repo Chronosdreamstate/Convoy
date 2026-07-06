@@ -41,8 +41,8 @@ interface Photo {
 // The API only allows a user to delete their own photos (photos.routes.ts
 // DELETE /groups/:groupId/photos/:photoId scopes on user_id), so the option
 // is only surfaced for photos the current user posted.
-function PhotoCell({ photo, canDelete, onDelete, onView }: {
-  photo: Photo; canDelete: boolean; onDelete: (id: string) => void; onView: (photo: Photo) => void;
+function PhotoCell({ photo, canDelete, deleting, onDelete, onView }: {
+  photo: Photo; canDelete: boolean; deleting: boolean; onDelete: (id: string) => void; onView: (photo: Photo) => void;
 }) {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
@@ -50,8 +50,8 @@ function PhotoCell({ photo, canDelete, onDelete, onView }: {
 
   return (
     <Pressable
-      onPress={() => { if (!open) onView(photo); }}
-      onLongPress={() => { if (canDelete) setOpen((prev) => !prev); }}
+      onPress={() => { if (!open && !deleting) onView(photo); }}
+      onLongPress={() => { if (canDelete && !deleting) setOpen((prev) => !prev); }}
       style={styles.cell}
       accessibilityRole="button"
       accessibilityLabel={`Photo by ${photo.displayName}`}
@@ -65,23 +65,31 @@ function PhotoCell({ photo, canDelete, onDelete, onView }: {
       </View>
       {open && (
         <View style={styles.cellDeleteOverlay}>
-          <TouchableOpacity
-            style={styles.cellDeleteBtn}
-            onPress={() => { setOpen(false); onDelete(photo.id); }}
-            accessibilityRole="button"
-            accessibilityLabel="Delete photo"
-          >
-            <Ionicons name="trash-outline" size={14} color={colors.accent} />
-            <Text style={styles.cellDeleteText}> Delete</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.cellCancelBtn}
-            onPress={() => setOpen(false)}
-            accessibilityRole="button"
-            accessibilityLabel="Cancel"
-          >
-            <Text style={styles.cellCancelText}>Cancel</Text>
-          </TouchableOpacity>
+          {deleting ? (
+            <View style={styles.cellDeletingWrap}>
+              <ActivityIndicator size="small" color={colors.accent} />
+            </View>
+          ) : (
+            <>
+              <TouchableOpacity
+                style={styles.cellDeleteBtn}
+                onPress={() => onDelete(photo.id)}
+                accessibilityRole="button"
+                accessibilityLabel="Delete photo"
+              >
+                <Ionicons name="trash-outline" size={14} color={colors.accent} />
+                <Text style={styles.cellDeleteText}> Delete</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.cellCancelBtn}
+                onPress={() => setOpen(false)}
+                accessibilityRole="button"
+                accessibilityLabel="Cancel"
+              >
+                <Text style={styles.cellCancelText}>Cancel</Text>
+              </TouchableOpacity>
+            </>
+          )}
         </View>
       )}
     </Pressable>
@@ -137,6 +145,7 @@ export default function GroupPhotoLibraryScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [viewerPhoto, setViewerPhoto] = useState<Photo | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const apiUrl = process.env.EXPO_PUBLIC_API_URL ?? '';
 
@@ -192,16 +201,19 @@ export default function GroupPhotoLibraryScreen() {
 
   const handleDelete = useCallback((photoId: string) => {
     if (!groupId) return;
-    Alert.alert('Delete Photo', 'Remove this photo from the group library?', [
+    Alert.alert('Delete Photo', 'Remove this photo from the group library? This cannot be undone.', [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Delete', style: 'destructive',
         onPress: async () => {
+          setDeletingId(photoId);
           try {
             await apiClient.delete(`/api/v1/groups/${groupId}/photos/${photoId}`);
             setPhotos((prev) => prev.filter((p) => p.id !== photoId));
           } catch {
-            Alert.alert('Error', 'Could not delete photo.');
+            Alert.alert('Error', 'Could not delete photo. Please try again.');
+          } finally {
+            setDeletingId(null);
           }
         },
       },
@@ -210,15 +222,26 @@ export default function GroupPhotoLibraryScreen() {
 
   const renderPhotoItem = useCallback(
     ({ item }: { item: Photo }) => (
-      <PhotoCell photo={item} canDelete={item.userId === user?.id} onDelete={handleDelete} onView={setViewerPhoto} />
+      <PhotoCell
+        photo={item}
+        canDelete={item.userId === user?.id}
+        deleting={deletingId === item.id}
+        onDelete={handleDelete}
+        onView={setViewerPhoto}
+      />
     ),
-    [user?.id, handleDelete],
+    [user?.id, deletingId, handleDelete],
   );
 
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+        <TouchableOpacity
+          onPress={() => router.back()}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+        >
           <Text style={styles.back}>‹ Back</Text>
         </TouchableOpacity>
         <View style={styles.titleRow}>
@@ -231,6 +254,7 @@ export default function GroupPhotoLibraryScreen() {
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           accessibilityRole="button"
           accessibilityLabel="Add photo"
+          accessibilityState={{ disabled: uploadingPhoto }}
           style={{ width: 60, alignItems: 'flex-end' }}
         >
           {uploadingPhoto ? (
@@ -328,6 +352,7 @@ function createStyles(colors: ThemeColors) {
     cellDeleteText: { color: colors.accent, fontSize: 13, fontWeight: '600' },
     cellCancelBtn: { flex: 1, alignItems: 'center', justifyContent: 'center' },
     cellCancelText: { color: '#CCCCCC', fontSize: 13 },
+    cellDeletingWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 
     viewerBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.95)' },
     viewerSafeArea: { flex: 1 },
