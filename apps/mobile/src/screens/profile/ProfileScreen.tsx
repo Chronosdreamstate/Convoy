@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -15,6 +15,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -24,6 +25,7 @@ import { apiClient } from '../../services/apiClient';
 import { SkeletonBox } from '../../components/SkeletonLoader';
 import { authService } from '../../services/AuthService';
 import { useAuthStore } from '../../stores/authStore';
+import { useTheme, ThemeColors } from '../../theme';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -57,11 +59,15 @@ function AvatarCircle({
   avatarUrl,
   onPress,
   loading,
+  colors,
+  styles,
 }: {
   name: string;
   avatarUrl?: string | null;
   onPress?: () => void;
   loading?: boolean;
+  colors: ThemeColors;
+  styles: ReturnType<typeof createStyles>;
 }) {
   return (
     <TouchableOpacity
@@ -79,23 +85,28 @@ function AvatarCircle({
         </View>
       )}
       <View style={styles.avatarCameraOverlay}>
-        <Text style={styles.avatarCameraIcon}>📷</Text>
+        <Ionicons name="camera" size={14} color={colors.text} />
       </View>
       {loading && (
         <View style={styles.avatarLoadingOverlay}>
-          <ActivityIndicator color="#DC143C" />
+          <ActivityIndicator color={colors.accent} />
         </View>
       )}
     </TouchableOpacity>
   );
 }
 
-function CallsignBadge({ callsign }: { callsign: string | null }) {
+function CallsignBadge({ callsign, styles }: { callsign: string | null; styles: ReturnType<typeof createStyles> }) {
   return (
     <View style={styles.callsignBadge}>
-      <Text style={[styles.callsignText, !callsign && styles.callsignMuted]}>
-        {callsign ? `📻 ${callsign}` : 'No callsign'}
-      </Text>
+      {callsign ? (
+        <View style={styles.callsignRow}>
+          <Ionicons name="radio-outline" size={13} style={styles.callsignIcon} />
+          <Text style={styles.callsignText}>{callsign}</Text>
+        </View>
+      ) : (
+        <Text style={[styles.callsignText, styles.callsignMuted]}>No callsign</Text>
+      )}
     </View>
   );
 }
@@ -106,6 +117,8 @@ function CallsignBadge({ callsign }: { callsign: string | null }) {
 
 export default function ProfileScreen() {
   const router = useRouter();
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const accessToken = useAuthStore((s) => s.accessToken);
   const apiUrl = process.env.EXPO_PUBLIC_API_URL ?? '';
 
@@ -249,6 +262,8 @@ export default function ProfileScreen() {
   };
 
   const handleAvatarPress = () => {
+    // Native Alert buttons are plain OS text and cannot host a custom vector
+    // icon, so this emoji stays as lightweight shorthand within the dialog copy.
     Alert.alert('Change Photo', '', [
       { text: '📷 Choose from Library', onPress: () => void handlePickAvatar() },
       {
@@ -353,6 +368,8 @@ export default function ProfileScreen() {
             avatarUrl={localAvatarUri ?? profile?.avatarUrl}
             onPress={uploadingAvatar ? undefined : handleAvatarPress}
             loading={uploadingAvatar}
+            colors={colors}
+            styles={styles}
           />
           <TouchableOpacity
             style={styles.displayNameRow}
@@ -372,19 +389,21 @@ export default function ProfileScreen() {
                 onBlur={() => setEditingName(false)}
                 onSubmitEditing={() => setEditingName(false)}
                 placeholder="Your display name"
-                placeholderTextColor="#555555"
+                placeholderTextColor={colors.textSubtle}
                 maxLength={100}
                 returnKeyType="done"
                 accessibilityLabel="Display name input"
               />
             ) : (
-              <Text style={styles.displayNameText} numberOfLines={1}>
-                {displayName || profile?.displayName || ''}
-                <Text style={styles.editPencil}>  ✏️</Text>
-              </Text>
+              <View style={styles.displayNameStatic}>
+                <Text style={styles.displayNameText} numberOfLines={1}>
+                  {displayName || profile?.displayName || ''}
+                </Text>
+                <Ionicons name="pencil-outline" size={14} color={colors.textMuted} style={styles.editPencil} />
+              </View>
             )}
           </TouchableOpacity>
-          <CallsignBadge callsign={pttCallsign || (profile?.pttCallsign ?? null)} />
+          <CallsignBadge callsign={pttCallsign || (profile?.pttCallsign ?? null)} styles={styles} />
           {profile?.email ? (
             <Text style={styles.accountMeta}>{profile.email}</Text>
           ) : profile?.phoneNumber ? (
@@ -415,7 +434,7 @@ export default function ProfileScreen() {
             value={pttCallsign}
             onChangeText={(v) => { setPttCallsign(v); setIsDirty(true); }}
             placeholder="e.g. Alpha-1 (optional)"
-            placeholderTextColor="#555555"
+            placeholderTextColor={colors.textSubtle}
             maxLength={32}
             autoCapitalize="none"
             returnKeyType="done"
@@ -455,7 +474,7 @@ export default function ProfileScreen() {
             accessibilityState={{ disabled: !isDirty || isSaving }}
           >
             {isSaving ? (
-              <ActivityIndicator color="#fff" size="small" />
+              <ActivityIndicator color={colors.text} size="small" />
             ) : (
               <Text style={styles.saveNameBtnText}>Save Profile</Text>
             )}
@@ -473,7 +492,7 @@ export default function ProfileScreen() {
           accessibilityLabel="View friends"
         >
           <View style={styles.friendsBtnInner}>
-            <Text style={styles.friendsBtnIcon}>👥</Text>
+            <Ionicons name="people-outline" size={20} color={colors.text} style={styles.friendsBtnIcon} />
             <Text style={styles.friendsBtnText}>Friends</Text>
           </View>
           <Text style={styles.friendsChevron}>›</Text>
@@ -487,7 +506,7 @@ export default function ProfileScreen() {
           accessibilityLabel="Share profile"
         >
           <View style={styles.friendsBtnInner}>
-            <Text style={styles.friendsBtnIcon}>📤</Text>
+            <Ionicons name="share-social-outline" size={20} color={colors.text} style={styles.friendsBtnIcon} />
             <Text style={styles.friendsBtnText}>Share Profile</Text>
           </View>
           <Text style={styles.friendsChevron}>›</Text>
@@ -501,7 +520,7 @@ export default function ProfileScreen() {
           accessibilityLabel="Go to Settings"
         >
           <View style={styles.settingsBtnInner}>
-            <Text style={styles.settingsBtnIcon}>⚙️</Text>
+            <Ionicons name="settings-outline" size={20} color={colors.text} style={styles.settingsBtnIcon} />
             <Text style={styles.settingsBtnText}>Settings</Text>
           </View>
           <Text style={styles.settingsChevron}>›</Text>
@@ -536,7 +555,7 @@ export default function ProfileScreen() {
               value={avatarUrlDraft}
               onChangeText={setAvatarUrlDraft}
               placeholder="https://example.com/photo.jpg"
-              placeholderTextColor="#555"
+              placeholderTextColor={colors.textSubtle}
               autoCapitalize="none"
               autoCorrect={false}
               keyboardType="url"
@@ -569,10 +588,11 @@ export default function ProfileScreen() {
 // Styles
 // ---------------------------------------------------------------------------
 
-const styles = StyleSheet.create({
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0A0A0A',
+    backgroundColor: colors.bg,
   },
   centered: {
     flex: 1,
@@ -587,17 +607,17 @@ const styles = StyleSheet.create({
   pageTitle: {
     fontSize: 28,
     fontWeight: '700',
-    color: '#F0F0F0',
+    color: colors.text,
     marginBottom: 28,
   },
   errorText: {
-    color: '#f87171',
+    color: colors.error,
     fontSize: 13,
     marginBottom: 16,
     textAlign: 'center',
   },
   successText: {
-    color: '#4ade80',
+    color: colors.success,
     fontSize: 13,
     marginBottom: 16,
     textAlign: 'center',
@@ -613,7 +633,7 @@ const styles = StyleSheet.create({
     height: 104,
     borderRadius: 52,
     borderWidth: 2,
-    borderColor: '#DC143C',
+    borderColor: colors.accent,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 12,
@@ -623,14 +643,14 @@ const styles = StyleSheet.create({
     width: 96,
     height: 96,
     borderRadius: 48,
-    backgroundColor: '#DC143C',
+    backgroundColor: colors.accent,
     alignItems: 'center',
     justifyContent: 'center',
   },
   avatarInitials: {
     fontSize: 34,
     fontWeight: '700',
-    color: '#ffffff',
+    color: colors.text,
   },
   avatarCameraOverlay: {
     position: 'absolute',
@@ -639,14 +659,11 @@ const styles = StyleSheet.create({
     width: 30,
     height: 30,
     borderRadius: 15,
-    backgroundColor: '#DC143C',
+    backgroundColor: colors.accent,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 2,
-    borderColor: '#0A0A0A',
-  },
-  avatarCameraIcon: {
-    fontSize: 13,
+    borderColor: colors.bg,
   },
   avatarLoadingOverlay: {
     position: 'absolute',
@@ -665,83 +682,96 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     minWidth: 160,
   },
+  displayNameStatic: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
   displayNameText: {
     fontSize: 22,
     fontWeight: '700',
-    color: '#F0F0F0',
+    color: colors.text,
     textAlign: 'center',
   },
   editPencil: {
-    fontSize: 14,
+    marginTop: 2,
   },
   displayNameInput: {
     fontSize: 22,
     fontWeight: '700',
-    color: '#F0F0F0',
+    color: colors.text,
     textAlign: 'center',
     borderBottomWidth: 1,
-    borderBottomColor: '#DC143C',
+    borderBottomColor: colors.accent,
     minWidth: 160,
     paddingVertical: 4,
   },
   callsignBadge: {
-    backgroundColor: '#1C1C1C',
+    backgroundColor: colors.card,
     borderRadius: 20,
     paddingHorizontal: 14,
     paddingVertical: 5,
     marginBottom: 8,
     marginTop: 2,
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: colors.border,
+  },
+  callsignRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  callsignIcon: {
+    color: colors.accent,
   },
   callsignText: {
     fontSize: 13,
     fontWeight: '600',
-    color: '#DC143C',
+    color: colors.accent,
     letterSpacing: 0.5,
   },
   callsignMuted: {
-    color: '#555555',
+    color: colors.textSubtle,
   },
   accountMeta: {
     fontSize: 13,
-    color: '#888888',
+    color: colors.textMuted,
   },
   sectionDivider: {
     height: 1,
-    backgroundColor: '#1C1C1C',
+    backgroundColor: colors.card,
     marginVertical: 8,
     marginHorizontal: 4,
   },
 
   // Card
   card: {
-    backgroundColor: '#1C1C1C',
+    backgroundColor: colors.card,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: colors.border,
     padding: 16,
     marginBottom: 14,
   },
   cardLabel: {
     fontSize: 11,
     fontWeight: '700',
-    color: '#888888',
+    color: colors.textMuted,
     textTransform: 'uppercase',
     letterSpacing: 1,
     marginBottom: 8,
   },
   nameInput: {
     fontSize: 17,
-    color: '#F0F0F0',
+    color: colors.text,
     paddingVertical: 10,
     paddingHorizontal: 4,
     borderBottomWidth: 1,
-    borderBottomColor: '#2A2A2A',
+    borderBottomColor: colors.border,
     marginBottom: 14,
   },
   saveNameBtn: {
-    backgroundColor: '#DC143C',
+    backgroundColor: colors.accent,
     borderRadius: 10,
     paddingVertical: 13,
     alignItems: 'center',
@@ -752,7 +782,7 @@ const styles = StyleSheet.create({
     opacity: 0.4,
   },
   saveNameBtnText: {
-    color: '#ffffff',
+    color: colors.text,
     fontSize: 15,
     fontWeight: '600',
   },
@@ -766,31 +796,31 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: colors.border,
     alignItems: 'center',
-    backgroundColor: '#0A0A0A',
+    backgroundColor: colors.bg,
   },
   privacyBtnActive: {
-    borderColor: '#DC143C',
-    backgroundColor: '#DC143C',
+    borderColor: colors.accent,
+    backgroundColor: colors.accent,
   },
   privacyBtnText: {
-    color: '#888888',
+    color: colors.textMuted,
     fontSize: 14,
     fontWeight: '600',
   },
   privacyBtnTextActive: {
-    color: '#FFFFFF',
+    color: colors.text,
   },
 
   // Friends button
   friendsBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#1C1C1C',
+    backgroundColor: colors.card,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: colors.border,
     paddingHorizontal: 16,
     paddingVertical: 16,
     marginBottom: 14,
@@ -802,17 +832,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   friendsBtnIcon: {
-    fontSize: 20,
     marginRight: 12,
   },
   friendsBtnText: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#F0F0F0',
+    color: colors.text,
   },
   friendsChevron: {
     fontSize: 22,
-    color: '#555555',
+    color: colors.textSubtle,
     fontWeight: '300',
   },
 
@@ -820,10 +849,10 @@ const styles = StyleSheet.create({
   settingsBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#1C1C1C',
+    backgroundColor: colors.card,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: colors.border,
     paddingHorizontal: 16,
     paddingVertical: 16,
     marginBottom: 14,
@@ -835,17 +864,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   settingsBtnIcon: {
-    fontSize: 20,
     marginRight: 12,
   },
   settingsBtnText: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#F0F0F0',
+    color: colors.text,
   },
   settingsChevron: {
     fontSize: 22,
-    color: '#555555',
+    color: colors.textSubtle,
     fontWeight: '300',
   },
 
@@ -859,29 +887,29 @@ const styles = StyleSheet.create({
   },
   modalCard: {
     width: '100%',
-    backgroundColor: '#1C1C1C',
+    backgroundColor: colors.card,
     borderRadius: 16,
     padding: 24,
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: colors.border,
   },
   modalTitle: {
     fontSize: 18,
     fontWeight: '700',
-    color: '#F0F0F0',
+    color: colors.text,
     marginBottom: 4,
   },
   modalSubtitle: {
     fontSize: 13,
-    color: '#888',
+    color: colors.textMuted,
     marginBottom: 16,
   },
   modalInput: {
-    backgroundColor: '#0A0A0A',
+    backgroundColor: colors.bg,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#2A2A2A',
-    color: '#F0F0F0',
+    borderColor: colors.border,
+    color: colors.text,
     fontSize: 14,
     paddingHorizontal: 14,
     paddingVertical: 12,
@@ -898,20 +926,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   modalBtnCancel: {
-    backgroundColor: '#0A0A0A',
+    backgroundColor: colors.bg,
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: colors.border,
   },
   modalBtnConfirm: {
-    backgroundColor: '#DC143C',
+    backgroundColor: colors.accent,
   },
   modalBtnCancelText: {
-    color: '#888',
+    color: colors.textMuted,
     fontSize: 15,
     fontWeight: '600',
   },
   modalBtnConfirmText: {
-    color: '#fff',
+    color: colors.text,
     fontSize: 15,
     fontWeight: '600',
   },
@@ -921,7 +949,7 @@ const styles = StyleSheet.create({
     marginTop: 24,
     backgroundColor: 'transparent',
     borderWidth: 1,
-    borderColor: '#f87171',
+    borderColor: colors.error,
     borderRadius: 12,
     paddingVertical: 15,
     alignItems: 'center',
@@ -929,8 +957,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   signOutBtnText: {
-    color: '#f87171',
+    color: colors.error,
     fontSize: 15,
     fontWeight: '600',
   },
-});
+  });
+}

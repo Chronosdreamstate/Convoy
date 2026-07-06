@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -12,6 +12,7 @@ import {
   Share,
   Linking,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import Constants from 'expo-constants';
@@ -20,7 +21,10 @@ import { authService } from '../../services/AuthService';
 import { SiriShortcutsService } from '../../services/SiriShortcutsService';
 import { SkeletonBox } from '../../components/SkeletonLoader';
 import { useSettingsStore } from '../../stores/settingsStore';
-import { theme } from '../../theme';
+import { useTheme } from '../../theme';
+
+type Theme = ReturnType<typeof useTheme>;
+type IoniconName = keyof typeof Ionicons.glyphMap;
 
 const PRIVACY_POLICY_URL = 'https://convoy.app/privacy';
 const TERMS_URL = 'https://convoy.app/terms';
@@ -38,10 +42,10 @@ interface Settings {
   privacy: 'public' | 'friends' | 'private';
 }
 
-const PRIVACY_OPTIONS: Array<{ label: string; value: Settings['privacy'] }> = [
-  { label: '🌐 Public', value: 'public' },
-  { label: '👥 Friends', value: 'friends' },
-  { label: '🔒 Private', value: 'private' },
+const PRIVACY_OPTIONS: Array<{ label: string; value: Settings['privacy']; icon: IoniconName }> = [
+  { label: 'Public', value: 'public', icon: 'globe-outline' },
+  { label: 'Friends', value: 'friends', icon: 'people-outline' },
+  { label: 'Private', value: 'private', icon: 'lock-closed-outline' },
 ];
 
 const APP_VERSION = Constants.expoConfig?.version ?? '1.0.0';
@@ -90,6 +94,8 @@ const PTT_VOLUME_LEVELS = [
 // ---------------------------------------------------------------------------
 
 function SectionHeader({ title }: { title: string }) {
+  const theme = useTheme();
+  const styles = useMemo(() => createStyles(theme), [theme]);
   return <Text style={styles.sectionHeader}>{title}</Text>;
 }
 
@@ -98,7 +104,7 @@ function SectionHeader({ title }: { title: string }) {
 // ---------------------------------------------------------------------------
 
 interface SettingRowProps {
-  icon: string;
+  icon: IoniconName;
   label: string;
   subtitle?: string;
   rightSlot?: React.ReactNode;
@@ -108,10 +114,12 @@ interface SettingRowProps {
 }
 
 function SettingRow({ icon, label, subtitle, rightSlot, onPress, danger, last }: SettingRowProps) {
+  const theme = useTheme();
+  const styles = useMemo(() => createStyles(theme), [theme]);
   const Inner = (
     <View style={[styles.settingRow, last && styles.settingRowLast]}>
       <View style={styles.settingIcon}>
-        <Text style={styles.settingIconText}>{icon}</Text>
+        <Ionicons name={icon} size={17} color={danger ? theme.colors.accent : theme.colors.textMuted} />
       </View>
       <View style={styles.settingLabelGroup}>
         <Text style={[styles.settingLabel, danger && styles.settingLabelDanger]}>{label}</Text>
@@ -138,27 +146,40 @@ function SettingRow({ icon, label, subtitle, rightSlot, onPress, danger, last }:
 // ---------------------------------------------------------------------------
 
 interface ChipRowProps<T extends string | number> {
-  options: Array<{ label: string; value: T }>;
+  options: Array<{ label: string; value: T; icon?: IoniconName }>;
   selected: T;
   onSelect: (val: T) => void;
 }
 
 function ChipSelector<T extends string | number>({ options, selected, onSelect }: ChipRowProps<T>) {
+  const theme = useTheme();
+  const styles = useMemo(() => createStyles(theme), [theme]);
   return (
     <View style={styles.chipRow}>
-      {options.map((opt) => (
-        <TouchableOpacity
-          key={String(opt.value)}
-          style={[styles.chip, selected === opt.value && styles.chipActive]}
-          onPress={() => onSelect(opt.value)}
-          accessibilityRole="button"
-          accessibilityLabel={opt.label}
-        >
-          <Text style={[styles.chipText, selected === opt.value && styles.chipTextActive]}>
-            {opt.label}
-          </Text>
-        </TouchableOpacity>
-      ))}
+      {options.map((opt) => {
+        const active = selected === opt.value;
+        return (
+          <TouchableOpacity
+            key={String(opt.value)}
+            style={[styles.chip, active && styles.chipActive]}
+            onPress={() => onSelect(opt.value)}
+            accessibilityRole="button"
+            accessibilityLabel={opt.label}
+          >
+            {opt.icon ? (
+              <Ionicons
+                name={opt.icon}
+                size={13}
+                color={active ? theme.colors.text : theme.colors.textMuted}
+                style={styles.chipIcon}
+              />
+            ) : null}
+            <Text style={[styles.chipText, active && styles.chipTextActive]}>
+              {opt.label}
+            </Text>
+          </TouchableOpacity>
+        );
+      })}
     </View>
   );
 }
@@ -169,6 +190,8 @@ function ChipSelector<T extends string | number>({ options, selected, onSelect }
 
 export default function SettingsScreen() {
   const router = useRouter();
+  const theme = useTheme();
+  const styles = useMemo(() => createStyles(theme), [theme]);
   const setGlobalSettings = useSettingsStore((s) => s.setSettings);
   const storedVolumePercent = useSettingsStore((s) => s.pttVolumePercent);
   const storedDistanceUnit = useSettingsStore((s) => s.distanceUnit);
@@ -391,29 +414,29 @@ export default function SettingsScreen() {
         <SectionHeader title="ACCOUNT" />
         <View style={styles.sectionCard}>
           <SettingRow
-            icon="👤"
+            icon="person-outline"
             label="Edit Profile"
             onPress={() => router.push('/(tabs)/profile')}
           />
           <SettingRow
-            icon="🏆"
+            icon="trophy-outline"
             label="Achievements"
             subtitle="Track your convoy milestones"
             onPress={() => router.push('/achievements' as any)}
           />
           <SettingRow
-            icon="📤"
+            icon="download-outline"
             label="Export My Data"
             subtitle="Receive a copy of your data"
             onPress={handleExportData}
           />
           <SettingRow
-            icon="🔐"
+            icon="lock-closed-outline"
             label="Privacy Policy"
             onPress={() => router.push('/privacy' as any)}
           />
           <SettingRow
-            icon="📄"
+            icon="document-text-outline"
             label="Terms of Service"
             onPress={() => router.push('/terms' as any)}
             last
@@ -424,7 +447,7 @@ export default function SettingsScreen() {
         <SectionHeader title="NOTIFICATIONS" />
         <View style={styles.sectionCard}>
           <SettingRow
-            icon="⚠️"
+            icon="warning-outline"
             label="Hazard Alerts"
             subtitle="Nearby road hazard notifications"
             rightSlot={
@@ -438,7 +461,7 @@ export default function SettingsScreen() {
             }
           />
           <SettingRow
-            icon="👥"
+            icon="people-outline"
             label="Group Events"
             subtitle="Route pushes, mutes, session changes"
             rightSlot={
@@ -452,7 +475,7 @@ export default function SettingsScreen() {
             }
           />
           <SettingRow
-            icon="🤝"
+            icon="person-add-outline"
             label="Friend Requests"
             subtitle="Incoming friend requests"
             rightSlot={
@@ -466,7 +489,7 @@ export default function SettingsScreen() {
             }
           />
           <SettingRow
-            icon="🧭"
+            icon="compass-outline"
             label="Navigation"
             subtitle="Arriving at destination alerts"
             rightSlot={
@@ -486,7 +509,7 @@ export default function SettingsScreen() {
         <SectionHeader title="APPEARANCE" />
         <View style={styles.sectionCard}>
           <SettingRow
-            icon="🌗"
+            icon="contrast-outline"
             label="Theme"
             subtitle={themeMode === 'system' ? 'Follows system setting' : themeMode === 'dark' ? 'Dark' : 'Light'}
             last
@@ -507,7 +530,7 @@ export default function SettingsScreen() {
         <SectionHeader title="MAP" />
         <View style={styles.sectionCard}>
           <SettingRow
-            icon="🗺"
+            icon="map-outline"
             label="Map Style"
             subtitle={`Current: ${mapStyle.charAt(0).toUpperCase() + mapStyle.slice(1)}`}
             last
@@ -520,7 +543,7 @@ export default function SettingsScreen() {
             />
           </View>
           <SettingRow
-            icon="📐"
+            icon="swap-horizontal-outline"
             label="Distance Units"
             subtitle={`Showing distances in ${distanceUnit}`}
             last
@@ -533,7 +556,7 @@ export default function SettingsScreen() {
             />
           </View>
           <SettingRow
-            icon="🌄"
+            icon="trail-sign-outline"
             label="Scenic Routing"
             subtitle="Prefer roads that avoid highways"
             rightSlot={
@@ -553,7 +576,7 @@ export default function SettingsScreen() {
         <SectionHeader title="NAVIGATION" />
         <View style={styles.sectionCard}>
           <SettingRow
-            icon="⚠️"
+            icon="warning-outline"
             label="Hazard Alert Distance"
             subtitle={`Alert within ${(hazardDistM * MILES_PER_METRE).toFixed(2)} miles`}
             last
@@ -566,7 +589,7 @@ export default function SettingsScreen() {
             />
           </View>
           <SettingRow
-            icon="🎙"
+            icon="mic-outline"
             label="PTT Max Duration"
             subtitle={`${pttMaxSecs} seconds`}
             last
@@ -586,7 +609,7 @@ export default function SettingsScreen() {
         <SectionHeader title="CONVOY" />
         <View style={styles.sectionCard}>
           <SettingRow
-            icon="🔗"
+            icon="link-outline"
             label="Auto-Join Nearby Convoy"
             subtitle="Automatically join a convoy when nearby friends start one"
             rightSlot={
@@ -605,7 +628,7 @@ export default function SettingsScreen() {
         <SectionHeader title="AUDIO" />
         <View style={styles.sectionCard}>
           <SettingRow
-            icon="🔊"
+            icon="volume-high-outline"
             label="PTT Playback Volume"
             subtitle={`${pttVolumePercent}% — playback level for incoming transmissions`}
             last
@@ -623,7 +646,7 @@ export default function SettingsScreen() {
         <SectionHeader title="OFFLINE" />
         <View style={styles.sectionCard}>
           <SettingRow
-            icon="💾"
+            icon="save-outline"
             label="Map Cache Size"
             subtitle={`${cacheMb} MB stored for offline use`}
             last
@@ -641,12 +664,12 @@ export default function SettingsScreen() {
         <SectionHeader title="CARPLAY" />
         <View style={styles.sectionCard}>
           <SettingRow
-            icon="🚗"
+            icon="car-outline"
             label="CarPlay / Android Auto"
             subtitle="Connect to your vehicle to configure head unit settings"
           />
           <SettingRow
-            icon="🎙️"
+            icon="mic-circle-outline"
             label="Siri Shortcuts"
             subtitle="4 shortcuts available — say 'Start my convoy'"
             onPress={() => { void SiriShortcutsService.donateAll(); }}
@@ -658,7 +681,7 @@ export default function SettingsScreen() {
         <SectionHeader title="PRIVACY" />
         <View style={styles.sectionCard}>
           <SettingRow
-            icon="👁"
+            icon="eye-outline"
             label="Profile Visibility"
             subtitle={`Who can see your profile: ${privacy.charAt(0).toUpperCase() + privacy.slice(1)}`}
             last
@@ -671,7 +694,7 @@ export default function SettingsScreen() {
             />
           </View>
           <SettingRow
-            icon="🔍"
+            icon="search-outline"
             label="Show in Group Browse"
             subtitle="Let others find and invite you to convoys"
             rightSlot={
@@ -690,7 +713,7 @@ export default function SettingsScreen() {
         <SectionHeader title="ABOUT" />
         <View style={styles.sectionCard}>
           <SettingRow
-            icon="🔄"
+            icon="refresh-outline"
             label="Check for Updates"
             subtitle="Check for the latest version of CORTEGE"
             onPress={() => { void handleCheckForUpdates(); }}
@@ -701,35 +724,35 @@ export default function SettingsScreen() {
             }
           />
           <SettingRow
-            icon="⭐"
+            icon="star-outline"
             label="Rate CORTEGE"
             subtitle="Love the app? Leave us a review"
             onPress={() => Linking.openURL(APP_STORE_URL).catch(() => {})}
           />
           <SettingRow
-            icon="📧"
+            icon="mail-outline"
             label="Send Feedback"
             subtitle="hello@convoy.app"
             onPress={() => Linking.openURL('mailto:hello@convoy.app?subject=Feedback').catch(() => {})}
           />
           <SettingRow
-            icon="💬"
+            icon="chatbubble-outline"
             label="Contact Support"
             subtitle="Get help from the CORTEGE team"
             onPress={() => Linking.openURL('mailto:support@convoy.app?subject=Support%20Request').catch(() => {})}
           />
           <SettingRow
-            icon="🔒"
+            icon="lock-closed-outline"
             label="Privacy Policy"
             onPress={() => Linking.openURL(PRIVACY_POLICY_URL).catch(() => {})}
           />
           <SettingRow
-            icon="📄"
+            icon="document-text-outline"
             label="Terms of Service"
             onPress={() => Linking.openURL(TERMS_URL).catch(() => {})}
           />
           <SettingRow
-            icon="ℹ️"
+            icon="information-circle-outline"
             label="Version"
             subtitle={`CORTEGE v${APP_VERSION}`}
             rightSlot={<Text style={styles.versionText}>v{APP_VERSION}</Text>}
@@ -741,7 +764,7 @@ export default function SettingsScreen() {
         <SectionHeader title="DANGER ZONE" />
         <View style={[styles.sectionCard, styles.dangerCard]}>
           <SettingRow
-            icon="🗑"
+            icon="trash-outline"
             label="Delete Account"
             subtitle="Permanently remove your account and data"
             onPress={handleDeleteAccount}
@@ -781,7 +804,8 @@ export default function SettingsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(theme: Theme) {
+  return StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: theme.colors.bg,
@@ -835,7 +859,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   dangerCard: {
-    borderColor: '#DC143C',
+    borderColor: theme.colors.accent,
     borderWidth: 1.5,
   },
 
@@ -862,7 +886,6 @@ const styles = StyleSheet.create({
     marginRight: 12,
     flexShrink: 0,
   },
-  settingIconText: { fontSize: 16 },
   settingLabelGroup: { flex: 1, paddingRight: theme.spacing.sm },
   settingLabel: {
     fontSize: 15,
@@ -909,6 +932,8 @@ const styles = StyleSheet.create({
     gap: theme.spacing.sm,
   },
   chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingHorizontal: 14,
     paddingVertical: theme.spacing.sm,
     borderRadius: theme.radius.pill,
@@ -916,7 +941,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: theme.colors.border,
     minWidth: 44,
-    alignItems: 'center',
+  },
+  chipIcon: {
+    marginRight: 5,
   },
   chipActive: {
     backgroundColor: theme.colors.accent,
@@ -976,4 +1003,5 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
   },
-});
+  });
+}
