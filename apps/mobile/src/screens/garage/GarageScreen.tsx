@@ -1,16 +1,20 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, SafeAreaView, Platform,
   ScrollView, ActivityIndicator, TextInput, Modal, Alert, RefreshControl, Switch, KeyboardAvoidingView,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { apiClient } from '../../services/apiClient';
 import SkeletonCard from '../../components/SkeletonLoader';
 import { useMotionGuard } from '../../hooks/useMotionGuard';
+import { useTheme, withAlpha, ThemeColors } from '../../theme';
 
 // ---------- type helpers ----------
-const TYPE_EMOJI: Record<string, string> = {
-  Car: '🚗', Truck: '🚚', Motorcycle: '🏍️', SUV: '🚙', Classic: '🏎️', Sports: '🏎️',
+type VehicleIconName = React.ComponentProps<typeof MaterialCommunityIcons>['name'];
+
+const TYPE_ICON: Record<string, VehicleIconName> = {
+  Car: 'car', Truck: 'truck', Motorcycle: 'motorbike', SUV: 'car-estate', Classic: 'car-side', Sports: 'car-sports',
 };
 const VEHICLE_TYPES = ['Car', 'Truck', 'Motorcycle', 'SUV', 'Classic', 'Sports'] as const;
 
@@ -29,13 +33,16 @@ const COLOR_SWATCHES = [
   { name: 'Brown', hex: '#795548' },
 ];
 
-function vehicleEmoji(v: Vehicle): string {
-  if (v.type && TYPE_EMOJI[v.type]) return TYPE_EMOJI[v.type];
+// Note: these hex values are actual vehicle-paint swatches (user-selectable
+// data), not UI chrome — they are intentionally left as literals rather than
+// mapped through useTheme().
+function vehicleIconName(v: Vehicle): VehicleIconName {
+  if (v.type && TYPE_ICON[v.type]) return TYPE_ICON[v.type];
   const mk = (v.make ?? '').toLowerCase();
   const ml = (v.model ?? '').toLowerCase();
-  if (['ferrari','lambo','porsche','mclaren','corvette','mustang','supra','nsx','gtr'].some((k) => mk.includes(k) || ml.includes(k))) return '🏎️';
-  if (['truck','pickup','f-150','silverado','tundra','tacoma','ranger'].some((k) => ml.includes(k)) || mk === 'ram') return '🚚';
-  return '🚗';
+  if (['ferrari','lambo','porsche','mclaren','corvette','mustang','supra','nsx','gtr'].some((k) => mk.includes(k) || ml.includes(k))) return 'car-sports';
+  if (['truck','pickup','f-150','silverado','tundra','tacoma','ranger'].some((k) => ml.includes(k)) || mk === 'ram') return 'truck';
+  return 'car';
 }
 
 function colorHex(colorName: string | null): string | null {
@@ -83,6 +90,8 @@ function vehicleSubtitle(v: Vehicle): string {
 export default function GarageScreen() {
   const guardInMotion = useMotionGuard();
   const router = useRouter();
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [mods, setMods] = useState<string[]>([]);
   const [newMod, setNewMod] = useState('');
@@ -207,6 +216,8 @@ export default function GarageScreen() {
   const isPrimary = (v: Vehicle) => v.isActive || !!v.primary;
 
   const openActionSheet = (v: Vehicle) => {
+    // Native Alert button labels are rendered by the OS, not our React tree —
+    // they can't host a vector-icon component, so these keep their emoji glyphs.
     Alert.alert(vehicleDisplayName(v), undefined, [
       { text: '⭐  Set as Main Ride', onPress: () => void handleSetPrimary(v) },
       { text: '✏️  Edit', onPress: () => openEditModal(v) },
@@ -244,7 +255,7 @@ export default function GarageScreen() {
         contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} tintColor="#DC143C" colors={['#DC143C']} />
+          <RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} tintColor={colors.accent} colors={[colors.accent]} />
         }
       >
         <View style={styles.header}>
@@ -259,7 +270,7 @@ export default function GarageScreen() {
           accessibilityLabel="Open fuel log"
         >
           <View style={styles.fuelLogIconBox}>
-            <Text style={styles.fuelLogIcon}>⛽</Text>
+            <MaterialCommunityIcons name="gas-station" size={22} color={colors.text} />
           </View>
           <View style={{ flex: 1 }}>
             <Text style={styles.fuelLogTitle}>Fuel Log</Text>
@@ -272,7 +283,7 @@ export default function GarageScreen() {
 
         {vehicles.length === 0 ? (
           <View style={styles.emptyState}>
-            <Text style={styles.emptyIcon}>🚗</Text>
+            <MaterialCommunityIcons name="car" size={64} color={colors.textMuted} style={styles.emptyIcon} />
             <Text style={styles.emptyTitle}>Add your first ride</Text>
             <Text style={styles.emptySubtitle}>
               Show the convoy what you're rolling in. Add your vehicles so crew members know who's driving what.
@@ -305,20 +316,20 @@ export default function GarageScreen() {
                 )}
 
                 <View style={styles.vehicleIconBox}>
-                  <Text style={styles.vehicleIcon}>{vehicleEmoji(v)}</Text>
+                  <MaterialCommunityIcons name={vehicleIconName(v)} size={26} color={colors.text} />
                 </View>
 
                 <View style={styles.vehicleInfo}>
                   <View style={styles.nameRow}>
                     <Text style={styles.vehicleName} numberOfLines={1}>{vehicleDisplayName(v)}</Text>
                     {colorH ? (
-                      <View style={[styles.colorSwatch, { backgroundColor: colorH, borderColor: colorH === '#F0F0F0' ? '#555' : colorH }]} />
+                      <View style={[styles.colorSwatch, { backgroundColor: colorH, borderColor: colorH === '#F0F0F0' ? colors.textSubtle : colorH }]} />
                     ) : null}
                   </View>
                   {subtitle ? <Text style={styles.vehicleSubtitle}>{subtitle}</Text> : null}
                   <View style={styles.metaRow}>
                     {!primary && (isActivating === v.id
-                      ? <ActivityIndicator color="#DC143C" size="small" />
+                      ? <ActivityIndicator color={colors.accent} size="small" />
                       : <Text style={styles.tapToActivate}>Tap to set as main ride</Text>
                     )}
                     {v.drivesCount != null && v.drivesCount > 0 && (
@@ -351,7 +362,7 @@ export default function GarageScreen() {
 
             {mods.map((mod, i) => (
               <View key={i} style={styles.modRow}>
-                <Text style={styles.modBullet}>🔧</Text>
+                <MaterialCommunityIcons name="wrench" size={14} color={colors.textMuted} />
                 <Text style={styles.modText}>{mod}</Text>
                 <TouchableOpacity
                   onPress={() => void handleRemoveMod(i)}
@@ -371,7 +382,7 @@ export default function GarageScreen() {
                   value={newMod}
                   onChangeText={setNewMod}
                   placeholder="e.g. Coilovers, Cat-back exhaust…"
-                  placeholderTextColor="#555555"
+                  placeholderTextColor={colors.textSubtle}
                   onSubmitEditing={handleAddMod}
                   returnKeyType="done"
                   maxLength={60}
@@ -428,8 +439,13 @@ export default function GarageScreen() {
                       accessibilityLabel={t}
                       accessibilityState={{ selected: form.type === t }}
                     >
+                      <MaterialCommunityIcons
+                        name={TYPE_ICON[t]}
+                        size={14}
+                        color={form.type === t ? colors.accent : colors.textMuted}
+                      />
                       <Text style={[styles.typePillText, form.type === t && styles.typePillTextActive]}>
-                        {TYPE_EMOJI[t]} {t}
+                        {' '}{t}
                       </Text>
                     </TouchableOpacity>
                   ))}
@@ -445,7 +461,7 @@ export default function GarageScreen() {
                     value={form.make}
                     onChangeText={(val) => setForm((p) => ({ ...p, make: val }))}
                     placeholder="Ford"
-                    placeholderTextColor="#555555"
+                    placeholderTextColor={colors.textSubtle}
                     accessibilityLabel="Vehicle make"
                   />
                 </View>
@@ -456,7 +472,7 @@ export default function GarageScreen() {
                     value={form.model}
                     onChangeText={(val) => setForm((p) => ({ ...p, model: val }))}
                     placeholder="Mustang"
-                    placeholderTextColor="#555555"
+                    placeholderTextColor={colors.textSubtle}
                     accessibilityLabel="Vehicle model"
                   />
                 </View>
@@ -470,7 +486,7 @@ export default function GarageScreen() {
                   value={form.name}
                   onChangeText={(val) => setForm((p) => ({ ...p, name: val }))}
                   placeholder="My Stang"
-                  placeholderTextColor="#555555"
+                  placeholderTextColor={colors.textSubtle}
                   accessibilityLabel="Vehicle nickname"
                 />
               </View>
@@ -483,7 +499,7 @@ export default function GarageScreen() {
                   value={form.year}
                   onChangeText={(val) => setForm((p) => ({ ...p, year: val.replace(/\D/g, '') }))}
                   placeholder="2019"
-                  placeholderTextColor="#555555"
+                  placeholderTextColor={colors.textSubtle}
                   keyboardType="number-pad"
                   maxLength={4}
                   accessibilityLabel="Vehicle year"
@@ -499,7 +515,7 @@ export default function GarageScreen() {
                       key={c.name}
                       style={[
                         styles.colorOption,
-                        { backgroundColor: c.hex, borderColor: c.hex === '#F0F0F0' ? '#555' : c.hex },
+                        { backgroundColor: c.hex, borderColor: c.hex === '#F0F0F0' ? colors.textSubtle : c.hex },
                         form.color === c.name && styles.colorOptionSelected,
                       ]}
                       onPress={() => setForm((p) => ({ ...p, color: p.color === c.name ? '' : c.name }))}
@@ -520,8 +536,8 @@ export default function GarageScreen() {
                 <Switch
                   value={form.setAsPrimary}
                   onValueChange={(val) => setForm((p) => ({ ...p, setAsPrimary: val }))}
-                  trackColor={{ false: '#2A2A2A', true: 'rgba(220,20,60,0.5)' }}
-                  thumbColor={form.setAsPrimary ? '#DC143C' : '#555555'}
+                  trackColor={{ false: colors.border, true: withAlpha(colors.accent, 0.5) }}
+                  thumbColor={form.setAsPrimary ? colors.accent : colors.textSubtle}
                   accessibilityLabel="Set as main ride"
                 />
               </View>
@@ -537,7 +553,7 @@ export default function GarageScreen() {
                 accessibilityState={{ disabled: isSaving }}
               >
                 {isSaving
-                  ? <ActivityIndicator color="#FFFFFF" />
+                  ? <ActivityIndicator color={colors.text} />
                   : <Text style={styles.saveButtonText}>{editingId ? 'Save Changes' : 'Add Vehicle'}</Text>
                 }
               </TouchableOpacity>
@@ -551,121 +567,120 @@ export default function GarageScreen() {
 }
 
 // ---------- styles ----------
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0A0A0A' },
-  skeletonPad: { padding: 20, paddingTop: 24 },
-  scroll: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 48 },
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: colors.bg },
+    skeletonPad: { padding: 20, paddingTop: 24 },
+    scroll: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 48 },
 
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 24 },
-  title: { fontSize: 28, fontWeight: '700', color: '#F0F0F0' },
-  subtitle: { color: '#888888', fontSize: 13 },
-  errorText: { color: '#DC143C', fontSize: 13, marginBottom: 12 },
+    header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 24 },
+    title: { fontSize: 28, fontWeight: '700', color: colors.text },
+    subtitle: { color: colors.textMuted, fontSize: 13 },
+    errorText: { color: colors.accent, fontSize: 13, marginBottom: 12 },
 
-  fuelLogCard: {
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-    backgroundColor: '#1C1C1C', borderRadius: 12, borderWidth: 1, borderColor: '#2A2A2A',
-    padding: 14, marginBottom: 16,
-  },
-  fuelLogIconBox: { width: 44, height: 44, borderRadius: 12, backgroundColor: '#141414', alignItems: 'center', justifyContent: 'center' },
-  fuelLogIcon: { fontSize: 22 },
-  fuelLogTitle: { fontSize: 16, fontWeight: '700', color: '#FFFFFF' },
-  fuelLogSubtitle: { fontSize: 12, color: '#888888', marginTop: 2 },
-  fuelLogChevron: { fontSize: 22, color: '#555555' },
+    fuelLogCard: {
+      flexDirection: 'row', alignItems: 'center', gap: 12,
+      backgroundColor: colors.card, borderRadius: 12, borderWidth: 1, borderColor: colors.border,
+      padding: 14, marginBottom: 16,
+    },
+    fuelLogIconBox: { width: 44, height: 44, borderRadius: 12, backgroundColor: colors.cardElevated, alignItems: 'center', justifyContent: 'center' },
+    fuelLogTitle: { fontSize: 16, fontWeight: '700', color: colors.text },
+    fuelLogSubtitle: { fontSize: 12, color: colors.textMuted, marginTop: 2 },
+    fuelLogChevron: { fontSize: 22, color: colors.textSubtle },
 
-  emptyState: { alignItems: 'center', paddingTop: 80, paddingHorizontal: 32 },
-  emptyIcon: { fontSize: 64, marginBottom: 16 },
-  emptyTitle: { fontSize: 20, fontWeight: '700', color: '#FFFFFF', marginBottom: 8 },
-  emptySubtitle: { fontSize: 14, color: '#888888', textAlign: 'center', lineHeight: 22, marginBottom: 32 },
-  emptyButton: {
-    backgroundColor: '#DC143C', borderRadius: 14, paddingVertical: 16, paddingHorizontal: 40,
-    alignItems: 'center', minHeight: 52, justifyContent: 'center',
-    shadowColor: '#DC143C', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.35, shadowRadius: 8, elevation: 6,
-  },
-  emptyButtonText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
+    emptyState: { alignItems: 'center', paddingTop: 80, paddingHorizontal: 32 },
+    emptyIcon: { marginBottom: 16 },
+    emptyTitle: { fontSize: 20, fontWeight: '700', color: colors.text, marginBottom: 8 },
+    emptySubtitle: { fontSize: 14, color: colors.textMuted, textAlign: 'center', lineHeight: 22, marginBottom: 32 },
+    emptyButton: {
+      backgroundColor: colors.accent, borderRadius: 14, paddingVertical: 16, paddingHorizontal: 40,
+      alignItems: 'center', minHeight: 52, justifyContent: 'center',
+      shadowColor: colors.accent, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.35, shadowRadius: 8, elevation: 6,
+    },
+    emptyButtonText: { color: colors.text, fontSize: 16, fontWeight: '700' },
 
-  vehicleCard: {
-    backgroundColor: '#1C1C1C', borderRadius: 12, borderWidth: 1, borderColor: '#2A2A2A',
-    padding: 16, paddingLeft: 20, marginBottom: 12, flexDirection: 'row', alignItems: 'center',
-    gap: 12, minHeight: 72, overflow: 'hidden',
-  },
-  vehicleCardPrimary: { borderColor: 'rgba(220,20,60,0.4)', backgroundColor: '#1F1518' },
-  activeStrip: { position: 'absolute', left: 0, top: 0, bottom: 0, width: 4, backgroundColor: '#DC143C' },
-  primaryBadge: {
-    // right: 60 clears the 36px-wide menuButton (right padding 16 + width 36 = 52),
-    // leaving an 8px gap so the "MAIN RIDE" chip never sits on top of the "···" button.
-    position: 'absolute', top: 10, right: 60, backgroundColor: 'rgba(220,20,60,0.15)',
-    borderRadius: 4, paddingHorizontal: 7, paddingVertical: 3, borderWidth: 1, borderColor: 'rgba(220,20,60,0.3)',
-  },
-  primaryBadgeText: { color: '#DC143C', fontSize: 9, fontWeight: '800', letterSpacing: 0.8 },
+    vehicleCard: {
+      backgroundColor: colors.card, borderRadius: 12, borderWidth: 1, borderColor: colors.border,
+      padding: 16, paddingLeft: 20, marginBottom: 12, flexDirection: 'row', alignItems: 'center',
+      gap: 12, minHeight: 72, overflow: 'hidden',
+    },
+    vehicleCardPrimary: { borderColor: withAlpha(colors.accent, 0.4), backgroundColor: colors.cardElevated },
+    activeStrip: { position: 'absolute', left: 0, top: 0, bottom: 0, width: 4, backgroundColor: colors.accent },
+    primaryBadge: {
+      // right: 60 clears the 36px-wide menuButton (right padding 16 + width 36 = 52),
+      // leaving an 8px gap so the "MAIN RIDE" chip never sits on top of the "···" button.
+      position: 'absolute', top: 10, right: 60, backgroundColor: withAlpha(colors.accent, 0.15),
+      borderRadius: 4, paddingHorizontal: 7, paddingVertical: 3, borderWidth: 1, borderColor: withAlpha(colors.accent, 0.3),
+    },
+    primaryBadgeText: { color: colors.accent, fontSize: 9, fontWeight: '800', letterSpacing: 0.8 },
 
-  vehicleIconBox: { width: 48, height: 48, borderRadius: 12, backgroundColor: '#141414', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
-  vehicleIcon: { fontSize: 26 },
-  vehicleInfo: { flex: 1 },
-  nameRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  vehicleName: { fontSize: 18, fontWeight: '700', color: '#FFFFFF', flexShrink: 1 },
-  colorSwatch: { width: 16, height: 16, borderRadius: 8, borderWidth: 1, flexShrink: 0 },
-  vehicleSubtitle: { fontSize: 14, color: '#888888', marginTop: 3 },
-  metaRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4, flexWrap: 'wrap' },
-  tapToActivate: { fontSize: 11, color: '#555555' },
-  drivesChip: { backgroundColor: '#242424', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 2, borderWidth: 1, borderColor: '#2A2A2A' },
-  drivesChipText: { fontSize: 12, color: '#888888' },
-  menuButton: { width: 36, height: 36, borderRadius: 8, backgroundColor: '#242424', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
-  menuButtonText: { color: '#888888', fontSize: 18, fontWeight: '700', letterSpacing: 2, lineHeight: 20 },
+    vehicleIconBox: { width: 48, height: 48, borderRadius: 12, backgroundColor: colors.cardElevated, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+    vehicleInfo: { flex: 1 },
+    nameRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    vehicleName: { fontSize: 18, fontWeight: '700', color: colors.text, flexShrink: 1 },
+    colorSwatch: { width: 16, height: 16, borderRadius: 8, borderWidth: 1, flexShrink: 0 },
+    vehicleSubtitle: { fontSize: 14, color: colors.textMuted, marginTop: 3 },
+    metaRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4, flexWrap: 'wrap' },
+    tapToActivate: { fontSize: 11, color: colors.textSubtle },
+    drivesChip: { backgroundColor: colors.cardElevated, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 2, borderWidth: 1, borderColor: colors.border },
+    drivesChipText: { fontSize: 12, color: colors.textMuted },
+    menuButton: { width: 36, height: 36, borderRadius: 8, backgroundColor: colors.cardElevated, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+    menuButtonText: { color: colors.textMuted, fontSize: 18, fontWeight: '700', letterSpacing: 2, lineHeight: 20 },
 
-  // Mods section
-  modsSection: { marginTop: 28, marginBottom: 8 },
-  modsSectionTitle: { fontSize: 18, fontWeight: '700', color: '#F0F0F0', marginBottom: 2 },
-  modsSectionSubtitle: { fontSize: 13, color: '#888888', marginBottom: 16 },
-  modRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#1C1C1C', borderRadius: 10, padding: 12, marginBottom: 8, gap: 10 },
-  modBullet: { fontSize: 14 },
-  modText: { flex: 1, fontSize: 14, color: '#FFFFFF' },
-  modRemove: { fontSize: 14, color: '#555555', paddingHorizontal: 4 },
-  modInputRow: { flexDirection: 'row', gap: 8, marginTop: 4 },
-  modInput: {
-    flex: 1, backgroundColor: '#1C1C1C', borderRadius: 10, borderWidth: 1, borderColor: '#2A2A2A',
-    paddingHorizontal: 14, paddingVertical: 12, fontSize: 14, color: '#F0F0F0',
-  },
-  modAddBtn: {
-    width: 48, height: 48, borderRadius: 10, backgroundColor: '#DC143C',
-    alignItems: 'center', justifyContent: 'center',
-  },
-  modAddBtnText: { color: '#FFF', fontSize: 24, fontWeight: '300', lineHeight: 28 },
-  modsEmpty: { fontSize: 13, color: '#555555', fontStyle: 'italic', paddingLeft: 4, marginTop: 4 },
+    // Mods section
+    modsSection: { marginTop: 28, marginBottom: 8 },
+    modsSectionTitle: { fontSize: 18, fontWeight: '700', color: colors.text, marginBottom: 2 },
+    modsSectionSubtitle: { fontSize: 13, color: colors.textMuted, marginBottom: 16 },
+    modRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.card, borderRadius: 10, padding: 12, marginBottom: 8, gap: 10 },
+    modText: { flex: 1, fontSize: 14, color: colors.text },
+    modRemove: { fontSize: 14, color: colors.textSubtle, paddingHorizontal: 4 },
+    modInputRow: { flexDirection: 'row', gap: 8, marginTop: 4 },
+    modInput: {
+      flex: 1, backgroundColor: colors.card, borderRadius: 10, borderWidth: 1, borderColor: colors.border,
+      paddingHorizontal: 14, paddingVertical: 12, fontSize: 14, color: colors.text,
+    },
+    modAddBtn: {
+      width: 48, height: 48, borderRadius: 10, backgroundColor: colors.accent,
+      alignItems: 'center', justifyContent: 'center',
+    },
+    modAddBtnText: { color: colors.text, fontSize: 24, fontWeight: '300', lineHeight: 28 },
+    modsEmpty: { fontSize: 13, color: colors.textSubtle, fontStyle: 'italic', paddingLeft: 4, marginTop: 4 },
 
-  fab: {
-    position: 'absolute', bottom: 24, right: 24, width: 56, height: 56, borderRadius: 28,
-    backgroundColor: '#DC143C', alignItems: 'center', justifyContent: 'center',
-    shadowColor: '#DC143C', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.4, shadowRadius: 8, elevation: 8,
-  },
-  fabIcon: { color: '#fff', fontSize: 28, fontWeight: '300', lineHeight: 32 },
+    fab: {
+      position: 'absolute', bottom: 24, right: 24, width: 56, height: 56, borderRadius: 28,
+      backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center',
+      shadowColor: colors.accent, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.4, shadowRadius: 8, elevation: 8,
+    },
+    fabIcon: { color: colors.text, fontSize: 28, fontWeight: '300', lineHeight: 32 },
 
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.75)', justifyContent: 'flex-end' },
-  modalSheet: { backgroundColor: '#1C1C1C', borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 24, paddingTop: 12, paddingBottom: 48, maxHeight: '90%' },
-  modalHandle: { width: 40, height: 4, borderRadius: 2, backgroundColor: '#2A2A2A', alignSelf: 'center', marginBottom: 20 },
-  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 },
-  modalTitle: { fontSize: 20, fontWeight: '700', color: '#F0F0F0' },
-  modalClose: { fontSize: 18, color: '#555555', paddingHorizontal: 4 },
-  formField: { marginBottom: 16 },
-  formRow: { flexDirection: 'row', gap: 12 },
-  formLabel: { fontSize: 13, color: '#888888', marginBottom: 6 },
-  formInput: { backgroundColor: '#0A0A0A', borderRadius: 12, borderWidth: 1, borderColor: '#2A2A2A', paddingHorizontal: 16, paddingVertical: 14, fontSize: 16, color: '#F0F0F0', minHeight: 50 },
+    modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.75)', justifyContent: 'flex-end' },
+    modalSheet: { backgroundColor: colors.card, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 24, paddingTop: 12, paddingBottom: 48, maxHeight: '90%' },
+    modalHandle: { width: 40, height: 4, borderRadius: 2, backgroundColor: colors.border, alignSelf: 'center', marginBottom: 20 },
+    modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 },
+    modalTitle: { fontSize: 20, fontWeight: '700', color: colors.text },
+    modalClose: { fontSize: 18, color: colors.textSubtle, paddingHorizontal: 4 },
+    formField: { marginBottom: 16 },
+    formRow: { flexDirection: 'row', gap: 12 },
+    formLabel: { fontSize: 13, color: colors.textMuted, marginBottom: 6 },
+    formInput: { backgroundColor: colors.bg, borderRadius: 12, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 16, paddingVertical: 14, fontSize: 16, color: colors.text, minHeight: 50 },
 
-  pillRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  typePill: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, backgroundColor: '#242424', borderWidth: 1, borderColor: '#2A2A2A' },
-  typePillActive: { backgroundColor: 'rgba(220,20,60,0.15)', borderColor: '#DC143C' },
-  typePillText: { fontSize: 13, color: '#888888', fontWeight: '500' },
-  typePillTextActive: { color: '#DC143C', fontWeight: '700' },
+    pillRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+    typePill: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, backgroundColor: colors.cardElevated, borderWidth: 1, borderColor: colors.border },
+    typePillActive: { backgroundColor: withAlpha(colors.accent, 0.15), borderColor: colors.accent },
+    typePillText: { fontSize: 13, color: colors.textMuted, fontWeight: '500' },
+    typePillTextActive: { color: colors.accent, fontWeight: '700' },
 
-  colorGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 4 },
-  colorOption: { width: 32, height: 32, borderRadius: 16, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
-  colorOptionSelected: { borderColor: '#FFFFFF', borderWidth: 2.5 },
-  colorCheck: { color: '#FFFFFF', fontSize: 14, fontWeight: '800', textShadowColor: 'rgba(0,0,0,0.6)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 },
-  colorLabel: { fontSize: 12, color: '#888888', marginTop: 6 },
+    colorGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 4 },
+    colorOption: { width: 32, height: 32, borderRadius: 16, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
+    colorOptionSelected: { borderColor: colors.text, borderWidth: 2.5 },
+    colorCheck: { color: colors.text, fontSize: 14, fontWeight: '800', textShadowColor: 'rgba(0,0,0,0.6)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 },
+    colorLabel: { fontSize: 12, color: colors.textMuted, marginTop: 6 },
 
-  toggleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, paddingVertical: 4 },
-  toggleLabel: { fontSize: 15, color: '#F0F0F0' },
+    toggleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, paddingVertical: 4 },
+    toggleLabel: { fontSize: 15, color: colors.text },
 
-  saveButton: { backgroundColor: '#DC143C', borderRadius: 14, paddingVertical: 16, alignItems: 'center', marginTop: 8, minHeight: 52, justifyContent: 'center' },
-  saveButtonDisabled: { opacity: 0.5 },
-  saveButtonText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
-});
+    saveButton: { backgroundColor: colors.accent, borderRadius: 14, paddingVertical: 16, alignItems: 'center', marginTop: 8, minHeight: 52, justifyContent: 'center' },
+    saveButtonDisabled: { opacity: 0.5 },
+    saveButtonText: { color: colors.text, fontSize: 16, fontWeight: '700' },
+  });
+}

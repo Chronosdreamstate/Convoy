@@ -170,3 +170,20 @@ export function cardStyle(options?: { elevated?: boolean; colors?: ThemeColors }
     ...shadowStyle(options?.elevated ? 4 : 2),
   };
 }
+
+/**
+ * Derives a translucent tint from a theme color (e.g. `withAlpha(colors.accent, 0.15)`)
+ * instead of hardcoding a separate `rgba(...)` literal per screen. Accepts `#RGB` or
+ * `#RRGGBB` hex; alpha is clamped to [0, 1].
+ */
+export function withAlpha(hex: string, alpha: number): string {
+  const a = Math.max(0, Math.min(1, alpha));
+  let h = hex.replace('#', '');
+  if (h.length === 3) {
+    h = h.split('').map((ch) => ch + ch).join('');
+  }
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${a})`;
+}
