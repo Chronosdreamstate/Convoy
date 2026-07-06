@@ -14,6 +14,8 @@ import { env } from '../config/env';
 // Interfaces and types
 // ---------------------------------------------------------------------------
 
+export type RallyPointType = 'waypoint' | 'meetup' | 'fuel' | 'rest' | 'photo';
+
 export interface RawRallyRow {
   id: string;
   broadcaster_id: string;
@@ -22,6 +24,7 @@ export interface RawRallyRow {
   address: string | null;
   is_active: boolean;
   created_at: Date;
+  type?: RallyPointType;
 }
 
 export interface RallyResponse {
@@ -32,6 +35,7 @@ export interface RallyResponse {
   address: string | null;
   isActive: boolean;
   createdAt: string;
+  type: RallyPointType;
 }
 
 // ---------------------------------------------------------------------------
@@ -71,6 +75,7 @@ export function serializeRallyRow(row: RawRallyRow): RallyResponse {
     address: row.address,
     isActive: row.is_active,
     createdAt: row.created_at.toISOString(),
+    type: row.type ?? 'waypoint',
   };
 }
 
@@ -103,6 +108,22 @@ const latLngBody = z.object({
   lng: z.number().min(-180).max(180),
 });
 
+// Rally point creation accepts an optional type — the mobile client (RallyService.
+// broadcastRally) always sends one to pick the marker emoji (RALLY_EMOJI), but the
+// server previously used the plain latLngBody schema, silently discarding it.
+const rallyBody = latLngBody.extend({
+  type: z.enum(['waypoint', 'meetup', 'fuel', 'rest', 'photo']).optional().default('waypoint'),
+});
+
+// SOS creation accepts an optional emergency type — the mobile client (RallyService.
+// broadcastGroupSos/broadcastStandaloneSos) always sends one, but the server previously
+// used the plain latLngBody schema, silently discarding it: never persisted, never
+// returned in the response, and never included in the sos:alert broadcast, even though
+// the client's SosPin type declares `type` as a required field.
+const sosBody = latLngBody.extend({
+  type: z.enum(['breakdown', 'accident', 'medical', 'fuel', 'general']).optional().default('general'),
+});
+
 // ---------------------------------------------------------------------------
 // Route plugin
 // ---------------------------------------------------------------------------
@@ -116,7 +137,7 @@ const rallyRoutes: FastifyPluginAsync = async (fastify) => {
       const userId = (request.user as { sub: string }).sub;
       const groupId = request.params.id;
 
-      const bodyParsed = latLngBody.safeParse(request.body);
+      const bodyParsed = rallyBody.safeParse(request.body);
       if (!bodyParsed.success) {
         return reply.status(400).send({ error: 'lat and lng are required and must be valid coordinates' });
       }
@@ -138,10 +159,10 @@ const rallyRoutes: FastifyPluginAsync = async (fastify) => {
 
       // Persist to DB
       const result = await fastify.db.query<{ id: string; created_at: Date }>(
-        `INSERT INTO rally_points (group_id, broadcaster_id, location, address)
-         VALUES ($1, $2, ST_SetSRID(ST_MakePoint($3, $4), 4326)::geography, $5)
+        `INSERT INTO rally_points (group_id, broadcaster_id, location, address, type)
+         VALUES ($1, $2, ST_SetSRID(ST_MakePoint($3, $4), 4326)::geography, $5, $6)
          RETURNING id, created_at`,
-        [groupId, userId, body.lng, body.lat, address],
+        [groupId, userId, body.lng, body.lat, address, body.type],
       );
       const row = result.rows[0];
 
@@ -153,6 +174,7 @@ const rallyRoutes: FastifyPluginAsync = async (fastify) => {
         address,
         isActive: true,
         createdAt: row.created_at.toISOString(),
+        type: body.type,
       };
 
       // Emit rally:set to group room (Req 20.1, 20.3)
@@ -214,7 +236,7 @@ const rallyRoutes: FastifyPluginAsync = async (fastify) => {
       const userId = (request.user as { sub: string }).sub;
       const groupId = request.params.id;
 
-      const bodyParsed2 = latLngBody.safeParse(request.body);
+      const bodyParsed2 = sosBody.safeParse(request.body);
       if (!bodyParsed2.success) {
         return reply.status(400).send({ error: 'lat and lng are required and must be valid coordinates' });
       }
@@ -240,7 +262,7 @@ const rallyRoutes: FastifyPluginAsync = async (fastify) => {
 
       const sosId = randomUUID();
       const createdAt = new Date().toISOString();
-      const sosData = JSON.stringify({ groupId, userId, lat: body.lat, lng: body.lng, createdAt });
+      const sosData = JSON.stringify({ groupId, userId, lat: body.lat, lng: body.lng, type: body.type, createdAt });
 
       // Persist in Redis atomically via pipeline (transient; clears when group ends)
       const pipeline = fastify.redis.pipeline();
@@ -249,7 +271,7 @@ const rallyRoutes: FastifyPluginAsync = async (fastify) => {
       pipeline.setex(cooldownKey, SOS_COOLDOWN_S, '1');
       await pipeline.exec();
 
-      const sosPayload = { id: sosId, userId, groupId, lat: body.lat, lng: body.lng, createdAt };
+      const sosPayload = { id: sosId, userId, groupId, lat: body.lat, lng: body.lng, type: body.type, createdAt };
 
       // High-priority broadcast to group room (Req 25.1)
       fastify.io.to(`group:${groupId}`).emit('sos:alert', sosPayload);
@@ -364,7 +386,7 @@ const rallyRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post('/sos', { preHandler: [authenticate, generalLimiter(fastify.redis)] }, async (request, reply) => {
     const userId = (request.user as { sub: string }).sub;
 
-    const bodyParsed3 = latLngBody.safeParse(request.body);
+    const bodyParsed3 = sosBody.safeParse(request.body);
     if (!bodyParsed3.success) {
       return reply.status(400).send({ error: 'lat and lng are required and must be valid coordinates' });
     }
@@ -387,14 +409,14 @@ const rallyRoutes: FastifyPluginAsync = async (fastify) => {
 
     const sosId = randomUUID();
     const createdAt = new Date().toISOString();
-    const sosData = JSON.stringify({ groupId: null, userId, lat: body.lat, lng: body.lng, createdAt });
+    const sosData = JSON.stringify({ groupId: null, userId, lat: body.lat, lng: body.lng, type: body.type, createdAt });
 
     const sosPipeline = fastify.redis.pipeline();
     sosPipeline.setex(`sos:${sosId}`, SOS_TTL_S, sosData);
     sosPipeline.setex(cooldownKey, SOS_COOLDOWN_S, '1');
     await sosPipeline.exec();
 
-    const sosPayload = { id: sosId, userId, groupId: null, lat: body.lat, lng: body.lng, createdAt };
+    const sosPayload = { id: sosId, userId, groupId: null, lat: body.lat, lng: body.lng, type: body.type, createdAt };
 
     // Req 25.5: identify the transmitting Member by name in the push alert.
     const senderResult = await fastify.db.query<{ display_name: string; ptt_callsign: string | null }>(

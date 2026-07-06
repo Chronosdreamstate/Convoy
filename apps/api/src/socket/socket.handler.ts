@@ -120,11 +120,22 @@ export async function handleLocationUpdate(params: {
   );
 
   if (distance > group.gap_threshold_m) {
+    // Fetch the lagging member's callsign/name — NotificationCenterScreen's gap:alert
+    // handler renders `${d.callsign ?? 'Someone'} fell behind`, but this field was
+    // never included, so the notification always showed the generic fallback text.
+    const memberInfoResult = await db.query<{ display_name: string; ptt_callsign: string | null }>(
+      'SELECT display_name, ptt_callsign FROM users WHERE id = $1',
+      [userId],
+    );
+    const memberInfo = memberInfoResult.rows[0];
+    const callsign = memberInfo?.ptt_callsign ?? memberInfo?.display_name ?? undefined;
+
     // Emit gap:alert to admin's personal room only (Property 39)
     io.to(`user:${group.admin_id}`).emit('gap:alert', {
       memberId: userId,
       distanceM: Math.round(distance),
       groupId,
+      callsign,
     });
   }
 
@@ -210,8 +221,25 @@ export async function handlePttStart(params: {
   );
   const logId = logResult.rows[0].id;
 
+  // Fetch sender's callsign/name and active vehicle type — PTTLogPanel renders
+  // `entry.callsign ?? entry.displayName` where displayName was previously being
+  // seeded from the raw userId (these fields were never sent), so every log entry
+  // showed a UUID instead of the transmitting member's name (Req 10.9, 39.2).
+  const senderResult = await db.query<{ display_name: string; ptt_callsign: string | null }>(
+    'SELECT display_name, ptt_callsign FROM users WHERE id = $1',
+    [userId],
+  );
+  const sender = senderResult.rows[0];
+  const callsign = sender?.ptt_callsign ?? sender?.display_name ?? undefined;
+
+  const vehicleResult = await db.query<{ vehicle_type: string | null }>(
+    'SELECT vehicle_type FROM vehicles WHERE user_id = $1 AND is_active = true LIMIT 1',
+    [userId],
+  );
+  const vehicleType = vehicleResult.rows[0]?.vehicle_type ?? undefined;
+
   // Broadcast ptt:transmit to all recipients via their personal rooms (Properties 43 & 44)
-  const payload = { logId, userId, channelId, groupId };
+  const payload = { logId, userId, channelId, groupId, callsign, vehicleType };
   for (const recipientId of recipientIds) {
     io.to(`user:${recipientId}`).emit('ptt:transmit', payload);
   }
@@ -596,7 +624,10 @@ export function registerSocketHandlers(
     socket.on('chat:typing', (data: unknown) => {
       const { displayName } = (data as { displayName?: string }) ?? {};
       if (!displayName) return;
-      socket.to(`group:${groupId}`).emit('chat:typing', { displayName });
+      // Include userId so recipients can filter out their own echo (GroupChatScreen
+      // compares payload.userId === currentUserId) — previously omitted, which meant
+      // that check always failed and a typing user would see their own indicator.
+      socket.to(`group:${groupId}`).emit('chat:typing', { userId, displayName });
     });
 
     // Persist and broadcast emoji reaction on a group message
@@ -735,14 +766,20 @@ export function registerSocketHandlers(
       const { groupId: payloadGroupId } = (data as { groupId?: string }) ?? {};
       if (!payloadGroupId) return;
       try {
-        const group = await fastify.db.query<{ admin_id: string }>(
-          `SELECT admin_id FROM convoy_groups WHERE id = $1`,
+        const group = await fastify.db.query<{ admin_id: string; name: string }>(
+          `SELECT admin_id, name FROM convoy_groups WHERE id = $1`,
           [payloadGroupId],
         );
         if (group.rows[0]?.admin_id !== userId) return;
         // Record convoy start time so /end can compute duration
         await fastify.redis.set(`group:${payloadGroupId}:started_at`, String(Date.now()), 'EX', 86400);
-        io.to(`group:${payloadGroupId}`).emit('convoy:started', { groupId: payloadGroupId, startedBy: userId });
+        // NotificationCenterScreen renders `${d.groupName ?? 'Your group'} is on the move` —
+        // groupName was never included, so it always fell back to the generic text.
+        io.to(`group:${payloadGroupId}`).emit('convoy:started', {
+          groupId: payloadGroupId,
+          startedBy: userId,
+          groupName: group.rows[0]?.name,
+        });
       } catch (err) {
         fastify.log.error({ err }, 'convoy start error');
       }
