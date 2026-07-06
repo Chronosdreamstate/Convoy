@@ -254,21 +254,29 @@ const rallyRoutes: FastifyPluginAsync = async (fastify) => {
       // High-priority broadcast to group room (Req 25.1)
       fastify.io.to(`group:${groupId}`).emit('sos:alert', sosPayload);
 
-      // Push for members who may be offline (fire-and-forget)
-      fastify.db.query<{ user_id: string }>(
-        `SELECT user_id FROM convoy_members WHERE group_id = $1 AND left_at IS NULL AND user_id != $2`,
-        [groupId, userId],
-      ).then(({ rows }) =>
-        Promise.all(rows.map((r) =>
-          fastify.enqueueNotification({
-            userId: r.user_id,
-            type: 'sos_alert',
-            title: 'SOS Alert',
-            body: 'A group member needs immediate help!',
-            data: { sosId, groupId, lat: String(body.lat), lng: String(body.lng) },
-          }),
-        )),
-      ).catch((err: unknown) => fastify.log.error({ err }, 'sos group push failed'));
+      // Push for members who may be offline (fire-and-forget).
+      // Req 25.5: the push alert must identify the transmitting Member by name —
+      // fetch the sender's display name so a backgrounded/killed app still shows who needs help.
+      fastify.db.query<{ display_name: string; ptt_callsign: string | null }>(
+        'SELECT display_name, ptt_callsign FROM users WHERE id = $1',
+        [userId],
+      ).then((senderResult) => {
+        const senderName = senderResult.rows[0]?.ptt_callsign ?? senderResult.rows[0]?.display_name ?? 'A group member';
+        return fastify.db.query<{ user_id: string }>(
+          `SELECT user_id FROM convoy_members WHERE group_id = $1 AND left_at IS NULL AND user_id != $2`,
+          [groupId, userId],
+        ).then(({ rows }) =>
+          Promise.all(rows.map((r) =>
+            fastify.enqueueNotification({
+              userId: r.user_id,
+              type: 'sos_alert',
+              title: 'SOS Alert',
+              body: `${senderName} needs immediate help!`,
+              data: { sosId, groupId, senderId: userId, senderName, lat: String(body.lat), lng: String(body.lng) },
+            }),
+          )),
+        );
+      }).catch((err: unknown) => fastify.log.error({ err }, 'sos group push failed'));
 
       return reply.status(201).send(sosPayload);
     },
@@ -388,14 +396,21 @@ const rallyRoutes: FastifyPluginAsync = async (fastify) => {
 
     const sosPayload = { id: sosId, userId, groupId: null, lat: body.lat, lng: body.lng, createdAt };
 
+    // Req 25.5: identify the transmitting Member by name in the push alert.
+    const senderResult = await fastify.db.query<{ display_name: string; ptt_callsign: string | null }>(
+      'SELECT display_name, ptt_callsign FROM users WHERE id = $1',
+      [userId],
+    );
+    const senderName = senderResult.rows[0]?.ptt_callsign ?? senderResult.rows[0]?.display_name ?? 'Your friend';
+
     for (const { friend_id } of friendsResult.rows) {
       fastify.io.to(`user:${friend_id}`).emit('sos:alert', sosPayload);
       fastify.enqueueNotification({
         userId: friend_id,
         type: 'sos_alert',
         title: 'SOS Alert',
-        body: 'Your friend needs immediate help!',
-        data: { sosId, lat: String(body.lat), lng: String(body.lng) },
+        body: `${senderName} needs immediate help!`,
+        data: { sosId, senderId: userId, senderName, lat: String(body.lat), lng: String(body.lng) },
       }).catch((err: unknown) => fastify.log.error({ err }, 'sos friend push failed'));
     }
 

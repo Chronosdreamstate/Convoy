@@ -53,17 +53,6 @@ export function haversineMeters(a: LatLng, b: LatLng): number {
 }
 
 // ---------------------------------------------------------------------------
-// Haversine distance in kilometres (inlined per spec, used for centroid gap alert)
-// ---------------------------------------------------------------------------
-function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const R = 6371;
-  const dLat = (lat2 - lat1) * Math.PI / 180;
-  const dLon = (lon2 - lon1) * Math.PI / 180;
-  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
-
-// ---------------------------------------------------------------------------
 // Core location update handler — exported for unit testing
 // ---------------------------------------------------------------------------
 export async function handleLocationUpdate(params: {
@@ -305,8 +294,16 @@ export async function handleHazardProximity(params: {
   db: Pool;
   redis: Redis;
   io: IoBroadcaster;
+  /** Optional — pushes a background notification alongside the in-app banner (Req 15.1). */
+  enqueueNotification?: (job: {
+    userId: string;
+    type: 'hazard_alert';
+    title: string;
+    body: string;
+    data?: Record<string, string>;
+  }) => Promise<void>;
 }): Promise<void> {
-  const { userId, location, db, redis, io } = params;
+  const { userId, location, db, redis, io, enqueueNotification } = params;
 
   const settingsResult = await db.query<{ hazard_alert_distance_m: number }>(
     'SELECT hazard_alert_distance_m FROM user_settings WHERE user_id = $1',
@@ -347,54 +344,18 @@ export async function handleHazardProximity(params: {
       lat: hazard.lat,
       lng: hazard.lng,
     });
-  }
-}
 
-// ---------------------------------------------------------------------------
-// Centroid gap alert — exported for unit testing
-// Emits gap:alert to the user's personal room when they are > 5 km from the
-// geometric centroid of all active group members (convoy mode only).
-// ---------------------------------------------------------------------------
-export async function handleCentroidGapAlert(params: {
-  groupId: string;
-  userId: string;
-  location: LatLng;
-  redis: Redis;
-  db: Pool;
-  io: IoBroadcaster;
-}): Promise<void> {
-  const { groupId, userId, location, redis, db, io } = params;
-
-  // Only run while the group is in convoy mode (status = 'active')
-  const groupResult = await db.query<{ status: string }>(
-    'SELECT status FROM convoy_groups WHERE id = $1',
-    [groupId],
-  );
-  if (groupResult.rows[0]?.status !== 'active') return;
-
-  // Gather every member's cached location from Redis
-  const locKeys = await redis.keys(`loc:${groupId}:*`);
-  if (locKeys.length < 2) return; // centroid needs at least 2 points
-
-  const locs: LatLng[] = [];
-  for (const key of locKeys) {
-    const raw = await redis.hgetall(key);
-    if (raw?.lat && raw?.lng) {
-      locs.push({ lat: Number(raw.lat), lng: Number(raw.lng) });
+    // Req 15.1: deliver BOTH a push notification and the in-app banner (above).
+    if (enqueueNotification) {
+      const label = hazard.hazard_type.replace(/_/g, ' ');
+      await enqueueNotification({
+        userId,
+        type: 'hazard_alert',
+        title: 'Hazard Ahead',
+        body: `${label.charAt(0).toUpperCase()}${label.slice(1)} reported nearby`,
+        data: { hazardId: hazard.id, hazardType: hazard.hazard_type, lat: String(hazard.lat), lng: String(hazard.lng) },
+      }).catch(() => { /* non-fatal — in-app banner already delivered */ });
     }
-  }
-  if (locs.length < 2) return;
-
-  // Arithmetic centroid of all member positions
-  const centroidLat = locs.reduce((sum, l) => sum + l.lat, 0) / locs.length;
-  const centroidLng = locs.reduce((sum, l) => sum + l.lng, 0) / locs.length;
-
-  const distKm = haversineKm(location.lat, location.lng, centroidLat, centroidLng);
-  if (distKm > 5) {
-    io.to(`user:${userId}`).emit('gap:alert', {
-      distanceKm: Math.round(distKm * 10) / 10,
-      groupId,
-    });
   }
 }
 
@@ -506,23 +467,15 @@ export function registerSocketHandlers(
         db: fastify.db,
         io,
       }).catch((err: unknown) => fastify.log.error({ err }, 'location update error'));
-      // Proximity check runs alongside gap-alert logic (Req 11.7, 11.8)
+      // Proximity check runs alongside gap-alert logic (Req 11.7, 11.8, 15.1)
       handleHazardProximity({
         userId,
         location: { lat: parsed.data.lat, lng: parsed.data.lng },
         db: fastify.db,
         redis: fastify.redis,
         io,
+        enqueueNotification: fastify.enqueueNotification,
       }).catch((err: unknown) => fastify.log.error({ err }, 'hazard proximity error'));
-      // Centroid gap alert: warn user if they drift > 5 km from the group centroid
-      handleCentroidGapAlert({
-        groupId,
-        userId,
-        location: { lat: parsed.data.lat, lng: parsed.data.lng },
-        redis: fastify.redis,
-        db: fastify.db,
-        io,
-      }).catch((err: unknown) => fastify.log.error({ err }, 'centroid gap alert error'));
     });
 
     // PTT start (Req 10.1–10.4)
