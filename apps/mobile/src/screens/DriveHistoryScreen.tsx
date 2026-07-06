@@ -21,6 +21,7 @@ import {
   View,
 } from 'react-native';
 import MapView, { Polyline, PROVIDER_DEFAULT } from 'react-native-maps';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
@@ -28,6 +29,10 @@ import SkeletonCard from '../components/SkeletonLoader';
 import { NetworkError } from '../components/NetworkError';
 import { apiClient } from '../services/apiClient';
 import { useSettingsStore, type DistanceUnit } from '../stores/settingsStore';
+import { useTheme, type ThemeColors } from '../theme';
+
+// Text that always sits on the crimson accent fill — stays light in both themes.
+const ON_ACCENT = '#FFFFFF';
 
 const MAPBOX_TOKEN = process.env.EXPO_PUBLIC_MAPBOX_TOKEN ?? '';
 
@@ -230,6 +235,8 @@ function computeStreak(drives: DriveRecord[]): { current: number; best: number; 
 // ---------------------------------------------------------------------------
 
 function MonthlySummaryCard({ drives }: { drives: DriveRecord[] }) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const distanceUnit = useSettingsStore((s) => s.distanceUnit);
   const now = new Date();
   const monthDrives = drives.filter((d) => {
@@ -254,7 +261,6 @@ function MonthlySummaryCard({ drives }: { drives: DriveRecord[] }) {
 
   return (
     <View style={styles.monthCard}>
-      <View style={{ borderTopWidth: 2, borderTopColor: '#DC143C', borderRadius: 12, overflow: 'hidden' }} />
       <View style={styles.monthCardInner}>
         <View style={{ flex: 1 }}>
           <Text style={styles.monthTitle}>{monthName}</Text>
@@ -271,7 +277,7 @@ function MonthlySummaryCard({ drives }: { drives: DriveRecord[] }) {
                 key={i}
                 style={[
                   styles.sparkBar,
-                  { height: h, backgroundColor: count > 0 ? '#DC143C' : '#2A2A2A' },
+                  { height: h, backgroundColor: count > 0 ? colors.accent : colors.border },
                 ]}
               />
             );
@@ -294,6 +300,8 @@ const FILTERS: { id: DriveFilter; label: string }[] = [
 ];
 
 function FilterPills({ active, onChange }: { active: DriveFilter; onChange: (f: DriveFilter) => void }) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   return (
     <ScrollView
       horizontal
@@ -337,6 +345,8 @@ function applyFilter(drives: DriveRecord[], filter: DriveFilter): DriveRecord[] 
 // ---------------------------------------------------------------------------
 
 function TotalStatsHeader({ drives, onExport }: { drives: DriveRecord[]; onExport: () => void }) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const distanceUnit = useSettingsStore((s) => s.distanceUnit);
   const totalDistanceM = drives.reduce((sum, d) => sum + d.distanceM, 0);
   return (
@@ -355,9 +365,9 @@ function TotalStatsHeader({ drives, onExport }: { drives: DriveRecord[]; onExpor
         onPress={onExport}
         hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         accessibilityRole="button"
-        accessibilityLabel="Export drive history"
+        accessibilityLabel="Export drive history as CSV"
       >
-        <Text style={styles.exportBtnText}>⬆</Text>
+        <Ionicons name="share-outline" size={18} color={colors.textMuted} />
       </TouchableOpacity>
     </View>
   );
@@ -370,6 +380,8 @@ function TotalStatsHeader({ drives, onExport }: { drives: DriveRecord[]; onExpor
 const DAY_LABELS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 
 function WeeklyStreakCard({ drives }: { drives: DriveRecord[] }) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const distanceUnit = useSettingsStore((s) => s.distanceUnit);
   const { current, best, weekDays } = useMemo(() => computeStreak(drives), [drives]);
   const { start } = getISOWeekBounds();
@@ -393,9 +405,17 @@ function WeeklyStreakCard({ drives }: { drives: DriveRecord[] }) {
         </View>
         <View style={styles.streakMeta}>
           {current >= 2 ? (
-            <Text style={styles.streakFire}>🔥 {current}-day streak</Text>
+            <View style={styles.streakFireRow}>
+              <Ionicons name="flame" size={14} color={colors.warning} />
+              <Text style={styles.streakFire}>{current}-day streak</Text>
+            </View>
+          ) : current === 1 ? (
+            <View style={styles.streakFireRow}>
+              <Ionicons name="car-sport" size={14} color={colors.warning} />
+              <Text style={styles.streakFire}>Active today</Text>
+            </View>
           ) : (
-            <Text style={styles.streakFire}>{current === 1 ? '🚗 Active today' : '—'}</Text>
+            <Text style={styles.streakFire}>No active streak</Text>
           )}
           <Text style={styles.streakBest}>Best: {best} day{best !== 1 ? 's' : ''}</Text>
         </View>
@@ -413,10 +433,12 @@ function WeeklyStreakCard({ drives }: { drives: DriveRecord[] }) {
 // Stat tile (used in detail view)
 // ---------------------------------------------------------------------------
 
-function Stat({ icon, label, value }: { icon: string; label: string; value: string }) {
+function Stat({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   return (
     <View style={styles.statBox}>
-      <Text style={styles.statIcon}>{icon}</Text>
+      <View style={styles.statIcon}>{icon}</View>
       <Text style={styles.statValue}>{value}</Text>
       <Text style={styles.statLabel}>{label}</Text>
     </View>
@@ -428,6 +450,8 @@ function Stat({ icon, label, value }: { icon: string; label: string; value: stri
 // ---------------------------------------------------------------------------
 
 function MapThumb({ routeTrace }: { routeTrace?: DriveRecord['routeTrace'] }) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const url = routeTrace?.coordinates
     ? buildStaticMapUrl(routeTrace.coordinates)
     : null;
@@ -443,7 +467,7 @@ function MapThumb({ routeTrace }: { routeTrace?: DriveRecord['routeTrace'] }) {
   }
   return (
     <View style={styles.mapThumb}>
-      <Text style={styles.mapThumbIcon}>🗺</Text>
+      <Ionicons name="map-outline" size={22} color={colors.textMuted} />
     </View>
   );
 }
@@ -462,6 +486,8 @@ interface DetailProps {
 }
 
 function DriveDetail({ drive, onBack, onShare, onDelete, sharing, deleting }: DetailProps) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const distanceUnit = useSettingsStore((s) => s.distanceUnit);
   const routeCoords = drive.routeTrace?.coordinates.map(([lng, lat]) => ({
     latitude: lat,
@@ -475,7 +501,8 @@ function DriveDetail({ drive, onBack, onShare, onDelete, sharing, deleting }: De
   return (
     <View style={styles.detail}>
       <TouchableOpacity style={styles.backBtn} onPress={onBack} accessibilityRole="button" accessibilityLabel="Go back">
-        <Text style={styles.backText}>← Back</Text>
+        <Ionicons name="chevron-back" size={20} color={colors.accent} />
+        <Text style={styles.backText}>Back</Text>
       </TouchableOpacity>
 
       <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
@@ -503,28 +530,31 @@ function DriveDetail({ drive, onBack, onShare, onDelete, sharing, deleting }: De
             >
               <Polyline
                 coordinates={routeCoords}
-                strokeColor="#DC143C"
+                strokeColor={colors.accent}
                 strokeWidth={3}
               />
             </MapView>
           </View>
         ) : (
           <View style={styles.mapPlaceholder}>
-            <Text style={styles.mapPlaceholderIcon}>🗺</Text>
+            <Ionicons name="map-outline" size={40} color={colors.textMuted} />
             <Text style={styles.mapPlaceholderText}>Route map unavailable</Text>
           </View>
         )}
 
         {/* 2×2 stats grid */}
         <View style={styles.statsGrid}>
-          <Stat icon="📍" label="Distance" value={formatDistance(drive.distanceM, distanceUnit)} />
-          <Stat icon="⏱" label="Duration" value={formatDuration(drive.durationS)} />
-          <Stat icon="💨" label="Avg Speed" value={drive.avgSpeedKph ? `${drive.avgSpeedKph.toFixed(0)} km/h` : '—'} />
-          <Stat icon="🏎" label="Top Speed" value={drive.topSpeedKph ? `${drive.topSpeedKph.toFixed(0)} km/h` : '—'} />
+          <Stat icon={<MaterialCommunityIcons name="map-marker-distance" size={22} color={colors.accent} />} label="Distance" value={formatDistance(drive.distanceM, distanceUnit)} />
+          <Stat icon={<Ionicons name="time-outline" size={22} color={colors.accent} />} label="Duration" value={formatDuration(drive.durationS)} />
+          <Stat icon={<Ionicons name="speedometer-outline" size={22} color={colors.accent} />} label="Avg Speed" value={drive.avgSpeedKph ? `${drive.avgSpeedKph.toFixed(0)} km/h` : '—'} />
+          <Stat icon={<MaterialCommunityIcons name="car-sports" size={22} color={colors.accent} />} label="Top Speed" value={drive.topSpeedKph ? `${drive.topSpeedKph.toFixed(0)} km/h` : '—'} />
         </View>
 
         {drive.memberCount > 0 && (
-          <Text style={styles.detailMembers}>👥 {drive.memberCount} member{drive.memberCount !== 1 ? 's' : ''}</Text>
+          <View style={styles.detailMembers}>
+            <Ionicons name="people-outline" size={16} color={colors.textMuted} />
+            <Text style={styles.detailMembersText}>{drive.memberCount} member{drive.memberCount !== 1 ? 's' : ''}</Text>
+          </View>
         )}
 
         <TouchableOpacity
@@ -536,7 +566,7 @@ function DriveDetail({ drive, onBack, onShare, onDelete, sharing, deleting }: De
           accessibilityState={{ disabled: sharing || deleting }}
         >
           {sharing ? (
-            <ActivityIndicator color="#fff" />
+            <ActivityIndicator color={ON_ACCENT} />
           ) : (
             <Text style={styles.shareBtnText}>Share Summary Card</Text>
           )}
@@ -551,7 +581,7 @@ function DriveDetail({ drive, onBack, onShare, onDelete, sharing, deleting }: De
           accessibilityState={{ disabled: deleting || sharing }}
         >
           {deleting ? (
-            <ActivityIndicator color="#DC143C" />
+            <ActivityIndicator color={colors.accent} />
           ) : (
             <Text style={styles.deleteBtnText}>Delete Record</Text>
           )}
@@ -566,6 +596,8 @@ function DriveDetail({ drive, onBack, onShare, onDelete, sharing, deleting }: De
 // ---------------------------------------------------------------------------
 
 export default function DriveHistoryScreen() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const distanceUnit = useSettingsStore((s) => s.distanceUnit);
   const [drives, setDrives] = useState<DriveRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -781,23 +813,30 @@ export default function DriveHistoryScreen() {
               <MapThumb routeTrace={drive.routeTrace} />
               {isLongest && (
                 <View style={styles.trophyBadge}>
-                  <Text style={styles.trophyText}>🏆</Text>
+                  <Ionicons name="trophy" size={11} color={ON_ACCENT} />
                 </View>
               )}
             </View>
             <View style={styles.driveCardContent}>
-              <Text style={styles.driveTimeRange}>
-                {formatTime(drive.startedAt)} → {formatTime(drive.endedAt)}
-              </Text>
               <Text style={styles.driveDistDur}>
                 {formatDistance(drive.distanceM, distanceUnit)} · {formatDuration(drive.durationS)}
                 {drive.avgSpeedKph != null ? `  · ${drive.avgSpeedKph.toFixed(0)} km/h avg` : ''}
               </Text>
-              <Text style={styles.driveMembers}>
-                {drive.groupId
-                  ? `👥 Group Drive${drive.memberCount > 1 ? ` · ${drive.memberCount} members` : ''}`
-                  : '🚗 Solo Drive'}
+              <Text style={styles.driveTimeRange}>
+                {formatTime(drive.startedAt)} → {formatTime(drive.endedAt)}
               </Text>
+              <View style={styles.driveMembers}>
+                <Ionicons
+                  name={drive.groupId ? 'people-outline' : 'car-sport-outline'}
+                  size={13}
+                  color={colors.textSubtle}
+                />
+                <Text style={styles.driveMembersText}>
+                  {drive.groupId
+                    ? `Group Drive${drive.memberCount > 1 ? ` · ${drive.memberCount} members` : ''}`
+                    : 'Solo Drive'}
+                </Text>
+              </View>
             </View>
           </TouchableOpacity>
 
@@ -809,7 +848,12 @@ export default function DriveHistoryScreen() {
             accessibilityRole="button"
             accessibilityLabel={isExpanded ? 'Collapse details' : 'Expand details'}
           >
-            <Text style={[styles.chevronText, isExpanded && styles.chevronExpanded]}>›</Text>
+            <Ionicons
+              name="chevron-forward"
+              size={20}
+              color={isExpanded ? colors.accent : colors.textSubtle}
+              style={isExpanded ? styles.chevronExpanded : undefined}
+            />
           </TouchableOpacity>
         </View>
 
@@ -845,28 +889,41 @@ export default function DriveHistoryScreen() {
                     rotateEnabled={false}
                     pitchEnabled={false}
                   >
-                    <Polyline coordinates={routeCoords} strokeColor="#DC143C" strokeWidth={3} />
+                    <Polyline coordinates={routeCoords} strokeColor={colors.accent} strokeWidth={3} />
                   </MapView>
                 </View>
               ) : (
                 <View style={[styles.expandMapContainer, styles.expandMapPlaceholder]}>
-                  <Text style={{ fontSize: 28 }}>🗺</Text>
+                  <Ionicons name="map-outline" size={28} color={colors.textMuted} />
                 </View>
               )}
 
               {/* Quick stats row */}
               <View style={styles.expandStatsRow}>
                 {drive.topSpeedKph != null && (
-                  <Text style={styles.expandStat}>⚡ {drive.topSpeedKph.toFixed(0)} km/h top</Text>
+                  <View style={styles.expandStat}>
+                    <Ionicons name="flash" size={13} color={colors.textMuted} />
+                    <Text style={styles.expandStatText}>{drive.topSpeedKph.toFixed(0)} km/h top</Text>
+                  </View>
                 )}
                 {drive.avgSpeedKph != null && (
-                  <Text style={styles.expandStat}>📊 {drive.avgSpeedKph.toFixed(0)} km/h avg</Text>
+                  <View style={styles.expandStat}>
+                    <Ionicons name="stats-chart" size={13} color={colors.textMuted} />
+                    <Text style={styles.expandStatText}>{drive.avgSpeedKph.toFixed(0)} km/h avg</Text>
+                  </View>
                 )}
-                <Text style={styles.expandStat}>
-                  {drive.groupId
-                    ? `👥 ${drive.groupName ?? 'Group'} · ${drive.memberCount} member${drive.memberCount !== 1 ? 's' : ''}`
-                    : '🚗 Solo'}
-                </Text>
+                <View style={styles.expandStat}>
+                  <Ionicons
+                    name={drive.groupId ? 'people-outline' : 'car-sport-outline'}
+                    size={13}
+                    color={colors.textMuted}
+                  />
+                  <Text style={styles.expandStatText}>
+                    {drive.groupId
+                      ? `${drive.groupName ?? 'Group'} · ${drive.memberCount} member${drive.memberCount !== 1 ? 's' : ''}`
+                      : 'Solo'}
+                  </Text>
+                </View>
               </View>
 
               {/* Action row: Share + Replay */}
@@ -879,18 +936,26 @@ export default function DriveHistoryScreen() {
                   accessibilityLabel="Share drive"
                 >
                   {sharingId === drive.id
-                    ? <ActivityIndicator color="#DC143C" size="small" />
-                    : <Text style={styles.expandShareBtnText}>📤 Share</Text>
+                    ? <ActivityIndicator color={colors.accent} size="small" />
+                    : (
+                      <View style={styles.expandBtnInner}>
+                        <Ionicons name="share-outline" size={15} color={colors.accent} />
+                        <Text style={styles.expandShareBtnText}>Share</Text>
+                      </View>
+                    )
                   }
                 </TouchableOpacity>
                 {(drive.routeTrace?.coordinates?.length ?? 0) > 1 && (
                   <TouchableOpacity
-                    style={[styles.expandShareBtn, { flex: 1, backgroundColor: '#1C1C1C', borderColor: '#DC143C', borderWidth: 1 }]}
+                    style={[styles.expandShareBtn, { flex: 1 }]}
                     onPress={() => router.push(`/replay?driveId=${drive.id}` as never)}
                     accessibilityRole="button"
                     accessibilityLabel="Replay drive"
                   >
-                    <Text style={[styles.expandShareBtnText, { color: '#DC143C' }]}>▶ Replay</Text>
+                    <View style={styles.expandBtnInner}>
+                      <Ionicons name="play" size={15} color={colors.accent} />
+                      <Text style={styles.expandShareBtnText}>Replay</Text>
+                    </View>
                   </TouchableOpacity>
                 )}
               </View>
@@ -899,7 +964,7 @@ export default function DriveHistoryScreen() {
         )}
       </View>
     );
-  }, [longestDriveId, expandedId, distanceUnit, toggleExpand, expandAnim, sharingId, handleShare, router]);
+  }, [longestDriveId, expandedId, distanceUnit, toggleExpand, expandAnim, sharingId, handleShare, router, colors, styles]);
 
   if (selected) {
     return (
@@ -952,8 +1017,8 @@ export default function DriveHistoryScreen() {
           <RefreshControl
             refreshing={refreshing}
             onRefresh={() => { void handleRefresh(); }}
-            tintColor="#DC143C"
-            colors={['#DC143C']}
+            tintColor={colors.accent}
+            colors={[colors.accent]}
           />
         }
         ListHeaderComponent={
@@ -969,28 +1034,47 @@ export default function DriveHistoryScreen() {
                 accessibilityRole="button"
                 accessibilityLabel="View leaderboard"
               >
-                <Text style={styles.leaderboardBtnText}>🏆 View Leaderboard</Text>
+                <Ionicons name="trophy-outline" size={16} color={colors.accent} />
+                <Text style={styles.leaderboardBtnText}>View Leaderboard</Text>
               </TouchableOpacity>
             </View>
           ) : null
         }
-        ListFooterComponent={loadingMore ? <ActivityIndicator color="#DC143C" style={styles.footerSpinner} /> : null}
+        ListFooterComponent={loadingMore ? <ActivityIndicator color={colors.accent} style={styles.footerSpinner} /> : null}
         ListEmptyComponent={
-          <View style={styles.emptyState}>
-            <Text style={styles.emptyEmoji}>🗺️</Text>
-            <Text style={styles.emptyTitle}>No drives yet</Text>
-            <Text style={styles.emptySubtitle}>
-              Your drive history will appear here after your first convoy.
-            </Text>
-            <TouchableOpacity
-              style={styles.emptyCtaBtn}
-              onPress={() => router.push('/(tabs)/convoy')}
-              accessibilityRole="button"
-              accessibilityLabel="Start your first convoy"
-            >
-              <Text style={styles.emptyCtaText}>Start your first convoy</Text>
-            </TouchableOpacity>
-          </View>
+          drives.length > 0 ? (
+            <View style={styles.emptyState}>
+              <Ionicons name="filter-outline" size={52} color={colors.textMuted} style={styles.emptyIcon} />
+              <Text style={styles.emptyTitle}>No drives match this filter</Text>
+              <Text style={styles.emptySubtitle}>
+                Try a different filter to see more of your history.
+              </Text>
+              <TouchableOpacity
+                style={styles.emptyCtaBtn}
+                onPress={() => setActiveFilter('all')}
+                accessibilityRole="button"
+                accessibilityLabel="Show all drives"
+              >
+                <Text style={styles.emptyCtaText}>Show all drives</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <View style={styles.emptyState}>
+              <MaterialCommunityIcons name="road-variant" size={60} color={colors.textMuted} style={styles.emptyIcon} />
+              <Text style={styles.emptyTitle}>No drives yet</Text>
+              <Text style={styles.emptySubtitle}>
+                Your drive history will appear here after your first convoy.
+              </Text>
+              <TouchableOpacity
+                style={styles.emptyCtaBtn}
+                onPress={() => router.push('/(tabs)/convoy')}
+                accessibilityRole="button"
+                accessibilityLabel="Start your first convoy"
+              >
+                <Text style={styles.emptyCtaText}>Start your first convoy</Text>
+              </TouchableOpacity>
+            </View>
+          )
         }
         renderItem={renderDriveItem}
       />
@@ -1002,17 +1086,18 @@ export default function DriveHistoryScreen() {
 // Styles
 // ---------------------------------------------------------------------------
 
-const styles = StyleSheet.create({
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
   // Monthly summary card
   monthCard: {
-    backgroundColor: '#1C1C1C',
+    backgroundColor: colors.card,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: colors.border,
     marginBottom: 12,
     overflow: 'hidden',
     borderTopWidth: 2,
-    borderTopColor: '#DC143C',
+    borderTopColor: colors.accent,
   },
   monthCardInner: {
     flexDirection: 'row',
@@ -1020,8 +1105,8 @@ const styles = StyleSheet.create({
     padding: 14,
     gap: 12,
   },
-  monthTitle: { color: '#F0F0F0', fontSize: 13, fontWeight: '700', marginBottom: 3 },
-  monthStats: { color: '#888888', fontSize: 12 },
+  monthTitle: { color: colors.text, fontSize: 13, fontWeight: '700', marginBottom: 3 },
+  monthStats: { color: colors.textMuted, fontSize: 12 },
   sparkline: {
     flexDirection: 'row',
     alignItems: 'flex-end',
@@ -1038,20 +1123,21 @@ const styles = StyleSheet.create({
   filterRowContent: { paddingHorizontal: 0, gap: 8, flexDirection: 'row' },
   filterPill: {
     paddingHorizontal: 14,
-    paddingVertical: 7,
+    minHeight: 36,
+    justifyContent: 'center',
     borderRadius: 20,
-    backgroundColor: '#1C1C1C',
+    backgroundColor: colors.card,
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: colors.border,
   },
   filterPillActive: {
-    backgroundColor: '#DC143C',
-    borderColor: '#DC143C',
+    backgroundColor: colors.accent,
+    borderColor: colors.accent,
   },
-  filterPillText: { color: '#888888', fontSize: 13, fontWeight: '600' },
-  filterPillTextActive: { color: '#fff' },
+  filterPillText: { color: colors.textMuted, fontSize: 13, fontWeight: '600' },
+  filterPillTextActive: { color: ON_ACCENT },
 
-  container: { flex: 1, backgroundColor: '#0A0A0A' },
+  container: { flex: 1, backgroundColor: colors.bg },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   skeletonPad: { padding: 16, paddingTop: 20 },
 
@@ -1060,18 +1146,18 @@ const styles = StyleSheet.create({
     paddingTop: 16,
     paddingBottom: 8,
   },
-  screenTitle: { color: '#F0F0F0', fontSize: 24, fontWeight: '700' },
+  screenTitle: { color: colors.text, fontSize: 24, fontWeight: '700' },
 
   // Total stats header
   statsHeader: {
     flexDirection: 'row',
-    backgroundColor: '#1C1C1C',
+    backgroundColor: colors.card,
     borderRadius: 14,
     marginBottom: 16,
     paddingVertical: 16,
     paddingHorizontal: 24,
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: colors.border,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1080,13 +1166,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   statPillValue: {
-    color: '#FFFFFF',
+    color: colors.text,
     fontSize: 20,
     fontWeight: '700',
     marginBottom: 2,
   },
   statPillLabel: {
-    color: '#888888',
+    color: colors.textMuted,
     fontSize: 11,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
@@ -1094,7 +1180,7 @@ const styles = StyleSheet.create({
   statPillDivider: {
     width: 1,
     height: 36,
-    backgroundColor: '#2A2A2A',
+    backgroundColor: colors.border,
     marginHorizontal: 8,
   },
 
@@ -1106,7 +1192,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   sectionHeaderText: {
-    color: '#888888',
+    color: colors.textMuted,
     fontSize: 12,
     fontWeight: '600',
     textTransform: 'uppercase',
@@ -1114,17 +1200,17 @@ const styles = StyleSheet.create({
   },
 
   list: { paddingHorizontal: 16, paddingBottom: 20 },
-  listEmpty: { flex: 1, paddingHorizontal: 16 },
+  listEmpty: { flexGrow: 1, paddingHorizontal: 16 },
 
   footerSpinner: { paddingVertical: 20 },
 
   // Empty state
   emptyState: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 80, paddingHorizontal: 32 },
-  emptyEmoji: { fontSize: 64, marginBottom: 16 },
-  emptyTitle: { color: '#F0F0F0', fontSize: 20, fontWeight: '700', marginBottom: 8 },
-  emptySubtitle: { color: '#888888', fontSize: 14, textAlign: 'center', lineHeight: 22, marginBottom: 24 },
+  emptyIcon: { marginBottom: 16 },
+  emptyTitle: { color: colors.text, fontSize: 20, fontWeight: '700', marginBottom: 8 },
+  emptySubtitle: { color: colors.textMuted, fontSize: 14, textAlign: 'center', lineHeight: 22, marginBottom: 24 },
   emptyCtaBtn: {
-    backgroundColor: '#DC143C',
+    backgroundColor: colors.accent,
     paddingVertical: 14,
     paddingHorizontal: 32,
     borderRadius: 28,
@@ -1132,38 +1218,42 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  emptyCtaText: { color: '#fff', fontSize: 15, fontWeight: '700' },
+  emptyCtaText: { color: ON_ACCENT, fontSize: 15, fontWeight: '700' },
 
   leaderboardBtn: {
     marginHorizontal: 16,
     marginBottom: 8,
-    paddingVertical: 12,
-    backgroundColor: '#1C1C1C',
+    minHeight: 44,
+    flexDirection: 'row',
+    gap: 6,
+    backgroundColor: colors.card,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: colors.border,
     alignItems: 'center',
+    justifyContent: 'center',
   },
-  leaderboardBtnText: { color: '#DC143C', fontSize: 14, fontWeight: '600' },
+  leaderboardBtnText: { color: colors.accent, fontSize: 14, fontWeight: '600' },
 
   // Export button (inside stats header)
   exportBtn: {
     marginLeft: 12,
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#2A2A2A',
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: colors.cardElevated,
+    borderWidth: 1,
+    borderColor: colors.border,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  exportBtnText: { color: '#888888', fontSize: 14 },
 
   // Streak card
   streakCard: {
-    backgroundColor: '#1C1C1C',
+    backgroundColor: colors.card,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: colors.border,
     padding: 14,
     marginBottom: 16,
     gap: 10,
@@ -1175,26 +1265,27 @@ const styles = StyleSheet.create({
     width: 12,
     height: 12,
     borderRadius: 6,
-    backgroundColor: '#2A2A2A',
+    backgroundColor: colors.border,
   },
-  streakDotActive: { backgroundColor: '#DC143C' },
-  streakDayLabel: { color: '#555555', fontSize: 10, fontWeight: '500' },
+  streakDotActive: { backgroundColor: colors.accent },
+  streakDayLabel: { color: colors.textSubtle, fontSize: 10, fontWeight: '500' },
   streakMeta: { flex: 1 },
-  streakFire: { color: '#F59E0B', fontSize: 13, fontWeight: '600', marginBottom: 2 },
-  streakBest: { color: '#555555', fontSize: 11 },
-  weekSummary: { color: '#888888', fontSize: 12, borderTopWidth: 1, borderTopColor: '#2A2A2A', paddingTop: 8 },
+  streakFireRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 2 },
+  streakFire: { color: colors.warning, fontSize: 13, fontWeight: '600' },
+  streakBest: { color: colors.textSubtle, fontSize: 11 },
+  weekSummary: { color: colors.textMuted, fontSize: 12, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 8 },
 
   // Drive card — new expandable structure
   driveCardOuter: {
-    backgroundColor: '#1C1C1C',
+    backgroundColor: colors.card,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: colors.border,
     marginBottom: 10,
     overflow: 'hidden',
   },
   driveCardOuterLongest: {
-    borderColor: '#DC143C',
+    borderColor: colors.accent,
     borderWidth: 1.5,
   },
   driveCardMainRow: {
@@ -1211,26 +1302,20 @@ const styles = StyleSheet.create({
   },
   chevronBtn: {
     paddingHorizontal: 14,
-    paddingVertical: 12,
     alignItems: 'center',
     justifyContent: 'center',
     alignSelf: 'stretch',
+    minWidth: 44,
     borderLeftWidth: 1,
-    borderLeftColor: '#2A2A2A',
-  },
-  chevronText: {
-    color: '#555555',
-    fontSize: 22,
-    fontWeight: '300',
+    borderLeftColor: colors.border,
   },
   chevronExpanded: {
-    color: '#DC143C',
     transform: [{ rotate: '90deg' }],
   },
   expandPanel: {
     overflow: 'hidden',
     borderTopWidth: 1,
-    borderTopColor: '#2A2A2A',
+    borderTopColor: colors.border,
   },
   expandMapContainer: {
     height: 120,
@@ -1238,20 +1323,25 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   expandMapPlaceholder: {
-    backgroundColor: '#0A0A0A',
+    backgroundColor: colors.bg,
     alignItems: 'center',
     justifyContent: 'center',
   },
   expandStatsRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 10,
+    gap: 12,
     paddingHorizontal: 14,
     paddingTop: 10,
     paddingBottom: 6,
   },
   expandStat: {
-    color: '#888888',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  expandStatText: {
+    color: colors.textMuted,
     fontSize: 12,
     fontWeight: '500',
   },
@@ -1261,13 +1351,18 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#DC143C',
+    borderColor: colors.accent,
     alignItems: 'center',
-    minHeight: 36,
+    minHeight: 44,
     justifyContent: 'center',
   },
+  expandBtnInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
   expandShareBtnText: {
-    color: '#DC143C',
+    color: colors.accent,
     fontSize: 13,
     fontWeight: '600',
   },
@@ -1281,59 +1376,59 @@ const styles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 10,
-    backgroundColor: '#0A0A0A',
+    backgroundColor: colors.bg,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: colors.border,
     overflow: 'hidden',
   },
-  mapThumbIcon: { fontSize: 24 },
   trophyBadge: {
     position: 'absolute',
     bottom: -4,
     right: -4,
-    backgroundColor: '#0A0A0A',
+    backgroundColor: colors.accent,
     borderRadius: 10,
     width: 20,
     height: 20,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  trophyText: { fontSize: 12 },
 
   // Card content
   driveCardContent: { flex: 1 },
   driveTimeRange: {
-    color: '#888888',
+    color: colors.textMuted,
     fontSize: 12,
     marginBottom: 4,
     letterSpacing: 0.2,
   },
   driveDistDur: {
-    color: '#F0F0F0',
-    fontSize: 14,
-    fontWeight: '600',
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: '700',
     marginBottom: 4,
   },
-  driveMembers: { color: '#555555', fontSize: 12 },
+  driveMembers: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  driveMembersText: { color: colors.textSubtle, fontSize: 12 },
 
   // Detail
-  detail: { flex: 1, backgroundColor: '#0A0A0A', padding: 16 },
-  backBtn: { marginBottom: 16, minHeight: 44, justifyContent: 'center' },
-  backText: { color: '#DC143C', fontSize: 16, fontWeight: '600' },
-  detailTitle: { color: '#F0F0F0', fontSize: 24, fontWeight: '700', marginBottom: 4 },
-  detailDate: { color: '#888888', fontSize: 13, marginBottom: 16 },
-  detailMembers: { color: '#888888', fontSize: 14, marginBottom: 20 },
+  detail: { flex: 1, backgroundColor: colors.bg, padding: 16 },
+  backBtn: { marginBottom: 16, minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 2 },
+  backText: { color: colors.accent, fontSize: 16, fontWeight: '600' },
+  detailTitle: { color: colors.text, fontSize: 24, fontWeight: '700', marginBottom: 4 },
+  detailDate: { color: colors.textMuted, fontSize: 13, marginBottom: 16 },
+  detailMembers: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 20 },
+  detailMembersText: { color: colors.textMuted, fontSize: 14 },
   mapPlaceholder: {
     height: 180,
-    backgroundColor: '#1C1C1C',
+    backgroundColor: colors.card,
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 20,
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: colors.border,
     gap: 8,
     overflow: 'hidden',
   },
@@ -1341,8 +1436,7 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     borderRadius: 14,
   },
-  mapPlaceholderIcon: { fontSize: 40 },
-  mapPlaceholderText: { color: '#888888', fontSize: 13 },
+  mapPlaceholderText: { color: colors.textMuted, fontSize: 13 },
   statsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -1352,35 +1446,36 @@ const styles = StyleSheet.create({
   statBox: {
     flex: 1,
     minWidth: '42%',
-    backgroundColor: '#1C1C1C',
+    backgroundColor: colors.card,
     borderRadius: 12,
     padding: 16,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: colors.border,
     borderLeftWidth: 2,
-    borderLeftColor: '#DC143C',
+    borderLeftColor: colors.accent,
   },
-  statIcon: { fontSize: 22, marginBottom: 6 },
-  statValue: { color: '#F0F0F0', fontSize: 20, fontWeight: '700', marginBottom: 4 },
-  statLabel: { color: '#555555', fontSize: 12 },
+  statIcon: { marginBottom: 6 },
+  statValue: { color: colors.text, fontSize: 20, fontWeight: '700', marginBottom: 4 },
+  statLabel: { color: colors.textSubtle, fontSize: 12 },
   shareBtn: {
-    backgroundColor: '#DC143C',
+    backgroundColor: colors.accent,
     paddingVertical: 16,
     borderRadius: 14,
     alignItems: 'center',
     minHeight: 52,
   },
   shareBtnDisabled: { opacity: 0.6 },
-  shareBtnText: { color: '#fff', fontWeight: '700', fontSize: 16 },
+  shareBtnText: { color: ON_ACCENT, fontWeight: '700', fontSize: 16 },
   deleteBtn: {
     marginTop: 12,
     paddingVertical: 16,
     borderRadius: 14,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#DC143C',
+    borderColor: colors.accent,
     minHeight: 52,
   },
-  deleteBtnText: { color: '#DC143C', fontWeight: '700', fontSize: 16 },
-});
+  deleteBtnText: { color: colors.accent, fontWeight: '700', fontSize: 16 },
+  });
+}
