@@ -85,7 +85,7 @@ function handleNotificationNavigation(
       router.push('/(tabs)/map');
       break;
     case 'friend_request':
-      router.push('/friends');
+      router.push({ pathname: '/friends', params: { tab: 'requests' } });
       break;
     case 'group_invite':
       router.push('/join');
@@ -98,7 +98,8 @@ function handleNotificationNavigation(
       }
       break;
     case 'rally_point':
-      router.push('/(tabs)/convoy');
+      // Rally point pins render on the map (MapScreen), not the convoy hub.
+      router.push('/(tabs)/map');
       break;
     case 'hazard_alert':
     case 'gap_alert':

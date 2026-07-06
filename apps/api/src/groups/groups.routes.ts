@@ -1104,6 +1104,23 @@ async function groupsRoutes(
 
       const event = result.rows[0];
       fastify.io.to(`group:${id}`).emit('group:event_created', { groupId: id, event });
+
+      // Push for members who may be offline/backgrounded (fire-and-forget).
+      fastify.db.query<{ user_id: string }>(
+        `SELECT user_id FROM convoy_members WHERE group_id = $1 AND left_at IS NULL AND user_id != $2`,
+        [id, userId],
+      ).then(({ rows }) =>
+        Promise.all(rows.map((r) =>
+          fastify.enqueueNotification({
+            userId: r.user_id,
+            type: 'group_event',
+            title: 'New Group Event',
+            body: `${event.title} was just scheduled`,
+            data: { groupId: id, eventId: event.id },
+          }),
+        )),
+      ).catch((err: unknown) => fastify.log.error({ err }, 'group event push failed'));
+
       return reply.status(201).send({ event });
     },
   );

@@ -65,8 +65,16 @@ export async function handleLocationUpdate(params: {
   io: IoBroadcaster;
   /** Overridable wall-clock so property tests can inject a fixed "now". */
   now?: number;
+  /** Optional — pushes background notifications alongside the in-app socket events (Req 15.1, 15.3, 24.1–24.6). */
+  enqueueNotification?: (job: {
+    userId: string;
+    type: 'gap_alert' | 'arriving_destination';
+    title: string;
+    body: string;
+    data?: Record<string, string>;
+  }) => Promise<void>;
 }): Promise<void> {
-  const { groupId, userId, location, redis, db, io, now = Date.now() } = params;
+  const { groupId, userId, location, redis, db, io, now = Date.now(), enqueueNotification } = params;
   const locKey = `loc:${groupId}:${userId}`;
 
   // 1a. Read the previous location BEFORE overwriting it (needed for distance accumulation)
@@ -120,12 +128,25 @@ export async function handleLocationUpdate(params: {
   );
 
   if (distance > group.gap_threshold_m) {
+    const distanceM = Math.round(distance);
     // Emit gap:alert to admin's personal room only (Property 39)
     io.to(`user:${group.admin_id}`).emit('gap:alert', {
       memberId: userId,
-      distanceM: Math.round(distance),
+      distanceM,
       groupId,
     });
+
+    // Also push a background notification so a backgrounded/killed admin app
+    // still surfaces the gap (Req 15.1 pattern, Req 24.1–24.6).
+    if (enqueueNotification) {
+      await enqueueNotification({
+        userId: group.admin_id,
+        type: 'gap_alert',
+        title: 'Member Falling Behind',
+        body: `A member is ${distanceM}m behind the group`,
+        data: { groupId, memberId: userId, distanceM: String(distanceM) },
+      }).catch(() => { /* non-fatal — in-app alert already delivered */ });
+    }
   }
 
   // 4. Destination arrival notification (Req 15.3)
@@ -141,6 +162,18 @@ export async function handleLocationUpdate(params: {
       const isFirst = await redis.set(arrivedKey, '1', 'EX', 3600, 'NX');
       if (isFirst === 'OK') {
         io.to(`user:${userId}`).emit('navigation:arrived', { groupId });
+
+        // Also push a background notification (Req 15.3) so a backgrounded/killed
+        // app still tells the member they've arrived.
+        if (enqueueNotification) {
+          await enqueueNotification({
+            userId,
+            type: 'arriving_destination',
+            title: 'Arrived',
+            body: "You've arrived at the destination",
+            data: { groupId },
+          }).catch(() => { /* non-fatal — in-app event already delivered */ });
+        }
       }
     }
   }
@@ -483,6 +516,7 @@ export function registerSocketHandlers(
         redis: fastify.redis,
         db: fastify.db,
         io,
+        enqueueNotification: fastify.enqueueNotification,
       }).catch((err: unknown) => fastify.log.error({ err }, 'location update error'));
       // Proximity check runs alongside gap-alert logic (Req 11.7, 11.8, 15.1)
       handleHazardProximity({

@@ -13,7 +13,7 @@ import {
   View,
   SafeAreaView,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { apiClient } from '../services/apiClient';
 import { SkeletonRow } from '../components/SkeletonLoader';
 import { useGroupStore } from '../stores/groupStore';
@@ -425,14 +425,18 @@ const TABS: { id: Tab; label: string }[] = [
 ];
 
 export default function FriendsScreen() {
-  const [tab, setTab] = useState<Tab>('friends');
+  // Deep-link / notification-tap entry point: e.g. a friend_request push
+  // navigates here with ?tab=requests so the Requests tab opens directly.
+  const { tab: initialTabParam } = useLocalSearchParams<{ tab?: string }>();
+  const initialTab: Tab = initialTabParam === 'requests' ? 'requests' : 'friends';
+  const [tab, setTab] = useState<Tab>(initialTab);
   const [pending, setPending] = useState(0);
   const [query, setQuery] = useState('');
   const [searchResults, setSearchResults] = useState<SearchUser[]>([]);
   const [searching, setSearching] = useState(false);
   const [adding, setAdding] = useState<string | null>(null);
   const [inviting, setInviting] = useState(false);
-  const tabAnim = useRef(new Animated.Value(0)).current;
+  const tabAnim = useRef(new Animated.Value(initialTab === 'requests' ? 1 : 0)).current;
   const [tabBarW, setTabBarW] = useState(0);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
