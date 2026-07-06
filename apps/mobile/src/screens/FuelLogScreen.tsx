@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 import { apiClient } from '../services/apiClient';
 import { SkeletonBox } from '../components/SkeletonLoader';
+import { useSettingsStore } from '../stores/settingsStore';
 
 // --- Types ---
 
@@ -20,9 +21,12 @@ interface FuelEntry {
   notes?: string;
   location?: string;
   mpg?: number;
+  odometerKm?: number;
 }
 
 // --- Helpers ---
+
+const KM_PER_MILE = 1.609344;
 
 const fmt$ = (n: number) => `$${n.toFixed(2)}`;
 const fmtDate = (iso: string) =>
@@ -135,13 +139,19 @@ function EntryRow({ entry, onDelete }: { entry: FuelEntry; onDelete: (id: string
 function AddModal({ visible, onClose, onSaved }: {
   visible: boolean; onClose: () => void; onSaved: (e: FuelEntry) => void;
 }) {
+  const distanceUnit = useSettingsStore((s) => s.distanceUnit);
+  const odometerLabel = distanceUnit === 'miles' ? 'Odometer (mi)' : 'Odometer (km)';
+
   const [gallons, setGallons] = useState('');
   const [price, setPrice] = useState('');
+  const [odometer, setOdometer] = useState('');
   const [notes, setNotes] = useState('');
   const [date, setDate] = useState(todayMDY());
   const [saving, setSaving] = useState(false);
 
-  const close = () => { setGallons(''); setPrice(''); setNotes(''); setDate(todayMDY()); onClose(); };
+  const close = () => {
+    setGallons(''); setPrice(''); setOdometer(''); setNotes(''); setDate(todayMDY()); onClose();
+  };
 
   const save = async () => {
     const gal = parseFloat(gallons), ppg = parseFloat(price);
@@ -149,10 +159,20 @@ function AddModal({ visible, onClose, onSaved }: {
     if (!ppg || ppg <= 0) { Alert.alert('Validation', 'Enter a valid price per gallon.'); return; }
     const iso = parseMDY(date);
     if (!iso) { Alert.alert('Validation', 'Use MM/DD/YYYY for the date.'); return; }
+
+    let odometerKm: number | undefined;
+    if (odometer.trim()) {
+      const odo = parseFloat(odometer);
+      if (!odo || odo <= 0) { Alert.alert('Validation', 'Enter a valid odometer reading.'); return; }
+      // Always send odometer to the API in km — the server stores/compares
+      // in km regardless of the user's display unit preference.
+      odometerKm = distanceUnit === 'miles' ? odo * KM_PER_MILE : odo;
+    }
+
     setSaving(true);
     try {
       const res = await apiClient.post<FuelEntry>('/api/v1/fuel/logs', {
-        gallons: gal, pricePerGallon: ppg, notes: notes.trim() || undefined, date: iso,
+        gallons: gal, pricePerGallon: ppg, notes: notes.trim() || undefined, date: iso, odometerKm,
       });
       onSaved(res.data);
       close();
@@ -187,6 +207,17 @@ function AddModal({ visible, onClose, onSaved }: {
 
           <Text style={s.label}>Date (MM/DD/YYYY)</Text>
           <TextInput style={[s.input, { marginBottom: 12 }]} value={date} onChangeText={setDate} placeholder="MM/DD/YYYY" placeholderTextColor="#555" accessibilityLabel="Date" />
+
+          <Text style={s.label}>{odometerLabel} (optional)</Text>
+          <TextInput
+            style={[s.input, { marginBottom: 12 }]}
+            value={odometer}
+            onChangeText={setOdometer}
+            keyboardType="decimal-pad"
+            placeholder="0"
+            placeholderTextColor="#555"
+            accessibilityLabel={odometerLabel}
+          />
 
           <Text style={s.label}>Notes (optional)</Text>
           <TextInput style={[s.input, { height: 64, textAlignVertical: 'top', marginBottom: 16 }]} value={notes} onChangeText={setNotes} placeholder="Station, brand…" placeholderTextColor="#555" multiline accessibilityLabel="Notes" />
