@@ -312,6 +312,7 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
   const groupName = useGroupStore((s) => s.name);
   const groupMemberCount = useGroupStore((s) => s.memberCount);
   const gapThresholdM = useGroupStore((s) => s.gapThresholdM);
+  const groupPttMaxSeconds = useGroupStore((s) => s.pttMaxSeconds);
   const insets = useSafeAreaInsets();
 
   const [gapAlerts, setGapAlerts]     = useState<GapAlert[]>([]);
@@ -362,6 +363,10 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
   // PTT voice availability — tracks Agora engine connection state (Req 43.3)
   const [pttVoiceAvailable, setPttVoiceAvailable] = useState(true);
 
+  // Set true when the Admin mutes this member's PTT (Req 10.11) — disables the
+  // hold-to-talk controls locally since Agora audio never routes through this backend.
+  const [pttAdminMuted, setPttAdminMuted] = useState(false);
+
   // Callsign of the member currently transmitting PTT — used for CarPlay/AndroidAuto waveform
   const [transmittingCallsign, setTransmittingCallsign] = useState<string | null>(null);
 
@@ -370,7 +375,6 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
   const mapStyle = useSettingsStore((s) => s.mapStyle);
   const setSettings = useSettingsStore((s) => s.setSettings);
   const scenicRouting = useSettingsStore((s) => s.scenicRouting);
-  const pttMaxSeconds = useSettingsStore((s) => s.pttMaxSeconds);
   const pttVolumePercent = useSettingsStore((s) => s.pttVolumePercent);
 
   const socketRef       = useRef<Socket | null>(null);
@@ -583,7 +587,10 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
     );
     service.setUserVolume(pttVolumePercent);
     pttServiceRef.current = service;
-    void service.joinChannel({ groupId, channelId: pttChannelId, maxSeconds: pttMaxSeconds });
+    // maxSeconds comes from the active group's Admin-configured limit (Req 10.5, 10.6, 16.3),
+    // not the user's personal settings — the hold-timer cutoff must match what the Admin set
+    // for everyone in this convoy.
+    void service.joinChannel({ groupId, channelId: pttChannelId, maxSeconds: groupPttMaxSeconds });
 
     // Poll Agora engine availability every 5s to update "Voice unavailable" indicator (Req 43.3)
     const availabilityPoll = setInterval(() => {
@@ -603,6 +610,11 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
   useEffect(() => {
     pttServiceRef.current?.setUserVolume(pttVolumePercent);
   }, [pttVolumePercent]);
+
+  // Apply a live Admin change to the group's PTT max duration without rejoining (Req 10.6)
+  useEffect(() => {
+    pttServiceRef.current?.setMaxSeconds(groupPttMaxSeconds);
+  }, [groupPttMaxSeconds]);
 
   const showQuickAlert = useCallback((text: string) => {
     if (quickAlertTimerRef.current) clearTimeout(quickAlertTimerRef.current);
@@ -716,6 +728,17 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
     socket.on('ptt:ended', () => {
       setTransmittingCallsign(null);
       void LiveActivityService.updateActivity({ transmittingCallsign: null });
+    });
+
+    // Admin mute/unmute (Req 10.11) — must actually stop the local mic, since PTT
+    // audio flows through Agora only and never touches this backend.
+    socket.on('ptt:muted', () => {
+      pttServiceRef.current?.setAdminMuted(true);
+      setPttAdminMuted(true);
+    });
+    socket.on('ptt:unmuted', () => {
+      pttServiceRef.current?.setAdminMuted(false);
+      setPttAdminMuted(false);
     });
 
     socket.on('connect', () => {
@@ -1472,23 +1495,25 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
                     styles.fabItem,
                     styles.fabPttItem,
                     fabPttActive && styles.fabPttItemActive,
-                    !pttVoiceAvailable && styles.fabPttItemUnavailable,
+                    (!pttVoiceAvailable || pttAdminMuted) && styles.fabPttItemUnavailable,
                   ]}
-                  onPressIn={() => { if (pttVoiceAvailable) { setFabPttActive(true); handlePttStart(); } }}
+                  onPressIn={() => { if (pttVoiceAvailable && !pttAdminMuted) { setFabPttActive(true); handlePttStart(); } }}
                   onPressOut={() => { setFabPttActive(false); handlePttEnd(); }}
                   accessibilityLabel={
-                    !pttVoiceAvailable
-                      ? 'Voice unavailable'
-                      : fabPttActive
-                        ? 'Transmitting voice'
-                        : 'Push to Talk'
+                    pttAdminMuted
+                      ? 'Muted by admin'
+                      : !pttVoiceAvailable
+                        ? 'Voice unavailable'
+                        : fabPttActive
+                          ? 'Transmitting voice'
+                          : 'Push to Talk'
                   }
                   accessibilityHint="Hold to broadcast voice to convoy"
                   accessibilityRole="button"
                 >
-                  <Text style={styles.fabItemIcon}>{pttVoiceAvailable ? '🎙' : '🚫'}</Text>
+                  <Text style={styles.fabItemIcon}>{pttAdminMuted ? '🔇' : pttVoiceAvailable ? '🎙' : '🚫'}</Text>
                   <Text style={styles.fabPttLabel}>
-                    {!pttVoiceAvailable ? 'NO VOICE' : fabPttActive ? 'LIVE' : 'PTT'}
+                    {pttAdminMuted ? 'MUTED' : !pttVoiceAvailable ? 'NO VOICE' : fabPttActive ? 'LIVE' : 'PTT'}
                   </Text>
                 </Pressable>
               )}
@@ -1581,18 +1606,18 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
             style={[
               styles.pttStandaloneBtn,
               isPttTransmitting && styles.pttStandaloneBtnActive,
-              !pttVoiceAvailable && styles.pttStandaloneBtnUnavailable,
+              (!pttVoiceAvailable || pttAdminMuted) && styles.pttStandaloneBtnUnavailable,
             ]}
-            onPressIn={() => { if (pttVoiceAvailable) { setFabPttActive(true); handlePttStart(); } }}
+            onPressIn={() => { if (pttVoiceAvailable && !pttAdminMuted) { setFabPttActive(true); handlePttStart(); } }}
             onPressOut={() => { setFabPttActive(false); handlePttEnd(); }}
             accessibilityLabel="Push to talk"
             accessibilityHint="Hold to transmit voice to group"
             accessibilityRole="button"
           >
-            <Text style={styles.pttStandaloneIcon}>{pttVoiceAvailable ? '🎙' : '🚫'}</Text>
+            <Text style={styles.pttStandaloneIcon}>{pttAdminMuted ? '🔇' : pttVoiceAvailable ? '🎙' : '🚫'}</Text>
           </Pressable>
           <Text style={[styles.pttStandaloneLabel, isPttTransmitting && styles.pttStandaloneLabelActive]}>
-            {!pttVoiceAvailable ? 'NO VOICE' : isPttTransmitting ? 'TRANSMITTING' : 'HOLD TO TALK'}
+            {pttAdminMuted ? 'MUTED BY ADMIN' : !pttVoiceAvailable ? 'NO VOICE' : isPttTransmitting ? 'TRANSMITTING' : 'HOLD TO TALK'}
           </Text>
         </View>
       )}
@@ -1716,12 +1741,12 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
               {pttChannelId ? (
                 <Pressable
                   style={[styles.miniPttBtn, isPttTransmitting && styles.miniPttBtnActive]}
-                  onPressIn={() => { if (pttVoiceAvailable) handlePttStart(); }}
+                  onPressIn={() => { if (pttVoiceAvailable && !pttAdminMuted) handlePttStart(); }}
                   onPressOut={handlePttEnd}
-                  accessibilityLabel="Hold to push to talk"
+                  accessibilityLabel={pttAdminMuted ? 'Muted by admin' : 'Hold to push to talk'}
                   accessibilityRole="button"
                 >
-                  <Text style={{ fontSize: 16 }}>{isPttTransmitting ? '📡' : '🎙'}</Text>
+                  <Text style={{ fontSize: 16 }}>{pttAdminMuted ? '🔇' : isPttTransmitting ? '📡' : '🎙'}</Text>
                 </Pressable>
               ) : null}
               <Text style={styles.panelCollapsedChevron}>∧</Text>

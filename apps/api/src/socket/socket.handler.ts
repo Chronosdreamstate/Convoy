@@ -221,26 +221,42 @@ export async function handlePttStart(params: {
 
 /**
  * Handles ptt:end: validates duration, broadcasts ptt:ended.
+ *
+ * `logId` is optional: the client only learns its own logId from the server's
+ * `ptt:transmit` echo, so a very quick tap-and-release can call holdEnd()
+ * before that echo arrives (Req 10.3). When logId is omitted, fall back to
+ * the member's most recent still-open transmission in this group so the
+ * ptt_log row is still closed out and ptt:ended still fires (Req 10.9, 27.1).
  */
 export async function handlePttEnd(params: {
   groupId: string;
   userId: string;
-  logId: string;
+  logId?: string;
   db: Pool;
   io: IoBroadcaster;
   now?: number;
 }): Promise<void> {
-  const { groupId, userId, logId, db, io, now = Date.now() } = params;
+  const { groupId, userId, db, io, now = Date.now() } = params;
 
   // Get the log row to find channel and validate duration — include group_id to prevent cross-group manipulation
-  const logResult = await db.query<{
-    id: string; channel_id: string | null; started_at: Date;
-  }>(
-    'SELECT id, channel_id, started_at FROM ptt_log WHERE id = $1 AND user_id = $2 AND group_id = $3',
-    [logId, userId, groupId],
-  );
+  const logResult = params.logId
+    ? await db.query<{ id: string; channel_id: string | null; started_at: Date }>(
+        'SELECT id, channel_id, started_at FROM ptt_log WHERE id = $1 AND user_id = $2 AND group_id = $3',
+        [params.logId, userId, groupId],
+      )
+    : await db.query<{ id: string; channel_id: string | null; started_at: Date }>(
+        // Bounded to the last 2 minutes (well above the 60s max PTT duration, Req 10.6)
+        // so a long-abandoned open row from a crashed/killed client is never mistaken
+        // for the transmission that just ended.
+        `SELECT id, channel_id, started_at FROM ptt_log
+         WHERE user_id = $1 AND group_id = $2 AND ended_at IS NULL
+           AND started_at > NOW() - INTERVAL '2 minutes'
+         ORDER BY started_at DESC LIMIT 1`,
+        [userId, groupId],
+      );
   const log = logResult.rows[0];
   if (!log) return;
+  const logId = log.id;
 
   // Stamp ended_at before computing duration
   await db.query('UPDATE ptt_log SET ended_at = NOW() WHERE id = $1', [logId]);
@@ -490,10 +506,11 @@ export function registerSocketHandlers(
       }).catch((err: unknown) => fastify.log.error({ err }, 'ptt start error'));
     });
 
-    // PTT end (Req 10.5, 10.6)
+    // PTT end (Req 10.5, 10.6). logId may be absent on a fast tap-and-release
+    // (client hasn't received the ptt:transmit echo yet) — handlePttEnd falls
+    // back to the member's most recent open transmission in this case.
     socket.on('ptt:end', (data: unknown) => {
-      const { logId } = (data as { logId: string }) ?? {};
-      if (!logId) return;
+      const { logId } = (data as { logId?: string }) ?? {};
       handlePttEnd({
         groupId, userId, logId,
         db: fastify.db,

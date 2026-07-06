@@ -152,6 +152,15 @@ export class PTTService {
     this.currentLogId = logId;
   }
 
+  /**
+   * Updates the max hold duration for future transmissions (Req 10.6) — e.g. when the
+   * Admin changes the group's PTT limit mid-session. Does not retroactively shorten a
+   * transmission already in progress; takes effect on the next holdStart().
+   */
+  setMaxSeconds(maxSeconds: number): void {
+    if (this.session) this.session.maxSeconds = maxSeconds;
+  }
+
   /** Toggle self-mute (Req 10.12). */
   setSelfMuted(muted: boolean): void {
     this.selfMuted = muted;
