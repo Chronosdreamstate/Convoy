@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -10,10 +10,12 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { apiClient } from '../services/apiClient';
 import { SkeletonBox } from '../components/SkeletonLoader';
 import { NetworkError } from '../components/NetworkError';
+import { ThemeColors, useTheme } from '../theme';
 
 interface UserProfile {
   id: string;
@@ -50,6 +52,8 @@ function vehicleLabel(p: UserProfile): string {
 export default function UserProfileScreen() {
   const { userId } = useLocalSearchParams<{ userId: string }>();
   const router = useRouter();
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
 
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
@@ -85,7 +89,7 @@ export default function UserProfileScreen() {
       await apiClient.post('/api/v1/friends/requests', { addresseeId: profile.id });
       setFriendStatus('pending');
     } catch {
-      // silently ignore
+      Alert.alert('Error', 'Could not send friend request. Please try again.');
     } finally {
       setFriendLoading(false);
     }
@@ -185,10 +189,15 @@ export default function UserProfileScreen() {
   }
 
   const friendBtnLabel = friendStatus === 'pending'
-    ? '✓ Request Sent'
+    ? 'Request Sent'
     : friendStatus === 'accepted'
-    ? '✓ Friends'
-    : '🤝 Add Friend';
+    ? 'Friends'
+    : 'Add Friend';
+  const friendBtnIcon = friendStatus === 'pending'
+    ? 'time-outline'
+    : friendStatus === 'accepted'
+    ? 'checkmark-circle'
+    : 'person-add-outline';
   const friendBtnDisabled = friendStatus === 'pending' || friendStatus === 'accepted' || friendLoading;
 
   return (
@@ -212,14 +221,14 @@ export default function UserProfileScreen() {
           accessibilityLabel="Share profile"
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         >
-          <Text style={styles.shareIcon}>↑</Text>
+          <Ionicons name="share-social-outline" size={20} color={colors.accent} />
         </TouchableOpacity>
       </View>
 
       <Animated.ScrollView style={{ opacity: fadeAnim }} contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         {/* Hero card */}
         <View style={styles.heroCard}>
-          <View style={[styles.avatar, { backgroundColor: '#DC143C' }]}>
+          <View style={[styles.avatar, { backgroundColor: colors.accent }]}>
             <Text style={styles.avatarText}>{initials(profile.displayName)}</Text>
           </View>
 
@@ -227,7 +236,8 @@ export default function UserProfileScreen() {
 
           {profile.callsign && (
             <View style={styles.callsignBadge}>
-              <Text style={styles.callsignText}>📻 {profile.callsign}</Text>
+              <Ionicons name="radio-outline" size={12} color={colors.textMuted} style={styles.callsignIcon} />
+              <Text style={styles.callsignText}>{profile.callsign}</Text>
             </View>
           )}
 
@@ -248,8 +258,24 @@ export default function UserProfileScreen() {
               onPress={() => void handleAddFriend()}
               disabled={friendBtnDisabled}
               accessibilityRole="button"
+              accessibilityLabel={friendLoading ? 'Sending friend request' : friendBtnLabel}
+              accessibilityState={{ disabled: friendBtnDisabled }}
             >
-              <Text style={styles.friendBtnText}>{friendLoading ? 'Sending...' : friendBtnLabel}</Text>
+              {friendLoading ? (
+                <ActivityIndicator color={colors.text} size="small" />
+              ) : (
+                <>
+                  <Ionicons
+                    name={friendBtnIcon as never}
+                    size={16}
+                    color={friendBtnDisabled ? colors.textMuted : colors.text}
+                    style={styles.friendBtnIcon}
+                  />
+                  <Text style={[styles.friendBtnText, friendBtnDisabled && styles.friendBtnTextDone]}>
+                    {friendBtnLabel}
+                  </Text>
+                </>
+              )}
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -260,9 +286,14 @@ export default function UserProfileScreen() {
               accessibilityLabel={`Block ${profile.displayName}`}
               accessibilityState={{ disabled: blocking }}
             >
-              {blocking
-                ? <ActivityIndicator color="#DC143C" size="small" />
-                : <Text style={styles.blockBtnText}>⛔ Block</Text>}
+              {blocking ? (
+                <ActivityIndicator color={colors.accent} size="small" />
+              ) : (
+                <>
+                  <Ionicons name="ban-outline" size={16} color={colors.accent} style={styles.friendBtnIcon} />
+                  <Text style={styles.blockBtnText}>Block</Text>
+                </>
+              )}
             </TouchableOpacity>
           </View>
         </View>
@@ -285,7 +316,7 @@ export default function UserProfileScreen() {
           <Text style={styles.sectionTitle}>RIDE</Text>
           <View style={styles.vehicleCard}>
             <View style={styles.vehicleIconBg}>
-              <Text style={styles.vehicleIcon}>🚗</Text>
+              <Ionicons name="car-sport-outline" size={22} color={colors.textMuted} />
             </View>
             <View style={styles.vehicleInfo}>
               <Text style={styles.vehicleLabel}>{vehicleLabel(profile)}</Text>
@@ -311,141 +342,152 @@ export default function UserProfileScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#0A0A0A' },
-  scroll: { paddingBottom: 40 },
-  skeletonWrap: { flex: 1 },
-  skeletonHeroCard: {
-    backgroundColor: '#1C1C1C', marginHorizontal: 16, marginTop: 20,
-    borderRadius: 20, padding: 24, alignItems: 'center', gap: 12,
-    borderWidth: 1, borderColor: '#2A2A2A',
-  },
-  skeletonStatsCard: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around',
-    backgroundColor: '#1C1C1C', marginHorizontal: 16, marginTop: 12,
-    borderRadius: 16, paddingVertical: 20, borderWidth: 1, borderColor: '#2A2A2A',
-  },
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    root: { flex: 1, backgroundColor: colors.bg },
+    scroll: { paddingBottom: 40 },
+    skeletonWrap: { flex: 1 },
+    skeletonHeroCard: {
+      backgroundColor: colors.card, marginHorizontal: 16, marginTop: 20,
+      borderRadius: 20, padding: 24, alignItems: 'center', gap: 12,
+      borderWidth: 1, borderColor: colors.border,
+    },
+    skeletonStatsCard: {
+      flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around',
+      backgroundColor: colors.card, marginHorizontal: 16, marginTop: 12,
+      borderRadius: 16, paddingVertical: 20, borderWidth: 1, borderColor: colors.border,
+    },
 
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#2A2A2A',
-  },
-  backBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
-  backIcon: { color: '#FFFFFF', fontSize: 28, fontWeight: '300', lineHeight: 32 },
-  headerTitle: { color: '#FFFFFF', fontSize: 16, fontWeight: '700', letterSpacing: 0.5 },
-  shareBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
-  shareIcon: { color: '#DC143C', fontSize: 22, fontWeight: '700' },
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+    },
+    backBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
+    backIcon: { color: colors.text, fontSize: 28, fontWeight: '300', lineHeight: 32 },
+    headerTitle: { color: colors.text, fontSize: 16, fontWeight: '700', letterSpacing: 0.5 },
+    shareBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
 
-  heroCard: {
-    backgroundColor: '#1C1C1C',
-    marginHorizontal: 16,
-    marginTop: 20,
-    borderRadius: 20,
-    padding: 24,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#2A2A2A',
-  },
-  avatar: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 14,
-  },
-  avatarText: { color: '#FFFFFF', fontSize: 28, fontWeight: '800' },
-  name: { color: '#FFFFFF', fontSize: 22, fontWeight: '800', marginBottom: 8, textAlign: 'center' },
-  callsignBadge: {
-    backgroundColor: '#0A0A0A',
-    borderRadius: 100,
-    borderWidth: 1,
-    borderColor: '#2A2A2A',
-    paddingHorizontal: 14,
-    paddingVertical: 5,
-    marginBottom: 8,
-  },
-  callsignText: { color: '#888888', fontSize: 13, fontWeight: '600' },
-  mutualText: { color: '#888888', fontSize: 13, marginBottom: 8 },
-  bio: { color: '#CCCCCC', fontSize: 14, textAlign: 'center', lineHeight: 20, marginBottom: 8 },
-  memberSince: { color: '#555555', fontSize: 12, marginBottom: 16 },
+    heroCard: {
+      backgroundColor: colors.card,
+      marginHorizontal: 16,
+      marginTop: 20,
+      borderRadius: 20,
+      padding: 24,
+      alignItems: 'center',
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    avatar: {
+      width: 80,
+      height: 80,
+      borderRadius: 40,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginBottom: 14,
+    },
+    avatarText: { color: '#FFFFFF', fontSize: 28, fontWeight: '800' },
+    name: { color: colors.text, fontSize: 22, fontWeight: '800', marginBottom: 8, textAlign: 'center' },
+    callsignBadge: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: colors.bg,
+      borderRadius: 100,
+      borderWidth: 1,
+      borderColor: colors.border,
+      paddingHorizontal: 14,
+      paddingVertical: 5,
+      marginBottom: 8,
+    },
+    callsignIcon: { marginRight: 5 },
+    callsignText: { color: colors.textMuted, fontSize: 13, fontWeight: '600' },
+    mutualText: { color: colors.textMuted, fontSize: 13, marginBottom: 8 },
+    bio: { color: colors.text, fontSize: 14, textAlign: 'center', lineHeight: 20, marginBottom: 8 },
+    memberSince: { color: colors.textSubtle, fontSize: 12, marginBottom: 16 },
 
-  actionRow: { width: '100%', gap: 10 },
-  friendBtn: {
-    width: '100%',
-    backgroundColor: '#DC143C',
-    borderRadius: 12,
-    paddingVertical: 14,
-    alignItems: 'center',
-  },
-  friendBtnDone: { backgroundColor: '#1C1C1C', borderWidth: 1, borderColor: '#2A2A2A' },
-  friendBtnText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
-  blockBtn: {
-    width: '100%',
-    backgroundColor: 'transparent',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#DC143C',
-    paddingVertical: 14,
-    alignItems: 'center',
-  },
-  blockBtnText: { color: '#DC143C', fontSize: 15, fontWeight: '700' },
+    actionRow: { width: '100%', gap: 10 },
+    friendBtn: {
+      flexDirection: 'row',
+      width: '100%',
+      backgroundColor: colors.accent,
+      borderRadius: 12,
+      paddingVertical: 14,
+      alignItems: 'center',
+      justifyContent: 'center',
+      minHeight: 48,
+    },
+    friendBtnDone: { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border },
+    friendBtnIcon: { marginRight: 8 },
+    friendBtnText: { color: colors.text, fontSize: 15, fontWeight: '700' },
+    friendBtnTextDone: { color: colors.textMuted },
+    blockBtn: {
+      flexDirection: 'row',
+      width: '100%',
+      backgroundColor: 'transparent',
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: colors.accent,
+      paddingVertical: 14,
+      alignItems: 'center',
+      justifyContent: 'center',
+      minHeight: 48,
+    },
+    blockBtnText: { color: colors.accent, fontSize: 15, fontWeight: '700' },
 
-  statsCard: {
-    flexDirection: 'row',
-    backgroundColor: '#1C1C1C',
-    marginHorizontal: 16,
-    marginTop: 12,
-    borderRadius: 16,
-    paddingVertical: 20,
-    borderWidth: 1,
-    borderColor: '#2A2A2A',
-  },
-  statItem: { flex: 1, alignItems: 'center' },
-  statDivider: { width: 1, backgroundColor: '#2A2A2A' },
-  statValue: { color: '#FFFFFF', fontSize: 28, fontWeight: '800' },
-  statLabel: { color: '#888888', fontSize: 12, marginTop: 2 },
+    statsCard: {
+      flexDirection: 'row',
+      backgroundColor: colors.card,
+      marginHorizontal: 16,
+      marginTop: 12,
+      borderRadius: 16,
+      paddingVertical: 20,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    statItem: { flex: 1, alignItems: 'center' },
+    statDivider: { width: 1, backgroundColor: colors.border },
+    statValue: { color: colors.text, fontSize: 28, fontWeight: '800' },
+    statLabel: { color: colors.textMuted, fontSize: 12, marginTop: 2 },
 
-  section: { marginHorizontal: 16, marginTop: 20 },
-  sectionTitle: { color: '#555555', fontSize: 11, fontWeight: '700', letterSpacing: 1.5, marginBottom: 10 },
+    section: { marginHorizontal: 16, marginTop: 20 },
+    sectionTitle: { color: colors.textSubtle, fontSize: 11, fontWeight: '700', letterSpacing: 1.5, marginBottom: 10 },
 
-  vehicleCard: {
-    backgroundColor: '#1C1C1C',
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#2A2A2A',
-    padding: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
-  },
-  vehicleIconBg: {
-    width: 48,
-    height: 48,
-    borderRadius: 12,
-    backgroundColor: '#242424',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  vehicleIcon: { fontSize: 24 },
-  vehicleInfo: { flex: 1 },
-  vehicleLabel: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
-  vehicleColor: { color: '#888888', fontSize: 13, marginTop: 2 },
+    vehicleCard: {
+      backgroundColor: colors.card,
+      borderRadius: 16,
+      borderWidth: 1,
+      borderColor: colors.border,
+      padding: 16,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 14,
+    },
+    vehicleIconBg: {
+      width: 48,
+      height: 48,
+      borderRadius: 12,
+      backgroundColor: colors.cardElevated,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    vehicleInfo: { flex: 1 },
+    vehicleLabel: { color: colors.text, fontSize: 16, fontWeight: '700' },
+    vehicleColor: { color: colors.textMuted, fontSize: 13, marginTop: 2 },
 
-  modsWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 },
-  modChip: {
-    backgroundColor: '#242424',
-    borderRadius: 100,
-    borderWidth: 1,
-    borderColor: '#2A2A2A',
-    paddingHorizontal: 12,
-    paddingVertical: 5,
-  },
-  modText: { color: '#CCCCCC', fontSize: 13 },
+    modsWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 },
+    modChip: {
+      backgroundColor: colors.cardElevated,
+      borderRadius: 100,
+      borderWidth: 1,
+      borderColor: colors.border,
+      paddingHorizontal: 12,
+      paddingVertical: 5,
+    },
+    modText: { color: colors.text, fontSize: 13 },
 
-});
+  });
+}
