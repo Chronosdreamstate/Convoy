@@ -174,36 +174,36 @@ export default function SosAlertModal({
           {/* Countdown banner with Cancel chip */}
           {!cancelled && countdown > 0 && (
             <View style={styles.countdownRow}>
-              <Text style={styles.countdownText}>Alerting group in {countdown}s…</Text>
+              <Text style={styles.countdownText}>Acknowledging in {countdown}s…</Text>
               <TouchableOpacity
                 style={styles.cancelChip}
                 onPress={handleCancel}
                 accessibilityRole="button"
-                accessibilityLabel="Cancel auto-alert"
+                accessibilityLabel="Cancel auto-acknowledge"
               >
                 <Text style={styles.cancelChipText}>Cancel</Text>
               </TouchableOpacity>
             </View>
           )}
 
-          {/* Share Location */}
+          {/* View Location — recenters the map on the alert; does not share/broadcast anything */}
           <TouchableOpacity
             style={styles.shareBtn}
             onPress={onNavigate}
             accessibilityRole="button"
-            accessibilityLabel="Share location"
+            accessibilityLabel="View location on map"
           >
-            <Text style={styles.shareBtnText}>📍  Share Location</Text>
+            <Text style={styles.shareBtnText}>📍  View Location</Text>
           </TouchableOpacity>
 
-          {/* Alert Group */}
+          {/* Acknowledge — the group has already been alerted; this confirms you've seen it */}
           <TouchableOpacity
             style={styles.alertGroupBtn}
             onPress={handleAlertGroup}
             accessibilityRole="button"
-            accessibilityLabel="Alert my group"
+            accessibilityLabel="Acknowledge alert"
           >
-            <Text style={styles.alertGroupBtnText}>🚨  Alert Group</Text>
+            <Text style={styles.alertGroupBtnText}>✅  Acknowledge</Text>
           </TouchableOpacity>
 
           {/* Dismiss */}
@@ -219,7 +219,7 @@ export default function SosAlertModal({
 
           {/* Footer message */}
           <Text style={styles.footerNote}>
-            Your convoy group will be notified with your location
+            Acknowledging lets {memberName} know you've seen this alert
           </Text>
 
         </View>
@@ -342,7 +342,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
   },
-  // Share Location — outlined crimson
+  // View Location — outlined crimson
   shareBtn: {
     borderRadius: 12,
     paddingVertical: 14,
@@ -359,7 +359,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
   },
-  // Alert Group — outlined green
+  // Acknowledge — outlined green
   alertGroupBtn: {
     borderRadius: 12,
     paddingVertical: 14,
