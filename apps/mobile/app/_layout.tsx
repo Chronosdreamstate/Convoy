@@ -20,6 +20,7 @@ import {
   registerForPushNotificationsAsync,
   setupNotificationHandler,
 } from '../src/services/NotificationService';
+import { onboardingState } from '../src/utils/onboardingState';
 import { SyncService } from '../src/services/SyncService';
 import { SQLiteOfflineDB } from '../src/services/OfflineCacheService';
 import type { OfflineHazard, OfflineDrive } from '../src/services/OfflineCacheService';
@@ -353,7 +354,14 @@ export default function RootLayout() {
     if (!isAuthenticated) {
       router.replace('/(auth)/welcome');
     } else if (isFirstLogin) {
-      router.replace('/(onboarding)/vehicle');
+      let cancelled = false;
+      // Resume at whichever onboarding step the user hasn't completed or
+      // skipped yet, rather than always restarting from the first step.
+      void onboardingState.getResumeRoute().then((route) => {
+        if (cancelled || !route) return;
+        router.replace(route as never);
+      });
+      return () => { cancelled = true; };
     }
   }, [isAuthenticated, isLoading, isFirstLogin]);
 
