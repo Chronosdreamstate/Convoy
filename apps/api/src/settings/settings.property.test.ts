@@ -36,6 +36,7 @@ interface SettingsRow {
   notif_friend_requests: boolean;
   notif_navigation: boolean;
   share_location_with_friends: boolean;
+  visible_to_nearby: boolean;
 }
 
 const DEFAULTS: Omit<SettingsRow, 'user_id'> = {
@@ -49,6 +50,7 @@ const DEFAULTS: Omit<SettingsRow, 'user_id'> = {
   notif_friend_requests: true,
   notif_navigation: true,
   share_location_with_friends: false,
+  visible_to_nearby: false,
 };
 
 let settingsStore: Map<string, SettingsRow>;
@@ -108,6 +110,7 @@ function buildMockPool(): Pool {
         if ('notif_friend_requests' in colValues) updated.notif_friend_requests = colValues['notif_friend_requests'] as boolean;
         if ('notif_navigation' in colValues) updated.notif_navigation = colValues['notif_navigation'] as boolean;
         if ('share_location_with_friends' in colValues) updated.share_location_with_friends = colValues['share_location_with_friends'] as boolean;
+        if ('visible_to_nearby' in colValues) updated.visible_to_nearby = colValues['visible_to_nearby'] as boolean;
 
         settingsStore.set(userId, updated);
         return { rows: [updated], rowCount: 1 };
@@ -392,6 +395,7 @@ describe('Property 54: GET /settings always returns a valid settings shape', () 
       notifGroupEvents: boolean;
       notifFriendRequests: boolean;
       notifNavigation: boolean;
+      visibleToNearby: boolean;
     };
 
     expect(typeof body.hazardAlertDistanceM).toBe('number');
@@ -403,6 +407,34 @@ describe('Property 54: GET /settings always returns a valid settings shape', () 
     expect(typeof body.notifGroupEvents).toBe('boolean');
     expect(typeof body.notifFriendRequests).toBe('boolean');
     expect(typeof body.notifNavigation).toBe('boolean');
+    expect(typeof body.visibleToNearby).toBe('boolean');
+    expect(body.visibleToNearby).toBe(false); // opt-in defaults to off
+
+    await app.close();
+  });
+
+  it('PATCH visibleToNearby toggles the opt-in flag and defaults to false', async () => {
+    const app = buildTestApp();
+    resetStore();
+    const token = await makeToken(app, 'u-nearby');
+
+    // Defaults to false on first read
+    const initial = await app.inject({
+      method: 'GET',
+      url: '/api/v1/settings',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect((JSON.parse(initial.body) as { visibleToNearby: boolean }).visibleToNearby).toBe(false);
+
+    // Opt in
+    const patchRes = await app.inject({
+      method: 'PATCH',
+      url: '/api/v1/settings',
+      headers: { Authorization: `Bearer ${token}` },
+      payload: { visibleToNearby: true },
+    });
+    expect(patchRes.statusCode).toBe(200);
+    expect((JSON.parse(patchRes.body) as { visibleToNearby: boolean }).visibleToNearby).toBe(true);
 
     await app.close();
   });
