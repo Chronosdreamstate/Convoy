@@ -1149,7 +1149,18 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
     try {
       const pin = await rallyService.broadcastGroupSos(groupId, pendingSosCoord.lat, pendingSosCoord.lng);
       setMySosId(pin.id);
-    } catch { Alert.alert('Error', 'Could not send SOS.'); }
+      // Distinct, strong pattern (same one SosAlertModal uses on the *receiving*
+      // side) so the sender gets unmistakable confirmation the emergency
+      // broadcast actually went out — previously this safety-critical action
+      // gave zero haptic feedback on success.
+      HapticService.trigger('error');
+    } catch {
+      HapticService.trigger('warning');
+      // A bare "Could not send SOS." leaves the user with no next step during
+      // an actual emergency — point them at the one channel that doesn't
+      // depend on this app's connectivity.
+      Alert.alert('SOS Not Sent', "Your emergency alert didn't reach the convoy. If this is a real emergency, call 911 directly.");
+    }
     setPendingSosCoord(null);
     setPendingSosName('');
   }, [groupId, pendingSosCoord]);
@@ -1560,7 +1571,7 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
 
       {/* Connection badge — top-right */}
       <View style={[styles.badge, isConnected ? styles.badgeOnline : styles.badgeOffline, { top: topBase }]}>
-        <Text style={styles.badgeText}>{isConnected ? 'LIVE' : 'OFFLINE'}</Text>
+        <Text style={[styles.badgeText, isConnected && styles.badgeOnlineText]}>{isConnected ? 'LIVE' : 'OFFLINE'}</Text>
       </View>
 
       {/* Map style cycle button — top-right, below LIVE badge */}
@@ -2318,6 +2329,10 @@ return StyleSheet.create({
   badgeOnline: { backgroundColor: colors.success },
   badgeOffline: { backgroundColor: colors.textSubtle },
   badgeText: { color: '#fff', fontSize: 11, fontWeight: '700' },
+  // White-on-success fails contrast against the dark theme's bright green
+  // (~2.3:1) — colors.success is bright enough in dark mode that light text
+  // doesn't read reliably. Dark text passes comfortably in both themes.
+  badgeOnlineText: { color: '#0A0A0A' },
 
   mapTypeBtn: {
     position: 'absolute',

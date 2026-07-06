@@ -356,7 +356,7 @@ export default function ConvoyLobbyScreen({ groupId, groupName, onConvoyStart }:
                     : styles.statusBadgeTextWaiting,
                 ]}
               >
-                {m.isReady ? <><Ionicons name="checkmark" size={11} color={colors.success} /> Ready</> : 'Waiting…'}
+                {m.isReady ? <><Ionicons name="checkmark" size={11} color="#4ADE80" /> Ready</> : 'Waiting…'}
               </Text>
             </View>
           </View>
@@ -389,8 +389,8 @@ export default function ConvoyLobbyScreen({ groupId, groupName, onConvoyStart }:
             accessibilityLabel={selfReady ? "You are ready" : "Mark yourself as ready"}
             accessibilityState={{ selected: selfReady }}
           >
-            <Text style={styles.readyBtnText}>
-              {selfReady ? <>I'm Ready <Ionicons name="checkmark" size={15} color={colors.text} /></> : "I'm Ready"}
+            <Text style={[styles.readyBtnText, selfReady && styles.readyBtnTextActive]}>
+              {selfReady ? <>I'm Ready <Ionicons name="checkmark" size={15} color="#FFFFFF" /></> : "I'm Ready"}
             </Text>
           </TouchableOpacity>
         )}
@@ -530,8 +530,10 @@ function createStyles(colors: ThemeColors) {
     justifyContent: 'center',
     flexShrink: 0,
   },
+  // avatar's background is the fixed-value accent color (same in both themes),
+  // so its initials stay fixed white for contrast rather than colors.text.
   avatarText: {
-    color: colors.text,
+    color: '#FFFFFF',
     fontSize: 15,
     fontWeight: '700',
     letterSpacing: 0.5,
@@ -573,8 +575,12 @@ function createStyles(colors: ThemeColors) {
     fontSize: 12,
     fontWeight: '600',
   },
+  // statusBadgeReady's background is a fixed dark-green literal regardless of
+  // theme, so this label needs a fixed light green too — colors.success alone
+  // is a darker green in light mode and drops to ~1.8:1 contrast against that
+  // fixed dark background (fails WCAG AA, which needs 4.5:1).
   statusBadgeTextReady: {
-    color: colors.success,
+    color: '#4ADE80',
   },
   statusBadgeTextWaiting: {
     color: colors.textMuted,
@@ -607,8 +613,10 @@ function createStyles(colors: ThemeColors) {
     minHeight: 56,
     justifyContent: 'center',
   },
+  // startBtn's background is the fixed-value accent color, so its label
+  // stays fixed white for contrast rather than colors.text.
   startBtnText: {
-    color: colors.text,
+    color: '#FFFFFF',
     fontWeight: '700',
     fontSize: 17,
   },
@@ -630,6 +638,12 @@ function createStyles(colors: ThemeColors) {
     color: colors.text,
     fontWeight: '700',
     fontSize: 17,
+  },
+  // readyBtnActive overrides the background to the fixed-value accent color, so
+  // the label needs to switch to fixed white too — colors.text alone would drop
+  // to near-black-on-crimson (fails contrast) in light mode once active.
+  readyBtnTextActive: {
+    color: '#FFFFFF',
   },
   });
 }

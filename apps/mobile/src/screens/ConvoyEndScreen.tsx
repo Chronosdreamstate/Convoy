@@ -1315,8 +1315,10 @@ function createStyles(colors: ThemeColors) {
     alignItems: 'center',
     justifyContent: 'center',
   },
+  // shareBtn's background is the fixed-value accent color (same in both themes),
+  // so its label stays fixed white for contrast rather than colors.text.
   shareBtnText: {
-    color: colors.text,
+    color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '700',
     letterSpacing: 0.2,
@@ -1344,8 +1346,10 @@ function createStyles(colors: ThemeColors) {
     justifyContent: 'center',
     minHeight: 56,
   },
+  // primaryBtn's background is the fixed-value accent color, so its label
+  // stays fixed white for contrast rather than colors.text.
   primaryBtnText: {
-    color: colors.text,
+    color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '700',
     letterSpacing: 0.2,
@@ -1523,8 +1527,10 @@ function createAchievementStyles(colors: ThemeColors) {
     paddingHorizontal: 40,
     alignItems: 'center',
   },
+  // doneBtn's background is the fixed-value accent color, so its label
+  // stays fixed white for contrast rather than colors.text.
   doneBtnText: {
-    color: colors.text,
+    color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '700',
   },
@@ -1542,8 +1548,12 @@ function createExtraStyles(colors: ThemeColors) {
     paddingHorizontal: 14,
     marginBottom: 4,
   },
+  // streakBanner's background is a fixed near-black literal regardless of theme,
+  // so this label needs a fixed bright amber too — colors.warning alone is a
+  // darker brown-orange in light mode and drops well below WCAG AA contrast
+  // against that fixed dark background.
   streakText: {
-    color: colors.warning,
+    color: '#FBBF24',
     fontSize: 13,
     fontWeight: '700',
     textAlign: 'center',
@@ -1586,8 +1596,10 @@ function createExtraStyles(colors: ThemeColors) {
     paddingVertical: 10,
     alignItems: 'center' as const,
   },
+  // inviteBtn's background is the fixed-value accent color, so its label
+  // stays fixed white for contrast rather than colors.text.
   inviteBtnText: {
-    color: colors.text,
+    color: '#FFFFFF',
     fontSize: 13,
     fontWeight: '700',
   },

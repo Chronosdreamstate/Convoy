@@ -166,6 +166,7 @@ export default function ConvoyScreen({ userId }: Props) {
   const [activePttChannelId, setActivePttChannelId] = useState<string | null>(null);
   const [showNewChannel, setShowNewChannel] = useState(false);
   const [newChannelName, setNewChannelName] = useState('');
+  const [creatingChannel, setCreatingChannel] = useState(false);
 
   const [createGapThreshold, setCreateGapThreshold] = useState(1000);
   const [createAccessType, setCreateAccessType] = useState<'open' | 'invite_only'>('open');
@@ -323,7 +324,8 @@ export default function ConvoyScreen({ userId }: Props) {
   }, [group, activePttChannelId]);
 
   const handleCreateChannel = useCallback(async () => {
-    if (!group || !newChannelName.trim()) return;
+    if (!group || !newChannelName.trim() || creatingChannel) return;
+    setCreatingChannel(true);
     try {
       const res = await apiClient.post<PttChannel>(
         `/api/v1/groups/${group.id}/channels`,
@@ -334,8 +336,10 @@ export default function ConvoyScreen({ userId }: Props) {
       setShowNewChannel(false);
     } catch {
       Alert.alert('Error', 'Could not create channel.');
+    } finally {
+      setCreatingChannel(false);
     }
-  }, [group, newChannelName]);
+  }, [group, newChannelName, creatingChannel]);
 
   const fetchPublicGroups = useCallback(async () => {
     setDiscoverLoading(true);
@@ -839,7 +843,7 @@ export default function ConvoyScreen({ userId }: Props) {
             accessibilityLabel="Create convoy"
             accessibilityState={{ disabled: !groupName.trim() || loading }}
           >
-            {loading ? <ActivityIndicator color={colors.text} /> : <Text style={styles.primaryBtnText}>Create Convoy</Text>}
+            {loading ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.primaryBtnText}>Create Convoy</Text>}
           </TouchableOpacity>
         </SafeAreaView>
       );
@@ -898,7 +902,7 @@ export default function ConvoyScreen({ userId }: Props) {
             accessibilityLabel="Join convoy"
             accessibilityState={{ disabled: joinCode.trim().length !== 6 || loading }}
           >
-            {loading ? <ActivityIndicator color={colors.text} /> : <Text style={styles.primaryBtnText}>Join Convoy</Text>}
+            {loading ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.primaryBtnText}>Join Convoy</Text>}
           </TouchableOpacity>
         </SafeAreaView>
       );
@@ -1127,16 +1131,21 @@ export default function ConvoyScreen({ userId }: Props) {
                   onSubmitEditing={() => void handleCreateChannel()}
                 />
                 <TouchableOpacity
-                  style={styles.newChannelAdd}
+                  style={[styles.newChannelAdd, (!newChannelName.trim() || creatingChannel) && { opacity: 0.5 }]}
                   onPress={() => void handleCreateChannel()}
+                  disabled={!newChannelName.trim() || creatingChannel}
                   accessibilityRole="button"
                   accessibilityLabel="Add PTT channel"
+                  accessibilityState={{ disabled: !newChannelName.trim() || creatingChannel }}
                 >
-                  <Text style={styles.newChannelAddText}>Add</Text>
+                  {creatingChannel
+                    ? <ActivityIndicator color="#FFFFFF" size="small" />
+                    : <Text style={styles.newChannelAddText}>Add</Text>}
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={styles.newChannelCancel}
                   onPress={() => { setShowNewChannel(false); setNewChannelName(''); }}
+                  disabled={creatingChannel}
                   accessibilityRole="button"
                   accessibilityLabel="Cancel new channel"
                 >
@@ -1500,8 +1509,11 @@ function createStyles(colors: ThemeColors) {
     paddingHorizontal: 10,
     paddingVertical: 4,
   },
+  // memberCountBadge's background is the fixed-value accent color (same in both
+  // themes), so its label stays fixed white for contrast rather than colors.text —
+  // colors.text resolves to near-black in light mode, which fails contrast on crimson.
   memberCountText: {
-    color: colors.text,
+    color: '#FFFFFF',
     fontSize: 12,
     fontWeight: '700',
   },
@@ -1530,7 +1542,9 @@ function createStyles(colors: ThemeColors) {
     alignItems: 'center', marginBottom: 10, minHeight: 52,
     justifyContent: 'center',
   },
-  primaryBtnText: { color: colors.text, fontWeight: '700', fontSize: 16 },
+  // primaryBtn's background is the fixed-value accent color (same in both themes),
+  // so its label stays fixed white for contrast rather than colors.text.
+  primaryBtnText: { color: '#FFFFFF', fontWeight: '700', fontSize: 16 },
   secondaryBtn: {
     backgroundColor: colors.card, borderRadius: 12, paddingVertical: 16,
     alignItems: 'center', marginBottom: 10, minHeight: 52,
@@ -1585,7 +1599,9 @@ function createStyles(colors: ThemeColors) {
     minHeight: 36,
     justifyContent: 'center',
   },
-  shareCodeText: { color: colors.text, fontWeight: '700', fontSize: 12 },
+  // shareCodeBtn's background is the fixed-value accent color, so its label
+  // stays fixed white for contrast rather than colors.text.
+  shareCodeText: { color: '#FFFFFF', fontWeight: '700', fontSize: 12 },
   qrBtn: {
     borderWidth: 1,
     borderColor: colors.accent,
@@ -1706,7 +1722,9 @@ function createStyles(colors: ThemeColors) {
     minHeight: 36,
     justifyContent: 'center',
   },
-  discoverJoinText: { color: colors.text, fontWeight: '700', fontSize: 13 },
+  // discoverJoinBtn's background is the fixed-value accent color, so its label
+  // stays fixed white for contrast rather than colors.text.
+  discoverJoinText: { color: '#FFFFFF', fontWeight: '700', fontSize: 13 },
 
   // PTT channel management
   channelSection: { marginTop: 14, paddingTop: 14, borderTopWidth: 1, borderTopColor: colors.border },
@@ -1759,7 +1777,9 @@ function createStyles(colors: ThemeColors) {
     minHeight: 36,
     justifyContent: 'center',
   },
-  newChannelAddText: { color: colors.text, fontWeight: '700', fontSize: 13 },
+  // newChannelAdd's background is the fixed-value accent color, so its label
+  // stays fixed white for contrast rather than colors.text.
+  newChannelAddText: { color: '#FFFFFF', fontWeight: '700', fontSize: 13 },
   newChannelCancel: {
     backgroundColor: colors.border,
     borderRadius: 8,
@@ -1853,7 +1873,9 @@ function createStyles(colors: ThemeColors) {
     alignItems: 'center',
     marginBottom: 10,
   },
-  startingBannerText: { color: colors.text, fontSize: 18, fontWeight: '800', letterSpacing: 1 },
+  // startingBanner's background is the fixed-value accent color, so its label
+  // stays fixed white for contrast rather than colors.text.
+  startingBannerText: { color: '#FFFFFF', fontSize: 18, fontWeight: '800', letterSpacing: 1 },
 
   // Schedule event button
   scheduleBtn: {
