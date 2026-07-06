@@ -359,6 +359,71 @@ async function friendsRoutes(
   });
 
   // -------------------------------------------------------------------------
+  // GET /friends/locations — cached live locations of accepted friends who
+  // have opted into groupless location sharing (Task #69).
+  //
+  // A friend is only included when ALL of the following hold:
+  //   * the friendship is 'accepted' (either direction — blocks delete the
+  //     friendship, so 'accepted' inherently excludes blocked pairs), and
+  //   * that friend's user_settings.share_location_with_friends = true, and
+  //   * they have a non-expired cached location in Redis under
+  //     loc:friend:<userId> (written by the groupless location:update socket
+  //     path with a ~35s TTL — see src/socket/socket.handler.ts).
+  // Friends with the toggle off, or whose cache has expired, are omitted
+  // entirely (never returned as null/stale entries).
+  // -------------------------------------------------------------------------
+  fastify.get('/friends/locations', { preHandler: [authenticate, generalLimiter(fastify.redis)] }, async (request, reply) => {
+    const userId = (request.user as { sub: string }).sub;
+
+    // Accepted friends (both directions) who have opted into location sharing.
+    // The user_settings JOIN is a hard DB-level gate so a friend who has never
+    // opted in (or has opted out) is filtered out before we ever touch Redis.
+    const friendsResult = await fastify.db.query<{
+      id: string;
+      display_name: string;
+      avatar_url: string | null;
+    }>(
+      `SELECT u.id, u.display_name, u.avatar_url
+       FROM friendships f
+       JOIN users u ON u.id = CASE
+         WHEN f.requester_id = $1 THEN f.addressee_id
+         ELSE f.requester_id
+       END
+       JOIN user_settings s ON s.user_id = u.id
+       WHERE f.status = 'accepted'
+         AND (f.requester_id = $1 OR f.addressee_id = $1)
+         AND s.share_location_with_friends = true
+       ORDER BY u.display_name ASC`,
+      [userId],
+    );
+
+    // Read each opted-in friend's latest cached fix. ioredis returns {} for a
+    // missing/expired key, so an expired TTL naturally drops the friend below.
+    const cached = await Promise.all(
+      friendsResult.rows.map((friend) =>
+        fastify.redis.hgetall(`loc:friend:${friend.id}`),
+      ),
+    );
+
+    const locations = friendsResult.rows.flatMap((friend, i) => {
+      const raw = cached[i];
+      if (!raw || !raw.ts) return [];
+      return [{
+        userId: friend.id,
+        displayName: friend.display_name,
+        avatarUrl: friend.avatar_url,
+        lat: Number(raw.lat),
+        lng: Number(raw.lng),
+        heading: Number(raw.heading),
+        speedKph: Number(raw.speed_kph),
+        ts: Number(raw.ts),
+      }];
+    });
+
+    return reply.send({ locations });
+  });
+
+  // -------------------------------------------------------------------------
   // DELETE /friends/:id — remove a friend by friendship ID (Req 17.10)
   // Bidirectional: deleting the row removes it from both users' lists.
   // -------------------------------------------------------------------------

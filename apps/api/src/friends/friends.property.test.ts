@@ -50,6 +50,10 @@ let users: Map<string, InMemoryUser>;
 let friendships: InMemoryFriendship[];
 let friendshipCounter: number;
 let rateLimitStore: Map<string, { count: number; expiry: number }>;
+// Task #69: per-user share_location_with_friends flag + cached Redis locations
+// (loc:friend:<userId>), used to exercise GET /friends/locations.
+let locShareStore: Map<string, boolean>;
+let friendLocStore: Map<string, Record<string, string>>;
 
 function nextId(): string {
   return `fs-${++friendshipCounter}`;
@@ -60,6 +64,8 @@ function resetStore(testUsers: InMemoryUser[]) {
   friendships = [];
   friendshipCounter = 0;
   rateLimitStore = new Map();
+  locShareStore = new Map();
+  friendLocStore = new Map();
 }
 
 // Shared dispatch used by both the plain pool.query (auto-commit statements)
@@ -153,6 +159,34 @@ async function dispatchQuery(sql: string, params?: unknown[]) {
         );
         if (idx >= 0) friendships.splice(idx, 1);
         return { rows: [], rowCount: idx >= 0 ? 1 : 0 };
+      }
+
+      // Task #69: accepted friends who opted into location sharing.
+      // Must be checked BEFORE the generic "List accepted friends" branch
+      // below, since it also matches F.STATUS = 'ACCEPTED' + the direction
+      // predicate; the USER_SETTINGS join is what distinguishes it.
+      if (
+        normalized.includes('JOIN USER_SETTINGS') &&
+        normalized.includes('SHARE_LOCATION_WITH_FRIENDS')
+      ) {
+        const [userId] = params as [string];
+        const rows = friendships
+          .filter(
+            (f) =>
+              f.status === 'accepted' &&
+              (f.requester_id === userId || f.addressee_id === userId),
+          )
+          .map((f) => (f.requester_id === userId ? f.addressee_id : f.requester_id))
+          .filter((friendId) => locShareStore.get(friendId) === true)
+          .map((friendId) => {
+            const u = users.get(friendId);
+            return {
+              id: friendId,
+              display_name: u?.display_name ?? '',
+              avatar_url: u?.avatar_url ?? null,
+            };
+          });
+        return { rows, rowCount: rows.length };
       }
 
       // List accepted friends
@@ -284,6 +318,12 @@ function buildMockRedis(): Redis {
     expire: async () => {},
     ping: async () => 'PONG',
     quit: async () => {},
+    // Task #69: GET /friends/locations reads loc:friend:<userId> hashes.
+    // Real ioredis returns {} for a missing/expired key.
+    hgetall: async (key: string): Promise<Record<string, string>> => {
+      const friendId = key.replace('loc:friend:', '');
+      return friendLocStore.get(friendId) ?? {};
+    },
   } as unknown as Redis;
 }
 
@@ -619,6 +659,148 @@ describe('Property 28: Blocking prevents further requests', () => {
     });
     const body = JSON.parse(res.body) as { friends: unknown[] };
     expect(body.friends).toHaveLength(0);
+
+    await app.close();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Task #69: GET /friends/locations — groupless friend location sharing
+// ---------------------------------------------------------------------------
+interface FriendLocation {
+  userId: string;
+  displayName: string;
+  avatarUrl: string | null;
+  lat: number;
+  lng: number;
+  heading: number;
+  speedKph: number;
+  ts: number;
+}
+
+async function befriend(app: FastifyInstance, requester: InMemoryUser, addressee: InMemoryUser): Promise<void> {
+  // addressee OPEN_USER has 'open' privacy → request auto-accepts.
+  const res = await app.inject({
+    method: 'POST',
+    url: '/api/v1/friends/requests',
+    headers: bearerFor(app, requester.id),
+    payload: { addresseeId: addressee.id },
+  });
+  expect(res.statusCode).toBe(201);
+}
+
+describe('Task #69: GET /friends/locations', () => {
+  it('returns the cached location of an accepted friend who opted in', async () => {
+    resetStore([REQUESTER, OPEN_USER]);
+    const app = buildTestApp();
+    await app.ready();
+    await befriend(app, REQUESTER, OPEN_USER);
+
+    // Friend opts in and has a fresh cached fix.
+    locShareStore.set(OPEN_USER.id, true);
+    friendLocStore.set(OPEN_USER.id, {
+      lat: '51.5074',
+      lng: '-0.1278',
+      heading: '90',
+      speed_kph: '42',
+      ts: '1700000000000',
+    });
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/friends/locations',
+      headers: bearerFor(app, REQUESTER.id),
+    });
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body) as { locations: FriendLocation[] };
+    expect(body.locations).toHaveLength(1);
+    expect(body.locations[0]).toEqual({
+      userId: OPEN_USER.id,
+      displayName: OPEN_USER.display_name,
+      avatarUrl: null,
+      lat: 51.5074,
+      lng: -0.1278,
+      heading: 90,
+      speedKph: 42,
+      ts: 1700000000000,
+    });
+
+    await app.close();
+  });
+
+  it('omits an accepted friend who has the toggle off', async () => {
+    resetStore([REQUESTER, OPEN_USER]);
+    const app = buildTestApp();
+    await app.ready();
+    await befriend(app, REQUESTER, OPEN_USER);
+
+    // Toggle off (default) but a cached fix somehow exists — DB gate must drop it.
+    friendLocStore.set(OPEN_USER.id, {
+      lat: '51.5', lng: '-0.1', heading: '0', speed_kph: '0', ts: '1700000000000',
+    });
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/friends/locations',
+      headers: bearerFor(app, REQUESTER.id),
+    });
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body) as { locations: FriendLocation[] };
+    expect(body.locations).toHaveLength(0);
+
+    await app.close();
+  });
+
+  it('omits an opted-in friend whose cache has expired', async () => {
+    resetStore([REQUESTER, OPEN_USER]);
+    const app = buildTestApp();
+    await app.ready();
+    await befriend(app, REQUESTER, OPEN_USER);
+
+    // Opted in, but no cached key (TTL expired → ioredis returns {}).
+    locShareStore.set(OPEN_USER.id, true);
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/friends/locations',
+      headers: bearerFor(app, REQUESTER.id),
+    });
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body) as { locations: FriendLocation[] };
+    expect(body.locations).toHaveLength(0);
+
+    await app.close();
+  });
+
+  it('does not return a non-friend even if they opted in and are cached', async () => {
+    resetStore([REQUESTER, OPEN_USER]);
+    const app = buildTestApp();
+    await app.ready();
+    // No friendship established.
+    locShareStore.set(OPEN_USER.id, true);
+    friendLocStore.set(OPEN_USER.id, {
+      lat: '51.5', lng: '-0.1', heading: '0', speed_kph: '0', ts: '1700000000000',
+    });
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/friends/locations',
+      headers: bearerFor(app, REQUESTER.id),
+    });
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body) as { locations: FriendLocation[] };
+    expect(body.locations).toHaveLength(0);
+
+    await app.close();
+  });
+
+  it('requires authentication', async () => {
+    resetStore([REQUESTER, OPEN_USER]);
+    const app = buildTestApp();
+    await app.ready();
+
+    const res = await app.inject({ method: 'GET', url: '/api/v1/friends/locations' });
+    expect(res.statusCode).toBe(401);
 
     await app.close();
   });
