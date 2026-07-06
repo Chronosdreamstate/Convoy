@@ -1,5 +1,7 @@
 import React from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
+import Button from './Button';
+import { useTheme } from '../theme';
 
 interface Props {
   onRetry: () => void;
@@ -7,14 +9,29 @@ interface Props {
 }
 
 export function NetworkError({ onRetry, message = 'Could not connect to server' }: Props) {
+  const { colors, spacing, typography } = useTheme();
+
   return (
-    <View style={styles.container}>
-      <Text style={styles.icon}>📡</Text>
-      <Text style={styles.title}>No Connection</Text>
-      <Text style={styles.message}>{message}</Text>
-      <TouchableOpacity onPress={onRetry} style={styles.button} accessibilityRole="button">
-        <Text style={styles.buttonText}>Try Again</Text>
-      </TouchableOpacity>
+    <View
+      style={[styles.container, { backgroundColor: colors.bg, padding: spacing.xl }]}
+      accessibilityRole="alert"
+    >
+      <Text style={styles.icon} accessibilityElementsHidden importantForAccessibility="no">
+        📡
+      </Text>
+      <Text style={[styles.title, typography.heading, { color: colors.text, marginBottom: spacing.sm }]}>
+        No Connection
+      </Text>
+      <Text
+        style={[
+          styles.message,
+          typography.body,
+          { color: colors.textMuted, marginBottom: spacing.lg },
+        ]}
+      >
+        {message}
+      </Text>
+      <Button label="Try Again" variant="primary" onPress={onRetry} />
     </View>
   );
 }
@@ -24,17 +41,8 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 32,
-    backgroundColor: '#0A0A0A',
   },
   icon: { fontSize: 48, marginBottom: 16 },
-  title: { fontSize: 18, color: '#fff', fontWeight: '700', marginBottom: 8 },
-  message: { fontSize: 14, color: '#888', textAlign: 'center', marginBottom: 24 },
-  button: {
-    backgroundColor: '#DC143C',
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 8,
-  },
-  buttonText: { color: '#fff', fontWeight: '600', fontSize: 15 },
+  title: { textAlign: 'center' },
+  message: { textAlign: 'center' },
 });
