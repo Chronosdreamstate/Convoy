@@ -11,7 +11,7 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { apiClient } from '../services/apiClient';
 import { SkeletonBox } from '../components/SkeletonLoader';
 import { useSettingsStore } from '../stores/settingsStore';
-import { useTheme, ThemeColors } from '../theme';
+import { useTheme, withAlpha, ThemeColors } from '../theme';
 
 // --- Types ---
 
@@ -96,7 +96,7 @@ function MpgTrend({ entries }: { entries: FuelEntry[] }) {
 
 // --- Entry row — long-press reveals delete / cancel ---
 
-function EntryRow({ entry, onDelete }: { entry: FuelEntry; onDelete: (id: string) => void }) {
+function EntryRow({ entry, onDelete, deleting }: { entry: FuelEntry; onDelete: (id: string) => void; deleting: boolean }) {
   const { colors } = useTheme();
   const s = useMemo(() => createStyles(colors), [colors]);
   const [open, setOpen] = useState(false);
@@ -104,8 +104,9 @@ function EntryRow({ entry, onDelete }: { entry: FuelEntry; onDelete: (id: string
 
   return (
     <Pressable
-      onLongPress={() => setOpen(prev => !prev)}
-      style={[s.entryCard, open && s.entryCardOpen]}
+      onLongPress={() => !deleting && setOpen(prev => !prev)}
+      style={[s.entryCard, open && s.entryCardOpen, deleting && s.entryCardDeleting]}
+      disabled={deleting}
       accessibilityRole="button"
       accessibilityLabel={`Fuel log ${fmtDate(entry.date)}`}
     >
@@ -121,7 +122,7 @@ function EntryRow({ entry, onDelete }: { entry: FuelEntry; onDelete: (id: string
           {entry.mpg ? <Text style={s.entryMpg}>{entry.mpg.toFixed(1)} mpg</Text> : null}
         </View>
       </View>
-      {open && (
+      {open && !deleting && (
         <View style={s.entryActions}>
           <TouchableOpacity
             style={s.delBtn}
@@ -135,6 +136,11 @@ function EntryRow({ entry, onDelete }: { entry: FuelEntry; onDelete: (id: string
           <TouchableOpacity style={s.cancelBtn} onPress={() => setOpen(false)} accessibilityRole="button" accessibilityLabel="Cancel">
             <Text style={s.cancelText}>Cancel</Text>
           </TouchableOpacity>
+        </View>
+      )}
+      {deleting && (
+        <View style={s.deletingOverlay}>
+          <ActivityIndicator color={colors.accent} size="small" />
         </View>
       )}
     </Pressable>
@@ -157,22 +163,24 @@ function AddModal({ visible, onClose, onSaved }: {
   const [notes, setNotes] = useState('');
   const [date, setDate] = useState(todayMDY());
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const close = () => {
-    setGallons(''); setPrice(''); setOdometer(''); setNotes(''); setDate(todayMDY()); onClose();
+    setGallons(''); setPrice(''); setOdometer(''); setNotes(''); setDate(todayMDY()); setError(null); onClose();
   };
 
   const save = async () => {
+    setError(null);
     const gal = parseFloat(gallons), ppg = parseFloat(price);
-    if (!gal || gal <= 0) { Alert.alert('Validation', 'Enter a valid gallon amount.'); return; }
-    if (!ppg || ppg <= 0) { Alert.alert('Validation', 'Enter a valid price per gallon.'); return; }
+    if (!gal || gal <= 0) { setError('Enter a valid gallon amount.'); return; }
+    if (!ppg || ppg <= 0) { setError('Enter a valid price per gallon.'); return; }
     const iso = parseMDY(date);
-    if (!iso) { Alert.alert('Validation', 'Use MM/DD/YYYY for the date.'); return; }
+    if (!iso) { setError('Use MM/DD/YYYY for the date.'); return; }
 
     let odometerKm: number | undefined;
     if (odometer.trim()) {
       const odo = parseFloat(odometer);
-      if (!odo || odo <= 0) { Alert.alert('Validation', 'Enter a valid odometer reading.'); return; }
+      if (!odo || odo <= 0) { setError('Enter a valid odometer reading.'); return; }
       // Always send odometer to the API in km — the server stores/compares
       // in km regardless of the user's display unit preference.
       odometerKm = distanceUnit === 'miles' ? odo * KM_PER_MILE : odo;
@@ -186,7 +194,7 @@ function AddModal({ visible, onClose, onSaved }: {
       onSaved(res.data);
       close();
     } catch {
-      Alert.alert('Error', 'Could not save. Please try again.');
+      setError('Could not save. Please try again.');
     } finally {
       setSaving(false);
     }
@@ -231,6 +239,8 @@ function AddModal({ visible, onClose, onSaved }: {
           <Text style={s.label}>Notes (optional)</Text>
           <TextInput style={[s.input, { height: 64, textAlignVertical: 'top', marginBottom: 16 }]} value={notes} onChangeText={setNotes} placeholder="Station, brand…" placeholderTextColor={colors.textSubtle} multiline accessibilityLabel="Notes" />
 
+          {error ? <Text style={s.formErrorTxt}>{error}</Text> : null}
+
           <TouchableOpacity style={[s.saveBtn, saving && { opacity: 0.6 }]} onPress={() => { void save(); }} disabled={saving} accessibilityRole="button" accessibilityLabel="Save fill-up">
             {saving ? <ActivityIndicator color={colors.text} /> : <Text style={s.saveBtnText}>Save Fill-Up</Text>}
           </TouchableOpacity>
@@ -249,13 +259,18 @@ export default function FuelLogScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [showModal, setShowModal] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
+    setLoadError(null);
     try {
       const r = await apiClient.get<{ logs: FuelEntry[] }>('/api/v1/fuel/logs');
       setEntries(r.data.logs);
     } catch {
-      Alert.alert('Error', 'Could not load fuel logs.');
+      // Distinct from the "no logs yet" empty state — a failed load must
+      // never be mistaken for a genuinely empty fuel log.
+      setLoadError('Could not load fuel logs.');
     } finally {
       setLoading(false);
     }
@@ -271,11 +286,14 @@ export default function FuelLogScreen() {
       {
         text: 'Delete', style: 'destructive',
         onPress: async () => {
+          setDeletingId(id);
           try {
             await apiClient.delete(`/api/v1/fuel/logs/${id}`);
             setEntries(prev => prev.filter(e => e.id !== id));
           } catch {
             Alert.alert('Error', 'Could not delete entry.');
+          } finally {
+            setDeletingId(null);
           }
         },
       },
@@ -283,8 +301,8 @@ export default function FuelLogScreen() {
   }, []);
 
   const renderEntryItem = useCallback(
-    ({ item }: { item: FuelEntry }) => <EntryRow entry={item} onDelete={onDelete} />,
-    [onDelete],
+    ({ item }: { item: FuelEntry }) => <EntryRow entry={item} onDelete={onDelete} deleting={deletingId === item.id} />,
+    [onDelete, deletingId],
   );
 
   const totalGal = entries.reduce((s, e) => s + e.gallons, 0);
@@ -322,9 +340,9 @@ export default function FuelLogScreen() {
           <>
             <View style={s.summaryRow}>
               {stats.map((c, i) => (
-                <View key={i} style={s.statCard}>
+                <View key={i} style={[s.statCard, i === 0 && s.statCardPrimary]}>
                   <View style={{ marginBottom: 4 }}>{c.icon}</View>
-                  <Text style={s.statVal}>{c.val}</Text>
+                  <Text style={[s.statVal, i === 0 && s.statValPrimary]}>{c.val}</Text>
                   <Text style={s.statLabel}>{c.label}</Text>
                 </View>
               ))}
@@ -336,11 +354,19 @@ export default function FuelLogScreen() {
         ) : null}
         renderItem={renderEntryItem}
         ListEmptyComponent={
-          <View style={s.empty}>
-            <MaterialCommunityIcons name="gas-station" size={56} color={colors.textMuted} style={{ marginBottom: 16 }} />
-            <Text style={s.emptyTitle}>No fuel logs yet</Text>
-            <Text style={s.emptySub}>Tap + to add your first fill-up and start tracking spending.</Text>
-          </View>
+          loadError ? (
+            <View style={s.empty}>
+              <MaterialCommunityIcons name="alert-circle-outline" size={56} color={colors.textMuted} style={{ marginBottom: 16 }} />
+              <Text style={s.emptyTitle}>Couldn't load fuel logs</Text>
+              <Text style={s.emptySub}>{loadError} Pull down to try again.</Text>
+            </View>
+          ) : (
+            <View style={s.empty}>
+              <MaterialCommunityIcons name="gas-station" size={56} color={colors.textMuted} style={{ marginBottom: 16 }} />
+              <Text style={s.emptyTitle}>No fuel logs yet</Text>
+              <Text style={s.emptySub}>Tap + to add your first fill-up and start tracking spending.</Text>
+            </View>
+          )
         }
       />
 
@@ -366,7 +392,12 @@ function createStyles(colors: ThemeColors) {
 
     summaryRow: { flexDirection: 'row', gap: 10, marginBottom: 16 },
     statCard: { flex: 1, backgroundColor: colors.card, borderRadius: 12, padding: 12, alignItems: 'center', borderWidth: 1, borderColor: colors.border },
+    // Total Spent is the stat drivers care about most at a glance — give it
+    // more visual weight than Avg $/Gallon and Total Gallons instead of
+    // letting all three compete equally.
+    statCardPrimary: { borderColor: withAlpha(colors.accent, 0.35), backgroundColor: colors.cardElevated },
     statVal: { color: colors.text, fontSize: 15, fontWeight: '700', marginBottom: 2 },
+    statValPrimary: { color: colors.accent, fontSize: 19 },
     statLabel: { color: colors.textMuted, fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.4, textAlign: 'center' },
 
     mpgCard: { backgroundColor: colors.card, borderRadius: 12, borderWidth: 1, borderColor: colors.border, padding: 14, marginBottom: 16 },
@@ -380,8 +411,10 @@ function createStyles(colors: ThemeColors) {
     sectionLabel: { color: colors.textMuted, fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.6 },
     hint: { color: colors.textSubtle, fontSize: 11, marginBottom: 10, fontStyle: 'italic' },
 
-    entryCard: { backgroundColor: colors.card, borderRadius: 12, borderWidth: 1, borderColor: colors.border, marginBottom: 10, overflow: 'hidden' },
+    entryCard: { backgroundColor: colors.card, borderRadius: 12, borderWidth: 1, borderColor: colors.border, marginBottom: 10, overflow: 'hidden', position: 'relative' },
     entryCardOpen: { borderColor: colors.accent },
+    entryCardDeleting: { opacity: 0.5 },
+    deletingOverlay: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', backgroundColor: withAlpha(colors.bg, 0.5) },
     entryRow: { flexDirection: 'row', alignItems: 'center', padding: 14, gap: 12 },
     entryDate: { color: colors.text, fontSize: 14, fontWeight: '600', marginBottom: 2 },
     entryMeta: { color: colors.textMuted, fontSize: 12 },
@@ -401,6 +434,7 @@ function createStyles(colors: ThemeColors) {
     sheetClose: { color: colors.textMuted, fontSize: 20, padding: 4 },
     label: { color: colors.textMuted, fontSize: 12, marginBottom: 6, fontWeight: '500' },
     input: { backgroundColor: colors.cardElevated, borderRadius: 10, borderWidth: 1, borderColor: colors.border, color: colors.text, paddingHorizontal: 12, paddingVertical: 10, fontSize: 15, marginBottom: 12 },
+    formErrorTxt: { color: colors.accent, fontSize: 13, marginBottom: 12 },
     saveBtn: { backgroundColor: colors.accent, borderRadius: 12, paddingVertical: 15, alignItems: 'center', minHeight: 50 },
     saveBtnText: { color: colors.text, fontSize: 16, fontWeight: '700' },
 

@@ -6,9 +6,9 @@ import { Linking, Platform } from 'react-native';
  * installed/supported); Android always uses the Google Maps web URL, which
  * the OS resolves to the Google Maps app when installed.
  *
- * Extracted from FuelStopSheet's "Get Directions" action (fuel station
- * navigation) so other screens — e.g. IdleMapScreen's friend-SOS pin — can
- * reuse the same external-navigation behavior instead of reimplementing it.
+ * Shared external-navigation helper — e.g. IdleMapScreen's friend-SOS pin —
+ * so screens that need to hand off to the platform's Maps app don't each
+ * reimplement this behavior.
  */
 export function openMapsDirections(lat: number, lon: number, name: string): void {
   const encodedName = encodeURIComponent(name);
