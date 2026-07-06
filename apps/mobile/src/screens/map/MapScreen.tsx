@@ -1253,6 +1253,8 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
             isOnline={isOnline}
             isInMotion={mySpeedKph > 5}
             onSelect={handleSearchSelect}
+            userLat={myLocation?.lat ?? null}
+            userLng={myLocation?.lng ?? null}
           />
         </View>
       )}

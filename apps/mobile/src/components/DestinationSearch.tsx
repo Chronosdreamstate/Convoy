@@ -41,6 +41,14 @@ interface Props {
   placeholder?: string;
   /** When true, free-text input is suppressed per Req 32.1 */
   isInMotion?: boolean;
+  /**
+   * Current device position, used to bias search results toward nearby places
+   * (Req 18.2/18.3). Without this the backend queries Nominatim with no viewbox
+   * at all, so a query like "coffee" returns unrelated administrative regions
+   * named "Coffee County" instead of nearby coffee shops.
+   */
+  userLat?: number | null;
+  userLng?: number | null;
 }
 
 function SkeletonRows() {
@@ -90,6 +98,8 @@ export default function DestinationSearch({
   onSelect,
   placeholder = 'Search destination…',
   isInMotion = false,
+  userLat = null,
+  userLng = null,
 }: Props) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchResult[]>([]);
@@ -98,6 +108,10 @@ export default function DestinationSearch({
   const [focused, setFocused] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const userLatRef = useRef(userLat);
+  const userLngRef = useRef(userLng);
+  userLatRef.current = userLat;
+  userLngRef.current = userLng;
 
   const { destinations: recentDestinations, addDestination } = useRecentDestinationsStore();
 
@@ -112,8 +126,16 @@ export default function DestinationSearch({
       setLoading(true);
       setError(null);
       try {
+        // Bias results toward the user's current position — without this the
+        // backend has no viewbox to rank/scope results by, so common queries
+        // return distant, irrelevant matches (Req 18.2/18.3).
+        const params: { q: string; lat?: number; lng?: number } = { q: q.trim() };
+        if (userLatRef.current != null && userLngRef.current != null) {
+          params.lat = userLatRef.current;
+          params.lng = userLngRef.current;
+        }
         const res = await apiClient.get<ApiPlace[]>('/api/v1/places/search', {
-          params: { q: q.trim() },
+          params,
           signal: abortRef.current.signal,
         });
         const places = Array.isArray(res.data) ? res.data : [];
