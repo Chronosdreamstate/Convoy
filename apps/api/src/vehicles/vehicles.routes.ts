@@ -28,6 +28,28 @@ interface VehicleRow {
   created_at: Date;
 }
 
+/**
+ * Serializes all "exactly one active vehicle" mutations for a user across
+ * concurrent requests (create-as-primary, patch-as-primary, activate).
+ *
+ * Wrapping each handler in its own transaction is not enough by itself: when
+ * a request INSERTs a brand-new vehicle and marks it primary, that new row
+ * is uncommitted and therefore invisible to any concurrent sibling
+ * transaction — so its "SET is_active = false WHERE user_id = $1" can never
+ * see or lock-block on the other transaction's not-yet-committed row. Two
+ * concurrent "create vehicle as primary" requests can each insert + activate
+ * their own row with zero lock contention between them, leaving two active
+ * vehicles. An explicit per-user advisory lock, taken before any of the
+ * is_active work in a handler, forces the handlers to run one at a time
+ * regardless of whether the target row already existed.
+ */
+async function lockUserVehicles(
+  client: { query(text: string, values: unknown[]): Promise<unknown> },
+  userId: string,
+): Promise<void> {
+  await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`vehicle-primary:${userId}`]);
+}
+
 function toResponse(v: VehicleRow) {
   return {
     id: v.id,
@@ -84,6 +106,40 @@ async function vehiclesRoutes(
 
     const { name, type, year, make, model, color, photoUrl, primary } = parsed.data;
 
+    // When `primary` is set, the insert + the deactivate-all/activate-one pair
+    // must run inside a single transaction — otherwise two concurrent requests
+    // (e.g. creating two vehicles back-to-back, or racing with a PATCH/activate
+    // call) can each run "set all false" then "set mine true" interleaved
+    // across autocommitted statements, leaving more than one vehicle active at
+    // once. Mirrors the locking already used by POST /vehicles/:id/activate.
+    if (primary) {
+      const client = await fastify.db.connect();
+      try {
+        await client.query('BEGIN');
+        await lockUserVehicles(client, userId);
+
+        const insertResult = await client.query<VehicleRow>(
+          `INSERT INTO vehicles (user_id, name, vehicle_type, year, make, model, color, photo_url)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+           RETURNING id, user_id, name, vehicle_type, year, make, model, color, photo_url, is_active, created_at`,
+          [userId, name ?? null, type ?? null, year ?? null, make ?? null, model ?? null, color ?? null, photoUrl ?? null],
+        );
+        const newVehicle = insertResult.rows[0];
+
+        await client.query(`UPDATE vehicles SET is_active = false WHERE user_id = $1`, [userId]);
+        await client.query(`UPDATE vehicles SET is_active = true WHERE id = $1`, [newVehicle.id]);
+        newVehicle.is_active = true;
+
+        await client.query('COMMIT');
+        return reply.status(201).send(toResponse(newVehicle));
+      } catch (err) {
+        await client.query('ROLLBACK');
+        throw err;
+      } finally {
+        client.release();
+      }
+    }
+
     const result = await fastify.db.query<VehicleRow>(
       `INSERT INTO vehicles (user_id, name, vehicle_type, year, make, model, color, photo_url)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -91,15 +147,7 @@ async function vehiclesRoutes(
       [userId, name ?? null, type ?? null, year ?? null, make ?? null, model ?? null, color ?? null, photoUrl ?? null],
     );
 
-    const newVehicle = result.rows[0];
-
-    if (primary) {
-      await fastify.db.query(`UPDATE vehicles SET is_active = false WHERE user_id = $1`, [userId]);
-      await fastify.db.query(`UPDATE vehicles SET is_active = true WHERE id = $1`, [newVehicle.id]);
-      newVehicle.is_active = true;
-    }
-
-    return reply.status(201).send(toResponse(newVehicle));
+    return reply.status(201).send(toResponse(result.rows[0]));
   });
 
   // -------------------------------------------------------------------------
@@ -130,6 +178,58 @@ async function vehiclesRoutes(
 
     let updatedVehicle: VehicleRow;
 
+    // Same race as POST /vehicles above: when `primary` is set, the field
+    // update and the deactivate-all/activate-one pair must be one transaction
+    // so a concurrent request touching this user's vehicles can't interleave
+    // between them and leave two vehicles active at once.
+    if (primary) {
+      const client = await fastify.db.connect();
+      try {
+        await client.query('BEGIN');
+        await lockUserVehicles(client, userId);
+
+        if (setClauses.length === 0) {
+          const current = await client.query<VehicleRow>(
+            `SELECT id, user_id, name, vehicle_type, year, make, model, color, photo_url, is_active, created_at
+             FROM vehicles WHERE id = $1 AND user_id = $2`,
+            [id, userId],
+          );
+          if (!current.rows[0]) {
+            await client.query('ROLLBACK');
+            return reply.notFound('Vehicle not found');
+          }
+          updatedVehicle = current.rows[0];
+        } else {
+          values.push(id, userId);
+
+          const result = await client.query<VehicleRow>(
+            `UPDATE vehicles SET ${setClauses.join(', ')}
+             WHERE id = $${paramIdx} AND user_id = $${paramIdx + 1}
+             RETURNING id, user_id, name, vehicle_type, year, make, model, color, photo_url, is_active, created_at`,
+            values,
+          );
+
+          if (!result.rows[0]) {
+            await client.query('ROLLBACK');
+            return reply.notFound('Vehicle not found');
+          }
+          updatedVehicle = result.rows[0];
+        }
+
+        await client.query(`UPDATE vehicles SET is_active = false WHERE user_id = $1`, [userId]);
+        await client.query(`UPDATE vehicles SET is_active = true WHERE id = $1`, [id]);
+        updatedVehicle.is_active = true;
+
+        await client.query('COMMIT');
+        return reply.send(toResponse(updatedVehicle));
+      } catch (err) {
+        await client.query('ROLLBACK');
+        throw err;
+      } finally {
+        client.release();
+      }
+    }
+
     if (setClauses.length === 0) {
       const current = await fastify.db.query<VehicleRow>(
         `SELECT id, user_id, name, vehicle_type, year, make, model, color, photo_url, is_active, created_at
@@ -150,12 +250,6 @@ async function vehiclesRoutes(
 
       if (!result.rows[0]) return reply.notFound('Vehicle not found');
       updatedVehicle = result.rows[0];
-    }
-
-    if (primary) {
-      await fastify.db.query(`UPDATE vehicles SET is_active = false WHERE user_id = $1`, [userId]);
-      await fastify.db.query(`UPDATE vehicles SET is_active = true WHERE id = $1`, [id]);
-      updatedVehicle.is_active = true;
     }
 
     return reply.send(toResponse(updatedVehicle));
@@ -221,6 +315,7 @@ async function vehiclesRoutes(
     const client = await fastify.db.connect();
     try {
       await client.query('BEGIN');
+      await lockUserVehicles(client, userId);
 
       // Verify ownership
       const check = await client.query<{ id: string }>(

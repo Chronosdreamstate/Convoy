@@ -54,6 +54,9 @@ export default function SearchScreen() {
   const [loading, setLoading] = useState(false);
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
   const [friendActions, setFriendActions] = useState<Partial<Record<string, 'pending' | 'friends'>>>({});
+  // Tracks in-flight join/add-friend requests by id so a rapid double-tap
+  // can't fire the same request twice while the first is still pending.
+  const [submittingIds, setSubmittingIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     AsyncStorage.getItem(STORAGE_KEY)
@@ -103,19 +106,28 @@ export default function SearchScreen() {
   }, [activeTab]);
 
   const handleJoinGroup = async (groupId: string) => {
+    if (submittingIds.has(groupId)) return;
+    setSubmittingIds((prev) => new Set(prev).add(groupId));
     try {
       await apiClient.post(`/api/v1/groups/${groupId}/members`, {});
       router.push(`/group/${groupId}` as never);
     } catch {
       router.push(`/group/${groupId}` as never);
+    } finally {
+      setSubmittingIds((prev) => { const next = new Set(prev); next.delete(groupId); return next; });
     }
   };
 
   const handleAddFriend = async (userId: string) => {
+    if (submittingIds.has(userId)) return;
+    setSubmittingIds((prev) => new Set(prev).add(userId));
     try {
       await apiClient.post('/api/v1/friends/requests', { addresseeId: userId });
       setFriendActions((prev) => ({ ...prev, [userId]: 'pending' }));
     } catch { /* ignore */ }
+    finally {
+      setSubmittingIds((prev) => { const next = new Set(prev); next.delete(userId); return next; });
+    }
   };
 
   const renderGroup = ({ item }: { item: Group }) => (
@@ -136,8 +148,14 @@ export default function SearchScreen() {
           )}
         </View>
       </View>
-      <TouchableOpacity style={styles.actionBtn} onPress={() => handleJoinGroup(item.id)}>
-        <Text style={styles.actionBtnText}>{item.accessType === 'open' ? 'Join' : 'Request'}</Text>
+      <TouchableOpacity
+        style={styles.actionBtn}
+        onPress={() => { void handleJoinGroup(item.id); }}
+        disabled={submittingIds.has(item.id)}
+      >
+        <Text style={styles.actionBtnText}>
+          {submittingIds.has(item.id) ? '…' : item.accessType === 'open' ? 'Join' : 'Request'}
+        </Text>
       </TouchableOpacity>
     </View>
   );
@@ -145,6 +163,7 @@ export default function SearchScreen() {
   const renderPerson = ({ item }: { item: UserResult }) => {
     const status = friendActions[item.id] ?? item.friendStatus ?? 'none';
     const initial = (item.displayName?.[0] ?? '?').toUpperCase();
+    const isSubmitting = submittingIds.has(item.id);
     return (
       <View style={styles.card}>
         <View style={[styles.avatar, { backgroundColor: avatarColor(item.displayName) }]}>
@@ -156,8 +175,12 @@ export default function SearchScreen() {
           {item.pttCallsign ? <Text style={styles.muted}>{item.pttCallsign}</Text> : null}
         </View>
         {status === 'none' && (
-          <TouchableOpacity style={styles.actionBtn} onPress={() => handleAddFriend(item.id)}>
-            <Text style={styles.actionBtnText}>Add</Text>
+          <TouchableOpacity
+            style={styles.actionBtn}
+            onPress={() => { void handleAddFriend(item.id); }}
+            disabled={isSubmitting}
+          >
+            <Text style={styles.actionBtnText}>{isSubmitting ? '…' : 'Add'}</Text>
           </TouchableOpacity>
         )}
         {status === 'pending' && (
