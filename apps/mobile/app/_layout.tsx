@@ -140,7 +140,10 @@ function handleDeepLink(router: Router, url: string): void {
     if (path === 'join' && code) {
       router.push({ pathname: '/join', params: { prefillCode: code } });
     } else if (path === 'invite' && userId) {
-      router.push(`/group/${encodeURIComponent(userId)}`);
+      // A user-invite link (e.g. from the Friends "invite" share sheet) — takes
+      // the recipient to app/invite.tsx, NOT a group. Do not confuse this with
+      // the 'group' case below, which shares a group id in the same slot.
+      router.push({ pathname: '/invite', params: { userId } });
     } else if (path === 'group' && userId) {
       router.push(`/group/${encodeURIComponent(userId)}`);
     }
@@ -433,7 +436,6 @@ export default function RootLayout() {
           />
           <Stack.Screen name="event/[id]" />
           <Stack.Screen name="leaderboard" />
-          <Stack.Screen name="group-leaderboard" />
           <Stack.Screen name="group-stats/[id]" />
           <Stack.Screen
             name="create-group"

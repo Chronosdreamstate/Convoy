@@ -341,7 +341,17 @@ export default function ProfileScreen() {
         showsVerticalScrollIndicator={false}
       >
         {/* Page title */}
-        <Text style={styles.pageTitle}>Profile</Text>
+        <View style={styles.pageTitleRow}>
+          <Text style={styles.pageTitle}>Profile</Text>
+          <TouchableOpacity
+            onPress={() => router.push('/notifications')}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityRole="button"
+            accessibilityLabel="Notifications"
+          >
+            <Text style={styles.notificationBell}>🔔</Text>
+          </TouchableOpacity>
+        </View>
 
         {error ? <Text style={styles.errorText}>{error}</Text> : null}
         {saveSuccess ? <Text style={styles.successText}>Profile saved successfully.</Text> : null}
@@ -584,11 +594,19 @@ const styles = StyleSheet.create({
     paddingTop: 24,
     paddingBottom: 48,
   },
+  pageTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 28,
+  },
   pageTitle: {
     fontSize: 28,
     fontWeight: '700',
     color: '#F0F0F0',
-    marginBottom: 28,
+  },
+  notificationBell: {
+    fontSize: 22,
   },
   errorText: {
     color: '#f87171',
