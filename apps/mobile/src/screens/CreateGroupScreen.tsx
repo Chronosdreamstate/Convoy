@@ -5,7 +5,7 @@
  * Step 3: Success — show join code, invite, start driving
  */
 
-import React, { useRef, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -23,14 +23,16 @@ import {
 } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import { router } from 'expo-router';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { apiClient } from '../services/apiClient';
+import { useTheme, ThemeColors } from '../theme';
 
-const VEHICLE_TYPES = [
-  { type: 'all', label: '🚗 All types' },
-  { type: 'sports_car', label: '🏎️ Sports cars' },
-  { type: 'suv', label: '🚙 SUVs & Trucks' },
-  { type: 'motorcycle', label: '🏍️ Motorcycles' },
-  { type: 'track_car', label: '🏁 Track days' },
+const VEHICLE_TYPES: Array<{ type: string; label: string; icon: keyof typeof MaterialCommunityIcons.glyphMap }> = [
+  { type: 'all', label: 'All types', icon: 'car-multiple' },
+  { type: 'sports_car', label: 'Sports cars', icon: 'car-sports' },
+  { type: 'suv', label: 'SUVs & Trucks', icon: 'car-estate' },
+  { type: 'motorcycle', label: 'Motorcycles', icon: 'motorbike' },
+  { type: 'track_car', label: 'Track days', icon: 'flag-checkered' },
 ];
 
 const GAP_OPTIONS = [
@@ -47,6 +49,8 @@ interface CreatedGroup {
 }
 
 export default function CreateGroupScreen() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const [step, setStep] = useState(1);
   const slideAnim = useRef(new Animated.Value(0)).current;
 
@@ -135,7 +139,9 @@ export default function CreateGroupScreen() {
       <View style={styles.header}>
         {step > 1 && step < 3 ? (
           <TouchableOpacity onPress={() => goToStep(step - 1)} style={styles.backBtn} accessibilityRole="button" accessibilityLabel="Go back">
-            <Text style={styles.backBtnText}>← Back</Text>
+            <Text style={styles.backBtnText}>
+              <Ionicons name="chevron-back" size={14} color={colors.accent} /> Back
+            </Text>
           </TouchableOpacity>
         ) : (
           <View style={styles.backBtn} />
@@ -143,7 +149,7 @@ export default function CreateGroupScreen() {
         <Text style={styles.headerTitle}>CREATE CONVOY</Text>
         {step < 3 ? (
           <TouchableOpacity onPress={() => router.back()} style={styles.cancelBtn} accessibilityRole="button" accessibilityLabel="Cancel">
-            <Text style={styles.cancelBtnText}>✕</Text>
+            <Ionicons name="close" size={18} color={colors.textMuted} />
           </TouchableOpacity>
         ) : (
           <View style={styles.cancelBtn} />
@@ -175,7 +181,7 @@ export default function CreateGroupScreen() {
               <TextInput
                 style={styles.nameInput}
                 placeholder="e.g. Sunday Rally"
-                placeholderTextColor="#555"
+                placeholderTextColor={colors.textSubtle}
                 value={groupName}
                 onChangeText={setGroupName}
                 autoFocus
@@ -196,7 +202,11 @@ export default function CreateGroupScreen() {
                     accessibilityLabel={v.label}
                   >
                     <Text style={[styles.pillText, vehicleType === v.type && styles.pillTextActive]}>
-                      {v.label}
+                      <MaterialCommunityIcons
+                        name={v.icon}
+                        size={13}
+                        color={vehicleType === v.type ? colors.accent : colors.textMuted}
+                      /> {v.label}
                     </Text>
                   </TouchableOpacity>
                 ))}
@@ -217,8 +227,8 @@ export default function CreateGroupScreen() {
               <Text style={styles.fieldLabel}>Who can join?</Text>
               <View style={styles.pillRow}>
                 {([
-                  { value: 'open', label: '🌐  Public' },
-                  { value: 'invite_only', label: '🔒  Invite Only' },
+                  { value: 'open', label: 'Public', icon: 'globe-outline' },
+                  { value: 'invite_only', label: 'Invite Only', icon: 'lock-closed-outline' },
                 ] as const).map((opt) => (
                   <TouchableOpacity
                     key={opt.value}
@@ -229,7 +239,7 @@ export default function CreateGroupScreen() {
                     accessibilityLabel={opt.label}
                   >
                     <Text style={[styles.pillText, accessType === opt.value && styles.pillTextActive]}>
-                      {opt.label}
+                      <Ionicons name={opt.icon} size={13} color={accessType === opt.value ? colors.accent : colors.textMuted} />  {opt.label}
                     </Text>
                   </TouchableOpacity>
                 ))}
@@ -257,7 +267,7 @@ export default function CreateGroupScreen() {
               <TextInput
                 style={styles.channelInput}
                 placeholder="e.g. Sunday Crew, Track Day Radio"
-                placeholderTextColor="#555"
+                placeholderTextColor={colors.textSubtle}
                 value={pttChannelName}
                 onChangeText={setPttChannelName}
                 maxLength={40}
@@ -269,7 +279,7 @@ export default function CreateGroupScreen() {
           {/* ── Step 3: Success ────────────────────────────── */}
           {step === 3 && createdGroup && (
             <View style={[styles.stepContent, styles.successContent]}>
-              <Text style={styles.successEmoji}>🎉</Text>
+              <MaterialCommunityIcons name="party-popper" size={64} color={colors.accent} style={styles.successEmoji} />
               <Text style={styles.successHeadline}>Your convoy is ready!</Text>
               <Text style={styles.successGroupName}>{createdGroup.name}</Text>
 
@@ -280,10 +290,14 @@ export default function CreateGroupScreen() {
 
               <View style={styles.codeActions}>
                 <TouchableOpacity style={styles.codeActionBtn} onPress={handleCopyCode} accessibilityRole="button" accessibilityLabel="Copy join code">
-                  <Text style={styles.codeActionText}>📋 Copy Code</Text>
+                  <Text style={styles.codeActionText}>
+                    <Ionicons name="clipboard-outline" size={14} color={colors.text} /> Copy Code
+                  </Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={styles.codeActionBtn} onPress={handleInvite} accessibilityRole="button" accessibilityLabel="Invite friends">
-                  <Text style={styles.codeActionText}>📨 Invite Friends</Text>
+                  <Text style={styles.codeActionText}>
+                    <Ionicons name="paper-plane-outline" size={14} color={colors.text} /> Invite Friends
+                  </Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -313,7 +327,7 @@ export default function CreateGroupScreen() {
             accessibilityLabel="Create convoy"
           >
             {loading
-              ? <ActivityIndicator color="#fff" />
+              ? <ActivityIndicator color={colors.text} />
               : <Text style={styles.nextBtnText}>Create Convoy</Text>
             }
           </TouchableOpacity>
@@ -325,7 +339,9 @@ export default function CreateGroupScreen() {
             accessibilityRole="button"
             accessibilityLabel="Start driving"
           >
-            <Text style={styles.nextBtnText}>🚗 Start Driving</Text>
+            <Text style={styles.nextBtnText}>
+              <MaterialCommunityIcons name="car" size={16} color={colors.text} /> Start Driving
+            </Text>
           </TouchableOpacity>
         )}
       </View>
@@ -333,8 +349,9 @@ export default function CreateGroupScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0A0A0A' },
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+  container: { flex: 1, backgroundColor: colors.bg },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -342,79 +359,79 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
   },
-  headerTitle: { color: '#fff', fontSize: 15, fontWeight: '700', letterSpacing: 2 },
+  headerTitle: { color: colors.text, fontSize: 15, fontWeight: '700', letterSpacing: 2 },
   backBtn: { width: 64 },
-  backBtnText: { color: '#DC143C', fontSize: 14, fontWeight: '600' },
+  backBtnText: { color: colors.accent, fontSize: 14, fontWeight: '600' },
   cancelBtn: { width: 64, alignItems: 'flex-end' },
-  cancelBtnText: { color: '#888', fontSize: 18 },
+  cancelBtnText: { color: colors.textMuted, fontSize: 18 },
   progressTrack: {
     height: 3,
-    backgroundColor: '#2A2A2A',
+    backgroundColor: colors.border,
     marginHorizontal: 16,
     borderRadius: 2,
     overflow: 'hidden',
   },
   progressFill: {
     height: 3,
-    backgroundColor: '#DC143C',
+    backgroundColor: colors.accent,
     borderRadius: 2,
   },
-  stepLabel: { color: '#888', fontSize: 12, textAlign: 'center', marginTop: 8, marginBottom: 4 },
+  stepLabel: { color: colors.textMuted, fontSize: 12, textAlign: 'center', marginTop: 8, marginBottom: 4 },
   stepContainer: { flex: 1 },
   stepScroll: { flex: 1 },
   stepContent: { flexGrow: 1, paddingHorizontal: 20, paddingTop: 24 },
-  stepHeadline: { color: '#fff', fontSize: 22, fontWeight: '700', marginBottom: 20 },
+  stepHeadline: { color: colors.text, fontSize: 22, fontWeight: '700', marginBottom: 20 },
   nameInput: {
-    backgroundColor: '#1C1C1C',
+    backgroundColor: colors.card,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#2A2A2A',
-    color: '#fff',
+    borderColor: colors.border,
+    color: colors.text,
     fontSize: 22,
     padding: 16,
     marginBottom: 4,
   },
-  charCount: { color: '#555', fontSize: 12, textAlign: 'right', marginBottom: 24 },
-  fieldLabel: { color: '#888', fontSize: 12, fontWeight: '600', letterSpacing: 1, marginBottom: 12, marginTop: 8 },
+  charCount: { color: colors.textSubtle, fontSize: 12, textAlign: 'right', marginBottom: 24 },
+  fieldLabel: { color: colors.textMuted, fontSize: 12, fontWeight: '600', letterSpacing: 1, marginBottom: 12, marginTop: 8 },
   pillGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   pillRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8 },
   pill: {
-    backgroundColor: '#1C1C1C',
+    backgroundColor: colors.card,
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: colors.border,
     borderRadius: 8,
     paddingVertical: 10,
     paddingHorizontal: 14,
   },
   pillHalf: { flex: 1 },
-  pillActive: { backgroundColor: '#1A0005', borderColor: '#DC143C' },
-  pillText: { color: '#888', fontSize: 14 },
-  pillTextActive: { color: '#DC143C', fontWeight: '600' },
+  pillActive: { backgroundColor: '#1A0005', borderColor: colors.accent },
+  pillText: { color: colors.textMuted, fontSize: 14 },
+  pillTextActive: { color: colors.accent, fontWeight: '600' },
   channelInput: {
-    backgroundColor: '#1C1C1C',
+    backgroundColor: colors.card,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#2A2A2A',
-    color: '#fff',
+    borderColor: colors.border,
+    color: colors.text,
     fontSize: 16,
     padding: 14,
     marginTop: 4,
   },
   successContent: { alignItems: 'center', paddingTop: 40 },
   successEmoji: { fontSize: 64, marginBottom: 12 },
-  successHeadline: { color: '#fff', fontSize: 24, fontWeight: '700', marginBottom: 4 },
-  successGroupName: { color: '#888', fontSize: 16, marginBottom: 32 },
+  successHeadline: { color: colors.text, fontSize: 24, fontWeight: '700', marginBottom: 4 },
+  successGroupName: { color: colors.textMuted, fontSize: 16, marginBottom: 32 },
   codeCard: {
     backgroundColor: '#1A0005',
     borderWidth: 1.5,
-    borderColor: '#DC143C',
+    borderColor: colors.accent,
     borderRadius: 12,
     paddingVertical: 20,
     paddingHorizontal: 40,
     marginBottom: 20,
   },
   joinCode: {
-    color: '#DC143C',
+    color: colors.accent,
     fontSize: 36,
     fontWeight: '800',
     letterSpacing: 8,
@@ -422,22 +439,23 @@ const styles = StyleSheet.create({
   },
   codeActions: { flexDirection: 'row', gap: 12 },
   codeActionBtn: {
-    backgroundColor: '#1C1C1C',
+    backgroundColor: colors.card,
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: colors.border,
     borderRadius: 8,
     paddingVertical: 12,
     paddingHorizontal: 18,
   },
-  codeActionText: { color: '#fff', fontSize: 14, fontWeight: '600' },
+  codeActionText: { color: colors.text, fontSize: 14, fontWeight: '600' },
   bottomBar: { padding: 20, paddingBottom: 32 },
   nextBtn: {
-    backgroundColor: '#DC143C',
+    backgroundColor: colors.accent,
     borderRadius: 12,
     height: 56,
     alignItems: 'center',
     justifyContent: 'center',
   },
   nextBtnDisabled: { opacity: 0.4 },
-  nextBtnText: { color: '#fff', fontSize: 17, fontWeight: '700' },
-});
+  nextBtnText: { color: colors.text, fontSize: 17, fontWeight: '700' },
+  });
+}

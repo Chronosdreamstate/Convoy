@@ -3,7 +3,7 @@
  * Full-screen dark chat UI with cursor-based pagination and socket live updates.
  */
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Animated,
@@ -26,11 +26,12 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Audio } from 'expo-av';
 import * as FileSystem from 'expo-file-system/legacy';
 import { FileSystemUploadType } from 'expo-file-system/legacy';
+import { Ionicons } from '@expo/vector-icons';
 import { useAuthStore } from '../stores/authStore';
 import { useSocketStore } from '../stores/socketStore';
 import { apiClient } from '../services/apiClient';
 import { SkeletonRow } from '../components/SkeletonLoader';
-import { theme } from '../theme';
+import { theme, useTheme, ThemeColors } from '../theme';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -87,6 +88,8 @@ interface ReactionPickerProps {
 }
 
 function ReactionPicker({ visible, onSelect, onDismiss }: ReactionPickerProps) {
+  const { colors } = useTheme();
+  const pickerStyles = useMemo(() => createPickerStyles(colors), [colors]);
   const scale = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -124,39 +127,43 @@ function ReactionPicker({ visible, onSelect, onDismiss }: ReactionPickerProps) {
   );
 }
 
-const pickerStyles = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.4)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  container: {
-    flexDirection: 'row',
-    backgroundColor: theme.colors.cardElevated,
-    borderRadius: 32,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    gap: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4,
-    shadowRadius: 12,
-    elevation: 8,
-  },
-  emojiBtn: {
-    padding: 8,
-  },
-  emoji: {
-    fontSize: 26,
-  },
-});
+function createPickerStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    overlay: {
+      flex: 1,
+      backgroundColor: 'rgba(0,0,0,0.4)',
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    container: {
+      flexDirection: 'row',
+      backgroundColor: colors.cardElevated,
+      borderRadius: 32,
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+      gap: 4,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.4,
+      shadowRadius: 12,
+      elevation: 8,
+    },
+    emojiBtn: {
+      padding: 8,
+    },
+    emoji: {
+      fontSize: 26,
+    },
+  });
+}
 
 // ---------------------------------------------------------------------------
 // SystemMessage
 // ---------------------------------------------------------------------------
 
 function SystemMessage({ text }: { text: string }) {
+  const { colors } = useTheme();
+  const sysStyles = useMemo(() => createSysStyles(colors), [colors]);
   return (
     <View style={sysStyles.row}>
       <View style={sysStyles.line} />
@@ -165,28 +172,30 @@ function SystemMessage({ text }: { text: string }) {
   );
 }
 
-const sysStyles = StyleSheet.create({
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginVertical: 6,
-    paddingHorizontal: 16,
-    gap: 8,
-  },
-  line: {
-    width: 3,
-    height: 14,
-    backgroundColor: theme.colors.accent,
-    borderRadius: 2,
-  },
-  text: {
-    color: theme.colors.textMuted,
-    fontSize: 12,
-    fontStyle: 'italic',
-    textAlign: 'center',
-  },
-});
+function createSysStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    row: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginVertical: 6,
+      paddingHorizontal: 16,
+      gap: 8,
+    },
+    line: {
+      width: 3,
+      height: 14,
+      backgroundColor: colors.accent,
+      borderRadius: 2,
+    },
+    text: {
+      color: colors.textMuted,
+      fontSize: 12,
+      fontStyle: 'italic',
+      textAlign: 'center',
+    },
+  });
+}
 
 // ---------------------------------------------------------------------------
 // VoiceMessageBubble
@@ -225,7 +234,7 @@ function VoiceMessageBubble({ audioUrl, isOwn }: { audioUrl: string; isOwn: bool
       accessibilityLabel={playing ? 'Pause voice message' : 'Play voice message'}
       style={[voiceStyles.bubble, isOwn ? voiceStyles.bubbleOwn : voiceStyles.bubbleOther]}
     >
-      <Text style={voiceStyles.icon}>{playing ? '⏸' : '▶'}</Text>
+      <Ionicons name={playing ? 'pause' : 'play'} size={16} color="#FFFFFF" />
       <Text style={[voiceStyles.label, isOwn && voiceStyles.labelOwn]}>Voice message</Text>
     </TouchableOpacity>
   );
@@ -273,6 +282,8 @@ interface BubbleProps {
 }
 
 function MessageBubble({ item, isOwn, currentUserId, onLongPress, onReact }: BubbleProps) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   if (item.type === 'system') {
     return <SystemMessage text={item.text ?? ''} />;
   }
@@ -341,6 +352,8 @@ function MessageBubble({ item, isOwn, currentUserId, onLongPress, onReact }: Bub
 // ---------------------------------------------------------------------------
 
 export default function GroupChatScreen() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const { groupId } = useLocalSearchParams<{ groupId: string }>();
   const router = useRouter();
   const { accessToken, user } = useAuthStore();
@@ -619,7 +632,7 @@ export default function GroupChatScreen() {
           accessibilityRole="button"
           accessibilityLabel="Go back"
         >
-          <Text style={styles.backBtn}>←</Text>
+          <Ionicons name="chevron-back" size={22} color={colors.textMuted} style={styles.backBtn} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>GROUP CHAT</Text>
         <View style={styles.headerRight} />
@@ -656,7 +669,7 @@ export default function GroupChatScreen() {
                 }
                 ListEmptyComponent={
                   <View style={styles.emptyContainer}>
-                    <Text style={styles.emptyIcon}>💬</Text>
+                    <Ionicons name="chatbubble-outline" size={40} color={colors.textSubtle} />
                     <Text style={styles.emptyText}>No messages yet. Say hi!</Text>
                   </View>
                 }
@@ -702,7 +715,7 @@ export default function GroupChatScreen() {
               value={inputText}
               onChangeText={handleInputChange}
               placeholder="Type a message..."
-              placeholderTextColor={theme.colors.textSubtle}
+              placeholderTextColor={colors.textSubtle}
               multiline
               maxLength={500}
               returnKeyType="default"
@@ -723,7 +736,11 @@ export default function GroupChatScreen() {
             accessibilityRole="button"
             accessibilityLabel={isRecording ? 'Stop recording and send voice message' : 'Record voice message'}
           >
-            <Text style={styles.voiceBtnIcon}>{isRecording ? '⏹' : '🎤'}</Text>
+            <Ionicons
+              name={isRecording ? 'stop-circle' : 'mic-outline'}
+              size={18}
+              color={isRecording ? colors.accent : colors.textMuted}
+            />
             {isRecording && recordingDuration > 0 && (
               <Text style={styles.recordingTimer}>{recordingDuration}s</Text>
             )}
@@ -760,10 +777,11 @@ export default function GroupChatScreen() {
 
 const BUBBLE_RADIUS = 16;
 
-const styles = StyleSheet.create({
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: theme.colors.bg,
+    backgroundColor: colors.bg,
   },
   flex: {
     flex: 1,
@@ -777,16 +795,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: theme.spacing.md,
     paddingVertical: theme.spacing.sm,
     borderBottomWidth: 1,
-    borderBottomColor: theme.colors.border,
+    borderBottomColor: colors.border,
   },
   headerTitle: {
-    color: theme.colors.text,
+    color: colors.text,
     fontSize: 16,
     fontWeight: '800',
     letterSpacing: 2,
   },
   backBtn: {
-    color: theme.colors.textMuted,
+    color: colors.textMuted,
     fontSize: 22,
     fontWeight: '600',
     width: 32,
@@ -828,7 +846,7 @@ const styles = StyleSheet.create({
     fontSize: 40,
   },
   emptyText: {
-    color: theme.colors.textSubtle,
+    color: colors.textSubtle,
     fontSize: 14,
   },
 
@@ -859,12 +877,12 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: theme.colors.card,
+    backgroundColor: colors.card,
     alignItems: 'center',
     justifyContent: 'center',
     flexShrink: 0,
     borderWidth: 1,
-    borderColor: theme.colors.border,
+    borderColor: colors.border,
   },
   avatarImage: {
     width: 32,
@@ -872,7 +890,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
   },
   avatarInitials: {
-    color: theme.colors.textMuted,
+    color: colors.textMuted,
     fontSize: 11,
     fontWeight: '700',
   },
@@ -884,17 +902,17 @@ const styles = StyleSheet.create({
     borderRadius: BUBBLE_RADIUS,
   },
   bubbleOwn: {
-    backgroundColor: theme.colors.accent,
+    backgroundColor: colors.accent,
     borderBottomRightRadius: 4,
   },
   bubbleOther: {
-    backgroundColor: theme.colors.card,
+    backgroundColor: colors.card,
     borderWidth: 1,
-    borderColor: theme.colors.border,
+    borderColor: colors.border,
     borderBottomLeftRadius: 4,
   },
   senderName: {
-    color: theme.colors.textMuted,
+    color: colors.textMuted,
     fontSize: 11,
     fontWeight: '700',
     marginBottom: 3,
@@ -909,7 +927,7 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
   },
   bubbleTextOther: {
-    color: theme.colors.text,
+    color: colors.text,
   },
 
   // Reactions
@@ -929,22 +947,22 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 3,
-    backgroundColor: theme.colors.card,
+    backgroundColor: colors.card,
     borderWidth: 1,
-    borderColor: theme.colors.border,
+    borderColor: colors.border,
     borderRadius: 12,
     paddingHorizontal: 8,
     paddingVertical: 3,
   },
   reactionPillOwn: {
-    borderColor: theme.colors.accent,
+    borderColor: colors.accent,
     backgroundColor: 'rgba(220,20,60,0.12)',
   },
   reactionEmoji: {
     fontSize: 13,
   },
   reactionCount: {
-    color: theme.colors.textMuted,
+    color: colors.textMuted,
     fontSize: 11,
     fontWeight: '700',
   },
@@ -955,7 +973,7 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   typingText: {
-    color: theme.colors.textMuted,
+    color: colors.textMuted,
     fontSize: 12,
     fontStyle: 'italic',
   },
@@ -964,7 +982,7 @@ const styles = StyleSheet.create({
   quickRepliesContainer: {
     flexShrink: 0,
     borderTopWidth: 1,
-    borderTopColor: theme.colors.border,
+    borderTopColor: colors.border,
   },
   quickRepliesContent: {
     paddingHorizontal: theme.spacing.md,
@@ -972,15 +990,15 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   quickReplyPill: {
-    backgroundColor: theme.colors.card,
+    backgroundColor: colors.card,
     borderWidth: 1,
-    borderColor: theme.colors.border,
+    borderColor: colors.border,
     borderRadius: 20,
     paddingHorizontal: 14,
     paddingVertical: 8,
   },
   quickReplyText: {
-    color: theme.colors.text,
+    color: colors.text,
     fontSize: 13,
     fontWeight: '600',
   },
@@ -993,15 +1011,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: theme.spacing.md,
     paddingVertical: theme.spacing.sm,
     borderTopWidth: 1,
-    borderTopColor: theme.colors.border,
-    backgroundColor: theme.colors.bg,
+    borderTopColor: colors.border,
+    backgroundColor: colors.bg,
   },
   inputWrapper: {
     flex: 1,
-    backgroundColor: theme.colors.card,
+    backgroundColor: colors.card,
     borderRadius: theme.radius.md,
     borderWidth: 1,
-    borderColor: theme.colors.border,
+    borderColor: colors.border,
     paddingHorizontal: theme.spacing.sm + 4,
     paddingTop: theme.spacing.sm + 2,
     paddingBottom: theme.spacing.sm + 2,
@@ -1009,19 +1027,19 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   textInput: {
-    color: theme.colors.text,
+    color: colors.text,
     fontSize: 15,
     maxHeight: 120,
     padding: 0,
   },
   charCounter: {
-    color: theme.colors.textSubtle,
+    color: colors.textSubtle,
     fontSize: 10,
     textAlign: 'right',
     marginTop: 4,
   },
   charCounterOver: {
-    color: theme.colors.error,
+    color: colors.error,
   },
 
   // Voice button
@@ -1029,9 +1047,9 @@ const styles = StyleSheet.create({
     minWidth: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: theme.colors.card,
+    backgroundColor: colors.card,
     borderWidth: 1,
-    borderColor: theme.colors.border,
+    borderColor: colors.border,
     alignItems: 'center',
     justifyContent: 'center',
     flexShrink: 0,
@@ -1041,20 +1059,20 @@ const styles = StyleSheet.create({
   },
   voiceBtnActive: {
     backgroundColor: 'rgba(220,20,60,0.15)',
-    borderColor: theme.colors.accent,
+    borderColor: colors.accent,
   },
   voiceBtnIcon: {
     fontSize: 18,
   },
   recordingTimer: {
-    color: theme.colors.accent,
+    color: colors.accent,
     fontSize: 12,
     fontWeight: '700',
   },
 
   // Send button
   sendBtn: {
-    backgroundColor: theme.colors.accent,
+    backgroundColor: colors.accent,
     borderRadius: theme.radius.md,
     paddingHorizontal: theme.spacing.md,
     height: 44,
@@ -1063,9 +1081,9 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   sendBtnDisabled: {
-    backgroundColor: theme.colors.card,
+    backgroundColor: colors.card,
     borderWidth: 1,
-    borderColor: theme.colors.border,
+    borderColor: colors.border,
   },
   sendBtnText: {
     color: '#FFFFFF',
@@ -1073,6 +1091,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   sendBtnTextDisabled: {
-    color: theme.colors.textSubtle,
+    color: colors.textSubtle,
   },
-});
+  });
+}
