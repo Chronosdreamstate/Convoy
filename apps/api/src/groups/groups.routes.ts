@@ -1104,6 +1104,27 @@ async function groupsRoutes(
 
       const event = result.rows[0];
       fastify.io.to(`group:${id}`).emit('group:event_created', { groupId: id, event });
+
+      // Notify all other group members so they see it in the Notification Center
+      // even if they aren't connected to the group's socket room right now (Req 15).
+      fastify.db.query<{ user_id: string }>(
+        `SELECT user_id FROM convoy_members WHERE group_id = $1 AND left_at IS NULL AND user_id != $2`,
+        [id, userId],
+      ).then(({ rows }) => {
+        const when = scheduledDate.toLocaleString('en-US', {
+          month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+        });
+        return Promise.all(rows.map((r) =>
+          fastify.enqueueNotification({
+            userId: r.user_id,
+            type: 'group_event',
+            title: 'New Convoy Scheduled',
+            body: `${title.trim()} — ${when}`,
+            data: { groupId: id, eventId: event.id },
+          }),
+        ));
+      }).catch((err: unknown) => fastify.log.error({ err }, 'group_event notification push failed'));
+
       return reply.status(201).send({ event });
     },
   );
