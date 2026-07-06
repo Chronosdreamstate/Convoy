@@ -455,7 +455,7 @@ export default function ProfileScreen() {
 
         {/* Privacy / visibility */}
         <View style={styles.card}>
-          <Text style={styles.cardLabel}>Profile Visibility</Text>
+          <Text style={styles.cardLabel}>Friend Request Privacy</Text>
           <View style={styles.privacyRow}>
             <TouchableOpacity
               style={[styles.privacyBtn, privacy === 'open' && styles.privacyBtnActive]}
