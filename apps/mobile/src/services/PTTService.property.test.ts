@@ -44,6 +44,7 @@ function buildEngine(connected = true) {
     adjustPlaybackSignalVolume: jest.fn((v: number) => { volumeHistory.push(v); }),
     isConnected: jest.fn(() => connected),
     onTokenPrivilegeWillExpire: jest.fn(),
+    renewToken: jest.fn(),
     destroy: jest.fn(),
   };
   return { engine, muteHistory, volumeHistory };

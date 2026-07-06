@@ -16,6 +16,8 @@ export interface IAgoraEngine {
   adjustPlaybackSignalVolume(volume: number): void; // 0–400
   isConnected(): boolean;
   onTokenPrivilegeWillExpire(callback: () => void): void;
+  /** Applies a freshly-fetched token to the live session without leaving/rejoining the channel. */
+  renewToken(token: string): void;
   destroy(): void;
 }
 
@@ -88,12 +90,14 @@ export class PTTService {
     await this.engine.joinChannel(token, channelName, uid);
     this.engine.adjustPlaybackSignalVolume(this.userVolume);
 
-    // Auto-refresh before expiry (Req 38.2) — register only once to prevent accumulation
+    // Auto-refresh before expiry (Req 38.2) — register only once to prevent accumulation.
+    // Uses renewToken() rather than rejoining the channel so a live PTT session isn't
+    // interrupted (rejoin would briefly drop the audio connection).
     if (!this.expiryListenerRegistered) {
       this.engine.onTokenPrivilegeWillExpire(async () => {
         if (!this.session) return;
         const refreshed = await this.tokenFetcher.fetchToken(this.session.groupId, this.session.channelId);
-        await this.engine.joinChannel(refreshed.token, refreshed.channelName, refreshed.uid);
+        this.engine.renewToken(refreshed.token);
       });
       this.expiryListenerRegistered = true;
     }

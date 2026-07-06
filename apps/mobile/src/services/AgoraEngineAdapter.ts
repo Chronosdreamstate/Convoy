@@ -109,6 +109,16 @@ class AgoraEngineAdapter implements IAgoraEngine {
     this.tokenExpiryCb = callback;
   }
 
+  /**
+   * Applies a freshly-fetched token to the already-connected engine (Agora's
+   * documented non-disruptive refresh path). Deliberately does NOT call
+   * joinChannel again — rejoining would leave/rejoin the live channel and
+   * risk an audible interruption mid-PTT-session.
+   */
+  renewToken(token: string): void {
+    this.engine?.renewToken(token);
+  }
+
   destroy(): void {
     this.engine?.release();
     this.engine = null;
