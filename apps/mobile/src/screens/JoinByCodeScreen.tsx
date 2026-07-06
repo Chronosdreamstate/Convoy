@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Clipboard,
@@ -14,13 +14,17 @@ import {
   View,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { apiClient } from '../services/apiClient';
 import { HapticService } from '../services/HapticService';
 import { useGroupStore } from '../stores/groupStore';
+import { useTheme, ThemeColors } from '../theme';
 
 const CODE_LENGTH = 6;
 
 export default function JoinByCodeScreen() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const router = useRouter();
   const { prefillCode } = useLocalSearchParams<{ prefillCode?: string }>();
   const inputRef = useRef<TextInput>(null);
@@ -104,7 +108,9 @@ export default function JoinByCodeScreen() {
                 accessibilityLabel="Go back"
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               >
-                <Text style={styles.backText}>‹ Back</Text>
+                <Text style={styles.backText}>
+                  <Ionicons name="chevron-back" size={16} color={colors.accent} /> Back
+                </Text>
               </TouchableOpacity>
               <Text style={styles.title}>Join a Convoy</Text>
               <View style={styles.headerSpacer} />
@@ -112,7 +118,11 @@ export default function JoinByCodeScreen() {
 
             {/* Illustration */}
             <View style={styles.illustration}>
-              <Text style={styles.cars}>🚗🚗🚗</Text>
+              <View style={styles.carsRow}>
+                <MaterialCommunityIcons name="car" size={44} color={colors.accent} />
+                <MaterialCommunityIcons name="car" size={44} color={colors.accent} />
+                <MaterialCommunityIcons name="car" size={44} color={colors.accent} />
+              </View>
               <Text style={styles.hint}>Enter the code shared by your convoy leader</Text>
             </View>
 
@@ -134,7 +144,7 @@ export default function JoinByCodeScreen() {
                     returnKeyType="join"
                     onSubmitEditing={handleJoin}
                     placeholder="XXXXXX"
-                    placeholderTextColor="#333333"
+                    placeholderTextColor={colors.textSubtle}
                     accessibilityLabel="Convoy join code"
                   />
                 </View>
@@ -156,7 +166,9 @@ export default function JoinByCodeScreen() {
                 accessibilityRole="button"
                 accessibilityLabel="Paste code from clipboard"
               >
-                <Text style={styles.pasteText}>📋 Paste Code</Text>
+                <Text style={styles.pasteText}>
+                  <Ionicons name="clipboard-outline" size={13} color={colors.textMuted} /> Paste Code
+                </Text>
               </TouchableOpacity>
 
               {/* Inline error */}
@@ -174,7 +186,7 @@ export default function JoinByCodeScreen() {
               accessibilityLabel="Join convoy"
             >
               {loading ? (
-                <ActivityIndicator color="#fff" size="small" />
+                <ActivityIndicator color={colors.text} size="small" />
               ) : (
                 <Text style={styles.joinBtnText}>Join Convoy</Text>
               )}
@@ -186,10 +198,11 @@ export default function JoinByCodeScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0A0A0A',
+    backgroundColor: colors.bg,
   },
   keyboardAvoid: {
     flex: 1,
@@ -210,14 +223,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   backText: {
-    color: '#DC143C',
+    color: colors.accent,
     fontSize: 17,
     fontWeight: '500',
   },
   title: {
     flex: 1,
     textAlign: 'center',
-    color: '#FFFFFF',
+    color: colors.text,
     fontSize: 17,
     fontWeight: '700',
   },
@@ -230,13 +243,13 @@ const styles = StyleSheet.create({
     paddingBottom: 32,
     paddingHorizontal: 24,
   },
-  cars: {
-    fontSize: 60,
-    letterSpacing: 8,
+  carsRow: {
+    flexDirection: 'row',
+    gap: 8,
     marginBottom: 20,
   },
   hint: {
-    color: '#888888',
+    color: colors.textMuted,
     fontSize: 15,
     textAlign: 'center',
     lineHeight: 22,
@@ -246,20 +259,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   inputWrapper: {
-    backgroundColor: '#1C1C1C',
+    backgroundColor: colors.card,
     borderRadius: 14,
     borderWidth: 2,
-    borderColor: '#2A2A2A',
+    borderColor: colors.border,
     paddingHorizontal: 20,
     paddingVertical: 14,
     width: 280,
     alignItems: 'center',
   },
   inputWrapperFocused: {
-    borderColor: '#DC143C',
+    borderColor: colors.accent,
   },
   codeInput: {
-    color: '#FFFFFF',
+    color: colors.text,
     fontSize: 32,
     letterSpacing: 12,
     fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
@@ -274,10 +287,10 @@ const styles = StyleSheet.create({
   },
   dot: {
     fontSize: 14,
-    color: '#2A2A2A',
+    color: colors.border,
   },
   dotFilled: {
-    color: '#DC143C',
+    color: colors.accent,
   },
   pasteBtn: {
     paddingVertical: 8,
@@ -286,11 +299,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   pasteText: {
-    color: '#888888',
+    color: colors.textMuted,
     fontSize: 14,
   },
   error: {
-    color: '#EF4444',
+    color: colors.error,
     fontSize: 13,
     textAlign: 'center',
     marginTop: 12,
@@ -302,7 +315,7 @@ const styles = StyleSheet.create({
     paddingBottom: 40,
   },
   joinBtn: {
-    backgroundColor: '#DC143C',
+    backgroundColor: colors.accent,
     borderRadius: 14,
     paddingVertical: 18,
     alignItems: 'center',
@@ -313,8 +326,9 @@ const styles = StyleSheet.create({
     opacity: 0.4,
   },
   joinBtnText: {
-    color: '#FFFFFF',
+    color: colors.text,
     fontSize: 17,
     fontWeight: '700',
   },
-});
+  });
+}

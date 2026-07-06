@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   FlatList,
   RefreshControl,
@@ -9,8 +9,10 @@ import {
   View,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { apiClient } from '../services/apiClient';
 import SkeletonCard from '../components/SkeletonLoader';
+import { useTheme, ThemeColors } from '../theme';
 
 interface ConvoyDrive {
   id: string;
@@ -42,11 +44,13 @@ function formatDate(iso: string): string {
 }
 
 function DriveCard({ drive, onReplay }: { drive: ConvoyDrive; onReplay: () => void }) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   return (
     <View style={styles.card}>
       <View style={styles.cardTop}>
         <View style={styles.routeThumbnail}>
-          <Text style={styles.thumbnailIcon}>🗺️</Text>
+          <Ionicons name="map-outline" size={28} color={colors.textMuted} />
         </View>
         <View style={styles.cardInfo}>
           <Text style={styles.dateText}>{formatDate(drive.startedAt)}</Text>
@@ -59,13 +63,17 @@ function DriveCard({ drive, onReplay }: { drive: ConvoyDrive; onReplay: () => vo
         </View>
       </View>
       <TouchableOpacity style={styles.replayBtn} onPress={onReplay} accessibilityLabel="Replay this drive">
-        <Text style={styles.replayText}>▶ Replay</Text>
+        <Text style={styles.replayText}>
+          <Ionicons name="play" size={12} color={colors.accent} /> Replay
+        </Text>
       </TouchableOpacity>
     </View>
   );
 }
 
 export default function ConvoyHistoryScreen() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const { groupId, groupName } = useLocalSearchParams<{ groupId: string; groupName?: string }>();
   const router = useRouter();
   const [drives, setDrives] = useState<ConvoyDrive[]>([]);
@@ -106,7 +114,9 @@ export default function ConvoyHistoryScreen() {
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-          <Text style={styles.backText}>‹ Back</Text>
+          <Text style={styles.backText}>
+            <Ionicons name="chevron-back" size={17} color={colors.accent} /> Back
+          </Text>
         </TouchableOpacity>
         <View>
           <Text style={styles.title}>Past Convoys</Text>
@@ -127,12 +137,12 @@ export default function ConvoyHistoryScreen() {
           keyExtractor={item => item.id}
           contentContainerStyle={styles.list}
           refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#DC143C" colors={['#DC143C']} />
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.accent} colors={[colors.accent]} />
           }
           renderItem={renderDriveItem}
           ListEmptyComponent={
             <View style={styles.empty}>
-              <Text style={styles.emptyIcon}>🏁</Text>
+              <MaterialCommunityIcons name="flag-checkered" size={56} color={colors.textMuted} style={styles.emptyIcon} />
               <Text style={styles.emptyTitle}>No convoys yet</Text>
               <Text style={styles.emptyBody}>Start your first drive together</Text>
             </View>
@@ -143,39 +153,41 @@ export default function ConvoyHistoryScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0A0A0A' },
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+  container: { flex: 1, backgroundColor: colors.bg },
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: 16, paddingTop: 12, paddingBottom: 8,
   },
-  backText: { color: '#DC143C', fontSize: 18 },
-  title: { color: '#FFFFFF', fontSize: 18, fontWeight: '700', textAlign: 'center' },
-  subtitle: { color: '#888888', fontSize: 13, textAlign: 'center', marginTop: 2 },
+  backText: { color: colors.accent, fontSize: 18 },
+  title: { color: colors.text, fontSize: 18, fontWeight: '700', textAlign: 'center' },
+  subtitle: { color: colors.textMuted, fontSize: 13, textAlign: 'center', marginTop: 2 },
   skeletonContainer: { padding: 16, gap: 12 },
   list: { padding: 16, gap: 12 },
   card: {
-    backgroundColor: '#1C1C1C', borderRadius: 12, padding: 14,
-    borderWidth: 0.5, borderColor: '#2A2A2A',
+    backgroundColor: colors.card, borderRadius: 12, padding: 14,
+    borderWidth: 0.5, borderColor: colors.border,
   },
   cardTop: { flexDirection: 'row', gap: 12 },
   routeThumbnail: {
-    width: 80, height: 60, backgroundColor: '#242424', borderRadius: 8,
+    width: 80, height: 60, backgroundColor: colors.cardElevated, borderRadius: 8,
     alignItems: 'center', justifyContent: 'center',
   },
   thumbnailIcon: { fontSize: 28 },
   cardInfo: { flex: 1, justifyContent: 'center' },
-  dateText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700', marginBottom: 4 },
-  statsText: { color: '#888888', fontSize: 13, marginBottom: 2 },
-  speedText: { color: '#888888', fontSize: 12 },
+  dateText: { color: colors.text, fontSize: 15, fontWeight: '700', marginBottom: 4 },
+  statsText: { color: colors.textMuted, fontSize: 13, marginBottom: 2 },
+  speedText: { color: colors.textMuted, fontSize: 12 },
   replayBtn: {
-    marginTop: 12, backgroundColor: '#242424', borderRadius: 8,
+    marginTop: 12, backgroundColor: colors.cardElevated, borderRadius: 8,
     paddingVertical: 8, alignItems: 'center',
-    borderWidth: 1, borderColor: '#DC143C',
+    borderWidth: 1, borderColor: colors.accent,
   },
-  replayText: { color: '#DC143C', fontSize: 14, fontWeight: '600' },
+  replayText: { color: colors.accent, fontSize: 14, fontWeight: '600' },
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 80 },
   emptyIcon: { fontSize: 56, marginBottom: 16 },
-  emptyTitle: { color: '#FFFFFF', fontSize: 20, fontWeight: '700', marginBottom: 8 },
-  emptyBody: { color: '#888888', fontSize: 14 },
-});
+  emptyTitle: { color: colors.text, fontSize: 20, fontWeight: '700', marginBottom: 8 },
+  emptyBody: { color: colors.textMuted, fontSize: 14 },
+  });
+}

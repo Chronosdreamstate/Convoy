@@ -23,6 +23,7 @@ import {
 import * as Clipboard from 'expo-clipboard';
 import * as ExpoLocation from 'expo-location';
 import { router } from 'expo-router';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import ConvoyInviteCard from '../components/ConvoyInviteCard';
 import { apiClient } from '../services/apiClient';
 import { haversineDistanceM } from '../services/DriveService';
@@ -30,6 +31,7 @@ import { useGroupStore } from '../stores/groupStore';
 import { useSocketStore } from '../stores/socketStore';
 import { useLocationStore } from '../stores/locationStore';
 import { useMotionGuard } from '../hooks/useMotionGuard';
+import { useTheme, ThemeColors } from '../theme';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -78,17 +80,19 @@ function memberInitials(name: string): string {
   return name.trim().split(/\s+/).slice(0, 2).map((w) => w[0] ?? '').join('').toUpperCase();
 }
 
-function getVehicleEmoji(vehicleType: string | undefined): string {
-  const map: Record<string, string> = {
-    car: '🚗',
-    sports_car: '🏎️',
-    suv: '🚙',
-    truck: '🛻',
-    motorcycle: '🏍️',
-    van: '🚐',
-    track_car: '🏎️',
+type VehicleIconName = keyof typeof MaterialCommunityIcons.glyphMap;
+
+function getVehicleIconName(vehicleType: string | undefined): VehicleIconName {
+  const map: Record<string, VehicleIconName> = {
+    car: 'car',
+    sports_car: 'car-sports',
+    suv: 'car-estate',
+    truck: 'car-pickup',
+    motorcycle: 'motorbike',
+    van: 'van-passenger',
+    track_car: 'car-sports',
   };
-  return map[vehicleType?.toLowerCase() ?? ''] ?? '🚗';
+  return map[vehicleType?.toLowerCase() ?? ''] ?? 'car';
 }
 
 function formatEventDate(scheduledFor: string): string {
@@ -99,6 +103,7 @@ function formatEventDate(scheduledFor: string): string {
 
 // Pulsing online indicator — uses Animated so it only runs for online members
 function PulsingDot({ online }: { online: boolean }) {
+  const { colors } = useTheme();
   const anim = useRef(new Animated.Value(1)).current;
   useEffect(() => {
     if (!online) { anim.setValue(1); return; }
@@ -114,13 +119,16 @@ function PulsingDot({ online }: { online: boolean }) {
   return (
     <Animated.View
       style={[
-        memberStyles.onlineDot,
-        { backgroundColor: online ? '#22c55e' : '#444444' },
+        onlineDotBaseStyle,
+        { backgroundColor: online ? colors.success : colors.textSubtle },
         online ? { opacity: anim } : {},
       ]}
     />
   );
 }
+
+// Dimensions-only (no color) so PulsingDot doesn't need the themed memberStyles sheet
+const onlineDotBaseStyle = { width: 8, height: 8, borderRadius: 4 } as const;
 
 interface Props {
   userId: string;
@@ -143,6 +151,10 @@ interface MemberApiItem {
 // ---------------------------------------------------------------------------
 
 export default function ConvoyScreen({ userId }: Props) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+  const memberStyles = useMemo(() => createMemberStyles(colors), [colors]);
+
   const [group, setGroup] = useState<ConvoyGroup | null>(null);
   const [members, setMembers] = useState<GroupMember[]>([]);
   const [loading, setLoading] = useState(false);
@@ -618,7 +630,7 @@ export default function ConvoyScreen({ userId }: Props) {
         </TouchableOpacity>
       </View>
     ),
-    [handleJoinByCode, loading],
+    [handleJoinByCode, loading, styles],
   );
 
   // ── Kebab menu for admin actions per member ──────────────────────────────
@@ -668,8 +680,8 @@ export default function ConvoyScreen({ userId }: Props) {
         : null;
       const isLive = !!memberLocations[m.userId];
       const memberIsAdmin = m.userId === group.adminId;
-      const avatarBg = memberIsAdmin ? '#2A0A0A' : '#1C1C1C';
-      const avatarText = memberIsAdmin ? '#DC143C' : '#888888';
+      const avatarBg = memberIsAdmin ? colors.accentMuted : colors.card;
+      const avatarText = memberIsAdmin ? colors.accent : colors.textMuted;
       const distanceStr = distFromLead != null
         ? `${distFromLead >= 1000 ? `${(distFromLead / 1000).toFixed(1)} km` : `${Math.round(distFromLead)} m`} away`
         : '';
@@ -693,15 +705,24 @@ export default function ConvoyScreen({ userId }: Props) {
             accessibilityLabel={`${m.displayName}${m.callsign ? ` ${m.callsign}` : ''}, ${isLive ? 'online' : 'offline'}`}
           >
             <View style={memberStyles.nameRow}>
-              <Text style={memberStyles.vehicleEmoji}>{getVehicleEmoji(m.vehicleType)}</Text>
+              <MaterialCommunityIcons
+                name={getVehicleIconName(m.vehicleType)}
+                size={14}
+                color={colors.textMuted}
+                style={memberStyles.vehicleEmoji}
+              />
               <Text style={memberStyles.name}>{m.displayName}</Text>
               {memberIsAdmin && <Text style={memberStyles.adminBadge}>ADMIN</Text>}
-              {m.isMuted && <Text style={memberStyles.mutedIcon}>🔇</Text>}
+              {m.isMuted && (
+                <Ionicons name="volume-mute-outline" size={13} color={colors.textMuted} style={memberStyles.mutedIcon} />
+              )}
             </View>
             {m.callsign ? (
               <Text style={memberStyles.callsign}>{m.callsign}</Text>
             ) : mLoc ? (
-              <Text style={memberStyles.callsign}>💨 {mLoc.speedKph.toFixed(0)} km/h</Text>
+              <Text style={memberStyles.callsign}>
+                <Ionicons name="speedometer-outline" size={12} color={colors.textSubtle} /> {mLoc.speedKph.toFixed(0)} km/h
+              </Text>
             ) : null}
           </View>
 
@@ -728,13 +749,13 @@ export default function ConvoyScreen({ userId }: Props) {
               accessibilityLabel={`Options for ${m.displayName}`}
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             >
-              <Text style={memberStyles.kebabText}>•••</Text>
+              <Ionicons name="ellipsis-horizontal" size={16} color={colors.textSubtle} />
             </TouchableOpacity>
           )}
         </View>
       );
     },
-    [group, memberLocations, isAdmin, userId, handleMemberMenu],
+    [group, memberLocations, isAdmin, userId, handleMemberMenu, memberStyles, colors],
   );
 
   // ── Home: no group ────────────────────────────────────────────────────────
@@ -745,7 +766,7 @@ export default function ConvoyScreen({ userId }: Props) {
           <View style={styles.headerBar}>
             <Text style={styles.headerTitle}>CREATE CONVOY</Text>
             <TouchableOpacity onPress={() => setView('home')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} accessibilityRole="button" accessibilityLabel="Cancel">
-              <Text style={styles.headerBack}>✕</Text>
+              <Ionicons name="close" size={22} color={colors.textMuted} />
             </TouchableOpacity>
           </View>
 
@@ -755,7 +776,7 @@ export default function ConvoyScreen({ userId }: Props) {
               <TextInput
                 style={[styles.input, createNameFocused && styles.inputFocused]}
                 placeholder="e.g. Sunday Rally"
-                placeholderTextColor="#555555"
+                placeholderTextColor={colors.textSubtle}
                 value={groupName}
                 onChangeText={setGroupName}
                 onFocus={() => setCreateNameFocused(true)}
@@ -797,7 +818,12 @@ export default function ConvoyScreen({ userId }: Props) {
                   accessibilityState={{ selected: createAccessType === type }}
                 >
                   <Text style={[styles.createPillText, createAccessType === type && styles.createPillTextActive]}>
-                    {type === 'open' ? '🌐  Open' : '🔒  Invite Only'}
+                    <Ionicons
+                      name={type === 'open' ? 'globe-outline' : 'lock-closed-outline'}
+                      size={13}
+                      color={createAccessType === type ? colors.accent : colors.textSubtle}
+                    />
+                    {type === 'open' ? '  Open' : '  Invite Only'}
                   </Text>
                 </TouchableOpacity>
               ))}
@@ -812,7 +838,7 @@ export default function ConvoyScreen({ userId }: Props) {
             accessibilityLabel="Create convoy"
             accessibilityState={{ disabled: !groupName.trim() || loading }}
           >
-            {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryBtnText}>Create Convoy</Text>}
+            {loading ? <ActivityIndicator color={colors.text} /> : <Text style={styles.primaryBtnText}>Create Convoy</Text>}
           </TouchableOpacity>
         </SafeAreaView>
       );
@@ -824,7 +850,7 @@ export default function ConvoyScreen({ userId }: Props) {
           <View style={styles.headerBar}>
             <Text style={styles.headerTitle}>JOIN CONVOY</Text>
             <TouchableOpacity onPress={() => setView('home')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} accessibilityRole="button" accessibilityLabel="Cancel">
-              <Text style={styles.headerBack}>✕</Text>
+              <Ionicons name="close" size={22} color={colors.textMuted} />
             </TouchableOpacity>
           </View>
 
@@ -833,7 +859,7 @@ export default function ConvoyScreen({ userId }: Props) {
             <TextInput
               style={[styles.input, styles.codeInput, { flex: 1, marginBottom: 0 }]}
               placeholder="XXXXXX"
-              placeholderTextColor="#333333"
+              placeholderTextColor={colors.textSubtle}
               value={joinCode}
               onChangeText={(t) => {
                 const upper = t.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6);
@@ -854,7 +880,9 @@ export default function ConvoyScreen({ userId }: Props) {
               accessibilityRole="button"
               accessibilityLabel="Paste code from clipboard"
             >
-              <Text style={styles.pasteBtnText}>📋 Paste</Text>
+              <Text style={styles.pasteBtnText}>
+                <Ionicons name="clipboard-outline" size={13} color={colors.textMuted} /> Paste
+              </Text>
             </TouchableOpacity>
           </View>
           {joinCode.length > 0 && (
@@ -869,7 +897,7 @@ export default function ConvoyScreen({ userId }: Props) {
             accessibilityLabel="Join convoy"
             accessibilityState={{ disabled: joinCode.trim().length !== 6 || loading }}
           >
-            {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryBtnText}>Join Convoy</Text>}
+            {loading ? <ActivityIndicator color={colors.text} /> : <Text style={styles.primaryBtnText}>Join Convoy</Text>}
           </TouchableOpacity>
         </SafeAreaView>
       );
@@ -881,7 +909,9 @@ export default function ConvoyScreen({ userId }: Props) {
           <View style={styles.headerBar}>
             <Text style={styles.headerTitle}>DISCOVER</Text>
             <TouchableOpacity onPress={() => setView('home')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} accessibilityRole="button" accessibilityLabel="Go back">
-              <Text style={styles.headerBack}>← Back</Text>
+              <Text style={styles.headerBack}>
+                <Ionicons name="chevron-back" size={14} color={colors.textMuted} /> Back
+              </Text>
             </TouchableOpacity>
           </View>
           <TouchableOpacity
@@ -893,7 +923,7 @@ export default function ConvoyScreen({ userId }: Props) {
             accessibilityState={{ disabled: discoverLoading }}
           >
             {discoverLoading
-              ? <ActivityIndicator color="#888888" />
+              ? <ActivityIndicator color={colors.textMuted} />
               : <Text style={styles.secondaryBtnText}>Refresh</Text>}
           </TouchableOpacity>
           <FlatList
@@ -915,7 +945,7 @@ export default function ConvoyScreen({ userId }: Props) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.emptyHero}>
-          <Text style={styles.emptyEmoji}>🚗</Text>
+          <MaterialCommunityIcons name="car" size={64} color={colors.textMuted} style={styles.emptyEmoji} />
           <Text style={styles.title}>No Active Convoy</Text>
           <Text style={styles.subtitle}>Start or join a driving group</Text>
         </View>
@@ -961,7 +991,7 @@ export default function ConvoyScreen({ userId }: Props) {
             accessibilityRole="button"
             accessibilityLabel="Invite friends to this convoy"
           >
-            <Text style={{ fontSize: 20 }}>📤</Text>
+            <Ionicons name="share-social-outline" size={20} color={colors.text} />
           </TouchableOpacity>
           <TouchableOpacity
             onPress={() => router.push({ pathname: '/group-chat' as never, params: { groupId: activeGroupId } })}
@@ -969,7 +999,7 @@ export default function ConvoyScreen({ userId }: Props) {
             accessibilityRole="button"
             accessibilityLabel="Group chat"
           >
-            <Text style={{ fontSize: 20 }}>💬</Text>
+            <Ionicons name="chatbubble-outline" size={20} color={colors.text} />
           </TouchableOpacity>
           {isAdmin && (
             <TouchableOpacity
@@ -978,7 +1008,7 @@ export default function ConvoyScreen({ userId }: Props) {
               accessibilityRole="button"
               accessibilityLabel="Group settings"
             >
-              <Text style={{ fontSize: 20 }}>⚙️</Text>
+              <Ionicons name="settings-outline" size={20} color={colors.text} />
             </TouchableOpacity>
           )}
         </View>
@@ -999,8 +1029,8 @@ export default function ConvoyScreen({ userId }: Props) {
             accessibilityLabel="Copy join code"
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
-            <Text style={[styles.copyBtnText, copyFeedback && { color: '#22c55e' }]}>
-              {copyFeedback ? '✓ Copied' : 'Copy'}
+            <Text style={[styles.copyBtnText, copyFeedback && { color: colors.success }]}>
+              {copyFeedback ? <><Ionicons name="checkmark" size={12} color={colors.success} /> Copied</> : 'Copy'}
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
@@ -1060,7 +1090,9 @@ export default function ConvoyScreen({ userId }: Props) {
                 >
                   <View style={[styles.channelListStrip, isActive && styles.channelListStripActive]} />
                   <Text style={[styles.channelListName, isActive && styles.channelListNameActive]}>
-                    {ch.isAll ? '📢  All Members' : `# ${ch.name}`}
+                    {ch.isAll
+                      ? <><Ionicons name="megaphone-outline" size={13} color={isActive ? colors.accent : colors.textMuted} />  All Members</>
+                      : `# ${ch.name}`}
                   </Text>
                   {typeof ch.memberCount === 'number' && (
                     <Text style={styles.channelMemberCount}>{ch.memberCount} online</Text>
@@ -1086,7 +1118,7 @@ export default function ConvoyScreen({ userId }: Props) {
                 <TextInput
                   style={[styles.input, styles.newChannelInput]}
                   placeholder="Channel name"
-                  placeholderTextColor="#555555"
+                  placeholderTextColor={colors.textSubtle}
                   value={newChannelName}
                   onChangeText={setNewChannelName}
                   autoFocus
@@ -1107,7 +1139,7 @@ export default function ConvoyScreen({ userId }: Props) {
                   accessibilityRole="button"
                   accessibilityLabel="Cancel new channel"
                 >
-                  <Text style={styles.newChannelCancelText}>✕</Text>
+                  <Ionicons name="close" size={16} color={colors.textMuted} />
                 </TouchableOpacity>
               </View>
             )}
@@ -1137,22 +1169,24 @@ export default function ConvoyScreen({ userId }: Props) {
         >
           <View style={styles.eventStrip} />
           <View style={{ flex: 1, padding: 12 }}>
-            <Text style={styles.eventTitle}>📅 {upcomingEvent.title}</Text>
+            <Text style={styles.eventTitle}>
+              <Ionicons name="calendar-outline" size={13} color={colors.text} /> {upcomingEvent.title}
+            </Text>
             <Text style={styles.eventDate}>{formatEventDate(upcomingEvent.scheduledFor)}</Text>
 
             {/* RSVP summary */}
             <Text style={styles.eventRsvpSummary}>
-              {eventRsvp.going > 0 ? `✅ ${eventRsvp.going} going` : ''}
-              {eventRsvp.maybe > 0 ? `  🤔 ${eventRsvp.maybe} maybe` : ''}
+              {eventRsvp.going > 0 ? <><Ionicons name="checkmark-circle" size={11} color={colors.success} /> {eventRsvp.going} going</> : ''}
+              {eventRsvp.maybe > 0 ? <>  <Ionicons name="help-circle-outline" size={11} color={colors.warning} /> {eventRsvp.maybe} maybe</> : ''}
               {(eventRsvp.going === 0 && eventRsvp.maybe === 0) ? 'No RSVPs yet' : ''}
             </Text>
 
             {/* User RSVP status + action */}
             <View style={styles.eventRsvpRow}>
               {eventRsvp.myStatus === 'going' ? (
-                <Text style={styles.eventRsvpGoing}>✅ You're going</Text>
+                <Text style={styles.eventRsvpGoing}><Ionicons name="checkmark-circle" size={12} color={colors.success} /> You're going</Text>
               ) : eventRsvp.myStatus === 'maybe' ? (
-                <Text style={styles.eventRsvpMaybe}>🤔 You're maybe going</Text>
+                <Text style={styles.eventRsvpMaybe}><Ionicons name="help-circle-outline" size={12} color={colors.warning} /> You're maybe going</Text>
               ) : (
                 <Text style={styles.eventRsvpCta}>Tap to RSVP →</Text>
               )}
@@ -1191,7 +1225,9 @@ export default function ConvoyScreen({ userId }: Props) {
           accessibilityRole="button"
           accessibilityLabel="Schedule a convoy event"
         >
-          <Text style={styles.scheduleBtnText}>📅  Schedule Event</Text>
+          <Text style={styles.scheduleBtnText}>
+            <Ionicons name="calendar-outline" size={13} color={colors.textMuted} />  Schedule Event
+          </Text>
         </TouchableOpacity>
       )}
 
@@ -1203,7 +1239,7 @@ export default function ConvoyScreen({ userId }: Props) {
           accessibilityRole="button"
           accessibilityLabel="Invite friends to this convoy"
         >
-          <Text style={styles.quickActionIcon}>📨</Text>
+          <Ionicons name="paper-plane-outline" size={20} color={colors.text} style={styles.quickActionIcon} />
           <Text style={styles.quickActionText}>Invite</Text>
         </TouchableOpacity>
         <TouchableOpacity
@@ -1212,7 +1248,7 @@ export default function ConvoyScreen({ userId }: Props) {
           accessibilityRole="button"
           accessibilityLabel="View group leaderboard"
         >
-          <Text style={styles.quickActionIcon}>🏆</Text>
+          <Ionicons name="trophy-outline" size={20} color={colors.text} style={styles.quickActionIcon} />
           <Text style={styles.quickActionText}>Leaderboard</Text>
         </TouchableOpacity>
         <TouchableOpacity
@@ -1221,7 +1257,7 @@ export default function ConvoyScreen({ userId }: Props) {
           accessibilityRole="button"
           accessibilityLabel="Manage waypoints"
         >
-          <Text style={styles.quickActionIcon}>📍</Text>
+          <Ionicons name="location-outline" size={20} color={colors.text} style={styles.quickActionIcon} />
           <Text style={styles.quickActionText}>Waypoints</Text>
         </TouchableOpacity>
         <TouchableOpacity
@@ -1230,7 +1266,7 @@ export default function ConvoyScreen({ userId }: Props) {
           accessibilityRole="button"
           accessibilityLabel="View group photos"
         >
-          <Text style={styles.quickActionIcon}>📷</Text>
+          <Ionicons name="camera-outline" size={20} color={colors.text} style={styles.quickActionIcon} />
           <Text style={styles.quickActionText}>Photos</Text>
         </TouchableOpacity>
       </View>
@@ -1254,7 +1290,9 @@ export default function ConvoyScreen({ userId }: Props) {
         <View style={styles.actionsDivider} />
         {isAdmin && (
           <TouchableOpacity style={styles.dangerBtn} onPress={handleEnd} accessibilityRole="button" accessibilityLabel="End convoy">
-            <Text style={styles.dangerBtnText}>🛑  End Convoy</Text>
+            <Text style={styles.dangerBtnText}>
+              <Ionicons name="stop-circle-outline" size={15} color="#FF8080" />  End Convoy
+            </Text>
           </TouchableOpacity>
         )}
         <TouchableOpacity style={styles.secondaryBtn} onPress={handleLeave} accessibilityRole="button" accessibilityLabel="Leave convoy">
@@ -1311,16 +1349,17 @@ export default function ConvoyScreen({ userId }: Props) {
 // Member row styles (separate sheet to avoid clashing with legacy styles)
 // ---------------------------------------------------------------------------
 
-const memberStyles = StyleSheet.create({
+function createMemberStyles(colors: ThemeColors) {
+  return StyleSheet.create({
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#1C1C1C',
+    backgroundColor: colors.card,
     borderRadius: 12,
     padding: 10,
     marginBottom: 8,
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: colors.border,
     minHeight: 64,
     gap: 10,
   },
@@ -1348,12 +1387,12 @@ const memberStyles = StyleSheet.create({
     flexWrap: 'wrap',
   },
   name: {
-    color: '#F0F0F0',
+    color: colors.text,
     fontSize: 16,
     fontWeight: '700',
   },
   adminBadge: {
-    color: '#DC143C',
+    color: colors.accent,
     fontSize: 9,
     fontWeight: '800',
     letterSpacing: 1,
@@ -1371,7 +1410,7 @@ const memberStyles = StyleSheet.create({
     marginRight: 4,
   },
   callsign: {
-    color: '#555555',
+    color: colors.textSubtle,
     fontSize: 13,
     marginTop: 2,
   },
@@ -1381,15 +1420,15 @@ const memberStyles = StyleSheet.create({
     flexShrink: 0,
   },
   distancePill: {
-    backgroundColor: '#0A0A0A',
+    backgroundColor: colors.bg,
     borderRadius: 10,
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: colors.border,
   },
   distanceText: {
-    color: '#888888',
+    color: colors.textMuted,
     fontSize: 11,
     fontWeight: '600',
   },
@@ -1404,18 +1443,20 @@ const memberStyles = StyleSheet.create({
     flexShrink: 0,
   },
   kebabText: {
-    color: '#555555',
+    color: colors.textSubtle,
     fontSize: 16,
     letterSpacing: -1,
   },
-});
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Styles
 // ---------------------------------------------------------------------------
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0A0A0A', padding: 16 },
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+  container: { flex: 1, backgroundColor: colors.bg, padding: 16 },
 
   // Member joined/left toast (Req 7.6, 7.7)
   memberToast: {
@@ -1429,11 +1470,11 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 14,
     borderWidth: 1,
-    borderColor: '#DC143C',
+    borderColor: colors.accent,
     alignItems: 'center',
   },
   memberToastText: {
-    color: '#F0F0F0',
+    color: colors.text,
     fontSize: 13,
     fontWeight: '600',
   },
@@ -1447,19 +1488,19 @@ const styles = StyleSheet.create({
     paddingTop: 4,
   },
   headerTitle: {
-    color: '#F0F0F0',
+    color: colors.text,
     fontSize: 20,
     fontWeight: '800',
     letterSpacing: 3,
   },
   memberCountBadge: {
-    backgroundColor: '#DC143C',
+    backgroundColor: colors.accent,
     borderRadius: 12,
     paddingHorizontal: 10,
     paddingVertical: 4,
   },
   memberCountText: {
-    color: '#fff',
+    color: colors.text,
     fontSize: 12,
     fontWeight: '700',
   },
@@ -1473,28 +1514,28 @@ const styles = StyleSheet.create({
   emptyEmoji: { fontSize: 64, marginBottom: 16 },
   homeActions: { paddingBottom: 8 },
 
-  title: { color: '#F0F0F0', fontSize: 24, fontWeight: '700', marginBottom: 8, textAlign: 'center' },
-  subtitle: { color: '#888888', fontSize: 14, marginBottom: 32, textAlign: 'center' },
+  title: { color: colors.text, fontSize: 24, fontWeight: '700', marginBottom: 8, textAlign: 'center' },
+  subtitle: { color: colors.textMuted, fontSize: 14, marginBottom: 32, textAlign: 'center' },
 
   input: {
-    backgroundColor: '#1C1C1C', color: '#F0F0F0', borderRadius: 10,
+    backgroundColor: colors.card, color: colors.text, borderRadius: 10,
     padding: 14, fontSize: 16, marginBottom: 12,
-    borderWidth: 1, borderColor: '#2A2A2A',
+    borderWidth: 1, borderColor: colors.border,
   },
   codeInput: { letterSpacing: 8, textAlign: 'center', fontSize: 22, fontWeight: '700', fontFamily: 'monospace' },
 
   primaryBtn: {
-    backgroundColor: '#DC143C', borderRadius: 12, paddingVertical: 16,
+    backgroundColor: colors.accent, borderRadius: 12, paddingVertical: 16,
     alignItems: 'center', marginBottom: 10, minHeight: 52,
     justifyContent: 'center',
   },
-  primaryBtnText: { color: '#fff', fontWeight: '700', fontSize: 16 },
+  primaryBtnText: { color: colors.text, fontWeight: '700', fontSize: 16 },
   secondaryBtn: {
-    backgroundColor: '#1C1C1C', borderRadius: 12, paddingVertical: 16,
+    backgroundColor: colors.card, borderRadius: 12, paddingVertical: 16,
     alignItems: 'center', marginBottom: 10, minHeight: 52,
-    justifyContent: 'center', borderWidth: 1, borderColor: '#2A2A2A',
+    justifyContent: 'center', borderWidth: 1, borderColor: colors.border,
   },
-  secondaryBtnText: { color: '#888888', fontWeight: '600', fontSize: 15 },
+  secondaryBtnText: { color: colors.textMuted, fontWeight: '600', fontSize: 15 },
   dangerBtn: {
     backgroundColor: '#1A0505', borderRadius: 12, paddingVertical: 16,
     alignItems: 'center', marginBottom: 10, minHeight: 52,
@@ -1504,22 +1545,22 @@ const styles = StyleSheet.create({
 
   // Group card
   groupCard: {
-    backgroundColor: '#1C1C1C',
+    backgroundColor: colors.card,
     borderRadius: 14,
     padding: 16,
     marginBottom: 20,
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: colors.border,
   },
-  groupName: { color: '#F0F0F0', fontSize: 20, fontWeight: '700', marginBottom: 12 },
+  groupName: { color: colors.text, fontSize: 20, fontWeight: '700', marginBottom: 12 },
   joinCodeRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
   },
-  joinCodeLabel: { color: '#555555', fontSize: 12, fontWeight: '600' },
+  joinCodeLabel: { color: colors.textSubtle, fontSize: 12, fontWeight: '600' },
   joinCodeValue: {
-    color: '#DC143C',
+    color: colors.accent,
     fontSize: 18,
     fontWeight: '800',
     letterSpacing: 4,
@@ -1527,33 +1568,33 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   copyBtn: {
-    backgroundColor: '#2A2A2A',
+    backgroundColor: colors.border,
     borderRadius: 8,
     paddingHorizontal: 10,
     paddingVertical: 6,
     minHeight: 36,
     justifyContent: 'center',
   },
-  copyBtnText: { color: '#888888', fontSize: 12, fontWeight: '600' },
+  copyBtnText: { color: colors.textMuted, fontSize: 12, fontWeight: '600' },
   shareCodeBtn: {
-    backgroundColor: '#DC143C',
+    backgroundColor: colors.accent,
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 6,
     minHeight: 36,
     justifyContent: 'center',
   },
-  shareCodeText: { color: '#fff', fontWeight: '700', fontSize: 12 },
+  shareCodeText: { color: colors.text, fontWeight: '700', fontSize: 12 },
   qrBtn: {
     borderWidth: 1,
-    borderColor: '#DC143C',
+    borderColor: colors.accent,
     borderRadius: 8,
     paddingHorizontal: 10,
     paddingVertical: 6,
     minHeight: 36,
     justifyContent: 'center',
   },
-  qrBtnText: { color: '#DC143C', fontWeight: '700', fontSize: 12 },
+  qrBtnText: { color: colors.accent, fontWeight: '700', fontSize: 12 },
 
   // QR modal
   qrOverlay: {
@@ -1569,35 +1610,35 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     width: 300,
   },
-  qrTitle: { color: '#fff', fontSize: 18, fontWeight: '700', marginBottom: 4 },
-  qrSubtitle: { color: '#888', fontSize: 13, marginBottom: 16 },
+  qrTitle: { color: colors.text, fontSize: 18, fontWeight: '700', marginBottom: 4 },
+  qrSubtitle: { color: colors.textMuted, fontSize: 13, marginBottom: 16 },
   qrImage: { width: 240, height: 240, borderRadius: 8, marginBottom: 12 },
-  qrCodeLabel: { color: '#DC143C', fontSize: 20, fontWeight: '800', letterSpacing: 4, marginBottom: 8 },
-  qrDismiss: { color: '#555', fontSize: 11 },
+  qrCodeLabel: { color: colors.accent, fontSize: 20, fontWeight: '800', letterSpacing: 4, marginBottom: 8 },
+  qrDismiss: { color: colors.textSubtle, fontSize: 11 },
 
   // Gap threshold
-  gapSection: { marginTop: 14, paddingTop: 14, borderTopWidth: 1, borderTopColor: '#2A2A2A' },
-  gapLabel: { color: '#555555', fontSize: 10, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 8 },
+  gapSection: { marginTop: 14, paddingTop: 14, borderTopWidth: 1, borderTopColor: colors.border },
+  gapLabel: { color: colors.textSubtle, fontSize: 10, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 8 },
   gapOptions: { flexDirection: 'row', gap: 8 },
   gapChip: {
-    flex: 1, paddingVertical: 8, borderRadius: 8, backgroundColor: '#0A0A0A',
-    borderWidth: 1, borderColor: '#2A2A2A', alignItems: 'center', minHeight: 36, justifyContent: 'center',
+    flex: 1, paddingVertical: 8, borderRadius: 8, backgroundColor: colors.bg,
+    borderWidth: 1, borderColor: colors.border, alignItems: 'center', minHeight: 36, justifyContent: 'center',
   },
-  gapChipActive: { borderColor: '#DC143C', backgroundColor: '#1A0505' },
-  gapChipText: { color: '#555555', fontSize: 12, fontWeight: '600' },
-  gapChipTextActive: { color: '#DC143C' },
+  gapChipActive: { borderColor: colors.accent, backgroundColor: '#1A0505' },
+  gapChipText: { color: colors.textSubtle, fontSize: 12, fontWeight: '600' },
+  gapChipTextActive: { color: colors.accent },
 
-  sectionLabel: { color: '#555555', fontSize: 11, fontWeight: '700', marginBottom: 8, letterSpacing: 1.5 },
+  sectionLabel: { color: colors.textSubtle, fontSize: 11, fontWeight: '700', marginBottom: 8, letterSpacing: 1.5 },
   memberList: { flex: 1 },
   memberRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#1C1C1C',
+    backgroundColor: colors.card,
     borderRadius: 12,
     padding: 14,
     marginBottom: 8,
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: colors.border,
     minHeight: 60,
     gap: 10,
   },
@@ -1606,20 +1647,20 @@ const styles = StyleSheet.create({
     height: 10,
     borderRadius: 5,
   },
-  dotOnline: { backgroundColor: '#22c55e' },
+  dotOnline: { backgroundColor: colors.success },
   dotOffline: { backgroundColor: '#444444' },
   memberInfo: { flex: 1 },
-  memberName: { color: '#F0F0F0', fontSize: 15, fontWeight: '600' },
+  memberName: { color: colors.text, fontSize: 15, fontWeight: '600' },
   memberMetaRow: { flexDirection: 'row', gap: 10, marginTop: 3 },
-  memberMeta: { color: '#555555', fontSize: 12 },
+  memberMeta: { color: colors.textSubtle, fontSize: 12 },
   adminActions: { flexDirection: 'row', gap: 6 },
   muteBtn: {
-    backgroundColor: '#2A2A2A', borderRadius: 8,
+    backgroundColor: colors.border, borderRadius: 8,
     paddingHorizontal: 12, paddingVertical: 8, minWidth: 64,
     alignItems: 'center', minHeight: 36, justifyContent: 'center',
   },
-  muteBtnActive: { backgroundColor: '#DC143C' },
-  muteBtnText: { color: '#F0F0F0', fontSize: 12, fontWeight: '600' },
+  muteBtnActive: { backgroundColor: colors.accent },
+  muteBtnText: { color: colors.text, fontSize: 12, fontWeight: '600' },
   kickBtn: {
     backgroundColor: '#1A0505', borderRadius: 8,
     paddingHorizontal: 12, paddingVertical: 8, minWidth: 48,
@@ -1631,71 +1672,71 @@ const styles = StyleSheet.create({
     paddingVertical: 32,
     alignItems: 'center',
   },
-  emptyMembersText: { color: '#555555', fontSize: 13 },
+  emptyMembersText: { color: colors.textSubtle, fontSize: 13 },
 
   actionsDivider: {
     height: 1,
-    backgroundColor: '#1C1C1C',
+    backgroundColor: colors.card,
     marginBottom: 14,
   },
   actions: { paddingTop: 4, paddingBottom: 4 },
 
   // Discover view
-  headerBack: { color: '#888888', fontSize: 14, fontWeight: '600' },
+  headerBack: { color: colors.textMuted, fontSize: 14, fontWeight: '600' },
   discoverRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#1C1C1C',
+    backgroundColor: colors.card,
     borderRadius: 12,
     padding: 14,
     marginBottom: 8,
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: colors.border,
     minHeight: 60,
   },
   discoverInfo: { flex: 1 },
-  discoverName: { color: '#F0F0F0', fontSize: 15, fontWeight: '600' },
-  discoverMeta: { color: '#555555', fontSize: 12, marginTop: 3 },
+  discoverName: { color: colors.text, fontSize: 15, fontWeight: '600' },
+  discoverMeta: { color: colors.textSubtle, fontSize: 12, marginTop: 3 },
   discoverJoinBtn: {
-    backgroundColor: '#DC143C',
+    backgroundColor: colors.accent,
     borderRadius: 8,
     paddingHorizontal: 16,
     paddingVertical: 8,
     minHeight: 36,
     justifyContent: 'center',
   },
-  discoverJoinText: { color: '#fff', fontWeight: '700', fontSize: 13 },
+  discoverJoinText: { color: colors.text, fontWeight: '700', fontSize: 13 },
 
   // PTT channel management
-  channelSection: { marginTop: 14, paddingTop: 14, borderTopWidth: 1, borderTopColor: '#2A2A2A' },
+  channelSection: { marginTop: 14, paddingTop: 14, borderTopWidth: 1, borderTopColor: colors.border },
   channelRow: { flexDirection: 'row' },
   channelChip: {
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 20,
-    backgroundColor: '#0A0A0A',
+    backgroundColor: colors.bg,
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: colors.border,
     marginRight: 8,
     minHeight: 34,
     justifyContent: 'center',
   },
-  channelChipActive: { borderColor: '#DC143C', backgroundColor: '#1A0505' },
-  channelChipText: { color: '#555555', fontSize: 12, fontWeight: '600' },
-  channelChipTextActive: { color: '#DC143C' },
+  channelChipActive: { borderColor: colors.accent, backgroundColor: '#1A0505' },
+  channelChipText: { color: colors.textSubtle, fontSize: 12, fontWeight: '600' },
+  channelChipTextActive: { color: colors.accent },
   channelNewChip: {
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 20,
-    backgroundColor: '#0A0A0A',
+    backgroundColor: colors.bg,
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: colors.border,
     borderStyle: 'dashed',
     marginRight: 8,
     minHeight: 34,
     justifyContent: 'center',
   },
-  channelNewText: { color: '#555555', fontSize: 12, fontWeight: '600' },
+  channelNewText: { color: colors.textSubtle, fontSize: 12, fontWeight: '600' },
   newChannelRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1710,45 +1751,45 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   newChannelAdd: {
-    backgroundColor: '#DC143C',
+    backgroundColor: colors.accent,
     borderRadius: 8,
     paddingHorizontal: 14,
     paddingVertical: 8,
     minHeight: 36,
     justifyContent: 'center',
   },
-  newChannelAddText: { color: '#fff', fontWeight: '700', fontSize: 13 },
+  newChannelAddText: { color: colors.text, fontWeight: '700', fontSize: 13 },
   newChannelCancel: {
-    backgroundColor: '#2A2A2A',
+    backgroundColor: colors.border,
     borderRadius: 8,
     paddingHorizontal: 10,
     paddingVertical: 8,
     minHeight: 36,
     justifyContent: 'center',
   },
-  newChannelCancelText: { color: '#888888', fontWeight: '600', fontSize: 14 },
+  newChannelCancelText: { color: colors.textMuted, fontWeight: '600', fontSize: 14 },
 
   // Create form
-  createFieldLabel: { color: '#555555', fontSize: 10, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 8, marginTop: 20 },
-  inputFocused: { borderColor: '#DC143C' },
+  createFieldLabel: { color: colors.textSubtle, fontSize: 10, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 8, marginTop: 20 },
+  inputFocused: { borderColor: colors.accent },
   charCounter: { color: '#444444', fontSize: 11, textAlign: 'right', marginTop: 4, marginBottom: 4 },
   pillRow: { flexDirection: 'row', gap: 8, marginBottom: 4 },
   createPill: {
     flex: 1, paddingVertical: 12, borderRadius: 10,
-    backgroundColor: '#1C1C1C', borderWidth: 1, borderColor: '#2A2A2A',
+    backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border,
     alignItems: 'center', justifyContent: 'center',
   },
-  createPillActive: { backgroundColor: '#1A0505', borderColor: '#DC143C' },
-  createPillText: { color: '#555555', fontSize: 13, fontWeight: '600', textAlign: 'center' },
-  createPillTextActive: { color: '#DC143C' },
+  createPillActive: { backgroundColor: '#1A0505', borderColor: colors.accent },
+  createPillText: { color: colors.textSubtle, fontSize: 13, fontWeight: '600', textAlign: 'center' },
+  createPillTextActive: { color: colors.accent },
 
   // Join form
   codeInputRow: { flexDirection: 'row', gap: 10, alignItems: 'center', marginBottom: 8 },
   pasteBtn: {
-    paddingHorizontal: 16, paddingVertical: 14, backgroundColor: '#1C1C1C',
-    borderRadius: 10, borderWidth: 1, borderColor: '#2A2A2A', justifyContent: 'center',
+    paddingHorizontal: 16, paddingVertical: 14, backgroundColor: colors.card,
+    borderRadius: 10, borderWidth: 1, borderColor: colors.border, justifyContent: 'center',
   },
-  pasteBtnText: { color: '#888888', fontSize: 13, fontWeight: '600' },
+  pasteBtnText: { color: colors.textMuted, fontSize: 13, fontWeight: '600' },
   codePreviewText: { color: '#444444', fontSize: 13, textAlign: 'center', letterSpacing: 4, fontVariant: ['tabular-nums'] as any },
 
   // PTT vertical channel list
@@ -1756,75 +1797,75 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingRight: 12,
     borderLeftWidth: 4, borderLeftColor: 'transparent', marginBottom: 4, borderRadius: 0,
   },
-  channelListRowActive: { backgroundColor: '#1A0505', borderLeftColor: '#DC143C' },
+  channelListRowActive: { backgroundColor: '#1A0505', borderLeftColor: colors.accent },
   channelListStrip: { width: 0 },
   channelListStripActive: { width: 0 },
-  channelListName: { flex: 1, color: '#888888', fontSize: 14, fontWeight: '600', paddingLeft: 10 },
-  channelListNameActive: { color: '#DC143C' },
+  channelListName: { flex: 1, color: colors.textMuted, fontSize: 14, fontWeight: '600', paddingLeft: 10 },
+  channelListNameActive: { color: colors.accent },
   channelMemberCount: { color: '#444444', fontSize: 12, marginRight: 10 },
   channelRadio: {
     width: 18, height: 18, borderRadius: 9,
-    borderWidth: 2, borderColor: '#2A2A2A',
+    borderWidth: 2, borderColor: colors.border,
     alignItems: 'center', justifyContent: 'center',
   },
-  channelRadioActive: { borderColor: '#DC143C' },
-  channelRadioDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#DC143C' },
+  channelRadioActive: { borderColor: colors.accent },
+  channelRadioDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.accent },
   channelAddRow: { paddingVertical: 10, paddingLeft: 14, marginTop: 2 },
-  channelAddText: { color: '#555555', fontSize: 13, fontWeight: '600' },
+  channelAddText: { color: colors.textSubtle, fontSize: 13, fontWeight: '600' },
 
   // Upcoming event
   eventCard: {
     flexDirection: 'row',
-    backgroundColor: '#1C1C1C',
+    backgroundColor: colors.card,
     borderRadius: 12,
     marginBottom: 10,
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: colors.border,
     overflow: 'hidden',
   },
-  eventStrip: { width: 4, backgroundColor: '#F59E0B' },
-  eventTitle: { color: '#F0F0F0', fontSize: 14, fontWeight: '700', marginBottom: 2 },
-  eventDate: { color: '#888888', fontSize: 12, marginBottom: 6 },
-  eventRsvpSummary: { color: '#888888', fontSize: 12, marginBottom: 4 },
+  eventStrip: { width: 4, backgroundColor: colors.warning },
+  eventTitle: { color: colors.text, fontSize: 14, fontWeight: '700', marginBottom: 2 },
+  eventDate: { color: colors.textMuted, fontSize: 12, marginBottom: 6 },
+  eventRsvpSummary: { color: colors.textMuted, fontSize: 12, marginBottom: 4 },
   eventRsvpRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 },
-  eventRsvpGoing: { color: '#22C55E', fontSize: 12, fontWeight: '600' },
-  eventRsvpMaybe: { color: '#F59E0B', fontSize: 12, fontWeight: '600' },
-  eventRsvpCta: { color: '#DC143C', fontSize: 12, fontWeight: '600' },
-  eventViewDetails: { color: '#555555', fontSize: 11 },
-  eventCountdownLabel: { color: '#888888', fontSize: 11, marginBottom: 4 },
+  eventRsvpGoing: { color: colors.success, fontSize: 12, fontWeight: '600' },
+  eventRsvpMaybe: { color: colors.warning, fontSize: 12, fontWeight: '600' },
+  eventRsvpCta: { color: colors.accent, fontSize: 12, fontWeight: '600' },
+  eventViewDetails: { color: colors.textSubtle, fontSize: 11 },
+  eventCountdownLabel: { color: colors.textMuted, fontSize: 11, marginBottom: 4 },
   countdownRow: { flexDirection: 'row', alignItems: 'center', gap: 2 },
   countdownNum: {
-    color: '#F0F0F0',
+    color: colors.text,
     fontSize: 32,
     fontWeight: '700',
     fontVariant: ['tabular-nums'] as any,
     minWidth: 44,
     textAlign: 'center',
   },
-  countdownNumUrgent: { color: '#DC143C' },
-  countdownColon: { color: '#888888', fontSize: 20, fontWeight: '700', marginHorizontal: 2 },
-  countdownColonUrgent: { color: '#DC143C' },
+  countdownNumUrgent: { color: colors.accent },
+  countdownColon: { color: colors.textMuted, fontSize: 20, fontWeight: '700', marginHorizontal: 2 },
+  countdownColonUrgent: { color: colors.accent },
   startingBanner: {
-    backgroundColor: '#DC143C',
+    backgroundColor: colors.accent,
     borderRadius: 12,
     paddingVertical: 12,
     alignItems: 'center',
     marginBottom: 10,
   },
-  startingBannerText: { color: '#fff', fontSize: 18, fontWeight: '800', letterSpacing: 1 },
+  startingBannerText: { color: colors.text, fontSize: 18, fontWeight: '800', letterSpacing: 1 },
 
   // Schedule event button
   scheduleBtn: {
-    backgroundColor: '#1C1C1C',
+    backgroundColor: colors.card,
     borderRadius: 10,
     paddingVertical: 10,
     paddingHorizontal: 14,
     marginBottom: 12,
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: colors.border,
     alignSelf: 'flex-start',
   },
-  scheduleBtnText: { color: '#888888', fontSize: 13, fontWeight: '600' },
+  scheduleBtnText: { color: colors.textMuted, fontSize: 13, fontWeight: '600' },
 
   // Quick action row
   quickActions: {
@@ -1834,22 +1875,22 @@ const styles = StyleSheet.create({
   },
   quickActionBtn: {
     flex: 1,
-    backgroundColor: '#1C1C1C',
+    backgroundColor: colors.card,
     borderRadius: 12,
     paddingVertical: 12,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: colors.border,
     minHeight: 60,
     gap: 4,
   },
   quickActionIcon: { fontSize: 20 },
-  quickActionText: { color: '#888888', fontSize: 11, fontWeight: '700', letterSpacing: 0.5 },
+  quickActionText: { color: colors.textMuted, fontSize: 11, fontWeight: '700', letterSpacing: 0.5 },
 
   // Invite modal
   inviteModal: {
-    backgroundColor: '#1C1C1C',
+    backgroundColor: colors.card,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     borderRadius: 20,
@@ -1860,43 +1901,43 @@ const styles = StyleSheet.create({
   inviteModalHandle: {
     width: 40,
     height: 4,
-    backgroundColor: '#2A2A2A',
+    backgroundColor: colors.border,
     borderRadius: 2,
     marginBottom: 20,
   },
   inviteModalTitle: {
-    color: '#F0F0F0',
+    color: colors.text,
     fontSize: 20,
     fontWeight: '800',
     marginBottom: 4,
     textAlign: 'center',
   },
   inviteModalGroupName: {
-    color: '#DC143C',
+    color: colors.accent,
     fontSize: 14,
     fontWeight: '700',
     marginBottom: 6,
     textAlign: 'center',
   },
   inviteModalHint: {
-    color: '#555555',
+    color: colors.textSubtle,
     fontSize: 12,
     marginBottom: 20,
     textAlign: 'center',
   },
   inviteCodeBox: {
-    backgroundColor: '#0A0A0A',
+    backgroundColor: colors.bg,
     borderRadius: 14,
     paddingVertical: 20,
     paddingHorizontal: 32,
     marginBottom: 20,
     borderWidth: 2,
-    borderColor: '#DC143C',
+    borderColor: colors.accent,
     width: '100%',
     alignItems: 'center',
   },
   inviteCodeText: {
-    color: '#DC143C',
+    color: colors.accent,
     fontSize: 36,
     fontWeight: '800',
     letterSpacing: 10,
@@ -1911,25 +1952,26 @@ const styles = StyleSheet.create({
   },
   inviteCopyBtn: {
     flex: 1,
-    backgroundColor: '#2A2A2A',
+    backgroundColor: colors.border,
     borderRadius: 12,
     paddingVertical: 14,
     alignItems: 'center',
     minHeight: 48,
     justifyContent: 'center',
   },
-  inviteCopyBtnSuccess: { backgroundColor: '#14532D', borderWidth: 1, borderColor: '#22C55E' },
-  inviteCopyBtnText: { color: '#F0F0F0', fontWeight: '700', fontSize: 14 },
+  inviteCopyBtnSuccess: { backgroundColor: '#14532D', borderWidth: 1, borderColor: colors.success },
+  inviteCopyBtnText: { color: colors.text, fontWeight: '700', fontSize: 14 },
   inviteShareBtn: {
     flex: 1,
-    backgroundColor: '#DC143C',
+    backgroundColor: colors.accent,
     borderRadius: 12,
     paddingVertical: 14,
     alignItems: 'center',
     minHeight: 48,
     justifyContent: 'center',
   },
-  inviteShareBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
+  inviteShareBtnText: { color: colors.text, fontWeight: '700', fontSize: 14 },
   inviteQrLink: { paddingVertical: 8 },
-  inviteQrLinkText: { color: '#555555', fontSize: 13, textDecorationLine: 'underline' },
-});
+  inviteQrLinkText: { color: colors.textSubtle, fontSize: 13, textDecorationLine: 'underline' },
+  });
+}

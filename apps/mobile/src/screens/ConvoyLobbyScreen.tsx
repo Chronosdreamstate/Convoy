@@ -4,7 +4,7 @@
  * Three staggered radar-pulse rings animate behind the member list header.
  */
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
   SafeAreaView,
@@ -15,12 +15,14 @@ import {
   View,
 } from 'react-native';
 import { router } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import { apiClient } from '../services/apiClient';
 import { authService } from '../services/AuthService';
 import { WebSocketService } from '../services/WebSocketService';
 import { useAuthStore } from '../stores/authStore';
 import { useGroupStore } from '../stores/groupStore';
 import { useSocketStore } from '../stores/socketStore';
+import { useTheme, ThemeColors } from '../theme';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
 const SOCKET_URL = API_URL.replace(/^http/, 'ws');
@@ -68,6 +70,7 @@ function memberInitials(name: string): string {
 const RING_SIZE = 80;
 
 function RadarRing({ delay }: { delay: number }) {
+  const { colors } = useTheme();
   const anim = useRef(new Animated.Value(0)).current;
   const loopRef = useRef<Animated.CompositeAnimation | null>(null);
 
@@ -104,7 +107,7 @@ function RadarRing({ delay }: { delay: number }) {
 
   return (
     <Animated.View
-      style={[radarStyles.ring, { transform: [{ scale }], opacity }]}
+      style={[radarStyles.ring, { borderColor: colors.accent }, { transform: [{ scale }], opacity }]}
     />
   );
 }
@@ -124,6 +127,8 @@ interface Props {
 // ---------------------------------------------------------------------------
 
 export default function ConvoyLobbyScreen({ groupId, groupName, onConvoyStart }: Props) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const [members, setMembers] = useState<LobbyMember[]>([]);
   const [selfReady, setSelfReady] = useState(false);
 
@@ -280,7 +285,7 @@ export default function ConvoyLobbyScreen({ groupId, groupName, onConvoyStart }:
           accessibilityRole="button"
           accessibilityLabel="Go back"
         >
-          <Text style={styles.backArrow}>←</Text>
+          <Ionicons name="chevron-back" size={22} color={colors.text} style={styles.backArrow} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Convoy Lobby</Text>
         {/* Spacer so title stays centred */}
@@ -351,7 +356,7 @@ export default function ConvoyLobbyScreen({ groupId, groupName, onConvoyStart }:
                     : styles.statusBadgeTextWaiting,
                 ]}
               >
-                {m.isReady ? 'Ready ✓' : 'Waiting…'}
+                {m.isReady ? <><Ionicons name="checkmark" size={11} color={colors.success} /> Ready</> : 'Waiting…'}
               </Text>
             </View>
           </View>
@@ -385,7 +390,7 @@ export default function ConvoyLobbyScreen({ groupId, groupName, onConvoyStart }:
             accessibilityState={{ selected: selfReady }}
           >
             <Text style={styles.readyBtnText}>
-              {selfReady ? "I'm Ready ✓" : "I'm Ready"}
+              {selfReady ? <>I'm Ready <Ionicons name="checkmark" size={15} color={colors.text} /></> : "I'm Ready"}
             </Text>
           </TouchableOpacity>
         )}
@@ -398,6 +403,7 @@ export default function ConvoyLobbyScreen({ groupId, groupName, onConvoyStart }:
 // Radar ring styles
 // ---------------------------------------------------------------------------
 
+// Dimensions-only (no color) — borderColor is applied inline above via useTheme()
 const radarStyles = StyleSheet.create({
   ring: {
     position: 'absolute',
@@ -405,7 +411,6 @@ const radarStyles = StyleSheet.create({
     height: RING_SIZE,
     borderRadius: RING_SIZE / 2,
     borderWidth: 1.5,
-    borderColor: '#DC143C',
   },
 });
 
@@ -413,10 +418,11 @@ const radarStyles = StyleSheet.create({
 // Screen styles
 // ---------------------------------------------------------------------------
 
-const styles = StyleSheet.create({
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0A0A0A',
+    backgroundColor: colors.bg,
   },
 
   // Header
@@ -429,13 +435,13 @@ const styles = StyleSheet.create({
     paddingBottom: 8,
   },
   backArrow: {
-    color: '#FFFFFF',
+    color: colors.text,
     fontSize: 22,
     fontWeight: '600',
     width: 32,
   },
   headerTitle: {
-    color: '#FFFFFF',
+    color: colors.text,
     fontSize: 20,
     fontWeight: '700',
   },
@@ -445,7 +451,7 @@ const styles = StyleSheet.create({
 
   // Group name + waiting label
   groupName: {
-    color: '#DC143C',
+    color: colors.accent,
     fontSize: 16,
     fontWeight: '700',
     textAlign: 'center',
@@ -453,7 +459,7 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   waitingLabel: {
-    color: '#888888',
+    color: colors.textMuted,
     fontSize: 13,
     textAlign: 'center',
     paddingHorizontal: 16,
@@ -494,7 +500,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   membersSectionLabel: {
-    color: '#888888',
+    color: colors.textMuted,
     fontSize: 11,
     fontWeight: '700',
     letterSpacing: 1.5,
@@ -506,12 +512,12 @@ const styles = StyleSheet.create({
   memberRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#1C1C1C',
+    backgroundColor: colors.card,
     borderRadius: 12,
     padding: 12,
     marginBottom: 8,
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: colors.border,
     minHeight: 64,
     gap: 12,
   },
@@ -519,13 +525,13 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: '#DC143C',
+    backgroundColor: colors.accent,
     alignItems: 'center',
     justifyContent: 'center',
     flexShrink: 0,
   },
   avatarText: {
-    color: '#FFFFFF',
+    color: colors.text,
     fontSize: 15,
     fontWeight: '700',
     letterSpacing: 0.5,
@@ -534,12 +540,12 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   memberName: {
-    color: '#FFFFFF',
+    color: colors.text,
     fontSize: 15,
     fontWeight: '600',
   },
   memberCallsign: {
-    color: '#888888',
+    color: colors.textMuted,
     fontSize: 12,
     marginTop: 2,
   },
@@ -556,22 +562,22 @@ const styles = StyleSheet.create({
   statusBadgeReady: {
     backgroundColor: '#14532D',
     borderWidth: 1,
-    borderColor: '#22C55E',
+    borderColor: colors.success,
   },
   statusBadgeWaiting: {
-    backgroundColor: '#1C1C1C',
+    backgroundColor: colors.card,
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: colors.border,
   },
   statusBadgeText: {
     fontSize: 12,
     fontWeight: '600',
   },
   statusBadgeTextReady: {
-    color: '#22C55E',
+    color: colors.success,
   },
   statusBadgeTextWaiting: {
-    color: '#888888',
+    color: colors.textMuted,
   },
 
   // Empty state
@@ -580,7 +586,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   emptyMembersText: {
-    color: '#555555',
+    color: colors.textSubtle,
     fontSize: 13,
   },
 
@@ -590,11 +596,11 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     paddingBottom: 24,
     borderTopWidth: 1,
-    borderTopColor: '#2A2A2A',
-    backgroundColor: '#0A0A0A',
+    borderTopColor: colors.border,
+    backgroundColor: colors.bg,
   },
   startBtn: {
-    backgroundColor: '#DC143C',
+    backgroundColor: colors.accent,
     borderRadius: 12,
     paddingVertical: 18,
     alignItems: 'center',
@@ -602,27 +608,28 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   startBtnText: {
-    color: '#FFFFFF',
+    color: colors.text,
     fontWeight: '700',
     fontSize: 17,
   },
   readyBtn: {
-    backgroundColor: '#1C1C1C',
+    backgroundColor: colors.card,
     borderRadius: 12,
     paddingVertical: 18,
     alignItems: 'center',
     minHeight: 56,
     justifyContent: 'center',
     borderWidth: 2,
-    borderColor: '#DC143C',
+    borderColor: colors.accent,
   },
   readyBtnActive: {
-    backgroundColor: '#DC143C',
-    borderColor: '#DC143C',
+    backgroundColor: colors.accent,
+    borderColor: colors.accent,
   },
   readyBtnText: {
-    color: '#FFFFFF',
+    color: colors.text,
     fontWeight: '700',
     fontSize: 17,
   },
-});
+  });
+}

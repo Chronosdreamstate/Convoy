@@ -19,28 +19,25 @@ import * as MediaLibrary from 'expo-media-library';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-
-// ---------------------------------------------------------------------------
-// Design tokens
-// ---------------------------------------------------------------------------
-const T = {
-  bg: '#0A0A0A',
-  card: '#1C1C1C',
-  cardElevated: '#242424',
-  border: '#2A2A2A',
-  accent: '#DC143C',
-  text: '#FFFFFF',
-  muted: '#888888',
-  success: '#22C55E',
-} as const;
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { useTheme, ThemeColors } from '../theme';
 
 // ---------------------------------------------------------------------------
 // Confetti burst — 24 particles, pure RN Animated, no third-party lib
 // ---------------------------------------------------------------------------
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
-const CONFETTI_COLORS = [T.accent, T.text, '#F59E0B', T.success, '#60A5FA', '#A78BFA'];
 const PARTICLE_COUNT = 24;
+
+// Dimensions-only (no color) so the module-level Confetti component doesn't
+// need the themed `styles` sheet — color is applied per-particle inline.
+const particleBaseStyle = {
+  position: 'absolute',
+  top: 0,
+  width: 8,
+  height: 8,
+  borderRadius: 2,
+} as const;
 
 interface Particle {
   x: number;
@@ -51,23 +48,23 @@ interface Particle {
   rotate: Animated.Value;
 }
 
-function useConfetti(): Particle[] {
-  return useMemo(
-    () =>
-      Array.from({ length: PARTICLE_COUNT }, (_, i) => ({
-        x: (SCREEN_W / PARTICLE_COUNT) * i + Math.random() * 30 - 15,
-        color: CONFETTI_COLORS[i % CONFETTI_COLORS.length],
-        translateY: new Animated.Value(-20),
-        translateX: new Animated.Value(0),
-        opacity: new Animated.Value(1),
-        rotate: new Animated.Value(0),
-      })),
-    [],
-  );
+function useConfetti(colors: ThemeColors): Particle[] {
+  return useMemo(() => {
+    const confettiColors = [colors.accent, colors.text, colors.warning, colors.success, colors.info, '#A78BFA'];
+    return Array.from({ length: PARTICLE_COUNT }, (_, i) => ({
+      x: (SCREEN_W / PARTICLE_COUNT) * i + Math.random() * 30 - 15,
+      color: confettiColors[i % confettiColors.length],
+      translateY: new Animated.Value(-20),
+      translateX: new Animated.Value(0),
+      opacity: new Animated.Value(1),
+      rotate: new Animated.Value(0),
+    }));
+  }, [colors]);
 }
 
 function Confetti() {
-  const particles = useConfetti();
+  const { colors } = useTheme();
+  const particles = useConfetti(colors);
 
   useEffect(() => {
     const anims = particles.map((p, i) =>
@@ -109,7 +106,7 @@ function Confetti() {
           <Animated.View
             key={i}
             style={[
-              styles.particle,
+              particleBaseStyle,
               {
                 left: p.x,
                 backgroundColor: p.color,
@@ -196,6 +193,8 @@ interface ShareCardProps {
 }
 
 function ShareCard({ groupName, distanceText, duration, members, topSpeed }: ShareCardProps) {
+  const { colors } = useTheme();
+  const shareCardStyles = useMemo(() => createShareCardStyles(colors), [colors]);
   const dateStr = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
   return (
     <View style={shareCardStyles.card}>
@@ -222,12 +221,13 @@ function ShareCard({ groupName, distanceText, duration, members, topSpeed }: Sha
   );
 }
 
-const shareCardStyles = StyleSheet.create({
+function createShareCardStyles(colors: ThemeColors) {
+  return StyleSheet.create({
   card: {
     backgroundColor: '#111111',
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: '#DC143C',
+    borderColor: colors.accent,
     padding: 20,
     width: '100%',
     marginBottom: 16,
@@ -239,36 +239,36 @@ const shareCardStyles = StyleSheet.create({
     marginBottom: 10,
   },
   wordmark: {
-    color: '#DC143C',
+    color: colors.accent,
     fontWeight: '900',
     fontSize: 18,
     letterSpacing: 3,
   },
   flag: { fontSize: 22 },
   groupName: {
-    color: '#FFFFFF',
+    color: colors.text,
     fontSize: 20,
     fontWeight: '700',
     marginBottom: 2,
   },
   date: {
-    color: '#888888',
+    color: colors.textMuted,
     fontSize: 12,
     marginBottom: 12,
   },
   divider: {
     height: 1,
-    backgroundColor: '#2A2A2A',
+    backgroundColor: colors.border,
     marginBottom: 12,
   },
   statsLine: {
-    color: '#FFFFFF',
+    color: colors.text,
     fontSize: 15,
     fontWeight: '600',
     marginBottom: 4,
   },
   speedLine: {
-    color: '#888888',
+    color: colors.textMuted,
     fontSize: 12,
     marginBottom: 12,
   },
@@ -281,42 +281,45 @@ const shareCardStyles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: '#22C55E',
+    backgroundColor: colors.success,
   },
   line: {
     flex: 1,
     height: 2,
-    backgroundColor: '#DC143C',
+    backgroundColor: colors.accent,
     marginHorizontal: 6,
   },
   flag2: {
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: '#DC143C',
+    backgroundColor: colors.accent,
   },
   url: {
-    color: '#888888',
+    color: colors.textMuted,
     fontSize: 11,
     textAlign: 'right',
     letterSpacing: 0.5,
   },
-});
+  });
+}
 
 // ---------------------------------------------------------------------------
 // StatCard — one of three horizontal cards
 // ---------------------------------------------------------------------------
 
 interface StatCardProps {
-  emoji: string;
+  icon: keyof typeof Ionicons.glyphMap;
   label: string;
   value: string;
 }
 
-function StatCard({ emoji, label, value }: StatCardProps) {
+function StatCard({ icon, label, value }: StatCardProps) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   return (
     <View style={styles.statCard}>
-      <Text style={styles.statEmoji}>{emoji}</Text>
+      <Ionicons name={icon} size={20} color={colors.textMuted} style={styles.statEmoji} />
       <Text style={styles.statValue} numberOfLines={1} adjustsFontSizeToFit>
         {value}
       </Text>
@@ -330,6 +333,8 @@ function StatCard({ emoji, label, value }: StatCardProps) {
 // ---------------------------------------------------------------------------
 
 function RouteSummaryCard({ hasTrace }: { hasTrace: boolean }) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   return (
     <View style={styles.routeCard}>
       {hasTrace ? (
@@ -339,7 +344,7 @@ function RouteSummaryCard({ hasTrace }: { hasTrace: boolean }) {
           <View style={styles.routeLineRight} />
         </View>
       ) : (
-        <Text style={styles.routeNoTraceIcon}>🗺️</Text>
+        <Ionicons name="map-outline" size={32} color={colors.textMuted} style={styles.routeNoTraceIcon} />
       )}
       <Text style={styles.routeLabel}>Route Summary</Text>
     </View>
@@ -351,6 +356,10 @@ function RouteSummaryCard({ hasTrace }: { hasTrace: boolean }) {
 // ---------------------------------------------------------------------------
 
 export default function ConvoyEndScreen() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+  const achievementStyles = useMemo(() => createAchievementStyles(colors), [colors]);
+  const extraStyles = useMemo(() => createExtraStyles(colors), [colors]);
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
@@ -607,7 +616,7 @@ export default function ConvoyEndScreen() {
                 { transform: [{ scale: achievementScale }], opacity: achievementOpacity },
               ]}
             >
-              <Text style={achievementStyles.badge}>🏁</Text>
+              <MaterialCommunityIcons name="flag-checkered" size={64} color={colors.accent} style={achievementStyles.badge} />
               <Text style={achievementStyles.unlockLabel}>Achievement Unlocked!</Text>
               <Text style={achievementStyles.achievementName}>First Convoy</Text>
               <Text style={achievementStyles.achievementDesc}>You completed your very first convoy. The journey begins!</Text>
@@ -634,7 +643,7 @@ export default function ConvoyEndScreen() {
             accessibilityLabel="Close photo preview"
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
-            <Text style={styles.photoModalCloseText}>✕</Text>
+            <Ionicons name="close" size={18} color={colors.text} />
           </TouchableOpacity>
           {previewPhoto && (
             <Image source={{ uri: previewPhoto }} style={styles.photoModalImage} resizeMode="contain" />
@@ -645,14 +654,14 @@ export default function ConvoyEndScreen() {
       {/* Body */}
       <View style={styles.inner}>
         {/* Trophy — Animated.spring scale 0 → 1 */}
-        <Animated.Text
+        <Animated.View
           style={[
             styles.trophyEmoji,
             { transform: [{ scale }], opacity: iconOpacity },
           ]}
         >
-          🏆
-        </Animated.Text>
+          <Ionicons name="trophy" size={80} color={colors.warning} />
+        </Animated.View>
 
         <Animated.View style={[styles.contentBlock, { opacity: contentOpacity }]}>
           <Text style={styles.title}>Convoy Complete</Text>
@@ -663,9 +672,9 @@ export default function ConvoyEndScreen() {
 
           {/* 3-stat row: Duration · Distance · Members */}
           <View style={styles.statsRow}>
-            <StatCard emoji="⏱" label="Duration" value={formatDuration(duration)} />
-            <StatCard emoji="📏" label="Distance" value={formatDistance(distance)} />
-            <StatCard emoji="👥" label="Members" value={`${members}`} />
+            <StatCard icon="time-outline" label="Duration" value={formatDuration(duration)} />
+            <StatCard icon="location-outline" label="Distance" value={formatDistance(distance)} />
+            <StatCard icon="people-outline" label="Members" value={`${members}`} />
           </View>
 
           {/* Route minimap / placeholder */}
@@ -687,14 +696,16 @@ export default function ConvoyEndScreen() {
         {/* Drive Photos section */}
         <View style={styles.photoSection}>
           <View style={styles.photoSectionHeader}>
-            <Text style={styles.photoSectionTitle}>📸 Drive Photos</Text>
+            <Text style={styles.photoSectionTitle}>
+              <Ionicons name="images-outline" size={14} color={colors.text} /> Drive Photos
+            </Text>
             <TouchableOpacity onPress={pickFromLibrary} accessibilityLabel="Add drive photos">
               <Text style={styles.photoAddBtn}>+ Add</Text>
             </TouchableOpacity>
           </View>
           {photos.length === 0 ? (
             <TouchableOpacity style={styles.photoEmptyState} onPress={pickFromLibrary}>
-              <Text style={styles.photoEmptyIcon}>📷</Text>
+              <Ionicons name="camera-outline" size={24} color={colors.textMuted} style={styles.photoEmptyIcon} />
               <Text style={styles.photoEmptyText}>Add photos from today's drive</Text>
             </TouchableOpacity>
           ) : (
@@ -748,7 +759,9 @@ export default function ConvoyEndScreen() {
             accessibilityRole="button"
             accessibilityLabel="Save to Photos"
           >
-            <Text style={extraStyles.secondaryBtnText}>📷 Save</Text>
+            <Text style={extraStyles.secondaryBtnText}>
+              <Ionicons name="camera-outline" size={13} color={colors.textMuted} /> Save
+            </Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={extraStyles.secondaryBtn}
@@ -756,7 +769,11 @@ export default function ConvoyEndScreen() {
             accessibilityRole="button"
             accessibilityLabel={copied ? 'Copied to clipboard' : 'Copy stats to clipboard'}
           >
-            <Text style={extraStyles.secondaryBtnText}>{copied ? '✓ Copied!' : '📋 Copy text'}</Text>
+            <Text style={extraStyles.secondaryBtnText}>
+              {copied
+                ? <><Ionicons name="checkmark" size={13} color={colors.textMuted} /> Copied!</>
+                : <><Ionicons name="clipboard-outline" size={13} color={colors.textMuted} /> Copy text</>}
+            </Text>
           </TouchableOpacity>
         </View>
 
@@ -808,10 +825,11 @@ export default function ConvoyEndScreen() {
 // Styles
 // ---------------------------------------------------------------------------
 
-const styles = StyleSheet.create({
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: T.bg,
+    backgroundColor: colors.bg,
   },
   inner: {
     flex: 1,
@@ -826,28 +844,27 @@ const styles = StyleSheet.create({
 
   // Trophy icon
   trophyEmoji: {
-    fontSize: 80,
     marginBottom: 20,
-    textAlign: 'center',
+    alignItems: 'center',
   },
 
   // Headline
   title: {
     fontSize: 30,
     fontWeight: '800',
-    color: T.text,
+    color: colors.text,
     textAlign: 'center',
     marginBottom: 6,
     letterSpacing: -0.5,
   },
   subtitle: {
     fontSize: 15,
-    color: T.muted,
+    color: colors.textMuted,
     textAlign: 'center',
     marginBottom: 28,
   },
   groupName: {
-    color: T.accent,
+    color: colors.accent,
     fontWeight: '700',
   },
 
@@ -860,13 +877,13 @@ const styles = StyleSheet.create({
   },
   statCard: {
     flex: 1,
-    backgroundColor: T.card,
+    backgroundColor: colors.card,
     borderRadius: 12,
     paddingVertical: 14,
     paddingHorizontal: 6,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: T.border,
+    borderColor: colors.border,
   },
   statEmoji: {
     fontSize: 20,
@@ -875,13 +892,13 @@ const styles = StyleSheet.create({
   statValue: {
     fontSize: 16,
     fontWeight: '700',
-    color: T.text,
+    color: colors.text,
     marginBottom: 3,
     textAlign: 'center',
   },
   statLabel: {
     fontSize: 10,
-    color: T.muted,
+    color: colors.textMuted,
     textAlign: 'center',
     textTransform: 'uppercase',
     letterSpacing: 0.6,
@@ -890,10 +907,10 @@ const styles = StyleSheet.create({
   // Route summary card
   routeCard: {
     width: '100%',
-    backgroundColor: T.cardElevated,
+    backgroundColor: colors.cardElevated,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: T.border,
+    borderColor: colors.border,
     paddingVertical: 20,
     paddingHorizontal: 16,
     alignItems: 'center',
@@ -907,20 +924,20 @@ const styles = StyleSheet.create({
   routeLineLeft: {
     flex: 1,
     height: 2,
-    backgroundColor: T.accent,
+    backgroundColor: colors.accent,
     borderRadius: 1,
   },
   routeDot: {
     width: 10,
     height: 10,
     borderRadius: 5,
-    backgroundColor: T.success,
+    backgroundColor: colors.success,
     marginHorizontal: 4,
   },
   routeLineRight: {
     flex: 1,
     height: 2,
-    backgroundColor: T.muted,
+    backgroundColor: colors.textMuted,
     borderRadius: 1,
     opacity: 0.5,
   },
@@ -930,7 +947,7 @@ const styles = StyleSheet.create({
   },
   routeLabel: {
     fontSize: 11,
-    color: T.muted,
+    color: colors.textMuted,
     textTransform: 'uppercase',
     letterSpacing: 0.8,
     fontWeight: '600',
@@ -944,7 +961,7 @@ const styles = StyleSheet.create({
 
   // Share Your Ride — full-width crimson, 52px height, 14px radius
   shareBtn: {
-    backgroundColor: T.accent,
+    backgroundColor: colors.accent,
     borderRadius: 14,
     height: 52,
     width: '100%',
@@ -952,7 +969,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   shareBtnText: {
-    color: T.text,
+    color: colors.text,
     fontSize: 16,
     fontWeight: '700',
     letterSpacing: 0.2,
@@ -966,13 +983,13 @@ const styles = StyleSheet.create({
     marginTop: -4,
   },
   copyLinkText: {
-    color: T.muted,
+    color: colors.textMuted,
     fontSize: 13,
     fontWeight: '500',
   },
 
   primaryBtn: {
-    backgroundColor: T.accent,
+    backgroundColor: colors.accent,
     borderRadius: 14,
     paddingVertical: 18,
     paddingHorizontal: 16,
@@ -981,7 +998,7 @@ const styles = StyleSheet.create({
     minHeight: 56,
   },
   primaryBtnText: {
-    color: T.text,
+    color: colors.text,
     fontSize: 16,
     fontWeight: '700',
     letterSpacing: 0.2,
@@ -992,11 +1009,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: T.border,
+    borderColor: colors.border,
     minHeight: 52,
   },
   ghostBtnText: {
-    color: T.muted,
+    color: colors.textMuted,
     fontSize: 15,
     fontWeight: '600',
   },
@@ -1012,10 +1029,10 @@ const styles = StyleSheet.create({
 
   // Drive Photos section
   photoSection: {
-    backgroundColor: T.card,
+    backgroundColor: colors.card,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: T.border,
+    borderColor: colors.border,
     padding: 14,
     marginBottom: 4,
   },
@@ -1026,12 +1043,12 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   photoSectionTitle: {
-    color: T.text,
+    color: colors.text,
     fontSize: 14,
     fontWeight: '700',
   },
   photoAddBtn: {
-    color: T.accent,
+    color: colors.accent,
     fontSize: 14,
     fontWeight: '700',
   },
@@ -1040,7 +1057,7 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: T.border,
+    borderColor: colors.border,
     borderStyle: 'dashed',
     gap: 6,
   },
@@ -1048,7 +1065,7 @@ const styles = StyleSheet.create({
     fontSize: 24,
   },
   photoEmptyText: {
-    color: T.muted,
+    color: colors.textMuted,
     fontSize: 13,
   },
   photoScroll: {
@@ -1064,14 +1081,14 @@ const styles = StyleSheet.create({
     width: 80,
     height: 80,
     borderRadius: 8,
-    backgroundColor: T.cardElevated,
+    backgroundColor: colors.cardElevated,
     borderWidth: 1,
-    borderColor: T.border,
+    borderColor: colors.border,
     alignItems: 'center',
     justifyContent: 'center',
   },
   photoAddThumbIcon: {
-    color: T.muted,
+    color: colors.textMuted,
     fontSize: 28,
     fontWeight: '300',
   },
@@ -1096,7 +1113,7 @@ const styles = StyleSheet.create({
     zIndex: 10,
   },
   photoModalCloseText: {
-    color: T.text,
+    color: colors.text,
     fontSize: 18,
     fontWeight: '600',
   },
@@ -1104,9 +1121,11 @@ const styles = StyleSheet.create({
     width: SCREEN_W,
     height: SCREEN_H * 0.8,
   },
-});
+  });
+}
 
-const achievementStyles = StyleSheet.create({
+function createAchievementStyles(colors: ThemeColors) {
+  return StyleSheet.create({
   backdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.75)',
@@ -1115,10 +1134,10 @@ const achievementStyles = StyleSheet.create({
     padding: 32,
   },
   card: {
-    backgroundColor: '#1C1C1C',
+    backgroundColor: colors.card,
     borderRadius: 20,
     borderWidth: 1.5,
-    borderColor: '#F59E0B',
+    borderColor: colors.warning,
     padding: 28,
     alignItems: 'center',
     width: '100%',
@@ -1131,7 +1150,7 @@ const achievementStyles = StyleSheet.create({
   unlockLabel: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#F59E0B',
+    color: colors.warning,
     textTransform: 'uppercase',
     letterSpacing: 2,
     marginBottom: 6,
@@ -1139,43 +1158,45 @@ const achievementStyles = StyleSheet.create({
   achievementName: {
     fontSize: 22,
     fontWeight: '800',
-    color: '#FFFFFF',
+    color: colors.text,
     textAlign: 'center',
     marginBottom: 8,
   },
   achievementDesc: {
     fontSize: 14,
-    color: '#888888',
+    color: colors.textMuted,
     textAlign: 'center',
     lineHeight: 20,
     marginBottom: 24,
   },
   doneBtn: {
-    backgroundColor: '#DC143C',
+    backgroundColor: colors.accent,
     borderRadius: 12,
     paddingVertical: 14,
     paddingHorizontal: 40,
     alignItems: 'center',
   },
   doneBtnText: {
-    color: '#FFFFFF',
+    color: colors.text,
     fontSize: 16,
     fontWeight: '700',
   },
-});
+  });
+}
 
-const extraStyles = StyleSheet.create({
+function createExtraStyles(colors: ThemeColors) {
+  return StyleSheet.create({
   streakBanner: {
     backgroundColor: '#1A1200',
     borderWidth: 1,
-    borderColor: '#F59E0B',
+    borderColor: colors.warning,
     borderRadius: 10,
     paddingVertical: 10,
     paddingHorizontal: 14,
     marginBottom: 4,
   },
   streakText: {
-    color: '#F59E0B',
+    color: colors.warning,
     fontSize: 13,
     fontWeight: '700',
     textAlign: 'center',
@@ -1186,41 +1207,42 @@ const extraStyles = StyleSheet.create({
   },
   secondaryBtn: {
     flex: 1,
-    backgroundColor: '#242424',
+    backgroundColor: colors.cardElevated,
     borderRadius: 10,
     paddingVertical: 12,
     alignItems: 'center' as const,
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: colors.border,
   },
   secondaryBtnText: {
-    color: '#888888',
+    color: colors.textMuted,
     fontSize: 13,
     fontWeight: '600',
   },
   socialPrompt: {
-    backgroundColor: '#1C1C1C',
+    backgroundColor: colors.card,
     borderRadius: 12,
     padding: 14,
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: colors.border,
     gap: 10,
   },
   socialPromptText: {
-    color: '#888888',
+    color: colors.textMuted,
     fontSize: 13,
     textAlign: 'center',
     lineHeight: 18,
   },
   inviteBtn: {
-    backgroundColor: '#DC143C',
+    backgroundColor: colors.accent,
     borderRadius: 8,
     paddingVertical: 10,
     alignItems: 'center' as const,
   },
   inviteBtnText: {
-    color: '#FFFFFF',
+    color: colors.text,
     fontSize: 13,
     fontWeight: '700',
   },
-});
+  });
+}

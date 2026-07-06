@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -15,9 +15,11 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import * as ExpoLocation from 'expo-location';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { apiClient } from '../services/apiClient';
 import SkeletonCard from '../components/SkeletonLoader';
 import { NetworkError } from '../components/NetworkError';
+import { useTheme, ThemeColors } from '../theme';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -47,16 +49,19 @@ interface EventCountdown {
 
 type FilterTab = 'All' | 'Nearby' | 'Active';
 
-const VEHICLE_FILTERS = [
-  { key: null,          label: 'All' },
-  { key: 'sports_car',  label: '🏎️ Sports' },
-  { key: 'truck',       label: '🛻 Trucks' },
-  { key: 'suv',         label: '🚙 SUVs' },
-  { key: 'jdm',         label: '🎌 JDM' },
-  { key: 'muscle',      label: '🇺🇸 Muscle' },
-  { key: 'ev',          label: '⚡ EV' },
-  { key: 'track_car',   label: '🏁 Track' },
-] as const;
+// Vehicle filter chip icons — rendered alongside the text label. Chips with no
+// clean vector-icon equivalent (JDM/Muscle are cultural/regional labels, not
+// vehicle shapes) keep their flag emoji as decorative label content.
+const VEHICLE_FILTERS: Array<{ key: string | null; label: string; icon: keyof typeof MaterialCommunityIcons.glyphMap | null }> = [
+  { key: null,          label: 'All',     icon: null },
+  { key: 'sports_car',  label: 'Sports',  icon: 'car-sports' },
+  { key: 'truck',       label: 'Trucks',  icon: 'car-pickup' },
+  { key: 'suv',         label: 'SUVs',    icon: 'car-estate' },
+  { key: 'jdm',         label: '🎌 JDM',    icon: null },
+  { key: 'muscle',      label: '🇺🇸 Muscle', icon: null },
+  { key: 'ev',          label: 'EV',      icon: 'car-electric' },
+  { key: 'track_car',   label: 'Track',   icon: 'flag-checkered' },
+];
 type VehicleFilter = typeof VEHICLE_FILTERS[number]['key'];
 
 // ---------------------------------------------------------------------------
@@ -81,12 +86,12 @@ function formatCountdown(scheduledAt: string): EventCountdown | null {
   if (diff < 1000 * 60 * 60 * 24) {
     const hours = Math.floor(diff / (1000 * 60 * 60));
     const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-    return { label: `⏱ Starting in ${hours}h ${minutes}m`, urgent: true };
+    return { label: `Starting in ${hours}h ${minutes}m`, urgent: true };
   }
   const date = new Date(scheduledAt);
   const dayName = date.toLocaleDateString('en-US', { weekday: 'short' });
   const time = date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-  return { label: `📅 ${dayName} ${time}`, urgent: false };
+  return { label: `${dayName} ${time}`, urgent: false };
 }
 
 // ---------------------------------------------------------------------------
@@ -103,6 +108,8 @@ interface GroupCardProps {
 }
 
 function GroupCard({ group, onJoin, onView, joining, showDistance, eventCountdown }: GroupCardProps) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   return (
     <TouchableOpacity
       style={styles.card}
@@ -119,13 +126,19 @@ function GroupCard({ group, onJoin, onView, joining, showDistance, eventCountdow
       </View>
 
       <View style={styles.cardMeta}>
-        <Text style={styles.metaText}>👥 {group.memberCount} member{group.memberCount !== 1 ? 's' : ''}</Text>
+        <Text style={styles.metaText}>
+          <Ionicons name="people-outline" size={12} color={colors.textMuted} /> {group.memberCount} member{group.memberCount !== 1 ? 's' : ''}
+        </Text>
         <Text style={styles.metaDot}>·</Text>
-        <Text style={styles.metaText}>👑 {group.adminDisplayName}</Text>
+        <Text style={styles.metaText}>
+          <MaterialCommunityIcons name="crown" size={12} color={colors.textMuted} /> {group.adminDisplayName}
+        </Text>
       </View>
 
       <View style={styles.cardMeta}>
-        <Text style={styles.metaText}>📏 {formatGap(group.gapThresholdM)} gap</Text>
+        <Text style={styles.metaText}>
+          <MaterialCommunityIcons name="ruler" size={12} color={colors.textMuted} /> {formatGap(group.gapThresholdM)} gap
+        </Text>
         {group.isActive && (
           <>
             <Text style={styles.metaDot}>·</Text>
@@ -135,7 +148,9 @@ function GroupCard({ group, onJoin, onView, joining, showDistance, eventCountdow
         {showDistance && group.distanceM !== undefined && (
           <>
             <Text style={styles.metaDot}>·</Text>
-            <Text style={styles.distanceText}>📍 {formatDistance(group.distanceM)} away</Text>
+            <Text style={styles.distanceText}>
+              <Ionicons name="location-outline" size={12} color={colors.accent} /> {formatDistance(group.distanceM)} away
+            </Text>
           </>
         )}
       </View>
@@ -143,7 +158,7 @@ function GroupCard({ group, onJoin, onView, joining, showDistance, eventCountdow
       {eventCountdown && (
         <View style={[styles.eventPill, eventCountdown.urgent && styles.eventPillUrgent]}>
           <Text style={[styles.eventPillText, eventCountdown.urgent && styles.eventPillTextUrgent]}>
-            {eventCountdown.label}
+            <Ionicons name={eventCountdown.urgent ? 'timer-outline' : 'calendar-outline'} size={11} color={colors.warning} /> {eventCountdown.label}
           </Text>
         </View>
       )}
@@ -157,7 +172,7 @@ function GroupCard({ group, onJoin, onView, joining, showDistance, eventCountdow
           accessibilityLabel={`Join ${group.name}`}
         >
           {joining ? (
-            <ActivityIndicator size="small" color="#FFFFFF" />
+            <ActivityIndicator size="small" color={colors.text} />
           ) : (
             <Text style={styles.joinButtonText}>Join</Text>
           )}
@@ -188,6 +203,8 @@ interface FeaturedCardProps {
 }
 
 function FeaturedCard({ group, onJoin, onView, joining, eventCountdown }: FeaturedCardProps) {
+  const { colors } = useTheme();
+  const browseStyles = useMemo(() => createBrowseStyles(colors), [colors]);
   return (
     <TouchableOpacity
       style={browseStyles.featCard}
@@ -197,9 +214,13 @@ function FeaturedCard({ group, onJoin, onView, joining, eventCountdown }: Featur
       accessibilityRole="button"
     >
       <Text style={browseStyles.featName} numberOfLines={2}>{group.name}</Text>
-      <Text style={browseStyles.featMeta}>👥 {group.memberCount}</Text>
+      <Text style={browseStyles.featMeta}>
+        <Ionicons name="people-outline" size={11} color={colors.textMuted} /> {group.memberCount}
+      </Text>
       {eventCountdown && (
-        <Text style={browseStyles.featEvent} numberOfLines={1}>{eventCountdown.label}</Text>
+        <Text style={browseStyles.featEvent} numberOfLines={1}>
+          <Ionicons name={eventCountdown.urgent ? 'timer-outline' : 'calendar-outline'} size={10} color={colors.warning} /> {eventCountdown.label}
+        </Text>
       )}
       <TouchableOpacity
         style={[browseStyles.featJoinBtn, joining && { opacity: 0.5 }]}
@@ -219,6 +240,9 @@ function FeaturedCard({ group, onJoin, onView, joining, eventCountdown }: Featur
 // ---------------------------------------------------------------------------
 
 export default function GroupBrowseScreen() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+  const browseStyles = useMemo(() => createBrowseStyles(colors), [colors]);
   const router = useRouter();
   const [groups, setGroups] = useState<PublicGroup[]>([]);
   const [featuredGroups, setFeaturedGroups] = useState<PublicGroup[]>([]);
@@ -435,7 +459,9 @@ export default function GroupBrowseScreen() {
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton} accessibilityRole="button" accessibilityLabel="Go back">
-          <Text style={styles.backText}>‹ Back</Text>
+          <Text style={styles.backText}>
+            <Ionicons name="chevron-back" size={16} color={colors.accent} /> Back
+          </Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Browse Groups</Text>
         <View style={styles.backButton} />
@@ -444,7 +470,9 @@ export default function GroupBrowseScreen() {
       {/* Featured Groups horizontal scroll */}
       {featuredGroups.length >= 3 && (
         <View style={browseStyles.featuredSection}>
-          <Text style={browseStyles.featuredTitle}>🔥 Featured Groups</Text>
+          <Text style={browseStyles.featuredTitle}>
+            <Ionicons name="flame-outline" size={14} color={colors.text} /> Featured Groups
+          </Text>
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
@@ -467,11 +495,11 @@ export default function GroupBrowseScreen() {
       {/* Search bar */}
       <View style={styles.searchRow}>
         <View style={styles.searchBox}>
-          <Text style={styles.searchIcon}>🔍</Text>
+          <Ionicons name="search-outline" size={16} color={colors.textMuted} style={styles.searchIcon} />
           <TextInput
             style={styles.searchInput}
             placeholder="Search groups..."
-            placeholderTextColor="#555555"
+            placeholderTextColor={colors.textSubtle}
             value={search}
             onChangeText={setSearch}
             returnKeyType="search"
@@ -481,7 +509,7 @@ export default function GroupBrowseScreen() {
           />
           {search.length > 0 && (
             <TouchableOpacity onPress={() => setSearch('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} accessibilityRole="button" accessibilityLabel="Clear search">
-              <Text style={styles.clearIcon}>✕</Text>
+              <Ionicons name="close" size={14} color={colors.textSubtle} style={styles.clearIcon} />
             </TouchableOpacity>
           )}
         </View>
@@ -504,7 +532,9 @@ export default function GroupBrowseScreen() {
             accessibilityState={{ selected: activeFilter === tab }}
           >
             <Text style={[styles.filterPillText, activeFilter === tab && styles.filterPillTextActive]}>
-              {tab === 'Nearby' ? '📍 Nearby' : tab}
+              {tab === 'Nearby'
+                ? <><Ionicons name="location-outline" size={12} color={activeFilter === tab ? colors.text : colors.textMuted} /> Nearby</>
+                : tab}
             </Text>
           </TouchableOpacity>
         ))}
@@ -527,7 +557,14 @@ export default function GroupBrowseScreen() {
             accessibilityState={{ selected: vehicleFilter === vf.key }}
           >
             <Text style={[styles.filterPillText, vehicleFilter === vf.key && styles.filterPillTextActive]}>
-              {vf.label}
+              {vf.icon && (
+                <MaterialCommunityIcons
+                  name={vf.icon}
+                  size={12}
+                  color={vehicleFilter === vf.key ? colors.text : colors.textMuted}
+                />
+              )}
+              {vf.icon ? ` ${vf.label}` : vf.label}
             </Text>
           </TouchableOpacity>
         ))}
@@ -538,12 +575,14 @@ export default function GroupBrowseScreen() {
         <View style={styles.locationStatus}>
           {locating ? (
             <>
-              <ActivityIndicator size="small" color="#DC143C" style={{ marginRight: 8 }} />
+              <ActivityIndicator size="small" color={colors.accent} style={{ marginRight: 8 }} />
               <Text style={styles.locationStatusText}>Getting your location...</Text>
             </>
           ) : locationError ? (
             <>
-              <Text style={styles.locationErrorText}>📍 {locationError}</Text>
+              <Text style={styles.locationErrorText}>
+                <Ionicons name="location-outline" size={13} color={colors.textMuted} /> {locationError}
+              </Text>
               <TouchableOpacity
                 onPress={() => void Linking.openSettings()}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
@@ -573,7 +612,9 @@ export default function GroupBrowseScreen() {
           ListHeaderComponent={
             nearbyQuick.length > 0 && activeFilter !== 'Nearby' ? (
               <View style={browseStyles.nearbySection}>
-                <Text style={browseStyles.nearbyTitle}>📍 Nearby</Text>
+                <Text style={browseStyles.nearbyTitle}>
+                  <Ionicons name="location-outline" size={11} color={colors.textMuted} /> Nearby
+                </Text>
                 <ScrollView
                   horizontal
                   showsHorizontalScrollIndicator={false}
@@ -596,7 +637,12 @@ export default function GroupBrowseScreen() {
           }
           ListEmptyComponent={
             <View style={styles.emptyState}>
-              <Text style={styles.emptyEmoji}>{locationError ? '📍' : '🔍'}</Text>
+              <Ionicons
+                name={locationError ? 'location-outline' : 'search-outline'}
+                size={52}
+                color={colors.textMuted}
+                style={styles.emptyEmoji}
+              />
               <Text style={styles.emptyTitle}>
                 {locationError ? 'Location Unavailable' : 'No public groups found'}
               </Text>
@@ -614,8 +660,8 @@ export default function GroupBrowseScreen() {
             <RefreshControl
               refreshing={refreshing}
               onRefresh={handleRefresh}
-              tintColor="#DC143C"
-              colors={['#DC143C']}
+              tintColor={colors.accent}
+              colors={[colors.accent]}
             />
           }
         />
@@ -628,10 +674,11 @@ export default function GroupBrowseScreen() {
 // Styles
 // ---------------------------------------------------------------------------
 
-const styles = StyleSheet.create({
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0A0A0A',
+    backgroundColor: colors.bg,
   },
   header: {
     flexDirection: 'row',
@@ -645,12 +692,12 @@ const styles = StyleSheet.create({
     width: 60,
   },
   backText: {
-    color: '#DC143C',
+    color: colors.accent,
     fontSize: 17,
     fontWeight: '600',
   },
   headerTitle: {
-    color: '#FFFFFF',
+    color: colors.text,
     fontSize: 17,
     fontWeight: '700',
     letterSpacing: 0.3,
@@ -662,10 +709,10 @@ const styles = StyleSheet.create({
   searchBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#1C1C1C',
+    backgroundColor: colors.card,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: colors.border,
     paddingHorizontal: 12,
     paddingVertical: 10,
   },
@@ -675,12 +722,12 @@ const styles = StyleSheet.create({
   },
   searchInput: {
     flex: 1,
-    color: '#FFFFFF',
+    color: colors.text,
     fontSize: 15,
     padding: 0,
   },
   clearIcon: {
-    color: '#555555',
+    color: colors.textSubtle,
     fontSize: 14,
     paddingLeft: 8,
   },
@@ -697,21 +744,21 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 7,
     borderRadius: 20,
-    backgroundColor: '#1C1C1C',
+    backgroundColor: colors.card,
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: colors.border,
   },
   filterPillActive: {
-    backgroundColor: '#DC143C',
-    borderColor: '#DC143C',
+    backgroundColor: colors.accent,
+    borderColor: colors.accent,
   },
   filterPillText: {
-    color: '#888888',
+    color: colors.textMuted,
     fontSize: 13,
     fontWeight: '600',
   },
   filterPillTextActive: {
-    color: '#FFFFFF',
+    color: colors.text,
   },
   locationStatus: {
     flexDirection: 'row',
@@ -720,16 +767,16 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   locationStatusText: {
-    color: '#888888',
+    color: colors.textMuted,
     fontSize: 13,
   },
   locationErrorText: {
-    color: '#888888',
+    color: colors.textMuted,
     fontSize: 13,
     flex: 1,
   },
   locationSettingsLink: {
-    color: '#DC143C',
+    color: colors.accent,
     fontSize: 13,
     fontWeight: '600',
   },
@@ -764,25 +811,25 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   emptyTitle: {
-    color: '#FFFFFF',
+    color: colors.text,
     fontSize: 18,
     fontWeight: '700',
     textAlign: 'center',
     marginBottom: 8,
   },
   emptySubtitle: {
-    color: '#888888',
+    color: colors.textMuted,
     fontSize: 14,
     textAlign: 'center',
     lineHeight: 20,
   },
   // Card
   card: {
-    backgroundColor: '#1C1C1C',
+    backgroundColor: colors.card,
     borderRadius: 12,
     padding: 16,
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: colors.border,
   },
   cardHeader: {
     flexDirection: 'row',
@@ -791,7 +838,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   groupName: {
-    color: '#FFFFFF',
+    color: colors.text,
     fontSize: 18,
     fontWeight: '700',
     flex: 1,
@@ -800,13 +847,13 @@ const styles = StyleSheet.create({
   openBadge: {
     backgroundColor: 'rgba(34, 197, 94, 0.15)',
     borderWidth: 1,
-    borderColor: '#22C55E',
+    borderColor: colors.success,
     borderRadius: 6,
     paddingHorizontal: 8,
     paddingVertical: 3,
   },
   openBadgeText: {
-    color: '#22C55E',
+    color: colors.success,
     fontSize: 11,
     fontWeight: '700',
     letterSpacing: 0.5,
@@ -818,7 +865,7 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
   },
   metaText: {
-    color: '#888888',
+    color: colors.textMuted,
     fontSize: 13,
   },
   metaDot: {
@@ -827,12 +874,12 @@ const styles = StyleSheet.create({
     marginHorizontal: 6,
   },
   activeText: {
-    color: '#22C55E',
+    color: colors.success,
     fontSize: 13,
     fontWeight: '600',
   },
   distanceText: {
-    color: '#DC143C',
+    color: colors.accent,
     fontSize: 13,
     fontWeight: '600',
   },
@@ -848,15 +895,15 @@ const styles = StyleSheet.create({
   },
   eventPillUrgent: {
     backgroundColor: 'rgba(245, 158, 11, 0.22)',
-    borderColor: '#F59E0B',
+    borderColor: colors.warning,
   },
   eventPillText: {
-    color: '#F59E0B',
+    color: colors.warning,
     fontSize: 12,
     fontWeight: '600',
   },
   eventPillTextUrgent: {
-    color: '#F59E0B',
+    color: colors.warning,
   },
   cardActions: {
     flexDirection: 'row',
@@ -865,7 +912,7 @@ const styles = StyleSheet.create({
   },
   joinButton: {
     flex: 1,
-    backgroundColor: '#DC143C',
+    backgroundColor: colors.accent,
     borderRadius: 10,
     paddingVertical: 12,
     alignItems: 'center',
@@ -876,7 +923,7 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   joinButtonText: {
-    color: '#FFFFFF',
+    color: colors.text,
     fontSize: 15,
     fontWeight: '700',
     letterSpacing: 0.3,
@@ -890,23 +937,25 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     minHeight: 44,
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: colors.border,
   },
   viewButtonText: {
-    color: '#888888',
+    color: colors.textMuted,
     fontSize: 15,
     fontWeight: '600',
   },
-});
+  });
+}
 
-const browseStyles = StyleSheet.create({
+function createBrowseStyles(colors: ThemeColors) {
+  return StyleSheet.create({
   // Featured section
   featuredSection: {
     paddingHorizontal: 16,
     paddingBottom: 12,
   },
   featuredTitle: {
-    color: '#FFFFFF',
+    color: colors.text,
     fontSize: 15,
     fontWeight: '700',
     marginBottom: 10,
@@ -918,39 +967,39 @@ const browseStyles = StyleSheet.create({
   featCard: {
     width: 140,
     minHeight: 110,
-    backgroundColor: '#1C1C1C',
+    backgroundColor: colors.card,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: colors.border,
     padding: 12,
   },
   featName: {
-    color: '#FFFFFF',
+    color: colors.text,
     fontSize: 14,
     fontWeight: '700',
     marginBottom: 4,
     lineHeight: 18,
   },
   featMeta: {
-    color: '#888888',
+    color: colors.textMuted,
     fontSize: 12,
     marginBottom: 4,
   },
   featEvent: {
-    color: '#F59E0B',
+    color: colors.warning,
     fontSize: 11,
     marginBottom: 6,
   },
   featJoinBtn: {
     borderWidth: 1,
-    borderColor: '#DC143C',
+    borderColor: colors.accent,
     borderRadius: 6,
     paddingVertical: 5,
     alignItems: 'center',
     marginTop: 4,
   },
   featJoinText: {
-    color: '#DC143C',
+    color: colors.accent,
     fontSize: 12,
     fontWeight: '700',
   },
@@ -959,7 +1008,7 @@ const browseStyles = StyleSheet.create({
     marginBottom: 12,
   },
   nearbyTitle: {
-    color: '#888888',
+    color: colors.textMuted,
     fontSize: 12,
     fontWeight: '700',
     letterSpacing: 0.5,
@@ -971,22 +1020,23 @@ const browseStyles = StyleSheet.create({
     paddingRight: 4,
   },
   nearbyChip: {
-    backgroundColor: '#1C1C1C',
+    backgroundColor: colors.card,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: colors.border,
     paddingHorizontal: 14,
     paddingVertical: 10,
     minWidth: 120,
   },
   nearbyChipName: {
-    color: '#FFFFFF',
+    color: colors.text,
     fontSize: 13,
     fontWeight: '600',
     marginBottom: 2,
   },
   nearbyChipMeta: {
-    color: '#888888',
+    color: colors.textMuted,
     fontSize: 11,
   },
-});
+  });
+}

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -12,8 +12,10 @@ import {
   View,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { apiClient } from '../services/apiClient';
 import { SkeletonBox, SkeletonRow } from '../components/SkeletonLoader';
+import { useTheme, ThemeColors } from '../theme';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -53,12 +55,14 @@ function initials(name: string): string {
     .toUpperCase();
 }
 
-function getVehicleEmoji(vehicleType: string | undefined): string {
-  const map: Record<string, string> = {
-    car: '🚗', sports_car: '🏎️', suv: '🚙',
-    truck: '🛻', motorcycle: '🏍️', van: '🚐', track_car: '🏎️',
+type VehicleIconName = keyof typeof MaterialCommunityIcons.glyphMap;
+
+function getVehicleIconName(vehicleType: string | undefined): VehicleIconName {
+  const map: Record<string, VehicleIconName> = {
+    car: 'car', sports_car: 'car-sports', suv: 'car-estate',
+    truck: 'car-pickup', motorcycle: 'motorbike', van: 'van-passenger', track_car: 'car-sports',
   };
-  return map[vehicleType?.toLowerCase() ?? ''] ?? '🚗';
+  return map[vehicleType?.toLowerCase() ?? ''] ?? 'car';
 }
 
 function formatDate(iso: string): string {
@@ -70,9 +74,12 @@ function formatDate(iso: string): string {
 // Loading skeleton
 // ---------------------------------------------------------------------------
 
+// Dimensions-only (no color) so this module-level component doesn't need the themed styles sheet
+const skeletonContainerStyle = { paddingHorizontal: 20, paddingTop: 24 } as const;
+
 function DetailSkeleton() {
   return (
-    <View style={styles.skeletonContainer}>
+    <View style={skeletonContainerStyle}>
       <View style={{ marginBottom: 8 }}>
         <SkeletonBox height={28} width="60%" />
       </View>
@@ -91,6 +98,8 @@ function DetailSkeleton() {
 // ---------------------------------------------------------------------------
 
 export default function GroupDetailScreen() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const [group, setGroup] = useState<GroupDetail | null>(null);
@@ -211,7 +220,7 @@ export default function GroupDetailScreen() {
           <Text style={styles.backText}>‹ Back</Text>
         </TouchableOpacity>
         <TouchableOpacity onPress={handleShare} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} accessibilityLabel="Share group">
-          <Text style={styles.shareHeaderBtn}>📤</Text>
+          <Ionicons name="share-social-outline" size={22} color={colors.text} />
         </TouchableOpacity>
       </View>
 
@@ -220,18 +229,21 @@ export default function GroupDetailScreen() {
         contentContainerStyle={[styles.content, { paddingBottom: footerHeight + 24 }]}
         showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#DC143C" colors={['#DC143C']} />
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.accent} colors={[colors.accent]} />
         }
       >
         {/* Group name + admin */}
         <Text style={styles.groupName}>{group.name}</Text>
-        <Text style={styles.adminText}>👑 Led by {group.adminDisplayName}</Text>
+        <Text style={styles.adminText}>
+          <MaterialCommunityIcons name="crown" size={13} color={colors.textMuted} /> Led by {group.adminDisplayName}
+        </Text>
 
         {/* Access type badge */}
         <View style={styles.badgeRow}>
           <View style={[styles.badge, group.accessType === 'open' ? styles.badgeOpen : styles.badgeLocked]}>
             <Text style={styles.badgeText}>
-              {group.accessType === 'open' ? '🌐 Open' : '🔒 Invite Only'}
+              <Ionicons name={group.accessType === 'open' ? 'globe-outline' : 'lock-closed-outline'} size={12} color={colors.text} />
+              {group.accessType === 'open' ? ' Open' : ' Invite Only'}
             </Text>
           </View>
           {group.status === 'active' && (
@@ -267,7 +279,7 @@ export default function GroupDetailScreen() {
                   <View style={styles.avatar}>
                     <Text style={styles.avatarText}>{initials(m.displayName)}</Text>
                   </View>
-                  <Text style={{ fontSize: 10, marginTop: 2 }}>{getVehicleEmoji(m.vehicleType)}</Text>
+                  <MaterialCommunityIcons name={getVehicleIconName(m.vehicleType)} size={10} color={colors.textMuted} style={{ marginTop: 2 }} />
                 </View>
               ))}
               {extraCount > 0 && (
@@ -282,7 +294,9 @@ export default function GroupDetailScreen() {
         {/* Upcoming event */}
         {group.upcomingEvent && (
           <View style={styles.eventCard}>
-            <Text style={styles.eventTitle}>📅 Next drive</Text>
+            <Text style={styles.eventTitle}>
+              <Ionicons name="calendar-outline" size={11} color={colors.warning} /> Next drive
+            </Text>
             <Text style={styles.eventName}>{group.upcomingEvent.title}</Text>
             <Text style={styles.eventDate}>{formatDate(group.upcomingEvent.scheduledFor)}</Text>
           </View>
@@ -300,7 +314,9 @@ export default function GroupDetailScreen() {
               style={[styles.viewBtn, { flex: 1 }]}
               onPress={() => router.replace('/(tabs)/convoy')}
             >
-              <Text style={styles.joinText}>🚗 View Convoy</Text>
+              <Text style={styles.joinText}>
+                <MaterialCommunityIcons name="car" size={16} color={colors.text} /> View Convoy
+              </Text>
             </TouchableOpacity>
           ) : (
             <TouchableOpacity
@@ -312,7 +328,7 @@ export default function GroupDetailScreen() {
               accessibilityState={{ disabled: joining, busy: joining }}
             >
               {joining ? (
-                <ActivityIndicator color="#FFFFFF" />
+                <ActivityIndicator color={colors.text} />
               ) : (
                 <Text style={styles.joinText}>Join Convoy</Text>
               )}
@@ -328,7 +344,7 @@ export default function GroupDetailScreen() {
             }
             accessibilityLabel="View convoy history"
           >
-            <Text style={styles.leaderboardIcon}>📜</Text>
+            <Ionicons name="time-outline" size={22} color={colors.text} />
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.leaderboardBtn}
@@ -340,14 +356,14 @@ export default function GroupDetailScreen() {
             }
             accessibilityLabel="View leaderboard"
           >
-            <Text style={styles.leaderboardIcon}>🏆</Text>
+            <Ionicons name="trophy-outline" size={22} color={colors.text} />
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.leaderboardBtn}
             onPress={() => router.push(`/group-stats/${group.id}` as never)}
             accessibilityLabel="View group stats"
           >
-            <Text style={styles.leaderboardIcon}>📊</Text>
+            <Ionicons name="stats-chart-outline" size={22} color={colors.text} />
           </TouchableOpacity>
         </View>
       </View>
@@ -359,55 +375,57 @@ export default function GroupDetailScreen() {
 // Styles
 // ---------------------------------------------------------------------------
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0A0A0A' },
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+  container: { flex: 1, backgroundColor: colors.bg },
   header: { paddingHorizontal: 20, paddingTop: 12, paddingBottom: 4, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   shareHeaderBtn: { fontSize: 22 },
   backBtn: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 8 },
-  backText: { color: '#DC143C', fontSize: 17, fontWeight: '600' },
+  backText: { color: colors.accent, fontSize: 17, fontWeight: '600' },
   scroll: { flex: 1 },
   content: { paddingHorizontal: 20, paddingTop: 16 },
   skeletonContainer: { paddingHorizontal: 20, paddingTop: 24 },
   errorContainer: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32 },
-  errorText: { color: '#888888', fontSize: 15, textAlign: 'center', marginBottom: 20 },
-  retryBtn: { backgroundColor: '#DC143C', paddingHorizontal: 24, paddingVertical: 12, borderRadius: 12 },
-  retryText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
+  errorText: { color: colors.textMuted, fontSize: 15, textAlign: 'center', marginBottom: 20 },
+  retryBtn: { backgroundColor: colors.accent, paddingHorizontal: 24, paddingVertical: 12, borderRadius: 12 },
+  retryText: { color: colors.text, fontSize: 15, fontWeight: '700' },
 
-  groupName: { color: '#FFFFFF', fontSize: 28, fontWeight: '700', marginBottom: 4 },
-  adminText: { color: '#888888', fontSize: 14, marginBottom: 16 },
+  groupName: { color: colors.text, fontSize: 28, fontWeight: '700', marginBottom: 4 },
+  adminText: { color: colors.textMuted, fontSize: 14, marginBottom: 16 },
 
   badgeRow: { flexDirection: 'row', gap: 8, marginBottom: 20 },
   badge: { borderRadius: 100, paddingHorizontal: 12, paddingVertical: 4 },
-  badgeOpen: { backgroundColor: 'rgba(220,20,60,0.15)', borderWidth: 1, borderColor: '#DC143C' },
-  badgeLocked: { backgroundColor: 'rgba(255,255,255,0.08)', borderWidth: 1, borderColor: '#2A2A2A' },
-  badgeLive: { backgroundColor: 'rgba(34,197,94,0.15)', borderWidth: 1, borderColor: '#22C55E', borderRadius: 100, paddingHorizontal: 12, paddingVertical: 4 },
-  badgeText: { color: '#FFFFFF', fontSize: 12, fontWeight: '600' },
+  badgeOpen: { backgroundColor: 'rgba(220,20,60,0.15)', borderWidth: 1, borderColor: colors.accent },
+  badgeLocked: { backgroundColor: 'rgba(255,255,255,0.08)', borderWidth: 1, borderColor: colors.border },
+  badgeLive: { backgroundColor: 'rgba(34,197,94,0.15)', borderWidth: 1, borderColor: colors.success, borderRadius: 100, paddingHorizontal: 12, paddingVertical: 4 },
+  badgeText: { color: colors.text, fontSize: 12, fontWeight: '600' },
 
   statsRow: { flexDirection: 'row', gap: 8, marginBottom: 24 },
-  statCard: { flex: 1, backgroundColor: '#1C1C1C', borderRadius: 12, padding: 12, alignItems: 'center' },
-  statValue: { color: '#FFFFFF', fontSize: 18, fontWeight: '700' },
-  statLabel: { color: '#888888', fontSize: 11, marginTop: 2 },
+  statCard: { flex: 1, backgroundColor: colors.card, borderRadius: 12, padding: 12, alignItems: 'center' },
+  statValue: { color: colors.text, fontSize: 18, fontWeight: '700' },
+  statLabel: { color: colors.textMuted, fontSize: 11, marginTop: 2 },
 
   section: { marginBottom: 20 },
-  sectionLabel: { color: '#888888', fontSize: 11, fontWeight: '600', letterSpacing: 1, marginBottom: 10 },
+  sectionLabel: { color: colors.textMuted, fontSize: 11, fontWeight: '600', letterSpacing: 1, marginBottom: 10 },
 
   avatarRow: { flexDirection: 'row', alignItems: 'center' },
-  avatar: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#1C1C1C', alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: '#0A0A0A' },
-  avatarText: { color: '#FFFFFF', fontSize: 13, fontWeight: '700' },
-  avatarExtra: { backgroundColor: '#2A2A2A' },
-  avatarExtraText: { color: '#888888', fontSize: 11, fontWeight: '600' },
+  avatar: { width: 36, height: 36, borderRadius: 18, backgroundColor: colors.card, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: colors.bg },
+  avatarText: { color: colors.text, fontSize: 13, fontWeight: '700' },
+  avatarExtra: { backgroundColor: colors.border },
+  avatarExtraText: { color: colors.textMuted, fontSize: 11, fontWeight: '600' },
 
-  eventCard: { backgroundColor: '#1C1C1C', borderRadius: 12, padding: 16, borderLeftWidth: 4, borderLeftColor: '#F59E0B', marginBottom: 16 },
-  eventTitle: { color: '#F59E0B', fontSize: 11, fontWeight: '700', letterSpacing: 0.5, marginBottom: 4 },
-  eventName: { color: '#FFFFFF', fontSize: 16, fontWeight: '600', marginBottom: 4 },
-  eventDate: { color: '#888888', fontSize: 13 },
+  eventCard: { backgroundColor: colors.card, borderRadius: 12, padding: 16, borderLeftWidth: 4, borderLeftColor: colors.warning, marginBottom: 16 },
+  eventTitle: { color: colors.warning, fontSize: 11, fontWeight: '700', letterSpacing: 0.5, marginBottom: 4 },
+  eventName: { color: colors.text, fontSize: 16, fontWeight: '600', marginBottom: 4 },
+  eventDate: { color: colors.textMuted, fontSize: 13 },
 
-  footer: { position: 'absolute', bottom: 0, left: 0, right: 0, padding: 20, backgroundColor: '#0A0A0A', borderTopWidth: 1, borderTopColor: '#1C1C1C' },
+  footer: { position: 'absolute', bottom: 0, left: 0, right: 0, padding: 20, backgroundColor: colors.bg, borderTopWidth: 1, borderTopColor: colors.card },
   footerRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  joinBtn: { backgroundColor: '#DC143C', borderRadius: 16, paddingVertical: 18, alignItems: 'center' },
+  joinBtn: { backgroundColor: colors.accent, borderRadius: 16, paddingVertical: 18, alignItems: 'center' },
   joinBtnDisabled: { opacity: 0.5 },
-  viewBtn: { backgroundColor: '#1C1C1C', borderRadius: 16, paddingVertical: 18, alignItems: 'center', borderWidth: 1, borderColor: '#DC143C' },
-  joinText: { color: '#FFFFFF', fontSize: 17, fontWeight: '700' },
-  leaderboardBtn: { width: 56, height: 56, borderRadius: 16, backgroundColor: '#1C1C1C', borderWidth: 1, borderColor: '#2A2A2A', alignItems: 'center', justifyContent: 'center' },
+  viewBtn: { backgroundColor: colors.card, borderRadius: 16, paddingVertical: 18, alignItems: 'center', borderWidth: 1, borderColor: colors.accent },
+  joinText: { color: colors.text, fontSize: 17, fontWeight: '700' },
+  leaderboardBtn: { width: 56, height: 56, borderRadius: 16, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
   leaderboardIcon: { fontSize: 24 },
-});
+  });
+}

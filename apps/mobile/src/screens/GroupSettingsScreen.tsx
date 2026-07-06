@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -13,9 +13,11 @@ import {
   View,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import { apiClient } from '../services/apiClient';
 import { SkeletonBox } from '../components/SkeletonLoader';
 import { NetworkError } from '../components/NetworkError';
+import { useTheme, ThemeColors } from '../theme';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -60,19 +62,28 @@ function PillSelector<T extends string | number>({
   onSelect: (v: T) => void;
   disabled?: boolean;
 }) {
+  // Uses its own theme lookup (rather than the screen's `styles`) since this
+  // component is defined at module scope and reused independently of the
+  // screen's themed StyleSheet instance.
+  const { colors } = useTheme();
   return (
-    <View style={styles.pillRow}>
+    <View style={pillSelectorStyles.pillRow}>
       {options.map((opt) => {
         const active = opt.value === value;
         return (
           <TouchableOpacity
             key={String(opt.value)}
-            style={[styles.pill, active && styles.pillActive, disabled && styles.pillDisabled]}
+            style={[
+              pillSelectorStyles.pill,
+              { backgroundColor: colors.bg, borderColor: colors.border },
+              active && { backgroundColor: colors.accent, borderColor: colors.accent },
+              disabled && pillSelectorStyles.pillDisabled,
+            ]}
             onPress={() => { if (!disabled) onSelect(opt.value); }}
             accessibilityRole="button"
             accessibilityState={{ selected: active }}
           >
-            <Text style={[styles.pillText, active && styles.pillTextActive]}>
+            <Text style={[pillSelectorStyles.pillText, { color: active ? colors.text : colors.textMuted }]}>
               {opt.label}
             </Text>
           </TouchableOpacity>
@@ -81,6 +92,14 @@ function PillSelector<T extends string | number>({
     </View>
   );
 }
+
+// Dimensions-only (no color) — colors are applied inline above via useTheme()
+const pillSelectorStyles = StyleSheet.create({
+  pillRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  pill: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 100, borderWidth: 1 },
+  pillDisabled: { opacity: 0.4 },
+  pillText: { fontSize: 14, fontWeight: '600' },
+});
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -109,6 +128,8 @@ const ACCESS_OPTIONS = [
 // ---------------------------------------------------------------------------
 
 export default function GroupSettingsScreen() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const { groupId, isAdmin: isAdminParam } = useLocalSearchParams<{ groupId: string; isAdmin: string }>();
   const isAdmin = isAdminParam === 'true';
   const router = useRouter();
@@ -252,7 +273,9 @@ export default function GroupSettingsScreen() {
       <SafeAreaView style={styles.container}>
         <View style={styles.header}>
           <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} accessibilityRole="button">
-            <Text style={styles.backBtnText}>‹ Back</Text>
+            <Text style={styles.backBtnText}>
+            <Ionicons name="chevron-back" size={16} color={colors.accent} /> Back
+          </Text>
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Group Settings</Text>
         </View>
@@ -274,7 +297,9 @@ export default function GroupSettingsScreen() {
       <SafeAreaView style={styles.container}>
         <View style={styles.header}>
           <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} accessibilityRole="button">
-            <Text style={styles.backBtnText}>‹ Back</Text>
+            <Text style={styles.backBtnText}>
+            <Ionicons name="chevron-back" size={16} color={colors.accent} /> Back
+          </Text>
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Group Settings</Text>
         </View>
@@ -291,7 +316,9 @@ export default function GroupSettingsScreen() {
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} accessibilityRole="button">
-          <Text style={styles.backBtnText}>‹ Back</Text>
+          <Text style={styles.backBtnText}>
+            <Ionicons name="chevron-back" size={16} color={colors.accent} /> Back
+          </Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Group Settings</Text>
         {!isAdmin && (
@@ -311,7 +338,7 @@ export default function GroupSettingsScreen() {
             value={name}
             onChangeText={setName}
             placeholder={settings?.name ?? 'Group name'}
-            placeholderTextColor="#555"
+            placeholderTextColor={colors.textSubtle}
             editable={!readOnly}
             maxLength={60}
             returnKeyType="done"
@@ -365,7 +392,7 @@ export default function GroupSettingsScreen() {
             accessibilityLabel="Save group settings"
           >
             {saving
-              ? <ActivityIndicator color="#fff" size="small" />
+              ? <ActivityIndicator color={colors.text} size="small" />
               : <Text style={styles.saveBtnText}>Save Changes</Text>}
           </TouchableOpacity>
         )}
@@ -390,7 +417,9 @@ export default function GroupSettingsScreen() {
                       <View>
                         <Text style={styles.memberName}>{r.displayName}</Text>
                         {r.callsign ? (
-                          <Text style={styles.memberCallsign}>📻 {r.callsign}</Text>
+                          <Text style={styles.memberCallsign}>
+                            <Ionicons name="radio-outline" size={11} color={colors.textMuted} /> {r.callsign}
+                          </Text>
                         ) : (
                           <Text style={styles.memberCallsign}>Wants to join</Text>
                         )}
@@ -406,8 +435,8 @@ export default function GroupSettingsScreen() {
                         accessibilityState={{ disabled: isActing }}
                       >
                         {isActing && actingRequest?.action === 'approve'
-                          ? <ActivityIndicator color="#fff" size="small" />
-                          : <Text style={styles.acceptBtnTxt}>✓</Text>}
+                          ? <ActivityIndicator color={colors.text} size="small" />
+                          : <Ionicons name="checkmark" size={18} color={colors.text} />}
                       </TouchableOpacity>
                       <TouchableOpacity
                         style={styles.declineBtn}
@@ -418,8 +447,8 @@ export default function GroupSettingsScreen() {
                         accessibilityState={{ disabled: isActing }}
                       >
                         {isActing && actingRequest?.action === 'reject'
-                          ? <ActivityIndicator color="#888" size="small" />
-                          : <Text style={styles.declineBtnTxt}>✕</Text>}
+                          ? <ActivityIndicator color={colors.textMuted} size="small" />
+                          : <Ionicons name="close" size={16} color={colors.textMuted} />}
                       </TouchableOpacity>
                     </View>
                   </View>
@@ -440,7 +469,9 @@ export default function GroupSettingsScreen() {
                 accessibilityRole="button"
                 accessibilityLabel="Schedule convoy event"
               >
-                <Text style={styles.scheduleBtnText}>📅 Schedule a Convoy</Text>
+                <Text style={styles.scheduleBtnText}>
+                  <Ionicons name="calendar-outline" size={14} color={colors.accent} /> Schedule a Convoy
+                </Text>
               </TouchableOpacity>
             </View>
           </>
@@ -495,7 +526,9 @@ export default function GroupSettingsScreen() {
                     <View>
                       <Text style={styles.memberName}>{m.displayName}</Text>
                       {m.pttCallsign ? (
-                        <Text style={styles.memberCallsign}>📻 {m.pttCallsign}</Text>
+                        <Text style={styles.memberCallsign}>
+                          <Ionicons name="radio-outline" size={11} color={colors.textMuted} /> {m.pttCallsign}
+                        </Text>
                       ) : null}
                     </View>
                   </View>
@@ -517,7 +550,7 @@ export default function GroupSettingsScreen() {
                 value={announcement}
                 onChangeText={(t) => setAnnouncement(t.slice(0, 200))}
                 placeholder="Type your announcement..."
-                placeholderTextColor="#555"
+                placeholderTextColor={colors.textSubtle}
                 multiline
                 maxLength={200}
                 returnKeyType="default"
@@ -546,7 +579,7 @@ export default function GroupSettingsScreen() {
                 accessibilityLabel="Send announcement"
               >
                 <Text style={styles.announceBtnText}>
-                  {sendingAnnouncement ? 'Sending...' : '📢 Send Announcement'}
+                  {sendingAnnouncement ? 'Sending...' : <><Ionicons name="megaphone-outline" size={14} color={colors.text} /> Send Announcement</>}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -587,8 +620,9 @@ export default function GroupSettingsScreen() {
 // Styles
 // ---------------------------------------------------------------------------
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0A0A0A' },
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+  container: { flex: 1, backgroundColor: colors.bg },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32 },
 
   header: {
@@ -598,25 +632,25 @@ const styles = StyleSheet.create({
     paddingTop: 8,
     paddingBottom: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#2A2A2A',
+    borderBottomColor: colors.border,
   },
   backBtn: { paddingVertical: 8, paddingRight: 12, minHeight: 44, justifyContent: 'center' },
-  backBtnText: { color: '#DC143C', fontSize: 17, fontWeight: '500' },
-  headerTitle: { flex: 1, color: '#FFFFFF', fontSize: 17, fontWeight: '700' },
+  backBtnText: { color: colors.accent, fontSize: 17, fontWeight: '500' },
+  headerTitle: { flex: 1, color: colors.text, fontSize: 17, fontWeight: '700' },
   adminBadge: {
-    backgroundColor: '#1C1C1C',
+    backgroundColor: colors.card,
     borderRadius: 8,
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: colors.border,
   },
-  adminBadgeText: { color: '#888888', fontSize: 11, fontWeight: '600' },
+  adminBadgeText: { color: colors.textMuted, fontSize: 11, fontWeight: '600' },
 
   scrollContent: { paddingHorizontal: 16, paddingTop: 16 },
 
   sectionHeader: {
-    color: '#888888',
+    color: colors.textMuted,
     fontSize: 11,
     fontWeight: '700',
     letterSpacing: 1.5,
@@ -625,22 +659,22 @@ const styles = StyleSheet.create({
   },
 
   card: {
-    backgroundColor: '#1C1C1C',
+    backgroundColor: colors.card,
     borderRadius: 12,
     padding: 16,
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: colors.border,
   },
 
-  settingLabel: { color: '#888888', fontSize: 13, marginBottom: 12 },
+  settingLabel: { color: colors.textMuted, fontSize: 13, marginBottom: 12 },
 
   nameInput: {
-    color: '#FFFFFF',
+    color: colors.text,
     fontSize: 16,
     fontWeight: '600',
     paddingVertical: 4,
     borderBottomWidth: 1,
-    borderBottomColor: '#2A2A2A',
+    borderBottomColor: colors.border,
   },
   inputDisabled: { opacity: 0.5 },
 
@@ -649,17 +683,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 10,
     borderRadius: 100,
-    backgroundColor: '#0A0A0A',
+    backgroundColor: colors.bg,
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: colors.border,
   },
-  pillActive: { backgroundColor: '#DC143C', borderColor: '#DC143C' },
+  pillActive: { backgroundColor: colors.accent, borderColor: colors.accent },
   pillDisabled: { opacity: 0.4 },
-  pillText: { color: '#888888', fontSize: 14, fontWeight: '600' },
-  pillTextActive: { color: '#FFFFFF' },
+  pillText: { color: colors.textMuted, fontSize: 14, fontWeight: '600' },
+  pillTextActive: { color: colors.text },
 
   saveBtn: {
-    backgroundColor: '#DC143C',
+    backgroundColor: colors.accent,
     borderRadius: 14,
     paddingVertical: 18,
     alignItems: 'center',
@@ -668,43 +702,43 @@ const styles = StyleSheet.create({
     minHeight: 56,
   },
   saveBtnDisabled: { opacity: 0.6 },
-  saveBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
+  saveBtnText: { color: colors.text, fontSize: 16, fontWeight: '700' },
 
   scheduleBtn: {
-    backgroundColor: '#1C1C1C',
+    backgroundColor: colors.card,
     borderWidth: 1,
-    borderColor: '#DC143C',
+    borderColor: colors.accent,
     borderRadius: 12,
     paddingVertical: 14,
     alignItems: 'center',
   },
-  scheduleBtnText: { color: '#DC143C', fontSize: 15, fontWeight: '700' },
+  scheduleBtnText: { color: colors.accent, fontSize: 15, fontWeight: '700' },
 
   dangerBtn: {
     borderRadius: 12,
     paddingVertical: 14,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#DC143C',
+    borderColor: colors.accent,
     minHeight: 52,
     justifyContent: 'center',
   },
-  dangerBtnText: { color: '#DC143C', fontSize: 15, fontWeight: '700' },
+  dangerBtnText: { color: colors.accent, fontSize: 15, fontWeight: '700' },
 
   mutedBtn: {
     borderRadius: 12,
     paddingVertical: 14,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: colors.border,
     minHeight: 52,
     justifyContent: 'center',
   },
-  mutedBtnText: { color: '#888888', fontSize: 15, fontWeight: '600' },
+  mutedBtnText: { color: colors.textMuted, fontSize: 15, fontWeight: '600' },
 
-  errorText: { color: '#888888', fontSize: 15, textAlign: 'center', marginBottom: 24 },
+  errorText: { color: colors.textMuted, fontSize: 15, textAlign: 'center', marginBottom: 24 },
   retryBtn: {
-    backgroundColor: '#DC143C',
+    backgroundColor: colors.accent,
     borderRadius: 12,
     paddingHorizontal: 32,
     paddingVertical: 14,
@@ -712,7 +746,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  retryBtnText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
+  retryBtnText: { color: colors.text, fontSize: 15, fontWeight: '700' },
 
   memberRow: {
     flexDirection: 'row',
@@ -720,7 +754,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: 10,
     borderBottomWidth: 1,
-    borderBottomColor: '#2A2A2A',
+    borderBottomColor: colors.border,
   },
   memberInfo: {
     flexDirection: 'row',
@@ -732,36 +766,36 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: '#0A0A0A',
+    backgroundColor: colors.bg,
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: colors.border,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  memberAvatarText: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
-  memberName: { color: '#FFFFFF', fontSize: 14, fontWeight: '600' },
-  memberCallsign: { color: '#888888', fontSize: 12, marginTop: 2 },
-  transferArrow: { color: '#DC143C', fontSize: 20, fontWeight: '700', paddingLeft: 8 },
+  memberAvatarText: { color: colors.text, fontSize: 14, fontWeight: '700' },
+  memberName: { color: colors.text, fontSize: 14, fontWeight: '600' },
+  memberCallsign: { color: colors.textMuted, fontSize: 12, marginTop: 2 },
+  transferArrow: { color: colors.accent, fontSize: 20, fontWeight: '700', paddingLeft: 8 },
 
-  acceptBtn: { width: 38, height: 38, borderRadius: 8, backgroundColor: '#22C55E', alignItems: 'center', justifyContent: 'center' },
-  acceptBtnTxt: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
-  declineBtn: { width: 38, height: 38, borderRadius: 8, borderWidth: 1, borderColor: '#2A2A2A', backgroundColor: 'transparent', alignItems: 'center', justifyContent: 'center' },
-  declineBtnTxt: { color: '#888888', fontSize: 15, fontWeight: '700' },
+  acceptBtn: { width: 38, height: 38, borderRadius: 8, backgroundColor: colors.success, alignItems: 'center', justifyContent: 'center' },
+  acceptBtnTxt: { color: colors.text, fontSize: 16, fontWeight: '700' },
+  declineBtn: { width: 38, height: 38, borderRadius: 8, borderWidth: 1, borderColor: colors.border, backgroundColor: 'transparent', alignItems: 'center', justifyContent: 'center' },
+  declineBtnTxt: { color: colors.textMuted, fontSize: 15, fontWeight: '700' },
 
   announcementInput: {
-    color: '#FFFFFF',
+    color: colors.text,
     fontSize: 14,
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: colors.border,
     borderRadius: 10,
     padding: 12,
     minHeight: 80,
     textAlignVertical: 'top',
     marginBottom: 8,
   },
-  charCount: { color: '#555', fontSize: 11, textAlign: 'right', marginBottom: 12 },
+  charCount: { color: colors.textSubtle, fontSize: 11, textAlign: 'right', marginBottom: 12 },
   announceBtn: {
-    backgroundColor: '#DC143C',
+    backgroundColor: colors.accent,
     borderRadius: 12,
     paddingVertical: 14,
     alignItems: 'center',
@@ -769,5 +803,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   announceBtnDisabled: { opacity: 0.4 },
-  announceBtnText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
-});
+  announceBtnText: { color: colors.text, fontSize: 15, fontWeight: '700' },
+  });
+}
