@@ -74,7 +74,10 @@ export default function HazardReportModal({ visible, onClose, lat, lng, isInMoti
   const [severity,   setSeverity]   = useState<Severity>('medium');
   const [note,       setNote]       = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [toast,      setToast]      = useState(false);
+  // 'success' — reported to the server; 'queued' — offline, will sync later.
+  // Both need to actually tell the user something happened before the sheet
+  // closes; previously the queued path closed silently with no feedback at all.
+  const [toast, setToast] = useState<'success' | 'queued' | null>(null);
 
   const visibleTypes = isInMotion
     ? ALL_TYPES.filter((t) => MOTION_TYPE_KEYS.includes(t.key))
@@ -86,7 +89,7 @@ export default function HazardReportModal({ visible, onClose, lat, lng, isInMoti
       setType(null);
       setSeverity('medium');
       setNote('');
-      setToast(false);
+      setToast(null);
     }
   }, [visible]);
 
@@ -110,15 +113,17 @@ export default function HazardReportModal({ visible, onClose, lat, lng, isInMoti
         lng,
         note: note.trim() || undefined,
       });
-      setToast(true);
+      setToast('success');
       setTimeout(() => {
-        setToast(false);
+        setToast(null);
         onClose();
       }, 2200);
     } catch {
       // Network/offline failure — queue for sync later (Req 11.9, 11.10) instead of
       // silently dropping the report. Severity isn't carried by the offline queue
       // (POST /hazards/bulk doesn't accept it), so it's lost for queued reports only.
+      // Previously this closed the sheet with zero feedback — the user had no way
+      // to tell the report actually queued rather than vanishing.
       const ready = await offlineDBReady;
       if (ready) {
         await offlineDB.saveHazard({
@@ -130,7 +135,11 @@ export default function HazardReportModal({ visible, onClose, lat, lng, isInMoti
           createdAt: Date.now(),
         }).catch(() => {});
       }
-      onClose();
+      setToast('queued');
+      setTimeout(() => {
+        setToast(null);
+        onClose();
+      }, 2200);
     } finally {
       setSubmitting(false);
     }
@@ -248,11 +257,14 @@ export default function HazardReportModal({ visible, onClose, lat, lng, isInMoti
             </Text>
           </TouchableOpacity>
 
-          {/* Success toast */}
+          {/* Success / queued toast — the queued case previously closed the sheet
+              with no feedback at all, leaving the user unsure the report was saved. */}
           {toast && (
-            <View style={s.toast}>
+            <View style={[s.toast, toast === 'queued' && s.toastQueued]}>
               <Text style={s.toastTxt}>
-                ✓ Hazard reported — thanks for keeping the convoy safe!
+                {toast === 'success'
+                  ? '✓ Hazard reported — thanks for keeping the convoy safe!'
+                  : '📡 No connection — queued to send once you\'re back online'}
               </Text>
             </View>
           )}
@@ -297,6 +309,9 @@ function makeStyles(colors: ThemeColors) {
     // themes), so its label stays fixed white for contrast.
     submitTxt:   { fontSize: 17, fontWeight: '700', color: '#FFFFFF', letterSpacing: 0.3 },
     toast:       { position: 'absolute', left: 20, right: 20, bottom: 44, backgroundColor: '#166534', borderRadius: 12, paddingVertical: 12, paddingHorizontal: 16, alignItems: 'center' },
+    // Queued (offline) variant uses the app's amber/warning tone instead of
+    // success-green, since nothing has actually reached the server yet.
+    toastQueued: { backgroundColor: '#78350F' },
     toastTxt:    { fontSize: 13, fontWeight: '600', color: '#DCFCE7', textAlign: 'center' },
   });
 }

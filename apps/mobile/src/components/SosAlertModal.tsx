@@ -293,9 +293,12 @@ function makeStyles(colors: ThemeColors) {
       width: '100%',
       marginBottom: 12,
     },
+    // messageCard's background is colors.bg (a themed surface), so its text must
+    // follow the theme too — a fixed light-gray literal reads fine in dark mode
+    // but is nearly invisible against colors.bg's near-white in light mode.
     messageText: {
       fontSize: 14,
-      color: '#CCCCCC',
+      color: colors.text,
       lineHeight: 20,
       textAlign: 'center',
       fontStyle: 'italic',
@@ -336,17 +339,21 @@ function makeStyles(colors: ThemeColors) {
       fontSize: 13,
       fontWeight: '600',
     },
+    // cancelChip previously used fixed dark-gray literals regardless of theme,
+    // which read as an unstyled dark speck floating inside this card once the
+    // card itself follows colors.card in light mode. Use the same themed
+    // secondary-chip treatment as the rest of the app (border, not filled).
     cancelChip: {
-      backgroundColor: '#2C2C2C',
+      backgroundColor: colors.bg,
       borderRadius: 20,
       paddingVertical: 4,
       paddingHorizontal: 12,
       borderWidth: 1,
-      borderColor: '#444444',
+      borderColor: colors.border,
       marginLeft: 10,
     },
     cancelChipText: {
-      color: '#888888',
+      color: colors.textMuted,
       fontSize: 12,
       fontWeight: '600',
     },

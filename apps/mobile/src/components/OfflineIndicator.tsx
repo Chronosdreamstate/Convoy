@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Animated, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useTheme } from '../theme';
 
@@ -14,6 +15,13 @@ const BANNER_H = 40;
 
 export default function OfflineIndicator({ isOffline, message = DEFAULT_MSG }: Props) {
   const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
+  // Total on-screen height including the safe-area inset — previously this banner
+  // used a hardcoded `top: 0` with no inset padding, so on notched / Dynamic-Island
+  // devices its text rendered partly underneath the status bar / sensor housing
+  // instead of below it (the same bug MapScreen's local offline banner already
+  // had fixed via insets.top).
+  const totalHeight = BANNER_H + insets.top;
   const translateY = useRef(new Animated.Value(-BANNER_H)).current;
   const [visible, setVisible] = useState(false);
   const [showingOnline, setShowingOnline] = useState(false);
@@ -39,7 +47,7 @@ export default function OfflineIndicator({ isOffline, message = DEFAULT_MSG }: P
       setShowingOnline(true);
       hideTimer.current = setTimeout(() => {
         Animated.spring(translateY, {
-          toValue: -BANNER_H,
+          toValue: -totalHeight,
           useNativeDriver: true,
           damping: 20,
           stiffness: 200,
@@ -52,6 +60,9 @@ export default function OfflineIndicator({ isOffline, message = DEFAULT_MSG }: P
     return () => {
       if (hideTimer.current) clearTimeout(hideTimer.current);
     };
+  // totalHeight intentionally omitted — insets are stable after first layout and
+  // re-running this on every insets tick would restart the current animation.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOffline]);
 
   if (!visible) return null;
@@ -60,6 +71,7 @@ export default function OfflineIndicator({ isOffline, message = DEFAULT_MSG }: P
     <Animated.View
       style={[
         styles.banner,
+        { paddingTop: insets.top },
         { backgroundColor: showingOnline ? colors.success : colors.warning },
         { transform: [{ translateY }] },
       ]}
@@ -86,7 +98,7 @@ const styles = StyleSheet.create({
     top: 0,
     left: 0,
     right: 0,
-    height: BANNER_H,
+    minHeight: BANNER_H,
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 9999,
