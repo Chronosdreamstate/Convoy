@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import {
   Animated,
   Modal,
@@ -8,6 +8,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useTheme } from '../theme';
 
 interface Props {
   visible: boolean;
@@ -22,6 +23,8 @@ const BULLETS: { icon: string; text: string }[] = [
 ];
 
 export default function LocationPermissionPrescreen({ visible, onAllow, onSkip }: Props) {
+  const theme = useTheme();
+  const styles = useMemo(() => createStyles(theme), [theme]);
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const scaleAnim = useRef(new Animated.Value(0.9)).current;
   const pinPulse = useRef(new Animated.Value(1)).current;
@@ -85,6 +88,7 @@ export default function LocationPermissionPrescreen({ visible, onAllow, onSkip }
             <TouchableOpacity
               style={styles.allowBtn}
               onPress={onAllow}
+              activeOpacity={0.8}
               accessibilityRole="button"
               accessibilityLabel="Allow location access"
               accessibilityHint="Opens the system location permission dialog"
@@ -97,6 +101,7 @@ export default function LocationPermissionPrescreen({ visible, onAllow, onSkip }
               <TouchableOpacity
                 style={styles.skipBtn}
                 onPress={onSkip}
+                activeOpacity={0.7}
                 accessibilityRole="button"
                 accessibilityLabel="Not now"
               >
@@ -110,16 +115,21 @@ export default function LocationPermissionPrescreen({ visible, onAllow, onSkip }
   );
 }
 
-const styles = StyleSheet.create({
+// Previously every color here was a hardcoded hex literal copied from the
+// dark palette, so this modal ignored the user's light/dark theme preference
+// (see SettingsScreen's Theme setting) — unlike every other screen in the
+// onboarding/auth flow. Now themed via useTheme(), same as its siblings.
+function createStyles(theme: ReturnType<typeof useTheme>) {
+  return StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: '#0A0A0A',
+    backgroundColor: theme.colors.bg,
   },
   safe: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 24,
+    paddingHorizontal: theme.spacing.lg,
   },
   card: {
     width: '100%',
@@ -127,10 +137,10 @@ const styles = StyleSheet.create({
   },
   pinEmoji: {
     fontSize: 64,
-    marginBottom: 24,
+    marginBottom: theme.spacing.lg,
   },
   title: {
-    color: '#FFFFFF',
+    color: theme.colors.text,
     fontSize: 24,
     fontWeight: '700',
     textAlign: 'center',
@@ -138,73 +148,74 @@ const styles = StyleSheet.create({
     letterSpacing: 0.2,
   },
   subtitle: {
-    color: '#888888',
+    color: theme.colors.textMuted,
     fontSize: 15,
     textAlign: 'center',
-    marginBottom: 32,
+    marginBottom: theme.spacing.xl,
     lineHeight: 22,
   },
   bullets: {
     width: '100%',
-    gap: 16,
+    gap: theme.spacing.md,
     marginBottom: 28,
   },
   bullet: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    backgroundColor: '#1C1C1C',
-    borderRadius: 12,
+    backgroundColor: theme.colors.card,
+    borderRadius: theme.radius.md,
     padding: 14,
     gap: 12,
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: theme.colors.border,
   },
   bulletIcon: {
     fontSize: 20,
     lineHeight: 24,
   },
   bulletText: {
-    color: '#FFFFFF',
+    color: theme.colors.text,
     fontSize: 14,
     lineHeight: 20,
     flex: 1,
     fontWeight: '500',
   },
   privacy: {
-    color: '#555555',
+    color: theme.colors.textSubtle,
     fontSize: 12,
     textAlign: 'center',
-    marginBottom: 32,
+    marginBottom: theme.spacing.xl,
     lineHeight: 18,
     paddingHorizontal: 8,
   },
   allowBtn: {
     width: '100%',
     height: 56,
-    backgroundColor: '#DC143C',
-    borderRadius: 16,
+    backgroundColor: theme.colors.accent,
+    borderRadius: theme.radius.lg,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 16,
-    shadowColor: '#DC143C',
+    marginBottom: theme.spacing.md,
+    shadowColor: theme.colors.accent,
     shadowOpacity: 0.4,
     shadowRadius: 12,
     shadowOffset: { width: 0, height: 4 },
     elevation: 6,
   },
   allowBtnText: {
-    color: '#FFFFFF',
+    color: theme.colors.text,
     fontSize: 17,
     fontWeight: '700',
     letterSpacing: 0.3,
   },
   skipBtn: {
     paddingVertical: 12,
-    paddingHorizontal: 24,
+    paddingHorizontal: theme.spacing.lg,
   },
   skipText: {
-    color: '#555555',
+    color: theme.colors.textSubtle,
     fontSize: 14,
     fontWeight: '500',
   },
-});
+  });
+}
