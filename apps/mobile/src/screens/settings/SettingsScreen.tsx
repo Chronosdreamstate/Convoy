@@ -31,7 +31,6 @@ const TERMS_URL = 'https://convoy.app/terms';
 
 interface Settings {
   hazardAlertDistanceM: number;
-  pttMaxSeconds: number;
   tileCacheLimitMb: number;
   scenicRouting: boolean;
   mapStyle: 'standard' | 'satellite' | 'hybrid';
@@ -71,11 +70,6 @@ const CACHE_SIZES = [
   { label: '100 MB', mb: 100 },
   { label: '250 MB', mb: 250 },
   { label: '500 MB', mb: 500 },
-];
-const PTT_DURATIONS = [
-  { label: '15 s', seconds: 15 },
-  { label: '30 s', seconds: 30 },
-  { label: '60 s', seconds: 60 },
 ];
 const PTT_VOLUME_LEVELS = [
   { label: '25%', value: 25 },
@@ -210,7 +204,6 @@ export default function SettingsScreen() {
   const [mapStyle, setMapStyle] = useState<Settings['mapStyle']>('standard');
   const [hazardDistM, setHazardDistM] = useState(805);
   const [cacheMb, setCacheMb] = useState(500);
-  const [pttMaxSecs, setPttMaxSecs] = useState(30);
   const [pttVolumePercent, setPttVolumePercent] = useState(storedVolumePercent);
   const [scenicRouting, setScenicRouting] = useState(false);
   const [notifHazard, setNotifHazard] = useState(true);
@@ -220,7 +213,6 @@ export default function SettingsScreen() {
   const [shareLocationWithFriends, setShareLocationWithFriends] = useState(false);
   const [distanceUnit, setDistanceUnit] = useState<'km' | 'miles'>(storedDistanceUnit);
   const [themeMode, setThemeMode] = useState<'light' | 'dark' | 'system'>(storedThemeMode);
-  const [autoJoinNearby, setAutoJoinNearby] = useState(false);
   const [visibleToNearby, setVisibleToNearby] = useState(false);
 
   useEffect(() => {
@@ -239,7 +231,6 @@ export default function SettingsScreen() {
         mapStyle: s.mapStyle,
         hazardAlertDistanceM: s.hazardAlertDistanceM,
         scenicRouting: s.scenicRouting,
-        pttMaxSeconds: s.pttMaxSeconds,
         shareLocationWithFriends: s.shareLocationWithFriends ?? false,
       });
       setIsDirty(false);
@@ -254,7 +245,6 @@ export default function SettingsScreen() {
     setMapStyle(s.mapStyle);
     setHazardDistM(s.hazardAlertDistanceM);
     setCacheMb(s.tileCacheLimitMb);
-    setPttMaxSecs(s.pttMaxSeconds);
     setScenicRouting(s.scenicRouting);
     setNotifHazard(s.notifHazard);
     setNotifGroupEvents(s.notifGroupEvents);
@@ -275,7 +265,6 @@ export default function SettingsScreen() {
         mapStyle,
         hazardAlertDistanceM: hazardDistM,
         tileCacheLimitMb: cacheMb,
-        pttMaxSeconds: pttMaxSecs,
         scenicRouting,
         notifHazard,
         notifGroupEvents,
@@ -287,7 +276,6 @@ export default function SettingsScreen() {
         mapStyle: response.data.mapStyle,
         hazardAlertDistanceM: response.data.hazardAlertDistanceM,
         scenicRouting: response.data.scenicRouting,
-        pttMaxSeconds: response.data.pttMaxSeconds,
         pttVolumePercent,
         distanceUnit,
         shareLocationWithFriends: response.data.shareLocationWithFriends ?? shareLocationWithFriends,
@@ -619,47 +607,13 @@ export default function SettingsScreen() {
             subtitle={`Alert within ${(hazardDistM * MILES_PER_METRE).toFixed(2)} miles`}
             last
           />
-          <View style={[styles.chipContainer, styles.chipContainerDivider]}>
+          <View style={styles.chipContainer}>
             <ChipSelector
               options={HAZARD_DISTANCES.map((d) => ({ label: d.label, value: d.metres }))}
               selected={hazardDistM}
               onSelect={(v) => { setHazardDistM(v); mark(); }}
             />
           </View>
-          <SettingRow
-            icon="mic-outline"
-            label="PTT Max Duration"
-            subtitle={`${pttMaxSecs} seconds`}
-            last
-          />
-          <View style={styles.chipContainer}>
-            <ChipSelector
-              options={PTT_DURATIONS.map((d) => ({ label: d.label, value: d.seconds }))}
-              selected={pttMaxSecs}
-              onSelect={(v) => { setPttMaxSecs(v); mark(); }}
-            />
-          </View>
-        </View>
-
-        {/* ── CONVOY ──────────────────────────────────────────────────────── */}
-        {/* Note: gap alert threshold is an Admin-configured, per-group setting
-            (Req 24.4) — see GroupSettingsScreen. It is not a personal preference. */}
-        <SectionHeader title="CONVOY" />
-        <View style={styles.sectionCard}>
-          <SettingRow
-            icon="link-outline"
-            label="Auto-Join Nearby Convoy"
-            subtitle="Automatically join a convoy when nearby friends start one"
-            rightSlot={
-              <Switch
-                value={autoJoinNearby}
-                onValueChange={(v) => { setAutoJoinNearby(v); mark(); }}
-                trackColor={{ false: theme.colors.border, true: theme.colors.accent }}
-                thumbColor={theme.colors.text}
-              />
-            }
-            last
-          />
         </View>
 
         {/* ── AUDIO ───────────────────────────────────────────────────────── */}
