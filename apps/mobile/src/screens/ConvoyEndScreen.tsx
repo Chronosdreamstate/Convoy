@@ -440,7 +440,7 @@ function RouteMiniMap({ coords }: { coords: LatLng[] }) {
   return (
     <View style={miniMapStyles.box}>
       {points.slice(1).map((p, i) => (
-        <RouteSegment key={i} x1={points[i].x} y1={points[i].y} x2={p.x} y2={p.y} color={T.accent} />
+        <RouteSegment key={i} x1={points[i].x} y1={points[i].y} x2={p.x} y2={p.y} color={'#DC143C'} />
       ))}
       <View style={[miniMapStyles.pin, miniMapStyles.pinStart, { left: start.x - 5, top: start.y - 5 }]} />
       <View style={[miniMapStyles.pin, miniMapStyles.pinEnd, { left: end.x - 5, top: end.y - 5 }]} />
@@ -464,12 +464,12 @@ const miniMapStyles = StyleSheet.create({
     justifyContent: 'center',
     flexDirection: 'row',
   },
-  fallbackDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: T.success },
-  fallbackLine: { flex: 1, maxWidth: 140, height: 2, backgroundColor: T.accent, marginHorizontal: 8 },
-  fallbackFlag: { width: 10, height: 10, borderRadius: 5, backgroundColor: T.accent },
+  fallbackDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: '#22C55E' },
+  fallbackLine: { flex: 1, maxWidth: 140, height: 2, backgroundColor: '#DC143C', marginHorizontal: 8 },
+  fallbackFlag: { width: 10, height: 10, borderRadius: 5, backgroundColor: '#DC143C' },
   pin: { position: 'absolute', width: 10, height: 10, borderRadius: 5, borderWidth: 1.5, borderColor: '#111111' },
-  pinStart: { backgroundColor: T.success },
-  pinEnd: { backgroundColor: T.accent },
+  pinStart: { backgroundColor: '#22C55E' },
+  pinEnd: { backgroundColor: '#DC143C' },
 });
 
 interface DriveSummaryCardProps {
