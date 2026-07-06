@@ -11,7 +11,7 @@ import {
 import MapView, { Marker, PROVIDER_DEFAULT } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ExpoLocation from 'expo-location';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Socket } from 'socket.io-client';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import LocationPermissionPrescreen from '../../components/LocationPermissionPrescreen';
@@ -42,6 +42,31 @@ interface NearbyGroup {
   lng?: number;
 }
 
+/**
+ * A friend currently sharing their live location with the caller
+ * (`shareLocationWithFriends` toggle in Settings), as returned by
+ * `GET /api/v1/friends/locations`. Shape per the documented contract — parsed
+ * defensively below since the backend for this is landing in parallel.
+ */
+interface FriendLocationPin {
+  userId: string;
+  lat: number;
+  lng: number;
+  displayName?: string;
+  avatarUrl?: string | null;
+  heading?: number;
+  speedKph?: number;
+  ts: number;
+}
+
+/** "3m ago" / "2h ago" style relative timestamp for a friend's shared-location fix. */
+function formatLocTimeAgo(tsMs: number): string {
+  const mins = Math.floor((Date.now() - tsMs) / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  return `${Math.floor(mins / 60)}h ago`;
+}
+
 function getGreeting(displayName: string): string {
   const firstName = displayName.split(' ')[0];
   const hour = new Date().getHours();
@@ -60,6 +85,13 @@ function formatSosTimeAgo(createdAt: string): string {
 
 export default function IdleMapScreen() {
   const router = useRouter();
+  // Set by FriendsScreen's "View on map" button (Req 70) — once the friend-
+  // locations poll below resolves, we center on this friend if they're
+  // currently sharing, or tell the user if they're not.
+  const { focusFriendId, focusFriendName } = useLocalSearchParams<{
+    focusFriendId?: string;
+    focusFriendName?: string;
+  }>();
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -67,6 +99,7 @@ export default function IdleMapScreen() {
   const user = useAuthStore((s) => s.user);
   const token = useAuthStore((s) => s.token);
   const mapStyle = useSettingsStore((s) => s.mapStyle);
+  const shareLocationWithFriends = useSettingsStore((s) => s.shareLocationWithFriends);
 
   const [initialRegion, setInitialRegion] = useState(DEFAULT_REGION);
   const [locating, setLocating] = useState(true);
@@ -80,12 +113,28 @@ export default function IdleMapScreen() {
   // Friends' standalone SOS pins (Req 25.7) — keyed by SOS id, populated via the
   // personal-room `sos:alert` socket event since there's no active group here.
   const [friendSosPins, setFriendSosPins] = useState<Map<string, SosPin>>(new Map());
+  // Friends currently sharing their live location with us (Req 70) — populated
+  // via periodic poll (see below) rather than a socket push.
+  const [friendLocations, setFriendLocations] = useState<FriendLocationPin[]>([]);
+  // True once the friend-locations poll has resolved at least once, so the
+  // focusFriendId handling below doesn't fire on the empty initial state.
+  const [friendLocationsLoaded, setFriendLocationsLoaded] = useState(false);
 
   const isSuggestionShown = useRef(false);
   const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const locationSubRef = useRef<ExpoLocation.LocationSubscription | null>(null);
   const socketRef = useRef<Socket | null>(null);
+  const wsServiceRef = useRef<WebSocketService | null>(null);
   const friendNamesRef = useRef<Record<string, string>>({});
+  // Mirrors the shareLocationWithFriends store value into a ref so the GPS
+  // watch callback (registered once via a stable useCallback) always reads
+  // the *current* toggle state instead of a stale one — required so flipping
+  // the toggle off stops emission immediately, not on the next remount.
+  const shareLocationRef = useRef(shareLocationWithFriends);
+  useEffect(() => { shareLocationRef.current = shareLocationWithFriends; }, [shareLocationWithFriends]);
+  // Guards the one-time focus/center-on-friend handling below so it only
+  // fires once per screen visit, not on every 20s poll refresh.
+  const focusHandledRef = useRef(false);
 
   // Animations
   const pulseOpacity = useRef(new Animated.Value(1)).current;
@@ -175,6 +224,9 @@ export default function IdleMapScreen() {
     const wsService = new WebSocketService({
       url: SOCKET_URL,
       auth: { token },
+      // Mirrors MapScreen's in-group location-update cadence exactly (Req 70)
+      // so the groupless friend-location broadcast below behaves identically.
+      locationThrottleMs: 3_000,
       onAuthError: async () => {
         const newToken = await authService.refreshToken();
         if (!newToken) throw new Error('Token refresh failed');
@@ -186,6 +238,7 @@ export default function IdleMapScreen() {
     });
     const socket = wsService.connect();
     socketRef.current = socket;
+    wsServiceRef.current = wsService;
 
     socket.on('sos:alert', (data: SosPin) => {
       setFriendSosPins((prev) => new Map(prev).set(data.id, data));
@@ -201,10 +254,81 @@ export default function IdleMapScreen() {
     return () => {
       wsService.disconnect();
       socketRef.current = null;
+      wsServiceRef.current = null;
     };
   }, [token]);
 
+  // Poll friends' shared locations (Req 70). A periodic poll rather than a
+  // socket push is intentionally simpler here — the backend may not push
+  // friend-location updates over sockets initially — and 20s is a reasonable
+  // cadence for a slow-moving "where are my friends" overlay.
+  useEffect(() => {
+    if (!token) return undefined;
+    let cancelled = false;
+
+    const poll = async () => {
+      try {
+        // Documented contract (Task #69): GET /api/v1/friends/locations ->
+        // { locations: [...] }. Friends who aren't sharing or whose cache
+        // expired are simply absent — never null entries — but we still
+        // filter defensively since the backend is landing in parallel.
+        const res = await apiClient.get<{ locations: FriendLocationPin[] }>(
+          '/api/v1/friends/locations',
+        );
+        const raw = res.data?.locations ?? [];
+        const pins = raw.filter(
+          (f): f is FriendLocationPin =>
+            !!f && typeof f.userId === 'string' && typeof f.lat === 'number' && typeof f.lng === 'number',
+        );
+        if (!cancelled) setFriendLocations(pins);
+      } catch {
+        // non-fatal — friend pins simply don't refresh this cycle
+      } finally {
+        if (!cancelled) setFriendLocationsLoaded(true);
+      }
+    };
+
+    poll();
+    const interval = setInterval(poll, 20000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [token]);
+
+  // Center on a specific friend when arriving via FriendsScreen's "View on
+  // map" button (Req 70). Waits for the first friend-locations poll so we
+  // don't prematurely report "not sharing" before data has loaded, and fires
+  // only once per visit so it doesn't fight the user's own map interactions.
+  useEffect(() => {
+    if (!focusFriendId || focusHandledRef.current || !friendLocationsLoaded) return;
+    focusHandledRef.current = true;
+    const friend = friendLocations.find((f) => f.userId === focusFriendId);
+    if (friend) {
+      mapRef.current?.animateToRegion(
+        { latitude: friend.lat, longitude: friend.lng, latitudeDelta: 0.02, longitudeDelta: 0.02 },
+        500,
+      );
+      Alert.alert(
+        friend.displayName ?? focusFriendName ?? 'Friend',
+        `Sharing their live location — last updated ${formatLocTimeAgo(friend.ts)}.`,
+      );
+    } else {
+      Alert.alert(
+        'Not sharing location',
+        `${focusFriendName ?? 'This friend'} isn't currently sharing their live location.`,
+      );
+    }
+  }, [focusFriendId, focusFriendName, friendLocations, friendLocationsLoaded]);
+
   const friendSosPinList = useMemo(() => Array.from(friendSosPins.values()), [friendSosPins]);
+
+  const handleFriendLocationPress = useCallback((pin: FriendLocationPin) => {
+    Alert.alert(
+      pin.displayName ?? 'A friend',
+      `Last updated ${formatLocTimeAgo(pin.ts)}`,
+    );
+  }, []);
 
   const handleSosPinPress = useCallback((pin: SosPin) => {
     const name = friendNamesRef.current[pin.userId] ?? 'A friend';
@@ -239,9 +363,27 @@ export default function IdleMapScreen() {
         { accuracy: ExpoLocation.Accuracy.Balanced, timeInterval: 2000, distanceInterval: 5 },
         (loc) => {
           const spd = loc.coords.speed;
-          if (spd !== null && spd >= 0) setSpeedKph(Math.round(spd * 3.6));
+          const speedKphVal = spd !== null && spd >= 0 ? Math.round(spd * 3.6) : null;
+          if (speedKphVal !== null) setSpeedKph(speedKphVal);
           if (loc.coords.heading !== null && loc.coords.heading >= 0) {
             setHeadingDeg(loc.coords.heading);
+          }
+
+          // Groupless friend-location sharing (Req 70) — this screen only
+          // renders when there's no active group, so the sole gate here is
+          // the user's opt-in toggle. Mirrors MapScreen's in-group payload
+          // shape exactly ({ lat, lng, heading, speed_kph, ts }) so the
+          // backend's shared `location:update` handler parses it the same
+          // way; emission stops immediately once the toggle flips off since
+          // we check the ref (not a stale closure value) on every GPS tick.
+          if (shareLocationRef.current) {
+            wsServiceRef.current?.emitLocation({
+              lat: loc.coords.latitude,
+              lng: loc.coords.longitude,
+              heading: loc.coords.heading !== null && loc.coords.heading >= 0 ? loc.coords.heading : 0,
+              speed_kph: speedKphVal ?? 0,
+              ts: loc.timestamp,
+            });
           }
         },
       );
@@ -318,6 +460,11 @@ export default function IdleMapScreen() {
 
   const cardHeight = nearbyGroups.length > 0 ? 320 + insets.bottom : 260 + insets.bottom;
 
+  // Stack the "you're sharing" banner below whichever of the greeting pill /
+  // nearby-convoys pill are currently showing, so it never overlaps them.
+  const topPillsShown = (user ? 1 : 0) + (nearbyGroups.length > 0 ? 1 : 0);
+  const sharingBannerTop = insets.top + 12 + topPillsShown * 44;
+
   return (
     <View style={styles.container}>
       <LocationPermissionPrescreen
@@ -364,6 +511,23 @@ export default function IdleMapScreen() {
             </View>
           </Marker>
         ))}
+
+        {/* Friends sharing their live location with us (Req 70) */}
+        {friendLocations.map((f) => (
+          <Marker
+            key={f.userId}
+            coordinate={{ latitude: f.lat, longitude: f.lng }}
+            onPress={() => handleFriendLocationPress(f)}
+            title={f.displayName ?? 'A friend'}
+            description={`Last updated ${formatLocTimeAgo(f.ts)}`}
+          >
+            <View style={styles.friendLocationMarker}>
+              <Text style={styles.friendLocationMarkerText}>
+                {(f.displayName ?? 'A').charAt(0).toUpperCase()}
+              </Text>
+            </View>
+          </Marker>
+        ))}
       </MapView>
 
       <View style={styles.dimOverlay} pointerEvents="none" />
@@ -377,10 +541,19 @@ export default function IdleMapScreen() {
         </View>
       )}
 
-      {/* Time-based greeting */}
+      {/* Time-based greeting. getGreeting() produces unbounded text (long
+          first names), and this pill is centered across the *whole* width,
+          so it can otherwise collide with the speed/compass HUD card
+          (top-right, 64px wide) at the same vertical offset — the common
+          case whenever logged in and not locating. Bounding the pill's width
+          keeps it structurally clear of the HUD regardless of name length;
+          numberOfLines/ellipsizeMode is a second line of defense in case a
+          name is wide enough to hit that cap. */}
       {user && (
         <View style={[styles.greetingPill, { top: insets.top + 12 }]} pointerEvents="none">
-          <Text style={styles.greetingText}>{getGreeting(user.displayName)}</Text>
+          <Text style={styles.greetingText} numberOfLines={1} ellipsizeMode="tail">
+            {getGreeting(user.displayName)}
+          </Text>
         </View>
       )}
 
@@ -397,6 +570,20 @@ export default function IdleMapScreen() {
             {' '}{nearbyGroups.length} convoy{nearbyGroups.length !== 1 ? 's' : ''} near you
           </Text>
         </TouchableOpacity>
+      )}
+
+      {/* "You're sharing" banner — makes it clear the current user's own live
+          location is visible to friends right now, so they're never surprised. */}
+      {shareLocationWithFriends && (
+        <View
+          style={[styles.sharingBanner, { top: sharingBannerTop }]}
+          pointerEvents="none"
+          accessibilityLabel="Your location is currently visible to friends"
+        >
+          <Text style={styles.sharingBannerText} numberOfLines={1} ellipsizeMode="tail">
+            📍 Sharing your location with friends
+          </Text>
+        </View>
       )}
 
       {/* Welcome toast (no nearby convoys, no user greeting) */}
@@ -632,10 +819,36 @@ return StyleSheet.create({
     fontSize: 20,
   },
 
-  // Greeting pill
+  // Friend shared-location pin
+  friendLocationMarker: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: '#3B82F6',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+    shadowColor: '#3B82F6',
+    shadowOpacity: 0.6,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 6,
+  },
+  friendLocationMarkerText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+
+  // Greeting pill. maxWidth caps how far a long name can stretch this
+  // centered pill so it structurally cannot reach the HUD card in the
+  // top-right regardless of display-name length (see the collision note
+  // above the JSX usage).
   greetingPill: {
     position: 'absolute',
     alignSelf: 'center',
+    maxWidth: '55%',
     backgroundColor: 'rgba(28,28,28,0.92)',
     borderRadius: 20,
     paddingVertical: 7,
@@ -674,6 +887,25 @@ return StyleSheet.create({
   nearbyPillText: {
     color: colors.text,
     fontSize: 13,
+    fontWeight: '600',
+    letterSpacing: 0.2,
+  },
+
+  sharingBanner: {
+    position: 'absolute',
+    alignSelf: 'center',
+    maxWidth: '70%',
+    backgroundColor: 'rgba(59,130,246,0.18)',
+    borderRadius: 20,
+    paddingVertical: 7,
+    paddingHorizontal: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(59,130,246,0.4)',
+    zIndex: 20,
+  },
+  sharingBannerText: {
+    color: '#FFFFFF',
+    fontSize: 12,
     fontWeight: '600',
     letterSpacing: 0.2,
   },

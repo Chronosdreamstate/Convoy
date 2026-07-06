@@ -40,6 +40,7 @@ interface Settings {
   notifFriendRequests: boolean;
   notifNavigation: boolean;
   visibleToNearby: boolean;
+  shareLocationWithFriends: boolean;
 }
 
 const APP_VERSION = Constants.expoConfig?.version ?? '1.0.0';
@@ -216,6 +217,7 @@ export default function SettingsScreen() {
   const [notifGroupEvents, setNotifGroupEvents] = useState(true);
   const [notifFriendRequests, setNotifFriendRequests] = useState(true);
   const [notifNavigation, setNotifNavigation] = useState(true);
+  const [shareLocationWithFriends, setShareLocationWithFriends] = useState(false);
   const [distanceUnit, setDistanceUnit] = useState<'km' | 'miles'>(storedDistanceUnit);
   const [themeMode, setThemeMode] = useState<'light' | 'dark' | 'system'>(storedThemeMode);
   const [autoJoinNearby, setAutoJoinNearby] = useState(false);
@@ -233,7 +235,13 @@ export default function SettingsScreen() {
       const s = response.data;
       applySettings(s);
       setSettings(s);
-      setGlobalSettings({ mapStyle: s.mapStyle, hazardAlertDistanceM: s.hazardAlertDistanceM, scenicRouting: s.scenicRouting, pttMaxSeconds: s.pttMaxSeconds });
+      setGlobalSettings({
+        mapStyle: s.mapStyle,
+        hazardAlertDistanceM: s.hazardAlertDistanceM,
+        scenicRouting: s.scenicRouting,
+        pttMaxSeconds: s.pttMaxSeconds,
+        shareLocationWithFriends: s.shareLocationWithFriends ?? false,
+      });
       setIsDirty(false);
     } catch {
       setError('Failed to load settings. Please try again.');
@@ -253,6 +261,9 @@ export default function SettingsScreen() {
     setNotifFriendRequests(s.notifFriendRequests);
     setNotifNavigation(s.notifNavigation);
     setVisibleToNearby(s.visibleToNearby ?? false);
+    // Defensive: the backend field may not exist yet if the friend-location-sharing
+    // work hasn't landed on this deployment — default to off (not sharing) either way.
+    setShareLocationWithFriends(s.shareLocationWithFriends ?? false);
   };
 
   const handleSave = async () => {
@@ -279,6 +290,7 @@ export default function SettingsScreen() {
         pttMaxSeconds: response.data.pttMaxSeconds,
         pttVolumePercent,
         distanceUnit,
+        shareLocationWithFriends: response.data.shareLocationWithFriends ?? shareLocationWithFriends,
       });
       setIsDirty(false);
       setSaveSuccess(true);
@@ -715,6 +727,49 @@ export default function SettingsScreen() {
           />
         </View>
 
+        {/* ── LOCATION SHARING ────────────────────────────────────────────── */}
+        <SectionHeader title="LOCATION SHARING" />
+        <View style={styles.sectionCard}>
+          <SettingRow
+            icon="location-outline"
+            label="Share My Location"
+            subtitle="Friends can see your live location when this is on"
+            rightSlot={
+              <Switch
+                value={shareLocationWithFriends}
+                // Applied instantly (not gated behind Save) — this controls
+                // whether friends can see live location. "Off" must take
+                // effect the moment it's toggled, matching the Theme and
+                // Visible-to-Nearby settings' instant-apply behavior, not
+                // whenever the user next remembers to tap Save Settings.
+                onValueChange={async (v) => {
+                  const prev = shareLocationWithFriends;
+                  setShareLocationWithFriends(v);
+                  try {
+                    const response = await apiClient.patch<Settings>('/api/v1/settings', { shareLocationWithFriends: v });
+                    setSettings(response.data);
+                    setGlobalSettings({ shareLocationWithFriends: response.data.shareLocationWithFriends ?? v });
+                  } catch {
+                    setShareLocationWithFriends(prev);
+                    setError('Failed to update location sharing. Please try again.');
+                  }
+                }}
+                trackColor={{ false: theme.colors.border, true: theme.colors.accent }}
+                thumbColor={theme.colors.text}
+                accessibilityLabel="Share my location with friends toggle"
+              />
+            }
+            last
+          />
+          {shareLocationWithFriends ? (
+            <View style={styles.shareLocationBanner}>
+              <Text style={styles.shareLocationBannerText}>
+                Your live location is currently visible to friends
+              </Text>
+            </View>
+          ) : null}
+        </View>
+
         {/* ── ABOUT ───────────────────────────────────────────────────────── */}
         <SectionHeader title="ABOUT" />
         <View style={styles.sectionCard}>
@@ -936,6 +991,21 @@ function createStyles(theme: Theme) {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: theme.spacing.sm,
+  },
+
+  // Share-location status banner — shown under the toggle while it's on, so
+  // the user is never surprised their location is currently visible to friends.
+  shareLocationBanner: {
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: 10,
+    backgroundColor: theme.colors.accentMuted,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.border,
+  },
+  shareLocationBannerText: {
+    fontSize: 12,
+    color: theme.colors.text,
+    fontWeight: '600',
   },
   chip: {
     flexDirection: 'row',

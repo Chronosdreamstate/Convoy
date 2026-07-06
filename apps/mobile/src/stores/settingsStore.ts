@@ -14,7 +14,8 @@ interface SettingsState {
   pttVolumePercent: number;
   distanceUnit: DistanceUnit;
   themeMode: ThemeMode;
-  setSettings: (s: Partial<Pick<SettingsState, 'mapStyle' | 'hazardAlertDistanceM' | 'scenicRouting' | 'pttMaxSeconds' | 'pttVolumePercent' | 'distanceUnit' | 'themeMode'>>) => void;
+  shareLocationWithFriends: boolean;
+  setSettings: (s: Partial<Pick<SettingsState, 'mapStyle' | 'hazardAlertDistanceM' | 'scenicRouting' | 'pttMaxSeconds' | 'pttVolumePercent' | 'distanceUnit' | 'themeMode' | 'shareLocationWithFriends'>>) => void;
 }
 
 // SecureStore adapter for zustand/persist (non-sensitive app preferences)
@@ -34,6 +35,7 @@ export const useSettingsStore = create<SettingsState>()(
       pttVolumePercent: 100,
       distanceUnit: 'miles',
       themeMode: 'system',
+      shareLocationWithFriends: false,
       setSettings: (s) => set(s),
     }),
     {
@@ -47,6 +49,7 @@ export const useSettingsStore = create<SettingsState>()(
         pttVolumePercent: state.pttVolumePercent,
         distanceUnit: state.distanceUnit,
         themeMode: state.themeMode,
+        shareLocationWithFriends: state.shareLocationWithFriends,
       }),
     },
   ),
