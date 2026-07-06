@@ -107,9 +107,14 @@ export async function handleLocationUpdate(params: {
   // 2. Fan-out to every member in the group room (Req 8.2)
   io.to(`group:${groupId}`).emit('location:update', { userId, ...location });
 
-  // 3. Gap alert computation — non-admin members only (Req 24.1–24.6)
+  // 3. Bump last_activity_at (Req 38.1 — join code expires after 24h of group
+  // inactivity; a location update is the most frequent activity signal a
+  // live session produces) and fetch data needed for gap alert computation
+  // — non-admin members only (Req 24.1–24.6) — in the same round-trip.
   const groupResult = await db.query<{ admin_id: string; gap_threshold_m: number }>(
-    'SELECT admin_id, gap_threshold_m FROM convoy_groups WHERE id = $1',
+    `UPDATE convoy_groups SET last_activity_at = now()
+     WHERE id = $1 AND status = 'active'
+     RETURNING admin_id, gap_threshold_m`,
     [groupId],
   );
   const group = groupResult.rows[0];

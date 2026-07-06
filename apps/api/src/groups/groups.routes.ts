@@ -78,6 +78,10 @@ interface GroupRow {
   vehicle_focus: string | null;
   created_at: Date;
   ended_at: Date | null;
+  // Req 38.1 — flipped to false by the group-expiry sweep after 24h of
+  // inactivity, independent of `status`. Not every query below selects it
+  // (only the ones on the join-code path need to check it), hence optional.
+  join_code_active?: boolean;
 }
 
 interface MemberRow {
@@ -155,10 +159,15 @@ async function getActiveMember(
 }
 
 function groupToResponse(g: GroupRow, memberCount?: number) {
+  // Req 38.1 — the join code stops being usable (and is hidden from the
+  // Admin's share UI) once either the group has ended OR the group-expiry
+  // sweep has flipped join_code_active to false after 24h of inactivity.
+  // join_code_active defaults to true when a query doesn't select it.
+  const joinCodeUsable = g.status === 'active' && g.join_code_active !== false;
   return {
     id: g.id,
     name: g.name,
-    joinCode: g.status === 'active' ? g.join_code : null,
+    joinCode: joinCodeUsable ? g.join_code : null,
     adminId: g.admin_id,
     accessType: g.access_type,
     status: g.status,
@@ -268,7 +277,7 @@ async function groupsRoutes(
 
     const result = await fastify.db.query<GroupRow & { member_count: string }>(
       `SELECT g.id, g.name, g.join_code, g.admin_id, g.access_type, g.status,
-              g.gap_threshold_m, g.ptt_max_seconds, g.created_at, g.ended_at,
+              g.gap_threshold_m, g.ptt_max_seconds, g.created_at, g.ended_at, g.join_code_active,
               COUNT(m2.id) FILTER (WHERE m2.left_at IS NULL) AS member_count
        FROM convoy_members m
        JOIN convoy_groups g ON g.id = m.group_id
@@ -296,7 +305,7 @@ async function groupsRoutes(
   fastify.get('/groups/public', { preHandler: [authenticate, generalLimiter(fastify.redis)] }, async (request, reply) => {
     const result = await fastify.db.query<GroupRow & { member_count: string }>(
       `SELECT g.id, g.name, g.join_code, g.admin_id, g.access_type, g.status,
-              g.gap_threshold_m, g.ptt_max_seconds, g.created_at, g.ended_at,
+              g.gap_threshold_m, g.ptt_max_seconds, g.created_at, g.ended_at, g.join_code_active,
               COUNT(m.id) FILTER (WHERE m.left_at IS NULL) AS member_count
        FROM convoy_groups g
        LEFT JOIN convoy_members m ON m.group_id = g.id
@@ -326,7 +335,7 @@ async function groupsRoutes(
 
     const result = await fastify.db.query<FeaturedRow>(
       `SELECT g.id, g.name, g.join_code, g.admin_id, g.access_type, g.status,
-              g.gap_threshold_m, g.ptt_max_seconds, g.created_at, g.ended_at,
+              g.gap_threshold_m, g.ptt_max_seconds, g.created_at, g.ended_at, g.join_code_active,
               COUNT(m.id) FILTER (WHERE m.left_at IS NULL) AS member_count,
               u.display_name AS admin_display_name,
               ne.title AS next_event_title,
@@ -378,7 +387,7 @@ async function groupsRoutes(
 
     const result = await fastify.db.query<BrowseRow>(
       `SELECT g.id, g.name, g.join_code, g.admin_id, g.access_type, g.status,
-              g.gap_threshold_m, g.ptt_max_seconds, g.vehicle_focus, g.created_at, g.ended_at,
+              g.gap_threshold_m, g.ptt_max_seconds, g.vehicle_focus, g.created_at, g.ended_at, g.join_code_active,
               COUNT(m.id) FILTER (WHERE m.left_at IS NULL) AS member_count,
               u.display_name AS admin_display_name,
               COUNT(*) OVER() AS total_count,
@@ -432,7 +441,7 @@ async function groupsRoutes(
 
     const result = await fastify.db.query<GroupRow & { member_count: string }>(
       `SELECT g.id, g.name, g.join_code, g.admin_id, g.access_type, g.status,
-              g.gap_threshold_m, g.ptt_max_seconds, g.created_at, g.ended_at,
+              g.gap_threshold_m, g.ptt_max_seconds, g.created_at, g.ended_at, g.join_code_active,
               COUNT(m.id) FILTER (WHERE m.left_at IS NULL) AS member_count
        FROM convoy_groups g
        LEFT JOIN convoy_members m ON m.group_id = g.id
@@ -469,7 +478,7 @@ async function groupsRoutes(
     // Find the group by join code
     const groupResult = await fastify.db.query<GroupRow>(
       `SELECT id, name, join_code, admin_id, access_type, status,
-              gap_threshold_m, ptt_max_seconds, created_at, ended_at
+              gap_threshold_m, ptt_max_seconds, created_at, ended_at, join_code_active
        FROM convoy_groups
        WHERE join_code = $1`,
       [code.toUpperCase()],
@@ -481,6 +490,12 @@ async function groupsRoutes(
     // Join code expires when group ends (Req 38.1)
     if (group.status !== 'active') {
       return reply.gone('This group has ended');
+    }
+
+    // Join code also expires after 24h of group inactivity, independent of
+    // `status` — flipped by the group-expiry sweep job (Req 38.1).
+    if (!group.join_code_active) {
+      return reply.gone('This join code has expired due to group inactivity');
     }
 
     // Invite-only enforcement (Req 7.5, Property 11)
@@ -504,14 +519,24 @@ async function groupsRoutes(
     try {
       await client.query('BEGIN');
 
-      // Lock the group row to prevent a concurrent end-group from slipping in before the INSERT
-      const lockResult = await client.query<{ status: string }>(
-        'SELECT status FROM convoy_groups WHERE id = $1 FOR UPDATE',
+      // Lock the group row (an UPDATE takes the same row lock a `SELECT ...
+      // FOR UPDATE` would) to prevent a concurrent end-group or expiry sweep
+      // from slipping in before the member INSERT, re-checking both under
+      // the lock — and record this join as activity in the same statement
+      // (Req 38.1).
+      const lockResult = await client.query<{ status: string; join_code_active: boolean }>(
+        `UPDATE convoy_groups SET last_activity_at = now()
+         WHERE id = $1
+         RETURNING status, join_code_active`,
         [group.id],
       );
       if (lockResult.rows[0]?.status !== 'active') {
         await client.query('ROLLBACK');
         return reply.gone('This group has ended');
+      }
+      if (!lockResult.rows[0]?.join_code_active) {
+        await client.query('ROLLBACK');
+        return reply.gone('This join code has expired due to group inactivity');
       }
 
       // Upsert member row (handles rejoin after leaving)
@@ -561,14 +586,18 @@ async function groupsRoutes(
       const userId = (request.user as { sub: string }).sub;
       const { id } = request.params as { id: string };
 
-      const groupResult = await fastify.db.query<{ admin_id: string; join_code: string; status: string }>(
-        'SELECT admin_id, join_code, status FROM convoy_groups WHERE id = $1',
+      const groupResult = await fastify.db.query<{
+        admin_id: string; join_code: string; status: string; join_code_active: boolean;
+      }>(
+        'SELECT admin_id, join_code, status, join_code_active FROM convoy_groups WHERE id = $1',
         [id],
       );
       const group = groupResult.rows[0];
       if (!group) return reply.notFound('Group not found');
       if (group.admin_id !== userId) return reply.forbidden('Only the Admin can get the invite link');
       if (group.status !== 'active') return reply.gone('Group has ended');
+      // Req 38.1 — join code expired from 24h of inactivity, independent of `status`.
+      if (!group.join_code_active) return reply.gone('This join code has expired due to group inactivity');
 
       return reply.send({
         code: group.join_code,
@@ -645,13 +674,20 @@ async function groupsRoutes(
 
       const groupResult = await fastify.db.query<GroupRow>(
         `SELECT id, name, join_code, admin_id, access_type, status,
-                gap_threshold_m, ptt_max_seconds, created_at, ended_at
+                gap_threshold_m, ptt_max_seconds, created_at, ended_at, join_code_active
          FROM convoy_groups WHERE id = $1`,
         [id],
       );
       const group = groupResult.rows[0];
       if (!group) return reply.notFound('Group not found');
       if (group.status !== 'active') return reply.gone('This group has ended');
+      // This is a code-free join path (reached from the open-group discovery
+      // list), but it's still "joining the group" in spirit — honor the same
+      // 24h-inactivity expiry as the join-code path (Req 38.1) so an
+      // abandoned group can't be joined through this back door either.
+      if (!group.join_code_active) {
+        return reply.gone('This group is no longer accepting new members due to inactivity');
+      }
       if (group.access_type === 'invite_only') {
         return reply.forbidden('This group is invite-only — use a join code');
       }
@@ -676,6 +712,12 @@ async function groupsRoutes(
            WHERE c.group_id = $1 AND c.is_all = true
            ON CONFLICT DO NOTHING`,
           [id, userId],
+        );
+
+        // Record this join as group activity (Req 38.1)
+        await client.query(
+          `UPDATE convoy_groups SET last_activity_at = now() WHERE id = $1`,
+          [id],
         );
 
         await client.query('COMMIT');
@@ -969,7 +1011,7 @@ async function groupsRoutes(
         `UPDATE convoy_groups SET ${setClauses.join(', ')}
          WHERE id = $${p}
          RETURNING id, name, join_code, admin_id, access_type, status,
-                   gap_threshold_m, ptt_max_seconds, created_at, ended_at`,
+                   gap_threshold_m, ptt_max_seconds, created_at, ended_at, join_code_active`,
         values,
       );
 
