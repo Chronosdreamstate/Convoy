@@ -15,7 +15,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { apiClient } from '../services/apiClient';
 import { SkeletonBox, SkeletonRow } from '../components/SkeletonLoader';
-import { useTheme, ThemeColors } from '../theme';
+import { useTheme, withAlpha, ThemeColors } from '../theme';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -106,6 +106,7 @@ export default function GroupDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [joining, setJoining] = useState(false);
+  const [sharing, setSharing] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   // Real measured height of the absolutely-positioned bottom action bar, so the
   // scroll content can reserve exactly enough space to clear it (see footer
@@ -136,7 +137,8 @@ export default function GroupDetailScreen() {
   useEffect(() => { void fetchGroup(); }, [fetchGroup]);
 
   const handleShare = useCallback(async () => {
-    if (!group) return;
+    if (!group || sharing) return;
+    setSharing(true);
     try {
       const res = await apiClient.get<{ link: string; code: string }>(`/api/v1/groups/${group.id}/invite-link`);
       const { link, code } = res.data;
@@ -157,8 +159,10 @@ export default function GroupDetailScreen() {
         message: `Check out "${group.name}" on CORTEGE — the car enthusiast convoy app! convoy.app`,
         title: `Join ${group.name} on CORTEGE`,
       });
+    } finally {
+      setSharing(false);
     }
-  }, [group]);
+  }, [group, sharing]);
 
   const handleJoin = async () => {
     if (!id) return;
@@ -186,7 +190,9 @@ export default function GroupDetailScreen() {
     return (
       <SafeAreaView style={styles.container}>
         <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} accessibilityRole="button" accessibilityLabel="Go back">
-          <Text style={styles.backText}>‹ Back</Text>
+          <Text style={styles.backText}>
+            <Ionicons name="chevron-back" size={16} color={colors.accent} /> Back
+          </Text>
         </TouchableOpacity>
         <DetailSkeleton />
       </SafeAreaView>
@@ -196,13 +202,19 @@ export default function GroupDetailScreen() {
   if (error || !group) {
     return (
       <SafeAreaView style={styles.container}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
-          <Text style={styles.backText}>‹ Back</Text>
+        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} accessibilityRole="button" accessibilityLabel="Go back">
+          <Text style={styles.backText}>
+            <Ionicons name="chevron-back" size={16} color={colors.accent} /> Back
+          </Text>
         </TouchableOpacity>
         <View style={styles.errorContainer}>
-          <Text style={styles.errorText}>{error ?? 'Group not found.'}</Text>
-          <TouchableOpacity style={styles.retryBtn} onPress={fetchGroup}>
-            <Text style={styles.retryText}>Retry</Text>
+          <Ionicons name="cloud-offline-outline" size={52} color={colors.textMuted} style={styles.errorIcon} />
+          <Text style={styles.errorTitle}>Couldn&apos;t load group</Text>
+          <Text style={styles.errorText}>{error ?? 'This group may have been removed or is no longer available.'}</Text>
+          <TouchableOpacity style={styles.retryBtn} onPress={fetchGroup} accessibilityRole="button" accessibilityLabel="Retry loading group">
+            <Text style={styles.retryText}>
+              <Ionicons name="refresh" size={15} color={colors.text} /> Try Again
+            </Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
@@ -216,11 +228,24 @@ export default function GroupDetailScreen() {
     <SafeAreaView style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-          <Text style={styles.backText}>‹ Back</Text>
+        <TouchableOpacity onPress={() => router.back()} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} accessibilityRole="button" accessibilityLabel="Go back">
+          <Text style={styles.backText}>
+            <Ionicons name="chevron-back" size={16} color={colors.accent} /> Back
+          </Text>
         </TouchableOpacity>
-        <TouchableOpacity onPress={handleShare} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} accessibilityLabel="Share group">
-          <Ionicons name="share-social-outline" size={22} color={colors.text} />
+        <TouchableOpacity
+          onPress={handleShare}
+          disabled={sharing}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          accessibilityRole="button"
+          accessibilityLabel="Share group"
+          accessibilityState={{ busy: sharing }}
+        >
+          {sharing ? (
+            <ActivityIndicator size="small" color={colors.text} />
+          ) : (
+            <Ionicons name="share-social-outline" size={22} color={colors.text} />
+          )}
         </TouchableOpacity>
       </View>
 
@@ -248,7 +273,9 @@ export default function GroupDetailScreen() {
           </View>
           {group.status === 'active' && (
             <View style={styles.badgeLive}>
-              <Text style={styles.badgeText}>● Live</Text>
+              <Text style={styles.badgeText}>
+                <Text style={styles.badgeLiveDot}>●</Text> Live
+              </Text>
             </View>
           )}
         </View>
@@ -313,6 +340,8 @@ export default function GroupDetailScreen() {
             <TouchableOpacity
               style={[styles.viewBtn, { flex: 1 }]}
               onPress={() => router.replace('/(tabs)/convoy')}
+              accessibilityRole="button"
+              accessibilityLabel="View convoy"
             >
               <Text style={styles.joinText}>
                 <MaterialCommunityIcons name="car" size={16} color={colors.text} /> View Convoy
@@ -342,6 +371,7 @@ export default function GroupDetailScreen() {
                 params: { groupId: group.id, groupName: group.name },
               } as never)
             }
+            accessibilityRole="button"
             accessibilityLabel="View convoy history"
           >
             <Ionicons name="time-outline" size={22} color={colors.text} />
@@ -354,6 +384,7 @@ export default function GroupDetailScreen() {
                 params: { groupId: group.id, groupName: group.name },
               } as never)
             }
+            accessibilityRole="button"
             accessibilityLabel="View leaderboard"
           >
             <Ionicons name="trophy-outline" size={22} color={colors.text} />
@@ -361,6 +392,7 @@ export default function GroupDetailScreen() {
           <TouchableOpacity
             style={styles.leaderboardBtn}
             onPress={() => router.push(`/group-stats/${group.id}` as never)}
+            accessibilityRole="button"
             accessibilityLabel="View group stats"
           >
             <Ionicons name="stats-chart-outline" size={22} color={colors.text} />
@@ -386,8 +418,10 @@ function createStyles(colors: ThemeColors) {
   content: { paddingHorizontal: 20, paddingTop: 16 },
   skeletonContainer: { paddingHorizontal: 20, paddingTop: 24 },
   errorContainer: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32 },
-  errorText: { color: colors.textMuted, fontSize: 15, textAlign: 'center', marginBottom: 20 },
-  retryBtn: { backgroundColor: colors.accent, paddingHorizontal: 24, paddingVertical: 12, borderRadius: 12 },
+  errorIcon: { marginBottom: 16 },
+  errorTitle: { color: colors.text, fontSize: 18, fontWeight: '700', textAlign: 'center', marginBottom: 8 },
+  errorText: { color: colors.textMuted, fontSize: 15, textAlign: 'center', lineHeight: 21, marginBottom: 20 },
+  retryBtn: { backgroundColor: colors.accent, paddingHorizontal: 24, paddingVertical: 12, borderRadius: 12, minHeight: 44, justifyContent: 'center' },
   retryText: { color: colors.text, fontSize: 15, fontWeight: '700' },
 
   groupName: { color: colors.text, fontSize: 28, fontWeight: '700', marginBottom: 4 },
@@ -395,10 +429,11 @@ function createStyles(colors: ThemeColors) {
 
   badgeRow: { flexDirection: 'row', gap: 8, marginBottom: 20 },
   badge: { borderRadius: 100, paddingHorizontal: 12, paddingVertical: 4 },
-  badgeOpen: { backgroundColor: 'rgba(220,20,60,0.15)', borderWidth: 1, borderColor: colors.accent },
-  badgeLocked: { backgroundColor: 'rgba(255,255,255,0.08)', borderWidth: 1, borderColor: colors.border },
-  badgeLive: { backgroundColor: 'rgba(34,197,94,0.15)', borderWidth: 1, borderColor: colors.success, borderRadius: 100, paddingHorizontal: 12, paddingVertical: 4 },
+  badgeOpen: { backgroundColor: withAlpha(colors.accent, 0.15), borderWidth: 1, borderColor: colors.accent },
+  badgeLocked: { backgroundColor: withAlpha(colors.textMuted, 0.12), borderWidth: 1, borderColor: colors.border },
+  badgeLive: { backgroundColor: withAlpha(colors.success, 0.15), borderWidth: 1, borderColor: colors.success, borderRadius: 100, paddingHorizontal: 12, paddingVertical: 4 },
   badgeText: { color: colors.text, fontSize: 12, fontWeight: '600' },
+  badgeLiveDot: { color: colors.success },
 
   statsRow: { flexDirection: 'row', gap: 8, marginBottom: 24 },
   statCard: { flex: 1, backgroundColor: colors.card, borderRadius: 12, padding: 12, alignItems: 'center' },
