@@ -143,6 +143,34 @@ const MemberMarkerView = React.memo(function MemberMarkerView({ member, isStale,
           }}
         />
       )}
+      {/* Directional heading indicator (Req 8.3) — a chevron that orbits the badge,
+          rotated to the member's GPS heading (degrees clockwise from true north). */}
+      {!isStale && (
+        <View
+          pointerEvents="none"
+          style={{
+            position: 'absolute',
+            width: 32,
+            height: 32,
+            alignItems: 'center',
+            transform: [{ rotate: `${member.heading}deg` }],
+          }}
+        >
+          <View
+            style={{
+              width: 0,
+              height: 0,
+              marginTop: -5,
+              borderLeftWidth: 5,
+              borderRightWidth: 5,
+              borderBottomWidth: 7,
+              borderLeftColor: 'transparent',
+              borderRightColor: 'transparent',
+              borderBottomColor: '#FFFFFF',
+            }}
+          />
+        </View>
+      )}
       <View
         style={{
           width: 32,

@@ -101,6 +101,29 @@ async function generateJoinCode(pool: Pool): Promise<string> {
   throw new Error('Failed to generate a unique join code — please retry');
 }
 
+// ---------------------------------------------------------------------------
+// Socket cleanup on leave/kick/end (privacy: Req 8 — a member's location must
+// stop being transmitted the instant they are no longer active in the group,
+// not whenever their client happens to notice and disconnect on its own).
+// The socket.io handler's `location:update` listener does not re-check group
+// membership per event, so without this the client could otherwise keep
+// broadcasting (and receiving) location updates for a group it has already
+// left/been removed from/that has ended. Force-disconnecting the socket here
+// makes the existing `disconnect` handler in socket.handler.ts run (which
+// clears the cached Redis location and emits member:left/member:offline).
+//
+// `io` is typed loosely and the call is defensive (optional chaining, no
+// throw) because unit tests inject a minimal `{ to() }` mock that doesn't
+// implement `.in()` — this is best-effort cleanup, not required for the
+// route's own correctness.
+// ---------------------------------------------------------------------------
+function disconnectRoomSockets(io: unknown, room: string): void {
+  try {
+    const broadcaster = io as { in?: (room: string) => { disconnectSockets?: (close?: boolean) => void } };
+    broadcaster.in?.(room)?.disconnectSockets?.(true);
+  } catch { /* best-effort */ }
+}
+
 /** Return the active membership row for a user in a group, or null. */
 async function getActiveMember(
   groupId: string,
@@ -746,6 +769,11 @@ async function groupsRoutes(
       fastify.io.to(`group:${id}`).emit('group:ended', { endedBy: userId, groupId: id });
     }
 
+    // Force-disconnect the leaving member's own socket so their location stops
+    // broadcasting immediately, regardless of whether/when their client notices
+    // they left and tears down its own connection (privacy — see helper above).
+    disconnectRoomSockets(fastify.io, `user:${userId}`);
+
     return reply.status(200).send({ message: 'Left group' });
   });
 
@@ -817,6 +845,12 @@ async function groupsRoutes(
     // Notify all members in the group room that the group has ended (Req 7.9)
     fastify.io.to(`group:${id}`).emit('group:ended', endPayload);
 
+    // Force-disconnect every member's socket so location sharing stops for the
+    // whole group immediately, instead of relying on each client to process
+    // `group:ended` and tear its own connection down (privacy — see helper above).
+    // Must run after the emit above so everyone still in the room receives it first.
+    disconnectRoomSockets(fastify.io, `group:${id}`);
+
     return reply.status(200).send({ message: 'Group ended', durationS, distanceM, memberCount });
   });
 
@@ -870,6 +904,12 @@ async function groupsRoutes(
       fastify.io
         .to(`user:${targetUserId}`)
         .emit('member:kicked', { groupId: id });
+
+      // Force-disconnect the kicked member's socket so their location stops
+      // broadcasting immediately rather than depending on their client to
+      // process `member:kicked` and disconnect itself (privacy — see helper above).
+      // Must run after the emit above so they still receive the notification first.
+      disconnectRoomSockets(fastify.io, `user:${targetUserId}`);
 
       return reply.status(200).send({ message: 'Member kicked' });
     },

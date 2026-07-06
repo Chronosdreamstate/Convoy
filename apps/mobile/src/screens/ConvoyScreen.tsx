@@ -165,6 +165,11 @@ export default function ConvoyScreen({ userId }: Props) {
   const [showInvite, setShowInvite] = useState(false);
   const copyFeedbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Toast shown when a member joins/leaves the group (Req 7.6, 7.7)
+  const [memberToastText, setMemberToastText] = useState<string | null>(null);
+  const memberToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const membersRef = useRef<GroupMember[]>([]);
+
   const [upcomingEvent, setUpcomingEvent] = useState<{ id: string; title: string; scheduledFor: string } | null>(null);
   const [eventCountdown, setEventCountdown] = useState<{ hours: number; minutes: number; seconds: number } | null>(null);
   const [convoyStarting, setConvoyStarting] = useState(false);
@@ -190,9 +195,20 @@ export default function ConvoyScreen({ userId }: Props) {
     }
   }, [group?.id, group?.name, group?.memberCount, group?.adminId, group?.gapThresholdM, setActiveGroupId, setGroupMeta, clearGroupMeta]);
 
+  // Keep membersRef in sync so socket handlers always see the current list
+  useEffect(() => { membersRef.current = members; }, [members]);
+
+  // Show a 3s toast naming the member who joined/left, then clear it
+  const showMemberToast = useCallback((text: string) => {
+    if (memberToastTimer.current) clearTimeout(memberToastTimer.current);
+    setMemberToastText(text);
+    memberToastTimer.current = setTimeout(() => setMemberToastText(null), 3000);
+  }, []);
+
   useEffect(() => {
     return () => {
       if (copyFeedbackTimer.current) clearTimeout(copyFeedbackTimer.current);
+      if (memberToastTimer.current) clearTimeout(memberToastTimer.current);
     };
   }, []);
 
@@ -338,8 +354,10 @@ export default function ConvoyScreen({ userId }: Props) {
   const isAdmin = group?.adminId === userId;
 
   // ── Helper: fetch and normalise the members list ──────────────────────────
-  const fetchMembers = useCallback((groupId: string) => {
-    apiClient
+  // Returns the freshly-fetched list so callers (e.g. join/leave socket handlers)
+  // can diff against membersRef.current to name the member who joined/left.
+  const fetchMembers = useCallback((groupId: string): Promise<GroupMember[]> => {
+    return apiClient
       .get<{ members: MemberApiItem[] }>(`/api/v1/groups/${groupId}/members`)
       .then((res) => {
         const normalised: GroupMember[] = res.data.members.map((m) => ({
@@ -352,8 +370,9 @@ export default function ConvoyScreen({ userId }: Props) {
         }));
         setMembers(normalised);
         setGroupMeta({ memberCount: res.data.members.length });
+        return normalised;
       })
-      .catch(() => {/* silently fail – user will see empty list */});
+      .catch(() => { /* silently fail – user will see empty list */ return membersRef.current; });
   }, [setGroupMeta]);
 
   // ── Load members when group becomes non-null ──────────────────────────────
@@ -366,8 +385,19 @@ export default function ConvoyScreen({ userId }: Props) {
   useEffect(() => {
     if (!socket || !group) return;
     const handleGroupEnded = () => { setGroup(null); setMembers([]); setView('home'); };
-    const handleMemberJoined = () => { fetchMembers(group.id); };
-    const handleMemberLeft = () => { fetchMembers(group.id); };
+    const handleMemberJoined = (data: { userId: string }) => {
+      // The joining member isn't in membersRef yet — fetch first, then look up their name.
+      void fetchMembers(group.id).then((updated) => {
+        const joined = updated.find((m) => m.userId === data.userId);
+        showMemberToast(`${joined?.displayName || 'A rider'} joined the convoy`);
+      });
+    };
+    const handleMemberLeft = (data: { userId: string }) => {
+      // The leaving member is still in the current list — resolve the name before refetching.
+      const left = membersRef.current.find((m) => m.userId === data.userId);
+      showMemberToast(`${left?.displayName || 'A rider'} left the convoy`);
+      fetchMembers(group.id);
+    };
     const handleKicked = () => { setGroup(null); setMembers([]); setView('home'); };
     const handleSettingsUpdated = (data: { gapThresholdM?: number; pttMaxSeconds?: number }) => {
       setGroup((prev) => prev ? { ...prev, ...data } : null);
@@ -398,7 +428,7 @@ export default function ConvoyScreen({ userId }: Props) {
       socket.off('ptt:unmuted', handlePttUnmuted);
       socket.off('member:mute_changed', handleMemberMuteChanged);
     };
-  }, [socket, group, fetchMembers]);
+  }, [socket, group, fetchMembers, showMemberToast]);
 
   // ── Gap threshold (Admin only) ────────────────────────────────────────────
   const handleSetGapThreshold = useCallback(async (metres: number) => {
@@ -812,6 +842,12 @@ export default function ConvoyScreen({ userId }: Props) {
   // ── Active group view ─────────────────────────────────────────────────────
   return (
     <SafeAreaView style={styles.container}>
+      {/* Member joined/left toast (Req 7.6, 7.7) */}
+      {memberToastText && (
+        <View style={styles.memberToast} pointerEvents="none">
+          <Text style={styles.memberToastText}>{memberToastText}</Text>
+        </View>
+      )}
       {/* Header bar */}
       <View style={styles.headerBar}>
         <Text style={styles.headerTitle}>CONVOY</Text>
@@ -1354,6 +1390,27 @@ const memberStyles = StyleSheet.create({
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0A0A0A', padding: 16 },
+
+  // Member joined/left toast (Req 7.6, 7.7)
+  memberToast: {
+    position: 'absolute',
+    top: 4,
+    left: 16,
+    right: 16,
+    zIndex: 50,
+    backgroundColor: 'rgba(20,20,20,0.95)',
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderColor: '#DC143C',
+    alignItems: 'center',
+  },
+  memberToastText: {
+    color: '#F0F0F0',
+    fontSize: 13,
+    fontWeight: '600',
+  },
 
   // Header bar
   headerBar: {

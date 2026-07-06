@@ -80,6 +80,10 @@ export class LocationService {
   private static _onLocation: LocationCallback | null = null;
   private static _foregroundSub: Location.LocationSubscription | null = null;
   private static _backgroundStarted = false;
+  // Most recent GPS fix, kept so the 3s heartbeat below can re-emit it while parked.
+  private static _lastFix: Parameters<LocationCallback>[0] | null = null;
+  private static _heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  private static readonly HEARTBEAT_MS = 3_000;
 
   static setCallback(cb: LocationCallback) { LocationService._onLocation = cb; }
   static clearCallback() { LocationService._onLocation = null; }
@@ -123,18 +127,42 @@ export class LocationService {
       return;
     }
     LocationService._foregroundSub = await Location.watchPositionAsync(
-      { accuracy: Location.Accuracy.High, distanceInterval: 10 },
+      // distanceInterval alone means watchPositionAsync only fires on movement (10m+) —
+      // on iOS there is no native time-based interval (CoreLocation is distance-filter
+      // driven), so a stationary member (stopped at a light, parked) would otherwise stop
+      // transmitting entirely. timeInterval additionally bounds this on Android. Req 8.1
+      // requires a transmit at least every 3s regardless of movement, so we also run a
+      // JS-level heartbeat below that re-emits the last known fix on that cadence.
+      { accuracy: Location.Accuracy.High, distanceInterval: 10, timeInterval: LocationService.HEARTBEAT_MS },
       (loc) => {
-        if (!LocationService._onLocation) return;
-        LocationService._onLocation({
+        const fix = {
           lat: loc.coords.latitude,
           lng: loc.coords.longitude,
           heading: loc.coords.heading ?? 0,
           speedKph: (loc.coords.speed ?? 0) * 3.6,
           ts: loc.timestamp,
-        });
+        };
+        LocationService._lastFix = fix;
+        LocationService._onLocation?.(fix);
       },
     );
+    LocationService._startHeartbeat();
+  }
+
+  /** Re-emits the last known GPS fix every 3s so stationary members keep transmitting (Req 8.1). */
+  static _startHeartbeat(): void {
+    if (LocationService._heartbeatTimer) return;
+    LocationService._heartbeatTimer = setInterval(() => {
+      if (!LocationService._onLocation || !LocationService._lastFix) return;
+      LocationService._onLocation({ ...LocationService._lastFix, ts: Date.now() });
+    }, LocationService.HEARTBEAT_MS);
+  }
+
+  static _stopHeartbeat(): void {
+    if (LocationService._heartbeatTimer) {
+      clearInterval(LocationService._heartbeatTimer);
+      LocationService._heartbeatTimer = null;
+    }
   }
 
   static async stopTracking(): Promise<void> {
@@ -148,6 +176,8 @@ export class LocationService {
       LocationService._foregroundSub.remove();
       LocationService._foregroundSub = null;
     }
+    LocationService._stopHeartbeat();
+    LocationService._lastFix = null;
     LocationService._onLocation = null;
   }
 
