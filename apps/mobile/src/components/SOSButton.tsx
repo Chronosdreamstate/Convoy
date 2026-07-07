@@ -17,7 +17,15 @@ export default function SOSButton({ groupId }: SOSButtonProps) {
 
   return (
     <>
-      <TouchableOpacity style={styles.button} onPress={handlePress} activeOpacity={0.8}>
+      <TouchableOpacity
+        style={styles.button}
+        onPress={handlePress}
+        activeOpacity={0.8}
+        accessibilityRole="button"
+        accessibilityLabel="SOS emergency options"
+        accessibilityHint="Opens emergency actions: breakdown, medical, or convoy halt"
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+      >
         <Text style={styles.label}>SOS</Text>
       </TouchableOpacity>
 
@@ -30,11 +38,15 @@ export default function SOSButton({ groupId }: SOSButtonProps) {
   );
 }
 
+// Emergency red is intentionally fixed (not theme-adaptive) for urgency/
+// visibility, matching the app's other SOS/emergency surfaces.
 const styles = StyleSheet.create({
   button: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
+    // 64x64 — large, easy-to-hit target for driving-context use, matching
+    // the SOS control size used elsewhere in the app (e.g. MapScreen).
+    width: 64,
+    height: 64,
+    borderRadius: 32,
     backgroundColor: '#DC143C',
     justifyContent: 'center',
     alignItems: 'center',
@@ -46,7 +58,7 @@ const styles = StyleSheet.create({
   },
   label: {
     color: '#FFFFFF',
-    fontSize: 12,
+    fontSize: 14,
     fontWeight: '800',
     letterSpacing: 1,
   },
