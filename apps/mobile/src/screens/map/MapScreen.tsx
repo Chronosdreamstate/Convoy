@@ -48,6 +48,7 @@ import { DriveService } from '../../services/DriveService';
 import { haversineDistanceM } from '../../utils/geo';
 import { carPlayService } from '../../services/CarPlayService';
 import { androidAutoService } from '../../services/AndroidAutoService';
+import { DrivingModeService, IBluetoothProvider } from '../../services/DrivingModeService';
 import { HapticService } from '../../services/HapticService';
 import { LocationService } from '../../services/LocationService';
 import { LiveActivityService } from '../../services/LiveActivityService';
@@ -91,6 +92,15 @@ function formatDistance(distM: number): string {
 // the report as active. This previously drifted to 2 hours, leaving expired
 // hazards visible on other members' maps for far longer than intended.
 const HAZARD_EXPIRY_MS = 30 * 60 * 1000; // 30 minutes
+
+// Stub IBluetoothProvider — no native plain-Bluetooth (non-CarPlay/Android Auto) vehicle
+// connection module exists in this codebase yet. Always reports "not connected" so
+// DrivingModeService's auto-detection currently only reacts to CarPlay/Android Auto
+// sessions; wiring real vehicle BT audio detection is a separate, out-of-scope task.
+const noopBluetoothProvider: IBluetoothProvider = {
+  onVehicleConnectionChange: () => () => {},
+};
+
 interface RouteAlternative {
   distance: number;       // metres (matches backend Route shape)
   duration: number;       // seconds
@@ -390,8 +400,10 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
   // Dropped pin (Req 5.1–5.4)
   const [droppedPin, setDroppedPin] = useState<{ lat: number; lng: number; address: string | null } | null>(null);
 
-  // Driving mode (manual toggle)
+  // Driving mode — auto-activated on CarPlay/Android Auto (and, once implemented, plain
+  // Bluetooth) connect, with manual override support (Req 28.1, 28.4–28.6).
   const [drivingModeActive, setDrivingModeActive] = useState(false);
+  const drivingModeServiceRef = useRef<DrivingModeService | null>(null);
 
   // PTT voice availability — tracks Agora engine connection state (Req 43.3)
   const [pttVoiceAvailable, setPttVoiceAvailable] = useState(true);
@@ -666,6 +678,23 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
     });
     LocationService.startTracking();
     return () => { LocationService.stopTracking(); };
+  }, []);
+
+  // DrivingModeService lifecycle — auto-activates/deactivates Driving Mode on
+  // CarPlay (iOS) / Android Auto (Android) connect, with the BT side stubbed
+  // out until real native vehicle-BT detection exists (Req 28.1, 28.6).
+  useEffect(() => {
+    const carPlayProvider = Platform.OS === 'ios' ? carPlayService : androidAutoService;
+    const service = new DrivingModeService(noopBluetoothProvider, carPlayProvider);
+    drivingModeServiceRef.current = service;
+    service.start();
+    const unsubscribe = service.subscribe((active) => setDrivingModeActive(active));
+
+    return () => {
+      unsubscribe();
+      service.stop();
+      drivingModeServiceRef.current = null;
+    };
   }, []);
 
   // PTTService lifecycle — create/destroy when socket or active channel changes
@@ -1664,7 +1693,7 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.fabItem, drivingModeActive && styles.fabItemActive]}
-                onPress={() => { setFabOpen(false); setDrivingModeActive((v) => !v); }}
+                onPress={() => { setFabOpen(false); drivingModeServiceRef.current?.setManualActive(!drivingModeActive); }}
                 accessibilityLabel={drivingModeActive ? 'Exit driving mode' : 'Enter driving mode'}
                 accessibilityRole="button"
               >
@@ -2296,7 +2325,7 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
           </View>
           <TouchableOpacity
             style={styles.drivingExitBtn}
-            onPress={() => setDrivingModeActive(false)}
+            onPress={() => drivingModeServiceRef.current?.setManualActive(false)}
             accessibilityRole="button"
             accessibilityLabel="Exit driving mode"
           >
