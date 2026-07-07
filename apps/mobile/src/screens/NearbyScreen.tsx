@@ -91,6 +91,10 @@ export default function NearbyScreen() {
   const [error, setError] = useState<string | null>(null);
   const [locationError, setLocationError] = useState<string | null>(null);
   const [connectingId, setConnectingId] = useState<string | null>(null);
+  // Separate from `error` (list load/refresh failures, which get a full
+  // empty-state-with-retry or a header banner) — a chat-start failure
+  // doesn't call for a "reload the list" retry, just a small non-blocking note.
+  const [chatError, setChatError] = useState<string | null>(null);
 
   const load = useCallback(async (opts: { silent?: boolean } = {}) => {
     if (!opts.silent) setState('loading');
@@ -149,6 +153,7 @@ export default function NearbyScreen() {
   const handleChat = useCallback(async (target: NearbyUser) => {
     if (connectingId) return;
     setConnectingId(target.userId);
+    setChatError(null);
     try {
       const res = await apiClient.post<{ groupId: string }>('/api/v1/nearby/dm', { userId: target.userId });
       (router.push as (href: { pathname: string; params?: Record<string, string> }) => void)({
@@ -156,7 +161,7 @@ export default function NearbyScreen() {
         params: { groupId: res.data.groupId },
       });
     } catch {
-      setError('Could not start a chat right now. Please try again.');
+      setChatError('Could not start a chat right now. Please try again.');
     } finally {
       setConnectingId(null);
     }
@@ -266,9 +271,42 @@ export default function NearbyScreen() {
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={() => { void onRefresh(); }} tintColor={colors.accent} colors={[colors.accent]} />
           }
-          ListHeaderComponent={error ? <Text style={styles.errorTxt}>{error}</Text> : null}
+          ListHeaderComponent={
+            (error && users.length > 0) || chatError ? (
+              <View style={styles.bannerStack}>
+                {error && users.length > 0 && (
+                  <View style={styles.errorBanner}>
+                    <Text style={styles.errorBannerTxt}>{error}</Text>
+                    <TouchableOpacity
+                      onPress={() => { void load(); }}
+                      accessibilityRole="button"
+                      accessibilityLabel="Retry loading nearby drivers"
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      <Text style={styles.errorRetryText}>Retry</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+                {chatError && <Text style={styles.errorTxt}>{chatError}</Text>}
+              </View>
+            ) : null
+          }
           ListEmptyComponent={
-            !error ? (
+            error ? (
+              <View style={styles.empty}>
+                <Ionicons name="alert-circle-outline" size={44} color={colors.textMuted} style={styles.emptyIcon} />
+                <Text style={styles.emptyTitle}>Couldn't load nearby drivers</Text>
+                <Text style={styles.emptySub}>{error}</Text>
+                <TouchableOpacity
+                  style={styles.settingsBtn}
+                  onPress={() => { void load(); }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Try again"
+                >
+                  <Text style={styles.settingsBtnText}>Try Again</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
               <View style={styles.empty}>
                 <Ionicons name="moon-outline" size={44} color={colors.textMuted} style={styles.emptyIcon} />
                 <Text style={styles.emptyTitle}>No one nearby right now</Text>
@@ -277,7 +315,7 @@ export default function NearbyScreen() {
                   back later — this refreshes when you pull down.
                 </Text>
               </View>
-            ) : null
+            )
           }
         />
       )}
@@ -340,6 +378,15 @@ function createStyles(colors: ThemeColors) {
     emptyTitle: { fontSize: 18, fontWeight: '700', color: colors.text, marginBottom: 8, textAlign: 'center' },
     emptySub: { fontSize: 14, color: colors.textMuted, textAlign: 'center', lineHeight: 20 },
     errorTxt: { color: colors.accent, fontSize: 13, marginBottom: 10, textAlign: 'center' },
+
+    bannerStack: { gap: 8, marginBottom: 10 },
+    errorBanner: {
+      flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+      backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border,
+      borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10,
+    },
+    errorBannerTxt: { flex: 1, color: colors.textMuted, fontSize: 13, marginRight: 10 },
+    errorRetryText: { color: colors.accent, fontSize: 13, fontWeight: '700' },
 
     settingsBtn: {
       marginTop: 20, backgroundColor: colors.accent, borderRadius: 12,
