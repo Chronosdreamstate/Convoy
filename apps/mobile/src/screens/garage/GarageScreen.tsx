@@ -373,7 +373,7 @@ export default function GarageScreen() {
                     accessibilityLabel={`Options for ${vehicleDisplayName(v)}`}
                     hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                   >
-                    <Text style={styles.menuButtonText}>···</Text>
+                    <MaterialCommunityIcons name="dots-vertical" size={20} color={colors.textMuted} />
                   </TouchableOpacity>
                 )}
               </TouchableOpacity>
@@ -397,7 +397,7 @@ export default function GarageScreen() {
                   accessibilityRole="button"
                   accessibilityLabel={`Remove ${mod}`}
                 >
-                  <Text style={styles.modRemove}>✕</Text>
+                  <MaterialCommunityIcons name="close" size={14} color={colors.textSubtle} />
                 </TouchableOpacity>
               </View>
             ))}
@@ -422,7 +422,7 @@ export default function GarageScreen() {
                   accessibilityRole="button"
                   accessibilityLabel="Add mod"
                 >
-                  <Text style={styles.modAddBtnText}>+</Text>
+                  <MaterialCommunityIcons name="plus" size={22} color={colors.text} />
                 </TouchableOpacity>
               </View>
             )}
@@ -436,7 +436,7 @@ export default function GarageScreen() {
       </ScrollView>
 
       <TouchableOpacity style={styles.fab} onPress={openAddModal} accessibilityRole="button" accessibilityLabel="Add vehicle">
-        <Text style={styles.fabIcon}>+</Text>
+        <MaterialCommunityIcons name="plus" size={28} color={colors.text} />
       </TouchableOpacity>
 
       {/* Add / Edit modal */}
@@ -448,7 +448,7 @@ export default function GarageScreen() {
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>{editingId ? 'Edit Vehicle' : 'Add Vehicle'}</Text>
               <TouchableOpacity onPress={closeModal} accessibilityRole="button" accessibilityLabel="Close" hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-                <Text style={styles.modalClose}>✕</Text>
+                <MaterialCommunityIcons name="close" size={20} color={colors.textSubtle} />
               </TouchableOpacity>
             </View>
 
@@ -655,7 +655,6 @@ function createStyles(colors: ThemeColors) {
     drivesChip: { backgroundColor: colors.cardElevated, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 2, borderWidth: 1, borderColor: colors.border },
     drivesChipText: { fontSize: 12, color: colors.textMuted },
     menuButton: { width: 36, height: 36, borderRadius: 8, backgroundColor: colors.cardElevated, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
-    menuButtonText: { color: colors.textMuted, fontSize: 18, fontWeight: '700', letterSpacing: 2, lineHeight: 20 },
 
     // Mods section
     modsSection: { marginTop: 28, marginBottom: 8 },
@@ -663,7 +662,6 @@ function createStyles(colors: ThemeColors) {
     modsSectionSubtitle: { fontSize: 13, color: colors.textMuted, marginBottom: 16 },
     modRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.card, borderRadius: 10, padding: 12, marginBottom: 8, gap: 10 },
     modText: { flex: 1, fontSize: 14, color: colors.text },
-    modRemove: { fontSize: 14, color: colors.textSubtle, paddingHorizontal: 4 },
     modInputRow: { flexDirection: 'row', gap: 8, marginTop: 4 },
     modInput: {
       flex: 1, backgroundColor: colors.card, borderRadius: 10, borderWidth: 1, borderColor: colors.border,
@@ -673,7 +671,6 @@ function createStyles(colors: ThemeColors) {
       width: 48, height: 48, borderRadius: 10, backgroundColor: colors.accent,
       alignItems: 'center', justifyContent: 'center',
     },
-    modAddBtnText: { color: colors.text, fontSize: 24, fontWeight: '300', lineHeight: 28 },
     modsEmpty: { fontSize: 13, color: colors.textSubtle, fontStyle: 'italic', paddingLeft: 4, marginTop: 4 },
 
     fab: {
@@ -681,14 +678,11 @@ function createStyles(colors: ThemeColors) {
       backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center',
       shadowColor: colors.accent, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.4, shadowRadius: 8, elevation: 8,
     },
-    fabIcon: { color: colors.text, fontSize: 28, fontWeight: '300', lineHeight: 32 },
-
     modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.75)', justifyContent: 'flex-end' },
     modalSheet: { backgroundColor: colors.card, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 24, paddingTop: 12, paddingBottom: 48, maxHeight: '90%' },
     modalHandle: { width: 40, height: 4, borderRadius: 2, backgroundColor: colors.border, alignSelf: 'center', marginBottom: 20 },
     modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 },
     modalTitle: { fontSize: 20, fontWeight: '700', color: colors.text },
-    modalClose: { fontSize: 18, color: colors.textSubtle, paddingHorizontal: 4 },
     formField: { marginBottom: 16 },
     formRow: { flexDirection: 'row', gap: 12 },
     formLabel: { fontSize: 13, color: colors.textMuted, marginBottom: 6 },

@@ -207,8 +207,13 @@ function AddModal({ visible, onClose, onSaved }: {
         <View style={s.sheet}>
           <View style={s.sheetHeader}>
             <Text style={s.sheetTitle}>Add Fill-Up</Text>
-            <TouchableOpacity onPress={close} accessibilityRole="button" accessibilityLabel="Close">
-              <Text style={s.sheetClose}>✕</Text>
+            <TouchableOpacity
+              onPress={close}
+              accessibilityRole="button"
+              accessibilityLabel="Close"
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <Ionicons name="close" size={22} color={colors.textMuted} style={{ padding: 4 }} />
             </TouchableOpacity>
           </View>
 
@@ -242,7 +247,14 @@ function AddModal({ visible, onClose, onSaved }: {
 
           {error ? <Text style={s.formErrorTxt}>{error}</Text> : null}
 
-          <TouchableOpacity style={[s.saveBtn, saving && { opacity: 0.6 }]} onPress={() => { void save(); }} disabled={saving} accessibilityRole="button" accessibilityLabel="Save fill-up">
+          <TouchableOpacity
+            style={[s.saveBtn, saving && { opacity: 0.6 }]}
+            onPress={() => { void save(); }}
+            disabled={saving}
+            accessibilityRole="button"
+            accessibilityLabel="Save fill-up"
+            accessibilityState={{ disabled: saving }}
+          >
             {saving ? <ActivityIndicator color={colors.text} /> : <Text style={s.saveBtnText}>Save Fill-Up</Text>}
           </TouchableOpacity>
         </View>
@@ -379,7 +391,15 @@ export default function FuelLogScreen() {
             <View style={s.empty}>
               <MaterialCommunityIcons name="alert-circle-outline" size={56} color={colors.textMuted} style={{ marginBottom: 16 }} />
               <Text style={s.emptyTitle}>Couldn't load fuel logs</Text>
-              <Text style={s.emptySub}>{loadError} Pull down to try again.</Text>
+              <Text style={s.emptySub}>{loadError}</Text>
+              <TouchableOpacity
+                style={s.emptyButton}
+                onPress={() => { void load(); }}
+                accessibilityRole="button"
+                accessibilityLabel="Retry loading fuel logs"
+              >
+                <Text style={s.emptyButtonText}>Retry</Text>
+              </TouchableOpacity>
             </View>
           ) : (
             <View style={s.empty}>
@@ -393,7 +413,7 @@ export default function FuelLogScreen() {
 
       {/* FAB — bottom-right, 56 px crimson */}
       <TouchableOpacity style={s.fab} onPress={() => setShowModal(true)} accessibilityRole="button" accessibilityLabel="Add fuel log">
-        <Text style={s.fabText}>+</Text>
+        <Ionicons name="add" size={30} color={colors.text} />
       </TouchableOpacity>
 
       <AddModal visible={showModal} onClose={() => setShowModal(false)} onSaved={e => setEntries(prev => [e, ...prev])} />
@@ -453,7 +473,6 @@ function createStyles(colors: ThemeColors) {
     sheet: { backgroundColor: colors.card, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, paddingBottom: 36, borderTopWidth: 1, borderTopColor: colors.border },
     sheetHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
     sheetTitle: { color: colors.text, fontSize: 18, fontWeight: '700' },
-    sheetClose: { color: colors.textMuted, fontSize: 20, padding: 4 },
     label: { color: colors.textMuted, fontSize: 12, marginBottom: 6, fontWeight: '500' },
     input: { backgroundColor: colors.cardElevated, borderRadius: 10, borderWidth: 1, borderColor: colors.border, color: colors.text, paddingHorizontal: 12, paddingVertical: 10, fontSize: 15, marginBottom: 12 },
     formErrorTxt: { color: colors.accent, fontSize: 13, marginBottom: 12 },
@@ -461,10 +480,15 @@ function createStyles(colors: ThemeColors) {
     saveBtnText: { color: colors.text, fontSize: 16, fontWeight: '700' },
 
     fab: { position: 'absolute', bottom: 24, right: 20, width: 56, height: 56, borderRadius: 28, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center', elevation: 6, shadowColor: colors.accent, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.4, shadowRadius: 8 },
-    fabText: { color: colors.text, fontSize: 28, fontWeight: '300', lineHeight: 32 },
 
     empty: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 80, paddingHorizontal: 32 },
     emptyTitle: { color: colors.text, fontSize: 20, fontWeight: '700', marginBottom: 8 },
-    emptySub: { color: colors.textMuted, fontSize: 14, textAlign: 'center', lineHeight: 22 },
+    emptySub: { color: colors.textMuted, fontSize: 14, textAlign: 'center', lineHeight: 22, marginBottom: 24 },
+    emptyButton: {
+      backgroundColor: colors.accent, borderRadius: 14, paddingVertical: 16, paddingHorizontal: 40,
+      alignItems: 'center', minHeight: 52, justifyContent: 'center',
+      shadowColor: colors.accent, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.35, shadowRadius: 8, elevation: 6,
+    },
+    emptyButtonText: { color: colors.text, fontSize: 16, fontWeight: '700' },
   });
 }
