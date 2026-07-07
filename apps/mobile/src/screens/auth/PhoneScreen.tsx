@@ -267,7 +267,7 @@ function createStyles(theme: ReturnType<typeof useTheme>) {
       shadowRadius: 12,
       elevation: 6,
     },
-    buttonDisabled: { opacity: 0.45 },
+    buttonDisabled: { opacity: 0.5 },
     buttonText: { color: theme.colors.text, fontSize: 16, fontWeight: '700', letterSpacing: 0.3 },
     // Modal
     overlay: {

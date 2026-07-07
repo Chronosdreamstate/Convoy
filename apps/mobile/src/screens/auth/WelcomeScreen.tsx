@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   StyleSheet,
   SafeAreaView,
+  ActivityIndicator,
   Linking,
   Platform,
   Alert,
@@ -54,6 +55,7 @@ export default function WelcomeScreen() {
   const { reduceMotion } = useAccessibilitySettings();
 
   const [currentSlide, setCurrentSlide] = useState(0);
+  const [isAppleLoading, setIsAppleLoading] = useState(false);
 
   // Per-slide translateX: slide 0 starts visible (0), rest start off-screen right (SCREEN_WIDTH)
   const slideAnims = useRef(
@@ -120,7 +122,8 @@ export default function WelcomeScreen() {
   };
 
   const handleAppleSignIn = async () => {
-    if (Platform.OS !== 'ios') return;
+    if (Platform.OS !== 'ios' || isAppleLoading) return;
+    setIsAppleLoading(true);
     try {
       // eslint-disable-next-line @typescript-eslint/no-var-requires
       const AppleAuth = require('expo-apple-authentication');
@@ -140,6 +143,8 @@ export default function WelcomeScreen() {
       const code = (err as { code?: string })?.code;
       if (code === 'ERR_REQUEST_CANCELED') return;
       Alert.alert('Sign In Failed', 'Could not sign in with Apple. Please try another method.');
+    } finally {
+      setIsAppleLoading(false);
     }
   };
 
@@ -265,25 +270,39 @@ export default function WelcomeScreen() {
 
             {Platform.OS === 'ios' && (
               <TouchableOpacity
-                style={styles.appleButton}
+                style={[styles.appleButton, isAppleLoading && styles.socialButtonDisabled]}
                 onPress={() => { void handleAppleSignIn(); }}
+                disabled={isAppleLoading}
                 activeOpacity={0.8}
                 accessibilityRole="button"
                 accessibilityLabel="Sign in with Apple"
                 accessibilityHint="Signs you in with your Apple ID"
+                accessibilityState={{ disabled: isAppleLoading, busy: isAppleLoading }}
               >
-                <Ionicons name="logo-apple" size={20} color={theme.colors.text} />
-                <Text style={styles.appleButtonText}>Sign in with Apple</Text>
+                {isAppleLoading ? (
+                  <ActivityIndicator color={theme.colors.text} />
+                ) : (
+                  <>
+                    <Ionicons name="logo-apple" size={20} color={theme.colors.text} />
+                    <Text style={styles.appleButtonText}>Sign in with Apple</Text>
+                  </>
+                )}
               </TouchableOpacity>
             )}
 
             <TouchableOpacity
-              style={[styles.googleButton, Platform.OS === 'ios' && styles.googleButtonAfterApple]}
+              style={[
+                styles.googleButton,
+                Platform.OS === 'ios' && styles.googleButtonAfterApple,
+                isAppleLoading && styles.socialButtonDisabled,
+              ]}
               onPress={() => { void handleGoogleSignIn(); }}
+              disabled={isAppleLoading}
               activeOpacity={0.8}
               accessibilityRole="button"
               accessibilityLabel="Sign in with Google"
               accessibilityHint="Signs you in with your Google account"
+              accessibilityState={{ disabled: isAppleLoading }}
             >
               <Ionicons name="logo-google" size={18} color="#4285F4" />
               <Text style={styles.googleButtonText}>Sign in with Google</Text>
@@ -516,6 +535,10 @@ function createStyles(theme: ReturnType<typeof useTheme>) {
       fontSize: 16,
       fontWeight: '600',
       letterSpacing: 0.3,
+    },
+    // Dims a social button (and blocks re-entry) while an auth request is pending.
+    socialButtonDisabled: {
+      opacity: 0.5,
     },
     googleButton: {
       flexDirection: 'row',
