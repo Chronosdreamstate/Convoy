@@ -1,4 +1,6 @@
 import * as SecureStore from 'expo-secure-store';
+import * as Notifications from 'expo-notifications';
+import Constants from 'expo-constants';
 import { useAuthStore } from '../stores/authStore';
 import type { User } from '../stores/authStore';
 import { onboardingState } from '../utils/onboardingState';
@@ -38,6 +40,42 @@ async function rawPost<T>(url: string, body: Record<string, unknown>): Promise<T
   }
 
   return response.json() as Promise<T>;
+}
+
+/**
+ * Deregisters this device's push token so a signed-out account stops
+ * receiving push notifications intended for it (mirrors the registration
+ * done in NotificationService.registerToken, which POSTs to /api/v1/devices
+ * but does not cache the token anywhere accessible to this module).
+ *
+ * Best-effort only — every failure mode here (no permission, no token,
+ * network error, 401 because the access token already expired) is
+ * swallowed so it can never block or fail sign-out.
+ */
+async function deregisterPushToken(): Promise<void> {
+  // Don't force a fresh permission prompt just to sign out, and skip
+  // gracefully if the user never enabled notifications on this device.
+  const { status } = await Notifications.getPermissionsAsync();
+  if (status !== 'granted') return;
+
+  // Expo push tokens are stable per device install + project — calling
+  // this again returns the same value obtained at registration time, it
+  // does not mint a new one.
+  const projectId = Constants.expoConfig?.extra?.eas?.projectId as string | undefined;
+  const { data: token } = await Notifications.getExpoPushTokenAsync({ projectId });
+  if (!token) return;
+
+  // Read the access token directly rather than going through apiClient,
+  // which imports AuthService and would create a circular dependency.
+  const accessToken = await SecureStore.getItemAsync(SECURE_STORE_KEY);
+  if (!accessToken) return;
+
+  const baseUrl = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
+  await fetch(`${baseUrl}/api/v1/devices/${encodeURIComponent(token)}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${accessToken}` },
+    credentials: 'include',
+  });
 }
 
 export class AuthService {
@@ -91,6 +129,14 @@ export class AuthService {
   }
 
   async signOut(): Promise<void> {
+    // Fire-and-forget: deregister this device's push token so it stops
+    // receiving notifications for the account being signed out of. Must
+    // run before the access token is cleared below (still needed to
+    // authenticate the DELETE call), but must never block or fail sign-out.
+    deregisterPushToken().catch((err) => {
+      console.warn('[AuthService] Failed to deregister push token on sign-out:', err);
+    });
+
     try {
       await rawPost<void>('/api/v1/auth/logout', {});
     } catch {
