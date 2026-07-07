@@ -372,6 +372,15 @@ export default function SettingsScreen() {
 
   const mark = () => setIsDirty(true);
 
+  // Linking.openURL silently rejects when there's no handler for the URL
+  // (e.g. no mail client configured) — surface that instead of the tap
+  // appearing to do nothing.
+  const handleOpenLink = (url: string, failureMessage: string) => {
+    Linking.openURL(url).catch(() => {
+      Alert.alert('Unable to Open', failureMessage);
+    });
+  };
+
   const handleCheckForUpdates = async () => {
     setCheckingUpdate(true);
     try {
@@ -807,19 +816,19 @@ export default function SettingsScreen() {
             icon="star-outline"
             label="Rate CORTEGE"
             subtitle="Love the app? Leave us a review"
-            onPress={() => Linking.openURL(APP_STORE_URL).catch(() => {})}
+            onPress={() => handleOpenLink(APP_STORE_URL, 'Could not open the App Store. Please try again later.')}
           />
           <SettingRow
             icon="mail-outline"
             label="Send Feedback"
             subtitle="hello@convoy.app"
-            onPress={() => Linking.openURL('mailto:hello@convoy.app?subject=Feedback').catch(() => {})}
+            onPress={() => handleOpenLink('mailto:hello@convoy.app?subject=Feedback', 'No email app is set up on this device.')}
           />
           <SettingRow
             icon="chatbubble-outline"
             label="Contact Support"
             subtitle="Get help from the CORTEGE team"
-            onPress={() => Linking.openURL('mailto:support@convoy.app?subject=Support%20Request').catch(() => {})}
+            onPress={() => handleOpenLink('mailto:support@convoy.app?subject=Support%20Request', 'No email app is set up on this device.')}
           />
           <SettingRow
             icon="information-circle-outline"

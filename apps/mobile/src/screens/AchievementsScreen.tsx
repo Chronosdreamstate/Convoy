@@ -297,9 +297,19 @@ export default function AchievementsScreen() {
       </View>
 
       {!loading && loadError ? (
-        <Text style={styles.loadErrorText}>
-          Couldn't load your latest progress — pull down to try again.
-        </Text>
+        <View style={styles.loadErrorRow}>
+          <Text style={styles.loadErrorText}>
+            Couldn't load your latest progress.
+          </Text>
+          <TouchableOpacity
+            onPress={handleRefresh}
+            accessibilityRole="button"
+            accessibilityLabel="Retry loading achievements"
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Text style={styles.loadErrorRetry}>Retry</Text>
+          </TouchableOpacity>
+        </View>
       ) : null}
 
       {loading ? (
@@ -475,13 +485,27 @@ function createStyles(colors: ThemeColors, spacing: { xs: number; sm: number; md
 
     // Load-failure banner — the fallback data intentionally shows zero
     // progress on error (see ACHIEVEMENTS note), so this makes clear that's
-    // a load failure and not the user's real (lost) progress.
+    // a load failure and not the user's real (lost) progress. Pairs with an
+    // explicit Retry tap (in addition to pull-to-refresh) so the error state
+    // isn't only actionable via a gesture the user has to discover.
+    loadErrorRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 8,
+      marginHorizontal: 20,
+      marginBottom: 12,
+    },
     loadErrorText: {
       color: colors.accent,
       fontSize: 12,
       textAlign: 'center',
-      marginHorizontal: 20,
-      marginBottom: 12,
+    },
+    loadErrorRetry: {
+      color: colors.accent,
+      fontSize: 12,
+      fontWeight: '700',
+      textDecorationLine: 'underline',
     },
 
     // Progress bar
