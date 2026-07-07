@@ -1,5 +1,6 @@
 import React, { forwardRef, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   Animated,
   Dimensions,
@@ -642,6 +643,8 @@ export default function ConvoyEndScreen() {
   // State
   const [copied, setCopied] = useState(false);
   const [shared, setShared] = useState(false);
+  const [isSharing, setIsSharing] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [weeklyDrives, setWeeklyDrives] = useState(0);
   const [photos, setPhotos] = useState<string[]>([]);
   const [previewPhoto, setPreviewPhoto] = useState<string | null>(null);
@@ -835,79 +838,93 @@ export default function ConvoyEndScreen() {
   };
 
   const handleShare = async () => {
-    const cardUri = await captureSummaryCard();
-
-    if (cardUri) {
-      try {
-        if (Platform.OS === 'ios') {
-          // iOS's native Share sheet can combine a local file URL with a
-          // text message in one activity.
-          await Share.share({ title: 'My CORTEGE drive', message: shareText, url: cardUri });
-        } else if (await Sharing.isAvailableAsync()) {
-          // Android's Share module doesn't support local file attachments via
-          // `url` — expo-sharing drives the native share sheet with the image
-          // attached instead (Req 19.6).
-          await Sharing.shareAsync(cardUri, {
-            mimeType: 'image/png',
-            dialogTitle: 'Share your CORTEGE drive summary',
-          });
-        } else {
-          await Share.share({ title: 'My CORTEGE drive', message: shareText });
-        }
-        setShared(true);
-        return;
-      } catch {
-        // User cancelled, or the share sheet failed — fall through to the
-        // plain-text share below rather than leaving the user stuck.
-      }
-    }
-
+    // Guards against a double-tap firing two overlapping captureRef + share-sheet
+    // calls while the (potentially slow) view snapshot is still in flight.
+    if (isSharing) return;
+    setIsSharing(true);
     try {
-      await Share.share({
-        title: 'My CORTEGE drive',
-        message: shareText,
-      });
-      setShared(true);
-    } catch {
-      // User cancelled — swallow silently
+      const cardUri = await captureSummaryCard();
+
+      if (cardUri) {
+        try {
+          if (Platform.OS === 'ios') {
+            // iOS's native Share sheet can combine a local file URL with a
+            // text message in one activity.
+            await Share.share({ title: 'My CORTEGE drive', message: shareText, url: cardUri });
+          } else if (await Sharing.isAvailableAsync()) {
+            // Android's Share module doesn't support local file attachments via
+            // `url` — expo-sharing drives the native share sheet with the image
+            // attached instead (Req 19.6).
+            await Sharing.shareAsync(cardUri, {
+              mimeType: 'image/png',
+              dialogTitle: 'Share your CORTEGE drive summary',
+            });
+          } else {
+            await Share.share({ title: 'My CORTEGE drive', message: shareText });
+          }
+          setShared(true);
+          return;
+        } catch {
+          // User cancelled, or the share sheet failed — fall through to the
+          // plain-text share below rather than leaving the user stuck.
+        }
+      }
+
+      try {
+        await Share.share({
+          title: 'My CORTEGE drive',
+          message: shareText,
+        });
+        setShared(true);
+      } catch {
+        // User cancelled — swallow silently
+      }
+    } finally {
+      setIsSharing(false);
     }
   };
 
   const handleSaveToPhotos = async () => {
-    const { status } = await MediaLibrary.requestPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert('Permission Required', 'Please allow photo library access to save photos.');
-      return;
-    }
+    if (isSaving) return;
+    setIsSaving(true);
+    try {
+      const { status } = await MediaLibrary.requestPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission Required', 'Please allow photo library access to save photos.');
+        return;
+      }
 
-    // Always try to save the generated summary card (Req 19.6), in addition
-    // to any photos the user manually attached during the drive.
-    let savedCard = false;
-    const cardUri = await captureSummaryCard();
-    if (cardUri) {
-      try {
-        await MediaLibrary.saveToLibraryAsync(cardUri);
-        savedCard = true;
-      } catch { /* fall through — still try the manually-added photos */ }
-    }
+      // Always try to save the generated summary card (Req 19.6), in addition
+      // to any photos the user manually attached during the drive.
+      let savedCard = false;
+      const cardUri = await captureSummaryCard();
+      if (cardUri) {
+        try {
+          await MediaLibrary.saveToLibraryAsync(cardUri);
+          savedCard = true;
+        } catch { /* fall through — still try the manually-added photos */ }
+      }
 
-    let savedPhotos = 0;
-    for (const uri of photos) {
-      try {
-        await MediaLibrary.saveToLibraryAsync(uri);
-        savedPhotos++;
-      } catch { /* skip photos that fail */ }
-    }
+      let savedPhotos = 0;
+      for (const uri of photos) {
+        try {
+          await MediaLibrary.saveToLibraryAsync(uri);
+          savedPhotos++;
+        } catch { /* skip photos that fail */ }
+      }
 
-    if (!savedCard && savedPhotos === 0) {
-      Alert.alert('Nothing to Save', 'Could not generate the summary card. Please try again.');
-      return;
-    }
+      if (!savedCard && savedPhotos === 0) {
+        Alert.alert('Nothing to Save', 'Could not generate the summary card. Please try again.');
+        return;
+      }
 
-    const parts: string[] = [];
-    if (savedCard) parts.push('Summary card');
-    if (savedPhotos > 0) parts.push(`${savedPhotos} drive photo${savedPhotos !== 1 ? 's' : ''}`);
-    Alert.alert('Saved', `${parts.join(' and ')} saved to your camera roll.`);
+      const parts: string[] = [];
+      if (savedCard) parts.push('Summary card');
+      if (savedPhotos > 0) parts.push(`${savedPhotos} drive photo${savedPhotos !== 1 ? 's' : ''}`);
+      Alert.alert('Saved', `${parts.join(' and ')} saved to your camera roll.`);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleCopy = async () => {
@@ -1037,7 +1054,7 @@ export default function ConvoyEndScreen() {
             <Text style={styles.photoSectionTitle}>
               <Ionicons name="images-outline" size={14} color={colors.text} /> Drive Photos
             </Text>
-            <TouchableOpacity onPress={pickFromLibrary} accessibilityLabel="Add drive photos">
+            <TouchableOpacity onPress={pickFromLibrary} accessibilityRole="button" accessibilityLabel="Add drive photos">
               <Text style={styles.photoAddBtn}>+ Add</Text>
             </TouchableOpacity>
           </View>
@@ -1064,7 +1081,7 @@ export default function ConvoyEndScreen() {
                 accessibilityRole="button"
                 accessibilityLabel="Add photo"
               >
-                <Text style={styles.photoAddThumbIcon}>+</Text>
+                <Ionicons name="add" size={28} color={colors.textMuted} />
               </TouchableOpacity>
             </ScrollView>
           )}
@@ -1081,25 +1098,37 @@ export default function ConvoyEndScreen() {
 
         {/* Share Your Ride — full-width crimson share button */}
         <TouchableOpacity
-          style={styles.shareBtn}
+          style={[styles.shareBtn, isSharing && styles.shareBtnDisabled]}
           onPress={handleShare}
+          disabled={isSharing}
           accessibilityRole="button"
-          accessibilityLabel="Share your ride summary"
+          accessibilityLabel={isSharing ? 'Preparing your share card' : 'Share your ride summary'}
+          accessibilityState={{ disabled: isSharing, busy: isSharing }}
         >
-          <Text style={styles.shareBtnText}>Share Your Ride 🚀</Text>
+          {isSharing ? (
+            <ActivityIndicator color="#FFFFFF" />
+          ) : (
+            <Text style={styles.shareBtnText}>Share Your Ride 🚀</Text>
+          )}
         </TouchableOpacity>
 
         {/* Save to Photos + Copy row */}
         <View style={extraStyles.secondaryRow}>
           <TouchableOpacity
-            style={extraStyles.secondaryBtn}
+            style={[extraStyles.secondaryBtn, isSaving && extraStyles.secondaryBtnDisabled]}
             onPress={handleSaveToPhotos}
+            disabled={isSaving}
             accessibilityRole="button"
-            accessibilityLabel="Save to Photos"
+            accessibilityLabel={isSaving ? 'Saving to Photos' : 'Save to Photos'}
+            accessibilityState={{ disabled: isSaving, busy: isSaving }}
           >
-            <Text style={extraStyles.secondaryBtnText}>
-              <Ionicons name="camera-outline" size={13} color={colors.textMuted} /> Save
-            </Text>
+            {isSaving ? (
+              <ActivityIndicator size="small" color={colors.textMuted} />
+            ) : (
+              <Text style={extraStyles.secondaryBtnText}>
+                <Ionicons name="camera-outline" size={13} color={colors.textMuted} /> Save
+              </Text>
+            )}
           </TouchableOpacity>
           <TouchableOpacity
             style={extraStyles.secondaryBtn}
@@ -1315,6 +1344,9 @@ function createStyles(colors: ThemeColors) {
     alignItems: 'center',
     justifyContent: 'center',
   },
+  shareBtnDisabled: {
+    opacity: 0.6,
+  },
   // shareBtn's background is the fixed-value accent color (same in both themes),
   // so its label stays fixed white for contrast rather than colors.text.
   shareBtnText: {
@@ -1322,19 +1354,6 @@ function createStyles(colors: ThemeColors) {
     fontSize: 16,
     fontWeight: '700',
     letterSpacing: 0.2,
-  },
-
-  // Copy text — small muted link below share button (kept for backwards compat)
-  copyLink: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 2,
-    marginTop: -4,
-  },
-  copyLinkText: {
-    color: colors.textMuted,
-    fontSize: 13,
-    fontWeight: '500',
   },
 
   primaryBtn: {
@@ -1367,15 +1386,6 @@ function createStyles(colors: ThemeColors) {
     color: colors.textMuted,
     fontSize: 15,
     fontWeight: '600',
-  },
-
-  // Confetti particle
-  particle: {
-    position: 'absolute',
-    top: 0,
-    width: 8,
-    height: 8,
-    borderRadius: 2,
   },
 
   // Drive Photos section
@@ -1438,12 +1448,6 @@ function createStyles(colors: ThemeColors) {
     alignItems: 'center',
     justifyContent: 'center',
   },
-  photoAddThumbIcon: {
-    color: colors.textMuted,
-    fontSize: 28,
-    fontWeight: '300',
-  },
-
   // Photo preview modal
   photoModalBg: {
     flex: 1,
@@ -1462,11 +1466,6 @@ function createStyles(colors: ThemeColors) {
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 10,
-  },
-  photoModalCloseText: {
-    color: colors.text,
-    fontSize: 18,
-    fontWeight: '600',
   },
   photoModalImage: {
     width: SCREEN_W,
@@ -1570,6 +1569,9 @@ function createExtraStyles(colors: ThemeColors) {
     alignItems: 'center' as const,
     borderWidth: 1,
     borderColor: colors.border,
+  },
+  secondaryBtnDisabled: {
+    opacity: 0.6,
   },
   secondaryBtnText: {
     color: colors.textMuted,

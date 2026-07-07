@@ -646,6 +646,8 @@ export default function IdleMapScreen() {
             style={styles.suggestionContent}
             onPress={() => { setShowSuggestion(false); handleBrowseGroups(); }}
             activeOpacity={0.8}
+            accessibilityRole="button"
+            accessibilityLabel="Find a convoy near you"
           >
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
               <Ionicons name="car" size={14} color={colors.text} />
@@ -668,7 +670,13 @@ export default function IdleMapScreen() {
               <Text style={styles.selectedCardName}>{selectedGroup.name}</Text>
               <Text style={styles.selectedCardMeta}>{selectedGroup.memberCount} members active</Text>
             </View>
-            <TouchableOpacity style={styles.joinBtn} onPress={() => handleJoinGroup(selectedGroup.id)}>
+            <TouchableOpacity
+              style={styles.joinBtn}
+              onPress={() => handleJoinGroup(selectedGroup.id)}
+              accessibilityRole="button"
+              accessibilityLabel={`Join ${selectedGroup.name}`}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
               <Text style={styles.joinBtnText}>Join →</Text>
             </TouchableOpacity>
             <TouchableOpacity
@@ -705,6 +713,8 @@ export default function IdleMapScreen() {
                 key={g.id}
                 style={styles.nearbyGroupChip}
                 onPress={() => handleJoinGroup(g.id)}
+                accessibilityRole="button"
+                accessibilityLabel={`Join ${g.name}, ${g.memberCount} member${g.memberCount !== 1 ? 's' : ''}`}
               >
                 <Text style={styles.nearbyGroupName} numberOfLines={1}>{g.name}</Text>
                 <View style={[styles.memberPill, { flexDirection: 'row', alignItems: 'center', gap: 3 }]}>
