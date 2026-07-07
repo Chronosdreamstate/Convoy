@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { TouchableOpacity, Text, StyleSheet } from 'react-native';
+import { useIsFocused } from '@react-navigation/native';
 import { HapticService } from '../services/HapticService';
 import SOSModal from './SOSModal';
 
@@ -9,11 +10,23 @@ interface SOSButtonProps {
 
 export default function SOSButton({ groupId }: SOSButtonProps) {
   const [modalVisible, setModalVisible] = useState(false);
+  const isFocused = useIsFocused();
 
   function handlePress() {
     HapticService.trigger('warning');
     setModalVisible(true);
   }
+
+  // Background tab screens stay mounted (no unmountOnBlur/lazy-freeze
+  // configured on the tab navigator), so this component — and its native
+  // <Modal> — can remain alive after the user switches tabs. Force-close
+  // the modal on blur so it can never linger behind another tab's screen
+  // and stack with that screen's own modals (e.g. MapScreen's SosAlertModal).
+  useEffect(() => {
+    if (!isFocused) {
+      setModalVisible(false);
+    }
+  }, [isFocused]);
 
   return (
     <>
