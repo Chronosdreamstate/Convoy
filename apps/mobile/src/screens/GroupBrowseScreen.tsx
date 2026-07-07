@@ -19,7 +19,7 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { apiClient } from '../services/apiClient';
 import SkeletonCard from '../components/SkeletonLoader';
 import { NetworkError } from '../components/NetworkError';
-import { useTheme, ThemeColors } from '../theme';
+import { useTheme, withAlpha, ThemeColors } from '../theme';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -228,8 +228,13 @@ function FeaturedCard({ group, onJoin, onView, joining, eventCountdown }: Featur
         disabled={joining}
         accessibilityRole="button"
         accessibilityLabel={`Join ${group.name}`}
+        accessibilityState={{ disabled: joining, busy: joining }}
       >
-        <Text style={browseStyles.featJoinText}>{joining ? '...' : 'Join →'}</Text>
+        {joining ? (
+          <ActivityIndicator size="small" color={colors.accent} />
+        ) : (
+          <Text style={browseStyles.featJoinText}>Join →</Text>
+        )}
       </TouchableOpacity>
     </TouchableOpacity>
   );
@@ -626,6 +631,8 @@ export default function GroupBrowseScreen() {
                       style={browseStyles.nearbyChip}
                       onPress={() => router.push(`/group/${group.id}` as never)}
                       activeOpacity={0.8}
+                      accessibilityRole="button"
+                      accessibilityLabel={`${group.name}, ${group.memberCount} members`}
                     >
                       <Text style={browseStyles.nearbyChipName} numberOfLines={1}>{group.name}</Text>
                       <Text style={browseStyles.nearbyChipMeta}>{group.memberCount} members</Text>
@@ -845,7 +852,7 @@ function createStyles(colors: ThemeColors) {
     marginRight: 8,
   },
   openBadge: {
-    backgroundColor: 'rgba(34, 197, 94, 0.15)',
+    backgroundColor: withAlpha(colors.success, 0.15),
     borderWidth: 1,
     borderColor: colors.success,
     borderRadius: 6,
@@ -869,7 +876,7 @@ function createStyles(colors: ThemeColors) {
     fontSize: 13,
   },
   metaDot: {
-    color: '#444444',
+    color: colors.textSubtle,
     fontSize: 13,
     marginHorizontal: 6,
   },
@@ -885,16 +892,16 @@ function createStyles(colors: ThemeColors) {
   },
   eventPill: {
     alignSelf: 'flex-start',
-    backgroundColor: 'rgba(245, 158, 11, 0.12)',
+    backgroundColor: withAlpha(colors.warning, 0.12),
     borderWidth: 1,
-    borderColor: 'rgba(245, 158, 11, 0.35)',
+    borderColor: withAlpha(colors.warning, 0.35),
     borderRadius: 6,
     paddingHorizontal: 8,
     paddingVertical: 4,
     marginTop: 8,
   },
   eventPillUrgent: {
-    backgroundColor: 'rgba(245, 158, 11, 0.22)',
+    backgroundColor: withAlpha(colors.warning, 0.22),
     borderColor: colors.warning,
   },
   eventPillText: {
