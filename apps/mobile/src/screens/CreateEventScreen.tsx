@@ -20,7 +20,7 @@ import { ThemeColors, useTheme } from '../theme';
 export default function CreateEventScreen() {
   const { groupId } = useLocalSearchParams<{ groupId: string }>();
   const insets = useSafeAreaInsets();
-  const { colors } = useTheme();
+  const { colors, hitSlop } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
 
   const [title, setTitle] = useState('');
@@ -32,6 +32,9 @@ export default function CreateEventScreen() {
   const [ampm, setAmpm] = useState<'AM' | 'PM'>('AM');
   const [description, setDescription] = useState('');
   const [loading, setLoading] = useState(false);
+  const [touchedTitle, setTouchedTitle] = useState(false);
+  const [touchedDate, setTouchedDate] = useState(false);
+  const [touchedTime, setTouchedTime] = useState(false);
 
   function buildISO(): string | null {
     const m = parseInt(month, 10);
@@ -58,6 +61,27 @@ export default function CreateEventScreen() {
 
   const iso = buildISO();
   const isValid = title.trim().length > 0 && iso !== null;
+
+  const titleError = touchedTitle && title.trim().length === 0
+    ? 'Event title is required'
+    : null;
+
+  const dateTimeError = useMemo(() => {
+    const anyFilled = month || day || year || hour || minute;
+    if (!anyFilled) return null;
+    const m = parseInt(month, 10);
+    const d = parseInt(day, 10);
+    const y = parseInt(year, 10);
+    const h = parseInt(hour, 10);
+    const min = parseInt(minute, 10);
+    if (!month || isNaN(m) || m < 1 || m > 12) return 'Enter a valid month (1-12)';
+    if (!day || isNaN(d) || d < 1 || d > 31) return 'Enter a valid day (1-31)';
+    if (!year || isNaN(y) || y < 2024) return 'Enter a valid 4-digit year';
+    if (!hour || isNaN(h) || h < 1 || h > 12) return 'Enter a valid hour (1-12)';
+    if (!minute || isNaN(min) || min < 0 || min > 59) return 'Enter a valid minute (0-59)';
+    if (iso === null) return 'Choose a date and time in the future';
+    return null;
+  }, [month, day, year, hour, minute, iso]);
 
   async function handleSubmit() {
     if (!isValid || !groupId) return;
@@ -102,10 +126,12 @@ export default function CreateEventScreen() {
           placeholderTextColor={colors.textSubtle}
           value={title}
           onChangeText={t => setTitle(t.slice(0, 100))}
+          onBlur={() => setTouchedTitle(true)}
           maxLength={100}
           accessibilityLabel="Event title"
         />
         <Text style={styles.charCount}>{title.length}/100</Text>
+        {titleError ? <Text style={styles.errorText}>{titleError}</Text> : null}
 
         <Text style={styles.label}>Date *</Text>
         <View style={styles.dateRow}>
@@ -117,6 +143,7 @@ export default function CreateEventScreen() {
             maxLength={2}
             value={month}
             onChangeText={setMonth}
+            onBlur={() => setTouchedDate(true)}
             accessibilityLabel="Month"
           />
           <Text style={styles.dateSep}>/</Text>
@@ -128,6 +155,7 @@ export default function CreateEventScreen() {
             maxLength={2}
             value={day}
             onChangeText={setDay}
+            onBlur={() => setTouchedDate(true)}
             accessibilityLabel="Day"
           />
           <Text style={styles.dateSep}>/</Text>
@@ -139,6 +167,7 @@ export default function CreateEventScreen() {
             maxLength={4}
             value={year}
             onChangeText={setYear}
+            onBlur={() => setTouchedDate(true)}
             accessibilityLabel="Year"
           />
         </View>
@@ -153,6 +182,7 @@ export default function CreateEventScreen() {
             maxLength={2}
             value={hour}
             onChangeText={setHour}
+            onBlur={() => setTouchedTime(true)}
             accessibilityLabel="Hour"
           />
           <Text style={styles.dateSep}>:</Text>
@@ -164,6 +194,7 @@ export default function CreateEventScreen() {
             maxLength={2}
             value={minute}
             onChangeText={setMinute}
+            onBlur={() => setTouchedTime(true)}
             accessibilityLabel="Minute"
           />
           <View style={styles.ampmRow}>
@@ -175,12 +206,16 @@ export default function CreateEventScreen() {
                 accessibilityRole="button"
                 accessibilityLabel={v}
                 accessibilityState={{ selected: ampm === v }}
+                hitSlop={hitSlop}
               >
                 <Text style={[styles.ampmText, ampm === v && styles.ampmTextActive]}>{v}</Text>
               </TouchableOpacity>
             ))}
           </View>
         </View>
+        {(touchedDate || touchedTime) && dateTimeError ? (
+          <Text style={styles.errorText}>{dateTimeError}</Text>
+        ) : null}
 
         <Text style={styles.label}>Description (optional)</Text>
         <TextInput
@@ -237,6 +272,7 @@ function createStyles(colors: ThemeColors) {
       paddingVertical: 14,
     },
     charCount: { fontSize: 11, color: colors.textSubtle, textAlign: 'right', marginTop: 4 },
+    errorText: { fontSize: 12, fontWeight: '500', color: colors.error, marginTop: 6 },
     dateRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     timeRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     dateSegment: { flex: 1, textAlign: 'center', paddingHorizontal: 8 },
