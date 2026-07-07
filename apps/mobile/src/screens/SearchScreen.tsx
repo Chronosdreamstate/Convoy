@@ -270,7 +270,7 @@ export default function SearchScreen() {
           accessibilityLabel="Go back"
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         >
-          <Text style={styles.backText}>‹</Text>
+          <Ionicons name="chevron-back" size={24} color={colors.text} />
         </TouchableOpacity>
         <View style={styles.inputWrap}>
           <Ionicons name="search" size={16} color={colors.textMuted} style={styles.searchIcon} />
@@ -374,7 +374,6 @@ function createStyles(colors: ThemeColors) {
     container: { flex: 1, backgroundColor: colors.bg },
     header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 8, gap: 8 },
     backBtn: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
-    backText: { fontSize: 28, color: colors.text, lineHeight: 32 },
     inputWrap: {
       flex: 1, flexDirection: 'row', alignItems: 'center',
       backgroundColor: colors.card, borderRadius: 12, paddingHorizontal: 12, height: 48,
