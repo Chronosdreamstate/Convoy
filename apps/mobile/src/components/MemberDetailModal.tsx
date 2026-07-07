@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   Modal,
   View,
@@ -10,8 +10,10 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import { useGroupStore } from '../stores/groupStore';
 import { apiClient } from '../services/apiClient';
+import { ThemeColors, useTheme } from '../theme';
 
 interface MemberInfo {
   userId: string;
@@ -57,8 +59,11 @@ export default function MemberDetailModal({
   onNavigateTo,
 }: Props) {
   const router = useRouter();
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const activeGroupId = useGroupStore((s) => s.activeGroupId);
   const [friendSent, setFriendSent] = useState(false);
+  const [addingFriend, setAddingFriend] = useState(false);
   const [inviting, setInviting] = useState(false);
   const [kicking, setKicking] = useState(false);
   const [muting, setMuting] = useState(false);
@@ -85,13 +90,20 @@ export default function MemberDetailModal({
   };
 
   const handleAddFriend = async () => {
+    if (addingFriend || friendSent) return;
+    setAddingFriend(true);
     try {
       await apiClient.post('/api/v1/friends/requests', { addresseeId: member.userId });
       setFriendSent(true);
     } catch {
-      Alert.alert('Error', 'Could not send friend request.');
+      Alert.alert('Error', 'Could not send friend request. Try again.');
+    } finally {
+      setAddingFriend(false);
     }
   };
+
+  const avatarBg = member.isAdmin ? colors.accentMuted : colors.card;
+  const avatarTextColor = member.isAdmin ? colors.accent : colors.textMuted;
 
   return (
     <Modal
@@ -112,8 +124,8 @@ export default function MemberDetailModal({
         <View style={styles.handle} />
 
         {/* Avatar */}
-        <View style={[styles.avatar, { backgroundColor: member.isAdmin ? '#DC143C' : '#1C1C1C' }]}>
-          <Text style={styles.avatarText}>{initials(member.displayName)}</Text>
+        <View style={[styles.avatar, { backgroundColor: avatarBg }]}>
+          <Text style={[styles.avatarText, { color: avatarTextColor }]}>{initials(member.displayName)}</Text>
         </View>
 
         {/* Name */}
@@ -121,31 +133,38 @@ export default function MemberDetailModal({
 
         {/* Callsign badge */}
         <View style={styles.callsignBadge}>
+          <Ionicons name="radio-outline" size={13} color={colors.textMuted} style={styles.callsignIcon} />
           <Text style={styles.callsignText}>
-            {member.callsign ? `📻 ${member.callsign}` : 'No callsign'}
+            {member.callsign ?? 'No callsign'}
           </Text>
         </View>
 
         {/* Online status */}
-        <Text style={[styles.status, { color: member.isOnline ? '#22C55E' : '#555555' }]}>
-          {member.isOnline ? '🟢 Online' : '⚫ Offline'}
-        </Text>
+        <View style={styles.statusRow}>
+          <View style={[styles.statusDot, { backgroundColor: member.isOnline ? colors.success : colors.textSubtle }]} />
+          <Text style={[styles.status, { color: member.isOnline ? colors.success : colors.textSubtle }]}>
+            {member.isOnline ? 'Online' : 'Offline'}
+          </Text>
+        </View>
 
         {/* Stats row */}
         <View style={styles.statsRow}>
           {member.speedKph !== undefined && (
             <View style={styles.statPill}>
-              <Text style={styles.statText}>🚗 {Math.round(member.speedKph)} km/h</Text>
+              <Ionicons name="speedometer-outline" size={13} color={colors.text} />
+              <Text style={styles.statText}>{Math.round(member.speedKph)} km/h</Text>
             </View>
           )}
           {member.distanceM !== undefined && (
             <View style={styles.statPill}>
-              <Text style={styles.statText}>📏 {formatDistance(member.distanceM)} behind</Text>
+              <Ionicons name="navigate-outline" size={13} color={colors.text} />
+              <Text style={styles.statText}>{formatDistance(member.distanceM)} behind</Text>
             </View>
           )}
           {member.isMuted && (
             <View style={[styles.statPill, styles.mutedPill]}>
-              <Text style={styles.statText}>🔇 Muted</Text>
+              <Ionicons name="volume-mute-outline" size={13} color={colors.text} />
+              <Text style={styles.statText}>Muted</Text>
             </View>
           )}
         </View>
@@ -159,22 +178,41 @@ export default function MemberDetailModal({
               disabled={inviting}
               accessibilityRole="button"
               accessibilityLabel="Invite to convoy"
+              accessibilityState={{ disabled: inviting, busy: inviting }}
             >
-              <Text style={styles.inviteBtnText}>
-                {inviting ? 'Getting link...' : '📨 Invite to Convoy'}
-              </Text>
+              {inviting ? (
+                <ActivityIndicator color={colors.accent} size="small" />
+              ) : (
+                <>
+                  <Ionicons name="paper-plane-outline" size={15} color={colors.accent} style={styles.btnIcon} />
+                  <Text style={styles.inviteBtnText}>Invite to Convoy</Text>
+                </>
+              )}
             </TouchableOpacity>
           )}
           <TouchableOpacity
             style={[styles.addFriendBtn, friendSent && styles.addFriendSent]}
             onPress={handleAddFriend}
-            disabled={friendSent}
+            disabled={friendSent || addingFriend}
             accessibilityRole="button"
             accessibilityLabel={friendSent ? 'Friend request sent' : 'Add friend'}
+            accessibilityState={{ disabled: friendSent || addingFriend, busy: addingFriend }}
           >
-            <Text style={styles.addFriendText}>
-              {friendSent ? '✓ Request Sent' : '🤝 Add Friend'}
-            </Text>
+            {addingFriend ? (
+              <ActivityIndicator color={colors.text} size="small" />
+            ) : (
+              <>
+                <Ionicons
+                  name={friendSent ? 'checkmark-circle' : 'person-add-outline'}
+                  size={15}
+                  color={friendSent ? colors.success : colors.text}
+                  style={styles.btnIcon}
+                />
+                <Text style={styles.addFriendText}>
+                  {friendSent ? 'Request Sent' : 'Add Friend'}
+                </Text>
+              </>
+            )}
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.viewProfileBtn}
@@ -212,9 +250,19 @@ export default function MemberDetailModal({
                 accessibilityLabel={member.isMuted ? 'Unmute' : 'Mute'}
                 accessibilityState={{ disabled: muting, busy: muting }}
               >
-                {muting
-                  ? <ActivityIndicator color="#FFFFFF" size="small" />
-                  : <Text style={styles.outlineBtnText}>{member.isMuted ? '🔊 Unmute' : '🔇 Mute'}</Text>}
+                {muting ? (
+                  <ActivityIndicator color={colors.text} size="small" />
+                ) : (
+                  <>
+                    <Ionicons
+                      name={member.isMuted ? 'volume-high-outline' : 'volume-mute-outline'}
+                      size={15}
+                      color={colors.text}
+                      style={styles.btnIcon}
+                    />
+                    <Text style={styles.outlineBtnText}>{member.isMuted ? 'Unmute' : 'Mute'}</Text>
+                  </>
+                )}
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -223,7 +271,8 @@ export default function MemberDetailModal({
                 accessibilityRole="button"
                 accessibilityLabel="Navigate to member"
               >
-                <Text style={styles.outlineBtnText}>🗺️ Navigate to</Text>
+                <Ionicons name="navigate-outline" size={15} color={colors.text} style={styles.btnIcon} />
+                <Text style={styles.outlineBtnText}>Navigate to</Text>
               </TouchableOpacity>
             </View>
 
@@ -263,7 +312,7 @@ export default function MemberDetailModal({
               accessibilityState={{ disabled: kicking, busy: kicking }}
             >
               {kicking
-                ? <ActivityIndicator color="#DC143C" size="small" />
+                ? <ActivityIndicator color={colors.accent} size="small" />
                 : <Text style={styles.kickBtnText}>Remove from group</Text>}
             </TouchableOpacity>
           </View>
@@ -278,7 +327,8 @@ export default function MemberDetailModal({
   );
 }
 
-const styles = StyleSheet.create({
+function makeStyles(colors: ThemeColors) {
+  return StyleSheet.create({
   overlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.7)',
@@ -288,18 +338,23 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: '#1C1C1C',
+    backgroundColor: colors.cardElevated,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     paddingHorizontal: 24,
     paddingTop: 12,
     paddingBottom: 36,
     alignItems: 'center',
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    elevation: 8,
   },
   handle: {
     width: 40,
     height: 4,
-    backgroundColor: '#3A3A3A',
+    backgroundColor: colors.border,
     borderRadius: 2,
     marginBottom: 20,
   },
@@ -312,35 +367,49 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   avatarText: {
-    color: '#FFFFFF',
     fontSize: 22,
     fontWeight: '700',
   },
   name: {
     fontSize: 20,
     fontWeight: '700',
-    color: '#FFFFFF',
+    color: colors.text,
     marginBottom: 8,
     textAlign: 'center',
   },
   callsignBadge: {
-    backgroundColor: '#0A0A0A',
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.bg,
     borderRadius: 100,
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: colors.border,
     paddingHorizontal: 12,
     paddingVertical: 4,
     marginBottom: 10,
   },
+  callsignIcon: {
+    marginRight: 5,
+  },
   callsignText: {
-    color: '#888888',
+    color: colors.textMuted,
     fontSize: 13,
     fontWeight: '600',
+  },
+  statusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 16,
+  },
+  statusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
   },
   status: {
     fontSize: 14,
     fontWeight: '600',
-    marginBottom: 16,
   },
   statsRow: {
     flexDirection: 'row',
@@ -350,18 +419,21 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   statPill: {
-    backgroundColor: '#0A0A0A',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: colors.bg,
     borderRadius: 100,
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: colors.border,
     paddingHorizontal: 12,
     paddingVertical: 6,
   },
   mutedPill: {
-    borderColor: '#DC143C',
+    borderColor: colors.accent,
   },
   statText: {
-    color: '#FFFFFF',
+    color: colors.text,
     fontSize: 13,
   },
   adminSection: {
@@ -375,14 +447,20 @@ const styles = StyleSheet.create({
   },
   outlineBtn: {
     flex: 1,
+    flexDirection: 'row',
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: colors.border,
     borderRadius: 12,
     paddingVertical: 12,
     alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 44,
+  },
+  btnIcon: {
+    marginRight: 6,
   },
   outlineBtnText: {
-    color: '#FFFFFF',
+    color: colors.text,
     fontSize: 14,
     fontWeight: '600',
   },
@@ -397,7 +475,7 @@ const styles = StyleSheet.create({
     opacity: 0.5,
   },
   kickBtnText: {
-    color: '#DC143C',
+    color: colors.accent,
     fontSize: 14,
     fontWeight: '600',
   },
@@ -406,15 +484,17 @@ const styles = StyleSheet.create({
   },
   closeBtn: {
     width: '100%',
-    backgroundColor: '#0A0A0A',
+    backgroundColor: colors.bg,
     borderRadius: 12,
     paddingVertical: 14,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: colors.border,
+    minHeight: 44,
+    justifyContent: 'center',
   },
   closeBtnText: {
-    color: '#888888',
+    color: colors.textMuted,
     fontSize: 15,
     fontWeight: '600',
   },
@@ -425,48 +505,57 @@ const styles = StyleSheet.create({
   },
   inviteBtn: {
     width: '100%',
+    flexDirection: 'row',
     borderWidth: 1.5,
-    borderColor: '#DC143C',
+    borderColor: colors.accent,
     borderRadius: 12,
     paddingVertical: 13,
     alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 48,
   },
   inviteBtnDisabled: {
     opacity: 0.5,
   },
   inviteBtnText: {
-    color: '#DC143C',
+    color: colors.accent,
     fontSize: 15,
     fontWeight: '700',
   },
   addFriendBtn: {
     width: '100%',
+    flexDirection: 'row',
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: colors.border,
     borderRadius: 12,
     paddingVertical: 12,
     alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 44,
   },
   addFriendSent: {
-    borderColor: '#22C55E',
+    borderColor: colors.success,
     opacity: 0.7,
   },
   addFriendText: {
-    color: '#FFFFFF',
+    color: colors.text,
     fontSize: 14,
     fontWeight: '600',
   },
   viewProfileBtn: {
     width: '100%',
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: colors.border,
     borderRadius: 12,
     paddingVertical: 12,
     alignItems: 'center',
+    minHeight: 44,
+    justifyContent: 'center',
   },
   viewProfileText: {
-    color: '#888888',
+    color: colors.textMuted,
     fontSize: 14,
     fontWeight: '600',
   },
-});
+  });
+}

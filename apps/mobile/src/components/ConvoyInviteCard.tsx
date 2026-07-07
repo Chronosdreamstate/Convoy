@@ -3,8 +3,10 @@
  * Shows the group name, join code, and a native share button.
  */
 
-import React from 'react';
+import React, { useMemo, useState } from 'react';
 import {
+  ActivityIndicator,
+  Alert,
   Modal,
   Share,
   StyleSheet,
@@ -12,6 +14,8 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { ThemeColors, useTheme } from '../theme';
 
 interface Props {
   visible: boolean;
@@ -22,14 +26,22 @@ interface Props {
 }
 
 export default function ConvoyInviteCard({ visible, groupName, joinCode, inviteLink, onClose }: Props) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const [sharing, setSharing] = useState(false);
+
   const handleShare = async () => {
+    if (sharing) return;
+    setSharing(true);
     try {
       await Share.share({
         message: `Join me on CORTEGE! Use code ${joinCode} or tap: ${inviteLink}`,
         url: inviteLink,
       });
     } catch {
-      // user cancelled share sheet
+      Alert.alert('Error', 'Could not open the share sheet. Try again.');
+    } finally {
+      setSharing(false);
     }
   };
 
@@ -61,12 +73,21 @@ export default function ConvoyInviteCard({ visible, groupName, joinCode, inviteL
             </View>
 
             <TouchableOpacity
-              style={styles.shareBtn}
+              style={[styles.shareBtn, sharing && styles.shareBtnDisabled]}
               onPress={() => void handleShare()}
+              disabled={sharing}
               accessibilityRole="button"
               accessibilityLabel="Share invite link"
+              accessibilityState={{ disabled: sharing, busy: sharing }}
             >
-              <Text style={styles.shareBtnText}>📤 Share Invite</Text>
+              {sharing ? (
+                <ActivityIndicator color="#FFFFFF" size="small" />
+              ) : (
+                <>
+                  <Ionicons name="share-social-outline" size={18} color="#FFFFFF" style={styles.shareIcon} />
+                  <Text style={styles.shareBtnText}>Share Invite</Text>
+                </>
+              )}
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -75,7 +96,8 @@ export default function ConvoyInviteCard({ visible, groupName, joinCode, inviteL
               accessibilityRole="button"
               accessibilityLabel="Close invite card"
             >
-              <Text style={styles.closeBtnText}>✕ Close</Text>
+              <Ionicons name="close" size={16} color={colors.textMuted} style={styles.closeIcon} />
+              <Text style={styles.closeBtnText}>Close</Text>
             </TouchableOpacity>
           </View>
         </TouchableOpacity>
@@ -84,72 +106,92 @@ export default function ConvoyInviteCard({ visible, groupName, joinCode, inviteL
   );
 }
 
-const styles = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.75)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  card: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    padding: 24,
-    width: 320,
-    alignItems: 'center',
-  },
-  groupName: {
-    color: '#0A0A0A',
-    fontSize: 22,
-    fontWeight: '800',
-    textAlign: 'center',
-    marginBottom: 8,
-  },
-  subtitle: {
-    color: '#888888',
-    fontSize: 14,
-    textAlign: 'center',
-    marginBottom: 20,
-  },
-  codeBox: {
-    backgroundColor: '#0A0A0A',
-    borderRadius: 12,
-    paddingVertical: 16,
-    paddingHorizontal: 16,
-    width: '100%',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  codeText: {
-    color: '#DC143C',
-    fontSize: 32,
-    fontWeight: '800',
-    fontFamily: 'monospace',
-    letterSpacing: 6,
-    textAlign: 'center',
-  },
-  shareBtn: {
-    backgroundColor: '#DC143C',
-    borderRadius: 12,
-    paddingVertical: 16,
-    paddingHorizontal: 32,
-    width: '100%',
-    alignItems: 'center',
-    marginBottom: 12,
-    minHeight: 52,
-    justifyContent: 'center',
-  },
-  shareBtnText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  closeBtn: {
-    paddingVertical: 10,
-  },
-  closeBtnText: {
-    color: '#888888',
-    fontSize: 15,
-    fontWeight: '600',
-  },
-});
+function makeStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    overlay: {
+      flex: 1,
+      backgroundColor: 'rgba(0,0,0,0.75)',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    card: {
+      backgroundColor: colors.card,
+      borderRadius: 20,
+      borderWidth: 1,
+      borderColor: colors.border,
+      padding: 24,
+      width: 320,
+      alignItems: 'center',
+    },
+    groupName: {
+      color: colors.text,
+      fontSize: 22,
+      fontWeight: '800',
+      textAlign: 'center',
+      marginBottom: 8,
+    },
+    subtitle: {
+      color: colors.textMuted,
+      fontSize: 14,
+      textAlign: 'center',
+      marginBottom: 20,
+    },
+    codeBox: {
+      backgroundColor: colors.bg,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: colors.border,
+      paddingVertical: 16,
+      paddingHorizontal: 16,
+      width: '100%',
+      alignItems: 'center',
+      marginBottom: 20,
+    },
+    codeText: {
+      color: colors.accent,
+      fontSize: 32,
+      fontWeight: '800',
+      fontFamily: 'monospace',
+      letterSpacing: 6,
+      textAlign: 'center',
+    },
+    shareBtn: {
+      flexDirection: 'row',
+      backgroundColor: colors.accent,
+      borderRadius: 12,
+      paddingVertical: 16,
+      paddingHorizontal: 32,
+      width: '100%',
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginBottom: 12,
+      minHeight: 52,
+    },
+    shareBtnDisabled: {
+      opacity: 0.7,
+    },
+    shareIcon: {
+      marginRight: 8,
+    },
+    shareBtnText: {
+      color: '#FFFFFF',
+      fontSize: 16,
+      fontWeight: '700',
+    },
+    closeBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingVertical: 10,
+      minHeight: 44,
+      justifyContent: 'center',
+    },
+    closeIcon: {
+      marginRight: 4,
+    },
+    closeBtnText: {
+      color: colors.textMuted,
+      fontSize: 15,
+      fontWeight: '600',
+    },
+  });
+}

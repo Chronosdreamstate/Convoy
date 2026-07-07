@@ -88,7 +88,7 @@ function GapAlertBanner({ memberName, distanceM, thresholdM, onDismiss, onSlowDo
             <TouchableOpacity
               style={styles.dismissBtn}
               onPress={handleDismiss}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               accessibilityRole="button"
               accessibilityLabel="Dismiss gap alert"
             >
