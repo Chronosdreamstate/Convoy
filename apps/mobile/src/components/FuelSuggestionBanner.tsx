@@ -160,7 +160,7 @@ function FuelSuggestionBanner({
               <Ionicons
                 name="chevron-back"
                 size={20}
-                color={stationIndex === 0 ? '#333333' : colors.warning}
+                color={stationIndex === 0 ? colors.textSubtle : colors.warning}
               />
             </TouchableOpacity>
             {isAdmin && current && (
@@ -183,7 +183,7 @@ function FuelSuggestionBanner({
               <Ionicons
                 name="chevron-forward"
                 size={20}
-                color={stationIndex === total - 1 ? '#333333' : colors.warning}
+                color={stationIndex === total - 1 ? colors.textSubtle : colors.warning}
               />
             </TouchableOpacity>
           </View>
@@ -300,8 +300,8 @@ function makeStyles(colors: ThemeColors) {
       gap: 8,
     },
     arrowBtn: {
-      minWidth: 36,
-      minHeight: 36,
+      minWidth: 44,
+      minHeight: 44,
       alignItems: 'center',
       justifyContent: 'center',
     },
