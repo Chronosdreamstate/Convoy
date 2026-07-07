@@ -32,7 +32,7 @@ import { useSocketStore } from '../stores/socketStore';
 import { apiClient } from '../services/apiClient';
 import { SkeletonRow } from '../components/SkeletonLoader';
 import { NetworkError } from '../components/NetworkError';
-import { theme, useTheme, ThemeColors } from '../theme';
+import { theme, useTheme, ThemeColors, withAlpha } from '../theme';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -121,6 +121,7 @@ function ReactionPicker({ visible, onSelect, onDismiss }: ReactionPickerProps) {
                   key={emoji}
                   style={pickerStyles.emojiBtn}
                   onPress={() => { onSelect(emoji); onDismiss(); }}
+                  accessibilityRole="button"
                   accessibilityLabel={`React with ${emoji}`}
                 >
                   <Text style={pickerStyles.emoji}>{emoji}</Text>
@@ -209,6 +210,7 @@ function createSysStyles(colors: ThemeColors) {
 // ---------------------------------------------------------------------------
 
 function VoiceMessageBubble({ audioUrl, isOwn }: { audioUrl: string; isOwn: boolean }) {
+  const { colors } = useTheme();
   const [playing, setPlaying] = useState(false);
   const soundRef = useRef<Audio.Sound | null>(null);
 
@@ -234,15 +236,25 @@ function VoiceMessageBubble({ audioUrl, isOwn }: { audioUrl: string; isOwn: bool
 
   useEffect(() => () => { void soundRef.current?.unloadAsync(); }, []);
 
+  // `isOwn` bubbles sit on the accent-colored background (same in both
+  // themes), so white content is always safe there. `!isOwn` bubbles sit on
+  // `colors.card`, which is near-white in light mode — a fixed white overlay
+  // + white text would be almost invisible, so those use theme-aware colors.
+  const iconColor = isOwn ? '#FFFFFF' : colors.text;
+  const labelColor = isOwn ? '#FFFFFF' : colors.textMuted;
+  const bubbleStyle = isOwn
+    ? { backgroundColor: 'rgba(255,255,255,0.15)' }
+    : { backgroundColor: withAlpha(colors.textMuted, 0.12) };
+
   return (
     <TouchableOpacity
       onPress={() => void togglePlay()}
       accessibilityRole="button"
       accessibilityLabel={playing ? 'Pause voice message' : 'Play voice message'}
-      style={[voiceStyles.bubble, isOwn ? voiceStyles.bubbleOwn : voiceStyles.bubbleOther]}
+      style={[voiceStyles.bubble, bubbleStyle]}
     >
-      <Ionicons name={playing ? 'pause' : 'play'} size={16} color="#FFFFFF" />
-      <Text style={[voiceStyles.label, isOwn && voiceStyles.labelOwn]}>Voice message</Text>
+      <Ionicons name={playing ? 'pause' : 'play'} size={16} color={iconColor} />
+      <Text style={[voiceStyles.label, { color: labelColor }]}>Voice message</Text>
     </TouchableOpacity>
   );
 }
@@ -257,22 +269,12 @@ const voiceStyles = StyleSheet.create({
     borderRadius: 20,
     minWidth: 140,
   },
-  bubbleOwn: {
-    backgroundColor: 'rgba(255,255,255,0.15)',
-  },
-  bubbleOther: {
-    backgroundColor: 'rgba(255,255,255,0.08)',
-  },
   icon: {
     fontSize: 18,
   },
   label: {
     fontSize: 14,
-    color: 'rgba(255,255,255,0.85)',
     fontWeight: '500',
-  },
-  labelOwn: {
-    color: '#FFFFFF',
   },
 });
 
@@ -817,7 +819,7 @@ export default function GroupChatScreen() {
             accessibilityRole="button"
             accessibilityLabel="Chat options"
           >
-            <Text style={styles.headerKebabText}>•••</Text>
+            <Ionicons name="ellipsis-horizontal" size={18} color={colors.textMuted} />
           </TouchableOpacity>
         ) : (
           <View style={styles.headerRight} />
@@ -1012,7 +1014,7 @@ function createStyles(colors: ThemeColors) {
     paddingHorizontal: 8,
   },
   headerTitleDm: {
-    color: theme.colors.text,
+    color: colors.text,
     fontSize: 15,
     fontWeight: '700',
     letterSpacing: 0.3,
@@ -1022,12 +1024,12 @@ function createStyles(colors: ThemeColors) {
     width: 28,
     height: 28,
     borderRadius: 14,
-    backgroundColor: theme.colors.card,
+    backgroundColor: colors.card,
     alignItems: 'center',
     justifyContent: 'center',
     flexShrink: 0,
     borderWidth: 1,
-    borderColor: theme.colors.border,
+    borderColor: colors.border,
   },
   headerAvatarImage: {
     width: 28,
@@ -1035,7 +1037,7 @@ function createStyles(colors: ThemeColors) {
     borderRadius: 14,
   },
   headerAvatarInitials: {
-    color: theme.colors.textMuted,
+    color: colors.textMuted,
     fontSize: 10,
     fontWeight: '700',
   },
@@ -1043,11 +1045,7 @@ function createStyles(colors: ThemeColors) {
     width: 32,
     alignItems: 'flex-end',
     paddingVertical: 4,
-  },
-  headerKebabText: {
-    color: theme.colors.textMuted,
-    fontSize: 16,
-    letterSpacing: -1,
+    justifyContent: 'center',
   },
 
   // Skeleton loading

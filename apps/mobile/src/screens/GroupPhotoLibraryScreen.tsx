@@ -114,7 +114,7 @@ function PhotoViewerModal({ photo, onClose }: { photo: Photo | null; onClose: ()
               accessibilityRole="button"
               accessibilityLabel="Close"
             >
-              <Text style={styles.viewerCloseText}>✕</Text>
+              <Ionicons name="close" size={20} color="#FFFFFF" />
             </TouchableOpacity>
 
             {/* Stop propagation so tapping the image itself doesn't dismiss */}
@@ -239,10 +239,13 @@ export default function GroupPhotoLibraryScreen() {
         <TouchableOpacity
           onPress={() => router.back()}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          style={styles.backBtn}
           accessibilityRole="button"
           accessibilityLabel="Go back"
         >
-          <Text style={styles.back}>‹ Back</Text>
+          <Text style={styles.back}>
+            <Ionicons name="chevron-back" size={16} color={colors.accent} /> Back
+          </Text>
         </TouchableOpacity>
         <View style={styles.titleRow}>
           <Ionicons name="camera-outline" size={16} color={colors.text} />
@@ -255,12 +258,14 @@ export default function GroupPhotoLibraryScreen() {
           accessibilityRole="button"
           accessibilityLabel="Add photo"
           accessibilityState={{ disabled: uploadingPhoto }}
-          style={{ width: 60, alignItems: 'flex-end' }}
+          style={styles.addBtn}
         >
           {uploadingPhoto ? (
             <ActivityIndicator size="small" color={colors.accent} />
           ) : (
-            <Text style={styles.uploadBtn}>+ Add</Text>
+            <Text style={styles.uploadBtn}>
+              <Ionicons name="add" size={16} color={colors.accent} /> Add
+            </Text>
           )}
         </TouchableOpacity>
       </View>
@@ -308,10 +313,12 @@ function createStyles(colors: ThemeColors) {
       paddingHorizontal: 16,
       paddingVertical: 12,
       borderBottomWidth: 1,
-      borderBottomColor: colors.card,
+      borderBottomColor: colors.border,
     },
+    backBtn: { minWidth: 60, minHeight: 44, justifyContent: 'center' },
     back: { fontSize: 17, color: colors.accent, fontWeight: '600' },
-    titleRow: { flexDirection: 'row', alignItems: 'center' },
+    addBtn: { minWidth: 60, minHeight: 44, alignItems: 'flex-end', justifyContent: 'center' },
+    titleRow: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
     title: { fontSize: 17, fontWeight: '700', color: colors.text },
     centered: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 8 },
     emptyTitle: { fontSize: 18, fontWeight: '700', color: colors.text },
@@ -361,7 +368,6 @@ function createStyles(colors: ThemeColors) {
       width: 36, height: 36, borderRadius: 18,
       backgroundColor: 'rgba(255,255,255,0.15)', alignItems: 'center', justifyContent: 'center',
     },
-    viewerCloseText: { color: '#FFFFFF', fontSize: 18, fontWeight: '700' },
     viewerImageWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
     viewerImage: { width: SCREEN_WIDTH, height: '80%' },
     viewerCaptionBox: { paddingHorizontal: 20, paddingBottom: 32, paddingTop: 8 },
