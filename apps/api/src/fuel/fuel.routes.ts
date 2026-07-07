@@ -281,7 +281,7 @@ const fuelRoutes: FastifyPluginAsync = async (fastify) => {
         [groupId, userId],
       );
       if (memberResult.rows.length === 0) {
-        return reply.status(403).send({ error: 'Not an active group member' });
+        return reply.status(403).send({ error: 'You are not a member of this group' });
       }
 
       // Read accumulated stats from Redis
