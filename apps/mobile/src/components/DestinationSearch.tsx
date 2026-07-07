@@ -16,7 +16,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { apiClient } from '../services/apiClient';
 import { useRecentDestinationsStore, RecentDestination } from '../stores/recentDestinationsStore';
-import { ThemeColors, useTheme } from '../theme';
+import { ThemeColors, useTheme, withAlpha } from '../theme';
 
 export interface SearchResult {
   id: string;
@@ -445,13 +445,13 @@ function makeStyles(colors: ThemeColors) {
       fontWeight: '500',
     },
 
-    errorRow: { padding: 12, backgroundColor: 'rgba(220,20,60,0.10)' },
+    errorRow: { padding: 12, backgroundColor: withAlpha(colors.accent, 0.10) },
     errorText: { color: colors.accent, fontSize: 13 },
 
     offlineBanner: { padding: 12, backgroundColor: colors.border },
     offlineText: { color: colors.textMuted, fontSize: 13, textAlign: 'center' },
-    motionBanner: { padding: 10, paddingBottom: 4, backgroundColor: '#1A1505' },
-    motionText: { color: '#B8860B', fontSize: 12, fontWeight: '600', textAlign: 'center' },
+    motionBanner: { padding: 10, paddingBottom: 4, backgroundColor: withAlpha(colors.warning, 0.15) },
+    motionText: { color: colors.warning, fontSize: 12, fontWeight: '600', textAlign: 'center' },
 
     list: { maxHeight: 320 },
     result: {

@@ -1,6 +1,8 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { HapticService } from '../services/HapticService';
+import { ThemeColors, useTheme, withAlpha } from '../theme';
 
 export const PTT_BUTTON_SIZE = 80;
 
@@ -25,6 +27,8 @@ function PTTButton({
   disabled = false,
   size = PTT_BUTTON_SIZE,
 }: Props) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const scale = useRef(new Animated.Value(1)).current;
   const ringOpacity = useRef(new Animated.Value(0)).current;
   const ringScale = useRef(new Animated.Value(1)).current;
@@ -108,19 +112,17 @@ function PTTButton({
   };
 
   const bgColor = disabled
-    ? '#2A2A2A'
+    ? colors.border
     : isMuted
-    ? '#3A2A2A'
-    : isTransmitting
-    ? '#FF1744'
-    : '#DC143C';
+    ? withAlpha(colors.error, 0.28)
+    : colors.accent;
 
   const elevation = shadowAnim.interpolate({
     inputRange: [0, 1],
     outputRange: [10, 28],
   });
 
-  const icon = isMuted ? '🔇' : '🎙️';
+  const iconName = isMuted ? 'mic-off' : 'mic';
 
   const labelText = isMuted
     ? 'MUTED'
@@ -130,13 +132,11 @@ function PTTButton({
     ? 'UNAVAILABLE'
     : 'HOLD TO TALK';
 
-  const labelColor = isMuted
-    ? '#555555'
+  const labelColor = isMuted || disabled
+    ? colors.textSubtle
     : isTransmitting
-    ? '#FF1744'
-    : disabled
-    ? '#444444'
-    : '#888888';
+    ? colors.accent
+    : colors.textMuted;
 
   return (
     <View style={styles.wrapper}>
@@ -159,6 +159,10 @@ function PTTButton({
         onPressIn={handlePressIn}
         onPressOut={handlePressOut}
         disabled={disabled}
+        // Large hitSlop on top of an already-80pt button — this control is used
+        // one-handed while driving, so the effective touch target needs to be
+        // as forgiving as possible.
+        hitSlop={{ top: 16, bottom: 16, left: 16, right: 16 }}
         accessibilityRole="button"
         accessibilityLabel={
           isTransmitting
@@ -185,7 +189,12 @@ function PTTButton({
             isTransmitting && styles.buttonTransmitting,
           ]}
         >
-          <Text style={[styles.mic, { fontSize: isTransmitting ? size * 0.3 : size * 0.4 }]}>{icon}</Text>
+          <Ionicons
+            name={iconName}
+            size={isTransmitting ? size * 0.3 : size * 0.4}
+            color="#FFFFFF"
+            style={styles.mic}
+          />
           {isTransmitting && (
             <View style={styles.waveform}>
               {waveAnims.map((anim, i) => (
@@ -212,51 +221,55 @@ function PTTButton({
   );
 }
 
-const styles = StyleSheet.create({
-  wrapper: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-  },
-  ring: {
-    position: 'absolute',
-    alignSelf: 'center',
-    backgroundColor: 'rgba(220,20,60,0.22)',
-    borderWidth: 1.5,
-    borderColor: 'rgba(220,20,60,0.35)',
-  },
-  button: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#DC143C',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.6,
-    shadowRadius: 14,
-  },
-  buttonTransmitting: {
-    borderWidth: 2,
-    borderColor: 'rgba(255,255,255,0.25)',
-  },
-  mic: {
-    lineHeight: undefined,
-  },
-  waveform: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: 3,
-    height: 18,
-    marginTop: 4,
-  },
-  waveBar: {
-    width: 3,
-    borderRadius: 2,
-    backgroundColor: 'rgba(255,255,255,0.9)',
-  },
-  label: {
-    fontSize: 10,
-    fontWeight: '700',
-    letterSpacing: 1.8,
-  },
-});
+function makeStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    wrapper: {
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 8,
+    },
+    ring: {
+      position: 'absolute',
+      alignSelf: 'center',
+      backgroundColor: withAlpha(colors.accent, 0.22),
+      borderWidth: 1.5,
+      borderColor: withAlpha(colors.accent, 0.35),
+    },
+    button: {
+      alignItems: 'center',
+      justifyContent: 'center',
+      shadowColor: colors.accent,
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.6,
+      shadowRadius: 14,
+    },
+    // Border overlay only ever sits on top of the button's own accent-colored
+    // fill (never the screen background), so a fixed white ring reads
+    // correctly in both themes without needing a dedicated token.
+    buttonTransmitting: {
+      borderWidth: 2,
+      borderColor: 'rgba(255,255,255,0.25)',
+    },
+    mic: {},
+    waveform: {
+      flexDirection: 'row',
+      alignItems: 'flex-end',
+      gap: 3,
+      height: 18,
+      marginTop: 4,
+    },
+    // Same reasoning as buttonTransmitting — bars render on the accent fill.
+    waveBar: {
+      width: 3,
+      borderRadius: 2,
+      backgroundColor: 'rgba(255,255,255,0.9)',
+    },
+    label: {
+      fontSize: 10,
+      fontWeight: '700',
+      letterSpacing: 1.8,
+    },
+  });
+}
 
 export default React.memo(PTTButton);

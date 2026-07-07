@@ -4,7 +4,7 @@
  * Entries capped at MAX_ENTRIES; collapsed to ticker when panel is minimized.
  */
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
   ScrollView,
@@ -13,8 +13,10 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { Socket } from 'socket.io-client';
 import { pttAnalytics, PttStat } from '../services/PTTAnalyticsService';
+import { ThemeColors, useTheme, withAlpha } from '../theme';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -86,7 +88,7 @@ function getVehicleEmoji(vehicleType?: string): string {
 // PulsingDot
 // ---------------------------------------------------------------------------
 
-function PulsingDot() {
+function PulsingDot({ colors }: { colors: ThemeColors }) {
   const opacity = useRef(new Animated.Value(1)).current;
   useEffect(() => {
     const loop = Animated.loop(
@@ -98,7 +100,7 @@ function PulsingDot() {
     loop.start();
     return () => loop.stop();
   }, [opacity]);
-  return <Animated.View style={[styles.dot, { opacity }]} />;
+  return <Animated.View style={[{ width: 6, height: 6, borderRadius: 3, backgroundColor: colors.accent, marginRight: 5 }, { opacity }]} />;
 }
 
 // ---------------------------------------------------------------------------
@@ -120,6 +122,8 @@ function LogRow({
   onPress: () => void;
   onReplayRequest: (id: string) => void;
 }) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const translateY = useRef(new Animated.Value(-16)).current;
   const rowOpacity = useRef(new Animated.Value(0)).current;
 
@@ -143,17 +147,22 @@ function LogRow({
       <TouchableOpacity
         onPress={onPress}
         style={[styles.row, isExpanded && styles.rowExpanded]}
-        accessible
-        accessibilityLabel={`${name} transmitted ${elapsed}`}
+        accessibilityRole="button"
+        accessibilityLabel={`${name} transmitted ${elapsed}. ${isExpanded ? 'Expanded' : 'Collapsed'}, double tap to ${isExpanded ? 'collapse' : 'expand'}.`}
         activeOpacity={0.7}
       >
         {/* Main row */}
         <View style={styles.rowMain}>
-          <Text style={styles.radioEmoji}>{isActive ? '🔴' : '📻'}</Text>
+          <Ionicons
+            name={isActive ? 'radio' : 'radio-outline'}
+            size={15}
+            color={isActive ? colors.accent : colors.textMuted}
+            style={styles.radioIcon}
+          />
 
           <View style={styles.rowBody}>
             <View style={styles.nameRow}>
-              {isActive && <PulsingDot />}
+              {isActive && <PulsingDot colors={colors} />}
               <Text style={styles.callsign} numberOfLines={1}>
                 {emoji ? `${emoji} ` : ''}{name}
               </Text>
@@ -165,7 +174,11 @@ function LogRow({
           </View>
 
           <Text style={styles.elapsed}>{elapsed}</Text>
-          <Text style={styles.chevron}>{isExpanded ? '▲' : '▼'}</Text>
+          <Ionicons
+            name={isExpanded ? 'chevron-up' : 'chevron-down'}
+            size={13}
+            color={colors.textSubtle}
+          />
         </View>
 
         {/* Expanded details */}
@@ -183,9 +196,12 @@ function LogRow({
             <TouchableOpacity
               onPress={() => onReplayRequest(entry.id)}
               style={styles.replayBtn}
-              accessibilityLabel="Request replay"
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              accessibilityRole="button"
+              accessibilityLabel="Request replay of this transmission"
             >
-              <Text style={styles.replayBtnText}>🔁 Request replay</Text>
+              <Ionicons name="repeat" size={12} color={colors.textMuted} />
+              <Text style={styles.replayBtnText}>Request replay</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -199,6 +215,8 @@ function LogRow({
 // ---------------------------------------------------------------------------
 
 function PTTLogPanel({ socket, initialEntries = [], groupId, isInMotion = false }: Props) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const [entries, setEntries] = useState<PttLogEntry[]>(
     initialEntries.slice(-MAX_ENTRIES),
   );
@@ -301,7 +319,9 @@ function PTTLogPanel({ socket, initialEntries = [], groupId, isInMotion = false 
             <TouchableOpacity
               onPress={() => { setEntries([]); setUnread(0); setExpandedId(null); }}
               style={styles.clearBtn}
-              accessibilityLabel="Clear log"
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              accessibilityRole="button"
+              accessibilityLabel="Clear radio log"
             >
               <Text style={styles.clearBtnText}>Clear</Text>
             </TouchableOpacity>
@@ -309,6 +329,8 @@ function PTTLogPanel({ socket, initialEntries = [], groupId, isInMotion = false 
           <TouchableOpacity
             onPress={handleToggleCollapse}
             style={styles.collapseBtn}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            accessibilityRole="button"
             accessibilityLabel={collapsed ? 'Expand radio log' : 'Collapse radio log'}
           >
             {unread > 0 && collapsed && (
@@ -316,18 +338,26 @@ function PTTLogPanel({ socket, initialEntries = [], groupId, isInMotion = false 
                 <Text style={styles.badgeText}>{unread > 9 ? '9+' : unread}</Text>
               </View>
             )}
-            <Text style={styles.collapseBtnText}>{collapsed ? '▼' : '▲'}</Text>
+            <Ionicons name={collapsed ? 'chevron-down' : 'chevron-up'} size={14} color={colors.textMuted} style={styles.collapseIcon} />
           </TouchableOpacity>
         </View>
       </View>
 
       {/* Collapsed: single-line ticker */}
       {collapsed ? (
-        <TouchableOpacity onPress={handleToggleCollapse} style={styles.ticker}>
+        <TouchableOpacity
+          onPress={handleToggleCollapse}
+          style={styles.ticker}
+          accessibilityRole="button"
+          accessibilityLabel={lastEntry ? `Expand radio log. Last transmission: ${lastEntry.callsign ?? lastEntry.displayName}, ${formatRelative(lastEntry.startedAt)}.` : 'Expand radio log. No transmissions yet.'}
+        >
           {lastEntry ? (
-            <Text style={styles.tickerText} numberOfLines={1}>
-              📻 {lastEntry.callsign ?? lastEntry.displayName} · {formatRelative(lastEntry.startedAt)}
-            </Text>
+            <View style={styles.tickerRow}>
+              <Ionicons name="radio-outline" size={13} color={colors.textMuted} style={styles.tickerIcon} />
+              <Text style={styles.tickerText} numberOfLines={1}>
+                {lastEntry.callsign ?? lastEntry.displayName} · {formatRelative(lastEntry.startedAt)}
+              </Text>
+            </View>
           ) : (
             <Text style={styles.emptyText}>No transmissions yet</Text>
           )}
@@ -344,9 +374,11 @@ function PTTLogPanel({ socket, initialEntries = [], groupId, isInMotion = false 
               <TouchableOpacity
                 onPress={() => socket.emit('ptt:replay_request', { groupId, userId: lastEntry?.userId })}
                 style={styles.replayLastBtn}
+                accessibilityRole="button"
                 accessibilityLabel="Replay last transmission"
               >
-                <Text style={styles.replayLastBtnText}>🔁 Replay Last</Text>
+                <Ionicons name="repeat" size={13} color={colors.accent} />
+                <Text style={styles.replayLastBtnText}>Replay Last</Text>
               </TouchableOpacity>
             )}
             <ScrollView style={styles.list} showsVerticalScrollIndicator={false}>
@@ -400,251 +432,251 @@ export default MemoPTTLogPanel;
 // Styles
 // ---------------------------------------------------------------------------
 
-const styles = StyleSheet.create({
-  panel: {
-    backgroundColor: 'rgba(28, 28, 28, 0.94)',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#2A2A2A',
-    overflow: 'hidden',
-    maxHeight: 400,
-  },
+function makeStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    panel: {
+      backgroundColor: withAlpha(colors.card, 0.94),
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: colors.border,
+      overflow: 'hidden',
+      maxHeight: 400,
+    },
 
-  // Header
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 12,
-    paddingTop: 10,
-    paddingBottom: 7,
-    borderBottomWidth: 1,
-    borderBottomColor: '#2A2A2A',
-  },
-  headerLabel: {
-    color: '#555555',
-    fontSize: 10,
-    fontWeight: '700',
-    letterSpacing: 2.5,
-  },
-  headerRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  clearBtn: {
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-  },
-  clearBtnText: {
-    color: '#555555',
-    fontSize: 11,
-  },
-  collapseBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  collapseBtnText: {
-    color: '#888888',
-    fontSize: 11,
-    paddingHorizontal: 4,
-  },
+    // Header
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: 12,
+      paddingTop: 10,
+      paddingBottom: 7,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+    },
+    headerLabel: {
+      color: colors.textSubtle,
+      fontSize: 10,
+      fontWeight: '700',
+      letterSpacing: 2.5,
+    },
+    headerRight: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+    },
+    clearBtn: {
+      paddingHorizontal: 6,
+      paddingVertical: 2,
+    },
+    clearBtnText: {
+      color: colors.textSubtle,
+      fontSize: 11,
+    },
+    collapseBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    collapseIcon: {
+      paddingHorizontal: 4,
+    },
 
-  // Unread badge
-  badge: {
-    backgroundColor: '#DC143C',
-    borderRadius: 8,
-    minWidth: 16,
-    height: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 3,
-    marginRight: 4,
-  },
-  badgeText: {
-    color: '#fff',
-    fontSize: 9,
-    fontWeight: '700',
-  },
+    // Unread badge
+    badge: {
+      backgroundColor: colors.accent,
+      borderRadius: 8,
+      minWidth: 16,
+      height: 16,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: 3,
+      marginRight: 4,
+    },
+    // Fixed-value accent badge (same in both themes) — label stays fixed white.
+    badgeText: {
+      color: '#FFFFFF',
+      fontSize: 9,
+      fontWeight: '700',
+    },
 
-  // Ticker (collapsed)
-  ticker: {
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-  },
-  tickerText: {
-    color: '#888888',
-    fontSize: 12,
-  },
+    // Ticker (collapsed)
+    ticker: {
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+    },
+    tickerRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    tickerIcon: {
+      marginRight: 6,
+    },
+    tickerText: {
+      color: colors.textMuted,
+      fontSize: 12,
+    },
 
-  // List (expanded)
-  list: {
-    maxHeight: 220,
-  },
-  emptyRow: {
-    paddingVertical: 14,
-    alignItems: 'center',
-  },
-  emptyText: {
-    color: '#555555',
-    fontSize: 12,
-  },
+    // List (expanded)
+    list: {
+      maxHeight: 220,
+    },
+    emptyRow: {
+      paddingVertical: 14,
+      alignItems: 'center',
+    },
+    emptyText: {
+      color: colors.textSubtle,
+      fontSize: 12,
+    },
 
-  // Row
-  row: {
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#2A2A2A',
-  },
-  rowExpanded: {
-    backgroundColor: 'rgba(220,20,60,0.06)',
-  },
-  rowMain: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-  },
-  radioEmoji: {
-    fontSize: 13,
-    marginRight: 9,
-    opacity: 0.85,
-  },
-  rowBody: {
-    flex: 1,
-    marginRight: 8,
-  },
-  nameRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  dot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#DC143C',
-    marginRight: 5,
-  },
-  callsign: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#FFFFFF',
-    flexShrink: 1,
-  },
-  liveLabel: {
-    fontSize: 9,
-    fontWeight: '800',
-    color: '#DC143C',
-    letterSpacing: 1.5,
-    marginLeft: 2,
-  },
-  channelLabel: {
-    fontSize: 11,
-    color: '#888888',
-    marginTop: 1,
-  },
-  elapsed: {
-    fontSize: 10,
-    color: '#555555',
-    minWidth: 44,
-    textAlign: 'right',
-    marginRight: 4,
-  },
-  chevron: {
-    fontSize: 9,
-    color: '#555555',
-  },
+    // Row
+    row: {
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.border,
+    },
+    rowExpanded: {
+      backgroundColor: withAlpha(colors.accent, 0.06),
+    },
+    rowMain: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingVertical: 8,
+      paddingHorizontal: 12,
+    },
+    radioIcon: {
+      marginRight: 9,
+    },
+    rowBody: {
+      flex: 1,
+      marginRight: 8,
+    },
+    nameRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    callsign: {
+      fontSize: 13,
+      fontWeight: '700',
+      color: colors.text,
+      flexShrink: 1,
+    },
+    liveLabel: {
+      fontSize: 9,
+      fontWeight: '800',
+      color: colors.accent,
+      letterSpacing: 1.5,
+      marginLeft: 2,
+    },
+    channelLabel: {
+      fontSize: 11,
+      color: colors.textMuted,
+      marginTop: 1,
+    },
+    elapsed: {
+      fontSize: 10,
+      color: colors.textSubtle,
+      minWidth: 44,
+      textAlign: 'right',
+      marginRight: 4,
+    },
 
-  // Expanded details
-  expandedBody: {
-    paddingHorizontal: 36,
-    paddingBottom: 10,
-    gap: 4,
-  },
-  expandedRow: {
-    fontSize: 12,
-    color: '#888888',
-  },
-  replayBtn: {
-    marginTop: 6,
-    alignSelf: 'flex-start',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderWidth: 1,
-    borderColor: '#2A2A2A',
-    borderRadius: 6,
-  },
-  replayBtnText: {
-    fontSize: 11,
-    color: '#AAAAAA',
-  },
+    // Expanded details
+    expandedBody: {
+      paddingHorizontal: 36,
+      paddingBottom: 10,
+      gap: 4,
+    },
+    expandedRow: {
+      fontSize: 12,
+      color: colors.textMuted,
+    },
+    replayBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 5,
+      marginTop: 6,
+      alignSelf: 'flex-start',
+      paddingHorizontal: 10,
+      paddingVertical: 4,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: 6,
+    },
+    replayBtnText: {
+      fontSize: 11,
+      color: colors.textMuted,
+    },
 
-  // "Replay Last" panel-level button
-  replayLastBtn: {
-    flexDirection: 'row',
-    alignSelf: 'flex-end',
-    marginBottom: 8,
-    marginTop: 8,
-    marginRight: 12,
-    backgroundColor: 'rgba(220,20,60,0.15)',
-    borderColor: '#DC143C',
-    borderWidth: 1,
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 5,
-  },
-  replayLastBtnText: {
-    color: '#DC143C',
-    fontSize: 12,
-    fontWeight: '600',
-  },
+    // "Replay Last" panel-level button
+    replayLastBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 5,
+      alignSelf: 'flex-end',
+      marginBottom: 8,
+      marginTop: 8,
+      marginRight: 12,
+      backgroundColor: withAlpha(colors.accent, 0.15),
+      borderColor: colors.accent,
+      borderWidth: 1,
+      borderRadius: 12,
+      paddingHorizontal: 12,
+      paddingVertical: 5,
+    },
+    replayLastBtnText: {
+      color: colors.accent,
+      fontSize: 12,
+      fontWeight: '600',
+    },
 
-  // Stats footer
-  statsFooter: {
-    backgroundColor: '#1C1C1C',
-    borderTopWidth: 1,
-    borderTopColor: '#2A2A2A',
-    paddingHorizontal: 12,
-    paddingTop: 8,
-    paddingBottom: 10,
-    gap: 6,
-  },
-  statsTitle: {
-    color: '#555555',
-    fontSize: 9,
-    fontWeight: '700',
-    letterSpacing: 2,
-    marginBottom: 2,
-  },
-  statsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  statsMedal: {
-    fontSize: 14,
-    width: 20,
-  },
-  statsCallsign: {
-    flex: 1,
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#FFFFFF',
-  },
-  statsValues: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  statsCount: {
-    fontSize: 11,
-    color: '#888888',
-    minWidth: 24,
-    textAlign: 'right',
-  },
-  statsDuration: {
-    fontSize: 11,
-    color: '#888888',
-    minWidth: 44,
-    textAlign: 'right',
-  },
-});
+    // Stats footer
+    statsFooter: {
+      backgroundColor: colors.card,
+      borderTopWidth: 1,
+      borderTopColor: colors.border,
+      paddingHorizontal: 12,
+      paddingTop: 8,
+      paddingBottom: 10,
+      gap: 6,
+    },
+    statsTitle: {
+      color: colors.textSubtle,
+      fontSize: 9,
+      fontWeight: '700',
+      letterSpacing: 2,
+      marginBottom: 2,
+    },
+    statsRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+    },
+    statsMedal: {
+      fontSize: 14,
+      width: 20,
+    },
+    statsCallsign: {
+      flex: 1,
+      fontSize: 12,
+      fontWeight: '600',
+      color: colors.text,
+    },
+    statsValues: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+    },
+    statsCount: {
+      fontSize: 11,
+      color: colors.textMuted,
+      minWidth: 24,
+      textAlign: 'right',
+    },
+    statsDuration: {
+      fontSize: 11,
+      color: colors.textMuted,
+      minWidth: 44,
+      textAlign: 'right',
+    },
+  });
+}
