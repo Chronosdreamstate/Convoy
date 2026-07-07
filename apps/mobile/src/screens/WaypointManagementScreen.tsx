@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   KeyboardAvoidingView,
   Modal,
@@ -20,6 +21,7 @@ import { useTheme, withAlpha, ThemeColors } from '../theme';
 import { useSocketStore } from '../stores/socketStore';
 import { useFuelPrice } from '../hooks/useFuelPrice';
 import { useMotionGuard } from '../hooks/useMotionGuard';
+import { MAX_WAYPOINTS } from '../services/RouteService';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -219,6 +221,9 @@ export default function WaypointManagementScreen() {
   const [saveError, setSaveError]       = useState(false);
   const [reachedIds, setReachedIds]     = useState<Set<string>>(new Set());
 
+  // Req 6.4 — cap the number of waypoints per route.
+  const atMaxWaypoints = waypoints.length >= MAX_WAYPOINTS;
+
   // ── Reorder / remove ────────────────────────────────────────────────────────
 
   const moveUp = useCallback((index: number) => {
@@ -265,6 +270,14 @@ export default function WaypointManagementScreen() {
   const openModal = () => {
     // Req 34 — block the add-waypoint form entry point while in motion
     if (guardInMotion()) return;
+    // Req 6.4 — block the add-waypoint form entry point once at the cap
+    if (atMaxWaypoints) {
+      Alert.alert(
+        'Waypoint limit reached',
+        `You can add up to ${MAX_WAYPOINTS} waypoints per route.`,
+      );
+      return;
+    }
     setDraftName('');
     setDraftAddress('');
     setDraftType('waypoint');
@@ -274,6 +287,16 @@ export default function WaypointManagementScreen() {
   const addWaypoint = () => {
     const name = draftName.trim();
     if (!name) return;
+    // Req 6.4 — defend against adding past the cap (e.g. the modal was
+    // already open when the last free slot was used).
+    if (atMaxWaypoints) {
+      setModalVisible(false);
+      Alert.alert(
+        'Waypoint limit reached',
+        `You can add up to ${MAX_WAYPOINTS} waypoints per route.`,
+      );
+      return;
+    }
     setWaypoints((prev) => [
       ...prev,
       { id: makeId(), name, address: draftAddress.trim() || '', type: draftType },
@@ -424,15 +447,19 @@ export default function WaypointManagementScreen() {
             ) : null}
 
             <TouchableOpacity
-              style={styles.secondaryBtn}
+              style={[styles.secondaryBtn, atMaxWaypoints && styles.btnDisabled]}
               onPress={openModal}
-              disabled={saving}
+              disabled={saving || atMaxWaypoints}
               accessibilityRole="button"
-              accessibilityLabel="Add waypoint"
-              accessibilityState={{ disabled: saving }}
+              accessibilityLabel={
+                atMaxWaypoints ? `Waypoint limit of ${MAX_WAYPOINTS} reached` : 'Add waypoint'
+              }
+              accessibilityState={{ disabled: saving || atMaxWaypoints }}
             >
               <Ionicons name="add" size={18} color={colors.text} />
-              <Text style={styles.secondaryBtnText}>Add waypoint</Text>
+              <Text style={styles.secondaryBtnText}>
+                {atMaxWaypoints ? `Limit reached (${MAX_WAYPOINTS})` : 'Add waypoint'}
+              </Text>
             </TouchableOpacity>
 
             <TouchableOpacity
