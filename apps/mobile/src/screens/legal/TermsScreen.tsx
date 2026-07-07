@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View, SafeAreaView } from 'react-native';
 import { useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import { ThemeColors, useTheme } from '../../theme';
 
 const SECTIONS = [
@@ -56,7 +57,7 @@ export default function TermsScreen() {
           accessibilityLabel="Go back"
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         >
-          <Text style={styles.backArrow}>‹</Text>
+          <Ionicons name="chevron-back" size={24} color={colors.text} />
         </TouchableOpacity>
         <Text style={styles.title}>Terms of Service</Text>
         <View style={styles.placeholder} />
@@ -87,10 +88,9 @@ function createStyles(colors: ThemeColors) {
       borderBottomWidth: 1,
       borderBottomColor: colors.border,
     },
-    back: { width: 40, alignItems: 'flex-start' },
-    backArrow: { fontSize: 28, color: colors.text, lineHeight: 32 },
+    back: { width: 44, height: 44, alignItems: 'flex-start', justifyContent: 'center' },
     title: { fontSize: 17, fontWeight: '600', color: colors.text },
-    placeholder: { width: 40 },
+    placeholder: { width: 44 },
     scroll: { flex: 1 },
     content: { padding: 20 },
     updated: { fontSize: 12, color: colors.textMuted, marginBottom: 24 },
