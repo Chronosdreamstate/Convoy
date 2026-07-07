@@ -7,7 +7,6 @@ import {
   TouchableOpacity,
   StyleSheet,
   SafeAreaView,
-  ActivityIndicator,
   Linking,
   Platform,
   Alert,
@@ -296,15 +295,15 @@ export default function WelcomeScreen() {
               style={[
                 styles.googleButton,
                 Platform.OS === 'ios' && styles.googleButtonAfterApple,
-                isAppleLoading && styles.socialButtonDisabled,
+                isAppleSigningIn && styles.socialButtonDisabled,
               ]}
               onPress={() => { void handleGoogleSignIn(); }}
-              disabled={isAppleLoading}
+              disabled={isAppleSigningIn}
               activeOpacity={0.8}
               accessibilityRole="button"
               accessibilityLabel="Sign in with Google"
               accessibilityHint="Signs you in with your Google account"
-              accessibilityState={{ disabled: isAppleLoading }}
+              accessibilityState={{ disabled: isAppleSigningIn }}
             >
               <Ionicons name="logo-google" size={18} color="#4285F4" />
               <Text style={styles.googleButtonText}>Sign in with Google</Text>
