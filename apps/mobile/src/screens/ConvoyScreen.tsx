@@ -25,6 +25,9 @@ import * as ExpoLocation from 'expo-location';
 import { router } from 'expo-router';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import ConvoyInviteCard from '../components/ConvoyInviteCard';
+import SOSButton from '../components/SOSButton';
+import MemberDetailModal from '../components/MemberDetailModal';
+import ConvoyStatusPanel from '../components/ConvoyStatusPanel';
 import { apiClient } from '../services/apiClient';
 import { haversineDistanceM } from '../services/DriveService';
 import { useGroupStore } from '../stores/groupStore';
@@ -184,6 +187,11 @@ export default function ConvoyScreen({ userId }: Props) {
   const [memberToastText, setMemberToastText] = useState<string | null>(null);
   const memberToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const membersRef = useRef<GroupMember[]>([]);
+
+  // Member detail modal (Task 2 — tap a member row to see details/actions)
+  const [selectedMember, setSelectedMember] = useState<GroupMember | null>(null);
+  const [showMemberDetail, setShowMemberDetail] = useState(false);
+  const memberListRef = useRef<FlatList<GroupMember>>(null);
 
   const [upcomingEvent, setUpcomingEvent] = useState<{ id: string; title: string; scheduledFor: string } | null>(null);
   const [eventCountdown, setEventCountdown] = useState<{ hours: number; minutes: number; seconds: number } | null>(null);
@@ -679,6 +687,32 @@ export default function ConvoyScreen({ userId }: Props) {
     });
   }, [members, group?.adminId, memberLocations]);
 
+  // Count of members currently reporting a live location — feeds ConvoyStatusPanel
+  const onlineMemberCount = useMemo(
+    () => members.filter((m) => !!memberLocations[m.userId]).length,
+    [members, memberLocations],
+  );
+
+  // Build the MemberInfo shape MemberDetailModal expects from our GroupMember + live location
+  const selectedMemberInfo = useMemo(() => {
+    if (!selectedMember) return null;
+    const mLoc = memberLocations[selectedMember.userId];
+    const adminLoc = group ? memberLocations[group.adminId] : undefined;
+    const distanceM = mLoc && adminLoc && group && selectedMember.userId !== group.adminId
+      ? haversineDistanceM(adminLoc.lat, adminLoc.lng, mLoc.lat, mLoc.lng)
+      : undefined;
+    return {
+      userId: selectedMember.userId,
+      displayName: selectedMember.displayName,
+      callsign: selectedMember.callsign,
+      isAdmin: selectedMember.isGroupAdmin,
+      isOnline: !!mLoc,
+      speedKph: mLoc?.speedKph,
+      distanceM,
+      isMuted: selectedMember.isMuted,
+    };
+  }, [selectedMember, memberLocations, group]);
+
   const renderMemberItem = useCallback(
     ({ item: m }: { item: GroupMember }) => {
       if (!group) return null;
@@ -695,10 +729,14 @@ export default function ConvoyScreen({ userId }: Props) {
         ? `${distFromLead >= 1000 ? `${(distFromLead / 1000).toFixed(1)} km` : `${Math.round(distFromLead)} m`} away`
         : '';
       return (
-        <View
+        <TouchableOpacity
           style={memberStyles.row}
+          activeOpacity={0.7}
+          onPress={() => { setSelectedMember(m); setShowMemberDetail(true); }}
           accessible={true}
+          accessibilityRole="button"
           accessibilityLabel={`${m.callsign ?? m.displayName}${distanceStr ? `, ${distanceStr}` : ''}`}
+          accessibilityHint="View member details"
         >
           {/* Initials avatar */}
           <View style={[memberStyles.avatar, { backgroundColor: avatarBg }]}>
@@ -761,7 +799,7 @@ export default function ConvoyScreen({ userId }: Props) {
               <Ionicons name="ellipsis-horizontal" size={16} color={colors.textSubtle} />
             </TouchableOpacity>
           )}
-        </View>
+        </TouchableOpacity>
       );
     },
     [group, memberLocations, isAdmin, userId, handleMemberMenu, memberStyles, colors],
@@ -1021,6 +1059,18 @@ export default function ConvoyScreen({ userId }: Props) {
             </TouchableOpacity>
           )}
         </View>
+      </View>
+
+      {/* At-a-glance status summary */}
+      <View style={styles.statusPanelWrap}>
+        <ConvoyStatusPanel
+          groupName={group.name}
+          memberCount={members.length}
+          onlineCount={onlineMemberCount}
+          isAdmin={isAdmin}
+          onPressSettings={() => { if (!guardInMotion()) router.push({ pathname: '/group-settings' as never, params: { groupId: group.id, isAdmin: 'true' } }); }}
+          onPressMembers={() => memberListRef.current?.scrollToOffset({ offset: 0, animated: true })}
+        />
       </View>
 
       {/* Group info card */}
@@ -1294,6 +1344,7 @@ export default function ConvoyScreen({ userId }: Props) {
       <Text style={styles.sectionLabel}>MEMBERS ({members.length})</Text>
 
       <FlatList
+        ref={memberListRef}
         data={sortedMembers}
         keyExtractor={(m) => m.userId}
         style={styles.memberList}
@@ -1327,6 +1378,21 @@ export default function ConvoyScreen({ userId }: Props) {
         joinCode={group.joinCode}
         inviteLink={`https://convoy.app/join/${group.joinCode}`}
         onClose={() => setShowInvite(false)}
+      />
+
+      {/* Emergency entry point — floating so it stays reachable from anywhere on this screen */}
+      <View style={styles.sosFloating} pointerEvents="box-none">
+        <SOSButton groupId={group.id} />
+      </View>
+
+      {/* Member detail modal (Task 2) */}
+      <MemberDetailModal
+        visible={showMemberDetail}
+        member={selectedMemberInfo}
+        isCurrentUserAdmin={isAdmin}
+        onClose={() => setShowMemberDetail(false)}
+        onMute={() => { if (group) fetchMembers(group.id); }}
+        onKick={(uid) => setMembers((prev) => prev.filter((m) => m.userId !== uid))}
       />
 
       {/* QR code modal (Req 7.3) */}
@@ -1529,6 +1595,21 @@ function createStyles(colors: ThemeColors) {
     color: '#FFFFFF',
     fontSize: 12,
     fontWeight: '700',
+  },
+
+  // At-a-glance status summary, directly below the header
+  statusPanelWrap: {
+    marginBottom: 12,
+  },
+
+  // Emergency SOS entry point — floats above the rest of the screen so it's
+  // always reachable regardless of scroll position, without disrupting the
+  // header icon row (SOSButton is a fixed 64x64 round target).
+  sosFloating: {
+    position: 'absolute',
+    right: 16,
+    bottom: 24,
+    zIndex: 20,
   },
 
   // Empty / home state
