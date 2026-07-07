@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
+  Alert,
   Animated,
   PanResponder,
   Pressable,
@@ -97,15 +99,17 @@ export default function RouteReplayScreen() {
   const [markerIndex, setMarkerIndex] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState<Speed>(1);
+  const [sharing, setSharing] = useState(false);
 
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const progressAnim = useRef(new Animated.Value(0)).current;
   const mapRef = useRef<MapView>(null);
 
   // ── Fetch drive ────────────────────────────────────────────────────────────
-  useEffect(() => {
+  const loadDrive = useCallback(() => {
     if (!driveId) return;
     setLoading(true);
+    setError(null);
     apiClient
       .get<DriveDetail>(`/api/v1/drives/${driveId}`)
       .then((res) => {
@@ -116,6 +120,8 @@ export default function RouteReplayScreen() {
       .catch(() => setError('Could not load drive data.'))
       .finally(() => setLoading(false));
   }, [driveId]);
+
+  useEffect(() => { loadDrive(); }, [loadDrive]);
 
   // ── Fit map to route ───────────────────────────────────────────────────────
   useEffect(() => {
@@ -230,15 +236,22 @@ export default function RouteReplayScreen() {
   ).current;
 
   // ── Share ──────────────────────────────────────────────────────────────────
-  const handleShare = useCallback(() => {
+  const handleShare = useCallback(async () => {
     if (!drive) return;
-    Share.share({
-      title: 'My CORTEGE Drive',
-      message:
-        `🏁 I drove ${formatDistance(drive.distanceM)} in ${formatDuration(drive.durationS)} on CORTEGE!\n` +
-        (drive.topSpeedKph ? `⚡ Top speed: ${drive.topSpeedKph.toFixed(0)} km/h\n` : '') +
-        `📅 ${new Date(drive.startedAt).toLocaleDateString()}\nJoin CORTEGE: convoy.app/download`,
-    });
+    setSharing(true);
+    try {
+      await Share.share({
+        title: 'My CORTEGE Drive',
+        message:
+          `🏁 I drove ${formatDistance(drive.distanceM)} in ${formatDuration(drive.durationS)} on CORTEGE!\n` +
+          (drive.topSpeedKph ? `⚡ Top speed: ${drive.topSpeedKph.toFixed(0)} km/h\n` : '') +
+          `📅 ${new Date(drive.startedAt).toLocaleDateString()}\nJoin CORTEGE: convoy.app/download`,
+      });
+    } catch {
+      Alert.alert('Error', 'Could not open share sheet');
+    } finally {
+      setSharing(false);
+    }
   }, [drive]);
 
   // ── Derived display values ─────────────────────────────────────────────────
@@ -268,7 +281,7 @@ export default function RouteReplayScreen() {
     return (
       <SafeAreaView style={styles.center}>
         <NetworkError
-          onRetry={() => { router.back(); }}
+          onRetry={error ? loadDrive : () => { router.back(); }}
           message={error ?? 'Drive not found.'}
         />
       </SafeAreaView>
@@ -281,7 +294,12 @@ export default function RouteReplayScreen() {
         <Ionicons name="map-outline" size={56} color={colors.textMuted} style={styles.emptyIcon} />
         <Text style={styles.emptyTitle}>No GPS data available</Text>
         <Text style={styles.muted}>This drive has no recorded route trace.</Text>
-        <Pressable style={styles.backBtn} onPress={() => router.back()}>
+        <Pressable
+          style={styles.backBtn}
+          onPress={() => router.back()}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+        >
           <Ionicons name="chevron-back" size={15} color={colors.accent} />
           <Text style={styles.backBtnText}> Back</Text>
         </Pressable>
@@ -293,16 +311,31 @@ export default function RouteReplayScreen() {
     <SafeAreaView style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <Pressable onPress={() => { stopPlayback(); router.back(); }} style={styles.headerBack}>
+        <Pressable
+          onPress={() => { stopPlayback(); router.back(); }}
+          style={styles.headerBack}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+        >
           <Ionicons name="chevron-back" size={17} color={colors.accent} />
           <Text style={styles.headerBackText}> Back</Text>
         </Pressable>
         <Text style={styles.headerTitle}>
           {new Date(drive.startedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
         </Text>
-        <Pressable onPress={handleShare} style={styles.shareBtn}>
-          <Ionicons name="share-social-outline" size={15} color={colors.accent} />
-          <Text style={styles.shareBtnText}> Share</Text>
+        <Pressable
+          onPress={() => { void handleShare(); }}
+          style={styles.shareBtn}
+          disabled={sharing}
+          accessibilityRole="button"
+          accessibilityLabel="Share drive"
+          accessibilityState={{ busy: sharing }}
+        >
+          {sharing
+            ? <ActivityIndicator size="small" color={colors.accent} />
+            : <Ionicons name="share-social-outline" size={15} color={colors.accent} />
+          }
+          <Text style={styles.shareBtnText}> {sharing ? 'Sharing…' : 'Share'}</Text>
         </Pressable>
       </View>
 
@@ -389,6 +422,11 @@ export default function RouteReplayScreen() {
           onLayout={measureTrack}
           accessibilityRole="adjustable"
           accessibilityLabel="Seek replay position"
+          accessibilityValue={{
+            min: 0,
+            max: 100,
+            now: Math.round((markerIndex / Math.max(coords.length - 1, 1)) * 100),
+          }}
           {...panResponder.panHandlers}
         >
           <View style={styles.progressTrack}>
@@ -481,7 +519,7 @@ function createStyles(colors: ThemeColors) {
     durationText: { color: colors.text, fontSize: 15, fontWeight: '600', fontVariant: ['tabular-nums'] },
     durationMuted: { color: colors.textMuted, fontWeight: '400' },
 
-    progressTouchArea: { paddingVertical: 10, marginBottom: 4 },
+    progressTouchArea: { minHeight: 44, justifyContent: 'center', marginBottom: 4 },
     progressTrack: { height: 4, backgroundColor: colors.border, borderRadius: 2, overflow: 'hidden' },
     progressFill: { height: '100%', backgroundColor: colors.accent, borderRadius: 2 },
 

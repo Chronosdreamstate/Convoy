@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   RefreshControl,
   ScrollView,
@@ -85,7 +86,7 @@ export default function EventDetailScreen() {
   const user = useAuthStore((s) => s.user);
   const activeGroupId = useGroupStore((s) => s.activeGroupId);
   const resolvedGroupId = groupId ?? activeGroupId ?? '';
-  const { colors } = useTheme();
+  const { colors, hitSlop } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
 
   const [event, setEvent] = useState<EventData | null>(null);
@@ -93,8 +94,10 @@ export default function EventDetailScreen() {
   const [counts, setCounts] = useState<RsvpCounts>({ going: 0, maybe: 0, not_going: 0 });
   const [myStatus, setMyStatus] = useState<RsvpStatus | null>(null);
   const [loading, setLoading] = useState(true);
-  const [rsvpLoading, setRsvpLoading] = useState(false);
+  const [rsvpLoadingStatus, setRsvpLoadingStatus] = useState<RsvpStatus | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [sharingEvent, setSharingEvent] = useState(false);
+  const [reminding, setReminding] = useState(false);
 
   const isAdmin = event?.createdBy === user?.id;
 
@@ -132,7 +135,7 @@ export default function EventDetailScreen() {
 
   async function handleRsvp(status: RsvpStatus) {
     if (!resolvedGroupId || !eventId) return;
-    setRsvpLoading(true);
+    setRsvpLoadingStatus(status);
     try {
       const res = await apiClient.post<{ rsvp: { status: string }; counts: RsvpCounts }>(
         `/api/v1/groups/${resolvedGroupId}/events/${eventId}/rsvp`,
@@ -151,23 +154,46 @@ export default function EventDetailScreen() {
               'Join us: convoy.app',
             ].join('\n'),
             title: event.title,
-          });
+          }).catch(() => {});
         }, 600);
       }
     } catch (err: unknown) {
       Alert.alert('Error', err instanceof Error ? err.message : 'Could not update RSVP');
     } finally {
-      setRsvpLoading(false);
+      setRsvpLoadingStatus(null);
+    }
+  }
+
+  async function handleShareEvent() {
+    if (!event) return;
+    setSharingEvent(true);
+    try {
+      await Share.share({
+        title: event.title,
+        message: [
+          `Join me at "${event.title}" on CORTEGE! 🏎️`,
+          `📅 ${formatEventDate(event.scheduledFor)}`,
+          '',
+          'Join us: convoy.app',
+        ].join('\n'),
+      });
+    } catch {
+      Alert.alert('Error', 'Could not open share sheet');
+    } finally {
+      setSharingEvent(false);
     }
   }
 
   async function handleRemindAll() {
     if (!resolvedGroupId || !eventId) return;
+    setReminding(true);
     try {
       await apiClient.post(`/api/v1/groups/${resolvedGroupId}/events/${eventId}/remind`);
       Alert.alert('Reminder sent', 'All members have been notified about this event.');
     } catch {
       Alert.alert('Error', 'Could not send reminder');
+    } finally {
+      setReminding(false);
     }
   }
 
@@ -176,7 +202,13 @@ export default function EventDetailScreen() {
   if (loading) {
     return (
       <View style={[styles.root, { paddingTop: insets.top }]}>
-        <TouchableOpacity style={styles.backRow} onPress={() => router.back()}>
+        <TouchableOpacity
+          style={styles.backRow}
+          onPress={() => router.back()}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+          hitSlop={hitSlop}
+        >
           <Ionicons name="chevron-back" size={14} color={colors.accent} />
           <Text style={styles.backLink}> Back</Text>
         </TouchableOpacity>
@@ -194,7 +226,13 @@ export default function EventDetailScreen() {
   if (!event) {
     return (
       <View style={[styles.root, { paddingTop: insets.top }]}>
-        <TouchableOpacity style={styles.backRow} onPress={() => router.back()}>
+        <TouchableOpacity
+          style={styles.backRow}
+          onPress={() => router.back()}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+          hitSlop={hitSlop}
+        >
           <Ionicons name="chevron-back" size={14} color={colors.accent} />
           <Text style={styles.backLink}> Back</Text>
         </TouchableOpacity>
@@ -222,7 +260,19 @@ export default function EventDetailScreen() {
           <Ionicons name="chevron-back" size={24} color={colors.text} />
         </TouchableOpacity>
         <Text style={styles.screenTitle}>Event Details</Text>
-        <View style={{ width: 44 }} />
+        <TouchableOpacity
+          onPress={() => { void handleShareEvent(); }}
+          style={styles.backBtn}
+          disabled={sharingEvent}
+          accessibilityRole="button"
+          accessibilityLabel="Share event"
+          accessibilityState={{ busy: sharingEvent }}
+        >
+          {sharingEvent
+            ? <ActivityIndicator size="small" color={colors.text} />
+            : <Ionicons name="share-social-outline" size={22} color={colors.text} />
+          }
+        </TouchableOpacity>
       </View>
 
       {/* Event card */}
@@ -265,42 +315,52 @@ export default function EventDetailScreen() {
           ] as const
         ).map(({ status, icon, label }) => {
           const active = myStatus === status;
+          const isLoadingThis = rsvpLoadingStatus === status;
           return (
             <TouchableOpacity
               key={status}
               style={[styles.rsvpPill, active && styles.rsvpPillActive]}
               onPress={() => { void handleRsvp(status); }}
-              disabled={rsvpLoading}
+              disabled={rsvpLoadingStatus !== null}
               accessibilityRole="button"
-              accessibilityState={{ selected: active, disabled: rsvpLoading }}
+              accessibilityLabel={label}
+              accessibilityState={{ selected: active, disabled: rsvpLoadingStatus !== null, busy: isLoadingThis }}
             >
-              <Ionicons name={icon} size={14} color={active ? colors.text : colors.textMuted} />
+              {isLoadingThis
+                ? <ActivityIndicator size="small" color={active ? colors.text : colors.textMuted} />
+                : <Ionicons name={icon} size={14} color={active ? colors.text : colors.textMuted} />
+              }
               <Text style={[styles.rsvpPillText, active && styles.rsvpPillTextActive]}> {label}</Text>
             </TouchableOpacity>
           );
         })}
       </View>
 
-      {/* Going avatars */}
-      {goingRsvps.length > 0 && (
+      {rsvps.length === 0 ? (
+        <View style={styles.emptyAttendees}>
+          <Ionicons name="people-outline" size={28} color={colors.textSubtle} />
+          <Text style={styles.emptyAttendeesText}>No responses yet — be the first to RSVP!</Text>
+        </View>
+      ) : (
         <>
-          <Text style={styles.sectionLabel}>GOING ({goingRsvps.length})</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.avatarScroll}>
-            {goingRsvps.slice(0, 12).map((r) => (
-              <View key={r.userId} style={styles.avatarItem}>
-                <InitialsCircle name={r.callsign ?? r.displayName} size={40} styles={styles} />
-                <Text style={styles.avatarName} numberOfLines={1}>
-                  {r.callsign ?? r.displayName.split(' ')[0]}
-                </Text>
-              </View>
-            ))}
-          </ScrollView>
-        </>
-      )}
+          {/* Going avatars */}
+          {goingRsvps.length > 0 && (
+            <>
+              <Text style={styles.sectionLabel}>GOING ({goingRsvps.length})</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.avatarScroll}>
+                {goingRsvps.slice(0, 12).map((r) => (
+                  <View key={r.userId} style={styles.avatarItem}>
+                    <InitialsCircle name={r.callsign ?? r.displayName} size={40} styles={styles} />
+                    <Text style={styles.avatarName} numberOfLines={1}>
+                      {r.callsign ?? r.displayName.split(' ')[0]}
+                    </Text>
+                  </View>
+                ))}
+              </ScrollView>
+            </>
+          )}
 
-      {/* Full RSVP list */}
-      {rsvps.length > 0 && (
-        <>
+          {/* Full RSVP list */}
           <Text style={styles.sectionLabel}>ALL RESPONSES</Text>
           {rsvps.map((r) => (
             <View key={r.userId} style={styles.rsvpListRow}>
@@ -329,9 +389,19 @@ export default function EventDetailScreen() {
 
       {/* Admin: remind all */}
       {isAdmin && (
-        <TouchableOpacity style={styles.remindBtn} onPress={() => { void handleRemindAll(); }}>
-          <Ionicons name="megaphone-outline" size={15} color={colors.text} />
-          <Text style={styles.remindBtnText}> Remind All Members</Text>
+        <TouchableOpacity
+          style={[styles.remindBtn, reminding && styles.remindBtnDisabled]}
+          onPress={() => { void handleRemindAll(); }}
+          disabled={reminding}
+          accessibilityRole="button"
+          accessibilityLabel="Remind all members"
+          accessibilityState={{ busy: reminding, disabled: reminding }}
+        >
+          {reminding
+            ? <ActivityIndicator size="small" color={colors.text} />
+            : <Ionicons name="megaphone-outline" size={15} color={colors.text} />
+          }
+          <Text style={styles.remindBtnText}> {reminding ? 'Sending…' : 'Remind All Members'}</Text>
         </TouchableOpacity>
       )}
     </ScrollView>
@@ -411,6 +481,20 @@ function createStyles(colors: ThemeColors) {
   avatarInitials: { color: '#FFFFFF', fontWeight: '700' },
   avatarName: { fontSize: 10, color: colors.textMuted, marginTop: 4, textAlign: 'center' },
 
+  emptyAttendees: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 32,
+    paddingHorizontal: 16,
+    backgroundColor: colors.card,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.border,
+    marginBottom: 24,
+    gap: 10,
+  },
+  emptyAttendeesText: { fontSize: 14, color: colors.textMuted, textAlign: 'center' },
+
   rsvpListRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -444,6 +528,7 @@ function createStyles(colors: ThemeColors) {
     justifyContent: 'center',
   },
   remindBtnText: { fontSize: 15, fontWeight: '600', color: colors.text },
+  remindBtnDisabled: { opacity: 0.6 },
 
   emptyText: { fontSize: 16, color: colors.textMuted },
   backLink: { fontSize: 14, color: colors.accent },
