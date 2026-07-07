@@ -38,6 +38,9 @@ import FuelSuggestionBanner from '../../components/FuelSuggestionBanner';
 import GapAlertBanner from '../../components/GapAlertBanner';
 import SosAlertModal from '../../components/SosAlertModal';
 import ConvoyBanner from '../../components/ConvoyBanner';
+import CoachMarkOverlay from '../../components/CoachMarkOverlay';
+import ScenicRouteSelector, { RouteOption } from '../../components/ScenicRouteSelector';
+import * as SecureStore from 'expo-secure-store';
 import { useGroupStore } from '../../stores/groupStore';
 import { SQLiteOfflineDB } from '../../services/OfflineCacheService';
 import { MotionStateService, deriveMotionState } from '../../services/MotionStateService';
@@ -91,6 +94,10 @@ function formatDistance(distM: number): string {
 // the report as active. This previously drifted to 2 hours, leaving expired
 // hazards visible on other members' maps for far longer than intended.
 const HAZARD_EXPIRY_MS = 30 * 60 * 1000; // 30 minutes
+// Must match CoachMarkOverlay's own STORAGE_KEY — that component only *writes*
+// this flag (when the user finishes/skips the walkthrough), so MapScreen is
+// responsible for reading it to decide whether to show the tour on this mount.
+const COACH_MARKS_STORAGE_KEY = 'coach_marks_shown';
 interface RouteAlternative {
   distance: number;       // metres (matches backend Route shape)
   duration: number;       // seconds
@@ -386,6 +393,15 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
   const [routeDestInput, setRouteDestInput]       = useState('');
   const [isCalcRoute, setIsCalcRoute]             = useState(false);
   const [postedSpeedLimitKph, setPostedSpeedLimitKph] = useState<number | null>(null);
+  // Scenic-vs-fastest route picker sheet — offered after picking a destination
+  // from the top search bar (Req 22.3's "present scenic as default, standard as
+  // alternate" applies just as much when the user is choosing, not just viewing).
+  const [showScenicSelector, setShowScenicSelector] = useState(false);
+
+  // First-visit spotlight tutorial (PTT / member list / hazard report). Visibility
+  // is decided by MapScreen (below) by reading CoachMarkOverlay's own "seen" flag;
+  // the component itself only writes that flag once the user finishes or skips.
+  const [showCoachMarks, setShowCoachMarks] = useState(false);
 
   // Dropped pin (Req 5.1–5.4)
   const [droppedPin, setDroppedPin] = useState<{ lat: number; lng: number; address: string | null } | null>(null);
@@ -479,6 +495,20 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
   // socket 'connect' handler below covers the in-group reconnect case too.
   useEffect(() => { void flushOfflineHazards(); }, []);
 
+  // Show the first-visit spotlight tutorial once per install: read the "seen" flag
+  // CoachMarkOverlay itself writes on completion/skip, and only reveal the overlay
+  // when it's absent. Runs once on mount, same as the offline-hazard flush above.
+  useEffect(() => {
+    (async () => {
+      try {
+        const seen = await SecureStore.getItemAsync(COACH_MARKS_STORAGE_KEY);
+        if (!seen) setShowCoachMarks(true);
+      } catch {
+        // best-effort — if we can't read the flag, don't force the tour on the user
+      }
+    })();
+  }, []);
+
   // Incoming SOS alerts arrive over the socket (see `sos:alert` handler below) and are
   // completely independent of any locally-driven modal/sheet state. SosAlertModal is a
   // safety-critical, full-screen <Modal> — if it becomes visible while another <Modal>
@@ -495,6 +525,10 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
     setShowRouteModal(false);
     setShowSosPicker(false);
     setShowSosConfirm(false);
+    // These two are also locally-controlled <Modal>s (tutorial spotlight, scenic
+    // route sheet) — same stacking hazard as the other modals above.
+    setShowScenicSelector(false);
+    setShowCoachMarks(false);
   }, [sosAlerts.length]);
 
   // Animate bottom sheet height between collapsed (80) and expanded (300)
@@ -1179,7 +1213,10 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
   // Shared "calculate + render a route to this point" logic used by every entry point
   // that produces a destination coordinate (top search bar, Plan Route modal, dropped
   // pin "Get Directions", recent destinations).
-  const calculateRouteToDestination = useCallback(async (dest: { lat: number; lng: number }) => {
+  const calculateRouteToDestination = useCallback(async (
+    dest: { lat: number; lng: number },
+    opts?: { offerRouteChoice?: boolean },
+  ) => {
     if (!myLocation) {
       Alert.alert('Location unavailable', 'Waiting for a GPS fix before we can calculate a route.');
       return;
@@ -1222,6 +1259,13 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
       activeRouteSegmentsRef.current = { coords, segmentsKph: alts[0]?.speedLimitSegmentsKph ?? [] };
       activeDestRef.current = dest;
       showQuickAlert(`${alts[0].distanceText} · ${alts[0].durationText}`);
+      // Route is already drawn using the default (first) alternative above — this
+      // just offers a chance to switch to another alternative (e.g. fastest vs.
+      // scenic) before continuing. Only offered for entry points that don't already
+      // have their own route-choice UI (the Plan Route modal has its own inline list).
+      if (opts?.offerRouteChoice && alts.length > 1) {
+        setShowScenicSelector(true);
+      }
     } catch {
       Alert.alert('Error', 'Could not calculate route.');
     } finally {
@@ -1244,7 +1288,9 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
     // Selecting a search result must actually start turn-by-turn routing, not just
     // recenter the camera — previously this handler only panned the map, so typing
     // an address and picking a result produced no route/directions at all.
-    void calculateRouteToDestination({ lat: result.lat, lng: result.lng });
+    // offerRouteChoice: true — this is the one entry point with no existing route-
+    // choice UI of its own, so it's where ScenicRouteSelector gets offered.
+    void calculateRouteToDestination({ lat: result.lat, lng: result.lng }, { offerRouteChoice: true });
   }, [myLocation, calculateRouteToDestination]);
 
   const handlePttStart = useCallback(() => {
@@ -1313,6 +1359,17 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
     setPostedSpeedLimitKph(alt?.speedLimitKph ?? null);
     activeRouteSegmentsRef.current = { coords, segmentsKph: alt?.speedLimitSegmentsKph ?? [] };
   }, [routeAlternatives]);
+
+  // Adapts the backend's RouteAlternative[] shape to ScenicRouteSelector's RouteOption[]
+  // prop. Note: the backend doesn't currently return a per-route scenicScore, so that
+  // field is left undefined here — ScenicRouteSelector already treats it as optional
+  // (its "Most Scenic" badge simply won't render without one; "Fastest" still can).
+  const scenicSelectorRoutes = useMemo<RouteOption[]>(() => routeAlternatives.map((alt, idx) => ({
+    index: idx,
+    distanceText: alt.distanceText,
+    durationText: alt.durationText,
+    speedLimitKph: alt.speedLimitKph,
+  })), [routeAlternatives]);
 
   const handlePushRoute = useCallback(async () => {
     const alt = routeAlternatives[selectedRouteIdx];
@@ -2312,6 +2369,35 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
         isAdmin={isAdmin}
         onPress={() => { /* navigation handled by parent tab */ }}
       />
+
+      {/* Scenic-vs-fastest route picker — offered after picking a destination from
+          the top search bar (see calculateRouteToDestination's offerRouteChoice).
+          Reuses handleSelectRouteAlt so choosing here draws the same route the
+          Plan Route modal's own picker would. */}
+      <Modal
+        transparent
+        visible={showScenicSelector}
+        animationType="slide"
+        onRequestClose={() => setShowScenicSelector(false)}
+      >
+        <View style={styles.scenicSelectorOverlay}>
+          <ScenicRouteSelector
+            routes={scenicSelectorRoutes}
+            selectedIndex={selectedRouteIdx}
+            onSelect={handleSelectRouteAlt}
+            onConfirm={() => setShowScenicSelector(false)}
+            onDismiss={() => setShowScenicSelector(false)}
+          />
+        </View>
+      </Modal>
+
+      {/* First-visit spotlight tutorial (PTT / member list / hazard report).
+          Visibility + "already seen" gating: see the mount effect above and
+          CoachMarkOverlay's own onComplete-triggered SecureStore write. */}
+      <CoachMarkOverlay
+        visible={showCoachMarks}
+        onComplete={() => setShowCoachMarks(false)}
+      />
     </View>
   );
 }
@@ -2680,6 +2766,10 @@ return StyleSheet.create({
 
   // SOS confirm modal
   modalOverlay: { flex: 1, backgroundColor: '#00000099', alignItems: 'center', justifyContent: 'center' },
+  // Bottom-sheet backdrop for ScenicRouteSelector, which renders its own rounded-top
+  // "sheet" card and expects to be pinned to the bottom rather than centered like
+  // modalOverlay above.
+  scenicSelectorOverlay: { flex: 1, backgroundColor: '#00000099', justifyContent: 'flex-end' },
   modalBox: {
     backgroundColor: colors.card,
     borderRadius: 12,
