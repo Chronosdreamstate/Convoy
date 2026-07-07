@@ -51,7 +51,7 @@ interface CreatedGroup {
 }
 
 export default function CreateGroupScreen() {
-  const { colors } = useTheme();
+  const { colors, hitSlop } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const [step, setStep] = useState(1);
   const slideAnim = useRef(new Animated.Value(0)).current;
@@ -149,7 +149,7 @@ export default function CreateGroupScreen() {
       {/* Header */}
       <View style={styles.header}>
         {step > 1 && step < 3 ? (
-          <TouchableOpacity onPress={() => goToStep(step - 1)} style={styles.backBtn} accessibilityRole="button" accessibilityLabel="Go back">
+          <TouchableOpacity onPress={() => goToStep(step - 1)} style={styles.backBtn} hitSlop={hitSlop} accessibilityRole="button" accessibilityLabel="Go back">
             <Text style={styles.backBtnText}>
               <Ionicons name="chevron-back" size={14} color={colors.accent} /> Back
             </Text>
@@ -159,7 +159,7 @@ export default function CreateGroupScreen() {
         )}
         <Text style={styles.headerTitle}>CREATE CONVOY</Text>
         {step < 3 ? (
-          <TouchableOpacity onPress={() => router.back()} style={styles.cancelBtn} accessibilityRole="button" accessibilityLabel="Cancel">
+          <TouchableOpacity onPress={() => router.back()} style={styles.cancelBtn} hitSlop={hitSlop} accessibilityRole="button" accessibilityLabel="Cancel">
             <Ionicons name="close" size={18} color={colors.textMuted} />
           </TouchableOpacity>
         ) : (
@@ -371,9 +371,9 @@ function createStyles(colors: ThemeColors) {
     paddingVertical: 12,
   },
   headerTitle: { color: colors.text, fontSize: 15, fontWeight: '700', letterSpacing: 2 },
-  backBtn: { width: 64 },
+  backBtn: { width: 64, minHeight: 44, justifyContent: 'center' },
   backBtnText: { color: colors.accent, fontSize: 14, fontWeight: '600' },
-  cancelBtn: { width: 64, alignItems: 'flex-end' },
+  cancelBtn: { width: 64, minHeight: 44, alignItems: 'flex-end', justifyContent: 'center' },
   cancelBtnText: { color: colors.textMuted, fontSize: 18 },
   progressTrack: {
     height: 3,

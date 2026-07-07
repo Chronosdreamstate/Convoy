@@ -474,6 +474,7 @@ export default function GroupSettingsScreen() {
                         style={styles.acceptBtn}
                         onPress={() => { void handleJoinRequestAction(r.id, 'approve'); }}
                         disabled={isActing}
+                        hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
                         accessibilityRole="button"
                         accessibilityLabel={`Approve ${r.displayName}`}
                         accessibilityState={{ disabled: isActing }}
@@ -486,6 +487,7 @@ export default function GroupSettingsScreen() {
                         style={styles.declineBtn}
                         onPress={() => { void handleJoinRequestAction(r.id, 'reject'); }}
                         disabled={isActing}
+                        hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
                         accessibilityRole="button"
                         accessibilityLabel={`Reject ${r.displayName}`}
                         accessibilityState={{ disabled: isActing }}
