@@ -416,6 +416,12 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
   const mySosIdRef      = useRef<string | null>(null);
   const pttServiceRef   = useRef<PTTService | null>(null);
   const micPermGrantedRef = useRef(false); // tracks first PTT permission request (Req 36.6)
+  // True only while the user's finger is actually down on a PTT button. The very first
+  // PTT press awaits an async mic-permission prompt before it may start transmitting;
+  // without this guard, a quick tap-and-release during that wait let the permission
+  // promise resolve *after* handlePttEnd had already fired, so holdStart()/setIsPttTransmitting(true)
+  // ran anyway — silently starting a mic transmission the user had already released.
+  const pttPressActiveRef = useRef(false);
   const myLocationRef = useRef<{ lat: number; lng: number } | null>(null); // shadow for callbacks
   const activeDestRef = useRef<{ lat: number; lng: number } | null>(null); // dest of active route
   // Active route's polyline + per-segment speed limits, used to look up the limit
@@ -1243,11 +1249,14 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
 
   const handlePttStart = useCallback(() => {
     HapticService.pttStart();
+    pttPressActiveRef.current = true;
     // Request mic permission lazily on first PTT attempt (Req 36.6)
     if (!micPermGrantedRef.current) {
       void requestMicPermissionForPTT().then((granted) => {
         micPermGrantedRef.current = granted;
-        if (!granted) return;
+        // The user may have already released the button while the permission
+        // prompt was pending — don't start transmitting into a press that's over.
+        if (!granted || !pttPressActiveRef.current) return;
         setIsPttTransmitting(true);
         if (pttServiceRef.current) {
           pttServiceRef.current.holdStart();
@@ -1267,6 +1276,7 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
 
   const handlePttEnd = useCallback(() => {
     HapticService.pttEnd();
+    pttPressActiveRef.current = false;
     setIsPttTransmitting(false);
     if (pttServiceRef.current) {
       // PTTService handles socket emit + Agora mic close
@@ -1580,6 +1590,7 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
         onPress={cycleMapType}
         accessibilityRole="button"
         accessibilityLabel={`Map style: ${mapStyle}. Tap to cycle.`}
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
       >
         {/* This chip's background is a fixed dark translucent pill regardless of app
             theme (it floats directly over the map surface), so the icon stays a
@@ -1596,9 +1607,9 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
         style={[styles.recenterBtn, { top: topBase }]}
         onPress={recenter}
         accessibilityRole="button"
-        accessibilityLabel="Re-center map"
+        accessibilityLabel="Re-center on my location"
       >
-        <Ionicons name="locate" size={22} color="#0A0A0A" />
+        <Ionicons name="locate" size={22} color={colors.text} />
       </TouchableOpacity>
 
       {/* Auto-center on all convoy members — appears when disabled */}
@@ -1607,9 +1618,9 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
           style={[styles.recenterBtn, { top: topBase + 52 }]}
           onPress={() => setAutoCenterAll(true)}
           accessibilityRole="button"
-          accessibilityLabel="Re-center map"
+          accessibilityLabel="Fit map to all convoy members"
         >
-          <MaterialCommunityIcons name="crosshairs-gps" size={22} color="#0A0A0A" />
+          <MaterialCommunityIcons name="crosshairs-gps" size={22} color={colors.text} />
         </TouchableOpacity>
       )}
 
@@ -1682,7 +1693,7 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
                   accessibilityLabel="Cancel SOS"
                   accessibilityRole="button"
                 >
-                  <Ionicons name="close" size={14} color="#fff" />
+                  <Ionicons name="close" size={14} color={colors.text} />
                   <Text style={styles.fabItemText}>SOS</Text>
                 </TouchableOpacity>
               ) : (
@@ -1723,7 +1734,10 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
                     size={20}
                     color={fabPttActive ? '#FFFFFF' : (pttAdminMuted || !pttVoiceAvailable) ? colors.textMuted : colors.text}
                   />
-                  <Text style={styles.fabPttLabel}>
+                  {/* Text color mirrors the icon's logic above — fabPttItem's background is
+                      colors.card except when active/unavailable, so a fixed white label
+                      (as before) went invisible against a light-theme card. */}
+                  <Text style={[styles.fabPttLabel, { color: fabPttActive ? '#FFFFFF' : (pttAdminMuted || !pttVoiceAvailable) ? colors.textMuted : colors.text }]}>
                     {pttAdminMuted ? 'MUTED' : !pttVoiceAvailable ? 'NO VOICE' : fabPttActive ? 'LIVE' : 'PTT'}
                   </Text>
                 </Pressable>
@@ -2355,9 +2369,11 @@ return StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: '#fff',
+    backgroundColor: colors.card,
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: colors.border,
     shadowColor: '#000',
     shadowOpacity: 0.2,
     shadowRadius: 4,
@@ -2627,7 +2643,7 @@ return StyleSheet.create({
     flexDirection: 'row',
     marginBottom: 8,
     borderRadius: 8,
-    backgroundColor: '#1A1A1A',
+    backgroundColor: colors.card,
     padding: 2,
   },
   panelTab: {
@@ -2752,14 +2768,14 @@ return StyleSheet.create({
     marginTop: 8,
   },
   fabItemIcon: { fontSize: 22 },
-  fabItemText: { color: '#fff', fontWeight: '800', fontSize: 11 },
+  fabItemText: { color: colors.text, fontWeight: '800', fontSize: 11 },
   fabItemActive: { borderColor: colors.accent, backgroundColor: '#1A0505' },
   fabSosItem: { borderColor: colors.accent },
-  fabSosCancelItem: { borderColor: '#555', backgroundColor: '#3a3a3a' },
+  fabSosCancelItem: { borderColor: colors.border, backgroundColor: colors.border },
   fabPttItem: { borderColor: colors.accent },
   fabPttItemActive: { backgroundColor: '#8B0000', borderColor: '#FF4040' },
   fabPttItemUnavailable: { backgroundColor: colors.border, borderColor: '#555', opacity: 0.6 },
-  fabPttLabel: { color: '#fff', fontSize: 9, fontWeight: '800', letterSpacing: 0.5 },
+  fabPttLabel: { fontSize: 9, fontWeight: '800', letterSpacing: 0.5 },
 
   // Route modal
   routeModalBox: {

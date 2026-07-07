@@ -131,6 +131,15 @@ export default function ConvoyLobbyScreen({ groupId, groupName, onConvoyStart }:
   const styles = useMemo(() => createStyles(colors), [colors]);
   const [members, setMembers] = useState<LobbyMember[]>([]);
   const [selfReady, setSelfReady] = useState(false);
+  const [isStarting, setIsStarting] = useState(false);
+  const [startError, setStartError] = useState<string | null>(null);
+  const startTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (startTimeoutRef.current) clearTimeout(startTimeoutRef.current);
+    };
+  }, []);
 
   const user = useAuthStore((s) => s.user);
   const token = useAuthStore((s) => s.token);
@@ -230,6 +239,14 @@ export default function ConvoyLobbyScreen({ groupId, groupName, onConvoyStart }:
     };
 
     const handleConvoyStart = () => {
+      // Server echoes convoy:started back to the leader's own socket too (io.to(room),
+      // not socket.to) — this is now the single path that fires onConvoyStart, for both
+      // the leader and members, so it never double-fires.
+      if (startTimeoutRef.current) {
+        clearTimeout(startTimeoutRef.current);
+        startTimeoutRef.current = null;
+      }
+      setIsStarting(false);
       onConvoyStart?.();
     };
 
@@ -266,10 +283,18 @@ export default function ConvoyLobbyScreen({ groupId, groupName, onConvoyStart }:
   }, [user, socket, selfReady, groupId]);
 
   const handleStartConvoy = useCallback(() => {
-    if (!socket) return;
+    if (!socket || isStarting) return;
+    setStartError(null);
+    setIsStarting(true);
     socket.emit('convoy:start', { groupId });
-    onConvoyStart?.();
-  }, [socket, groupId, onConvoyStart]);
+    // convoy:start has no ack — if the server never broadcasts convoy:started back
+    // (dropped connection, non-leader race, server-side failure), the leader would
+    // otherwise sit on a button that looks pressed forever with no feedback at all.
+    startTimeoutRef.current = setTimeout(() => {
+      setIsStarting(false);
+      setStartError("Couldn't start the convoy — check your connection and try again.");
+    }, 8000);
+  }, [socket, groupId, isStarting]);
 
   // -------------------------------------------------------------------------
   // Render
@@ -372,14 +397,21 @@ export default function ConvoyLobbyScreen({ groupId, groupName, onConvoyStart }:
       {/* ── Bottom sticky bar ── */}
       <View style={styles.stickyBar}>
         {isLeader ? (
-          <TouchableOpacity
-            style={styles.startBtn}
-            onPress={handleStartConvoy}
-            accessibilityRole="button"
-            accessibilityLabel="Start convoy"
-          >
-            <Text style={styles.startBtnText}>Start Convoy</Text>
-          </TouchableOpacity>
+          <>
+            {startError ? (
+              <Text style={styles.startErrorText}>{startError}</Text>
+            ) : null}
+            <TouchableOpacity
+              style={[styles.startBtn, isStarting && styles.startBtnDisabled]}
+              onPress={handleStartConvoy}
+              disabled={isStarting}
+              accessibilityRole="button"
+              accessibilityLabel={isStarting ? 'Starting convoy' : 'Start convoy'}
+              accessibilityState={{ disabled: isStarting, busy: isStarting }}
+            >
+              <Text style={styles.startBtnText}>{isStarting ? 'Starting…' : 'Start Convoy'}</Text>
+            </TouchableOpacity>
+          </>
         ) : (
           <TouchableOpacity
             style={[styles.readyBtn, selfReady && styles.readyBtnActive]}
@@ -613,12 +645,21 @@ function createStyles(colors: ThemeColors) {
     minHeight: 56,
     justifyContent: 'center',
   },
+  startBtnDisabled: {
+    opacity: 0.6,
+  },
   // startBtn's background is the fixed-value accent color, so its label
   // stays fixed white for contrast rather than colors.text.
   startBtnText: {
     color: '#FFFFFF',
     fontWeight: '700',
     fontSize: 17,
+  },
+  startErrorText: {
+    color: colors.error,
+    fontSize: 13,
+    textAlign: 'center',
+    marginBottom: 8,
   },
   readyBtn: {
     backgroundColor: colors.card,
