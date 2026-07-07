@@ -37,6 +37,8 @@ export default function AddVehiclePromptScreen() {
 
   const scaleAnim = useRef(new Animated.Value(0.8)).current;
   const pillScales = useRef(VEHICLE_TYPES.map(() => new Animated.Value(1))).current;
+  // Guards against a double-tap (submit or skip) firing two navigations.
+  const isLeavingRef = useRef(false);
 
   useEffect(() => {
     Animated.spring(scaleAnim, {
@@ -57,7 +59,8 @@ export default function AddVehiclePromptScreen() {
   };
 
   const handleSubmit = async () => {
-    if (!vehicleName.trim()) return;
+    if (!vehicleName.trim() || isLeavingRef.current) return;
+    isLeavingRef.current = true;
     setLoading(true);
     try {
       await apiClient.post('/api/v1/vehicles', {
@@ -74,6 +77,8 @@ export default function AddVehiclePromptScreen() {
   };
 
   const handleSkip = async () => {
+    if (isLeavingRef.current) return;
+    isLeavingRef.current = true;
     await onboardingState.markSkipped('vehicle');
     router.replace('/(onboarding)/ptt-tutorial' as never);
   };

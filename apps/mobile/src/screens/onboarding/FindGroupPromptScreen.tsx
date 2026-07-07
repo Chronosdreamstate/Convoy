@@ -42,7 +42,13 @@ export default function FindGroupPromptScreen() {
     ]).start();
   }, []);
 
+  const isCompletingRef = useRef(false);
+
   const completeOnboarding = useCallback(async (destination: string, skipped = false) => {
+    // Guard against a double-tap firing two router.replace calls while the
+    // SecureStore write is in flight.
+    if (isCompletingRef.current) return;
+    isCompletingRef.current = true;
     await SecureStore.setItemAsync('onboarding_complete', '1').catch(() => {});
     if (skipped) {
       await onboardingState.markSkipped('group');
