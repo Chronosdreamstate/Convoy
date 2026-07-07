@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Animated,
   View,
   Text,
@@ -54,6 +55,7 @@ export default function WelcomeScreen() {
   const { reduceMotion } = useAccessibilitySettings();
 
   const [currentSlide, setCurrentSlide] = useState(0);
+  const [isAppleSigningIn, setIsAppleSigningIn] = useState(false);
 
   // Per-slide translateX: slide 0 starts visible (0), rest start off-screen right (SCREEN_WIDTH)
   const slideAnims = useRef(
@@ -120,7 +122,8 @@ export default function WelcomeScreen() {
   };
 
   const handleAppleSignIn = async () => {
-    if (Platform.OS !== 'ios') return;
+    if (Platform.OS !== 'ios' || isAppleSigningIn) return;
+    setIsAppleSigningIn(true);
     try {
       // eslint-disable-next-line @typescript-eslint/no-var-requires
       const AppleAuth = require('expo-apple-authentication');
@@ -138,8 +141,11 @@ export default function WelcomeScreen() {
       }
     } catch (err: unknown) {
       const code = (err as { code?: string })?.code;
-      if (code === 'ERR_REQUEST_CANCELED') return;
-      Alert.alert('Sign In Failed', 'Could not sign in with Apple. Please try another method.');
+      if (code !== 'ERR_REQUEST_CANCELED') {
+        Alert.alert('Sign In Failed', 'Could not sign in with Apple. Please try another method.');
+      }
+    } finally {
+      setIsAppleSigningIn(false);
     }
   };
 
@@ -265,15 +271,23 @@ export default function WelcomeScreen() {
 
             {Platform.OS === 'ios' && (
               <TouchableOpacity
-                style={styles.appleButton}
+                style={[styles.appleButton, isAppleSigningIn && styles.appleButtonDisabled]}
                 onPress={() => { void handleAppleSignIn(); }}
+                disabled={isAppleSigningIn}
                 activeOpacity={0.8}
                 accessibilityRole="button"
                 accessibilityLabel="Sign in with Apple"
                 accessibilityHint="Signs you in with your Apple ID"
+                accessibilityState={{ disabled: isAppleSigningIn, busy: isAppleSigningIn }}
               >
-                <Ionicons name="logo-apple" size={20} color={theme.colors.text} />
-                <Text style={styles.appleButtonText}>Sign in with Apple</Text>
+                {isAppleSigningIn ? (
+                  <ActivityIndicator color={theme.colors.text} />
+                ) : (
+                  <>
+                    <Ionicons name="logo-apple" size={20} color={theme.colors.text} />
+                    <Text style={styles.appleButtonText}>Sign in with Apple</Text>
+                  </>
+                )}
               </TouchableOpacity>
             )}
 
@@ -511,6 +525,7 @@ function createStyles(theme: ReturnType<typeof useTheme>) {
       borderWidth: 1,
       borderColor: '#333333',
     },
+    appleButtonDisabled: { opacity: 0.45 },
     appleButtonText: {
       color: theme.colors.text,
       fontSize: 16,
