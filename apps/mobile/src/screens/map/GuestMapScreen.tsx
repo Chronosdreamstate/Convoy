@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Animated,
+  Linking,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -13,7 +15,7 @@ import * as ExpoLocation from 'expo-location';
 import { useRouter } from 'expo-router';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSettingsStore } from '../../stores/settingsStore';
-import { ThemeColors, useTheme } from '../../theme';
+import { ThemeColors, useTheme, withAlpha } from '../../theme';
 
 const DEFAULT_REGION = {
   latitude: 37.7749,
@@ -85,6 +87,7 @@ export default function GuestMapScreen() {
   const overlayStyles = useMemo(() => makeOverlayStyles(colors), [colors]);
   const [initialRegion, setInitialRegion] = useState(DEFAULT_REGION);
   const [permissionDenied, setPermissionDenied] = useState(false);
+  const [recentering, setRecentering] = useState(false);
   const mapRef = useRef<MapView>(null);
   const mapStyle = useSettingsStore((s) => s.mapStyle);
   const setSettings = useSettingsStore((s) => s.setSettings);
@@ -137,24 +140,58 @@ export default function GuestMapScreen() {
   useEffect(() => {
     let mounted = true;
     (async () => {
-      const { status } = await ExpoLocation.requestForegroundPermissionsAsync();
-      if (!mounted) return;
-      if (status !== 'granted') { setPermissionDenied(true); return; }
-      const loc = await ExpoLocation.getCurrentPositionAsync({
-        accuracy: ExpoLocation.Accuracy.Balanced,
-      });
-      if (!mounted) return;
-      const region = {
-        latitude: loc.coords.latitude,
-        longitude: loc.coords.longitude,
-        latitudeDelta: 0.05,
-        longitudeDelta: 0.05,
-      };
-      setInitialRegion(region);
-      mapRef.current?.animateToRegion(region, 500);
+      setRecentering(true);
+      try {
+        const { status } = await ExpoLocation.requestForegroundPermissionsAsync();
+        if (!mounted) return;
+        if (status !== 'granted') { setPermissionDenied(true); return; }
+        const loc = await ExpoLocation.getCurrentPositionAsync({
+          accuracy: ExpoLocation.Accuracy.Balanced,
+        });
+        if (!mounted) return;
+        const region = {
+          latitude: loc.coords.latitude,
+          longitude: loc.coords.longitude,
+          latitudeDelta: 0.05,
+          longitudeDelta: 0.05,
+        };
+        setInitialRegion(region);
+        mapRef.current?.animateToRegion(region, 500);
+      } catch {
+        // Non-fatal — the preview simply stays on the default region.
+      } finally {
+        if (mounted) setRecentering(false);
+      }
     })();
     return () => { mounted = false; };
   }, []);
+
+  // Re-center the map on the user's current position, with a visible spinner
+  // while the GPS fix resolves and a clear, actionable error if it can't.
+  const handleRecenter = async () => {
+    setRecentering(true);
+    try {
+      const loc = await ExpoLocation.getCurrentPositionAsync({
+        accuracy: ExpoLocation.Accuracy.Balanced,
+      });
+      mapRef.current?.animateToRegion(
+        {
+          latitude: loc.coords.latitude,
+          longitude: loc.coords.longitude,
+          latitudeDelta: 0.05,
+          longitudeDelta: 0.05,
+        },
+        500,
+      );
+    } catch {
+      Alert.alert(
+        'Location unavailable',
+        "We couldn't get your location. Check that location access is enabled for Cortege.",
+      );
+    } finally {
+      setRecentering(false);
+    }
+  };
 
   return (
     <View style={styles.container}>
@@ -172,7 +209,7 @@ export default function GuestMapScreen() {
             <React.Fragment key={route.key}>
               <Polyline
                 coordinates={route.coords}
-                strokeColor="#DC143C55"
+                strokeColor={withAlpha(colors.accent, 0.33)}
                 strokeWidth={3}
                 lineDashPattern={[6, 4]}
               />
@@ -186,38 +223,37 @@ export default function GuestMapScreen() {
         })}
       </MapView>
 
-      {/* Re-center button */}
+      {/* Re-center button — theme-reactive floating control, matching
+          IdleMapScreen's map utility buttons. Shows a spinner while the GPS
+          fix is resolving so the async action always has visible feedback. */}
       <TouchableOpacity
         style={[styles.recenterBtn, { top: insets.top + 8 }]}
-        onPress={() =>
-          ExpoLocation.getCurrentPositionAsync({ accuracy: ExpoLocation.Accuracy.Balanced })
-            .then((loc) =>
-              mapRef.current?.animateToRegion(
-                { latitude: loc.coords.latitude, longitude: loc.coords.longitude, latitudeDelta: 0.05, longitudeDelta: 0.05 },
-                500,
-              ),
-            )
-            .catch(() => Alert.alert('Location unavailable', 'Enable location in Settings.'))
-        }
+        onPress={handleRecenter}
+        disabled={recentering}
+        activeOpacity={0.85}
         accessibilityRole="button"
-        accessibilityLabel="Re-center map"
+        accessibilityLabel="Re-center map on your location"
+        accessibilityState={{ disabled: recentering, busy: recentering }}
       >
-        {/* This button's translucent dark background is fixed regardless of app
-            theme (it floats over the map), so the icon stays a fixed light color. */}
-        <Ionicons name="locate" size={22} color="#FFFFFF" />
+        {recentering ? (
+          <ActivityIndicator size="small" color={colors.accent} />
+        ) : (
+          <Ionicons name="locate" size={22} color={colors.text} />
+        )}
       </TouchableOpacity>
 
       {/* Map style cycle button */}
       <TouchableOpacity
         style={[styles.mapTypeBtn, { top: insets.top + 8 }]}
         onPress={cycleMapType}
+        activeOpacity={0.85}
         accessibilityRole="button"
         accessibilityLabel={`Map style: ${mapStyle}. Tap to cycle.`}
       >
         <MaterialCommunityIcons
           name={mapStyle === 'standard' ? 'map-outline' : mapStyle === 'satellite' ? 'satellite-variant' : 'earth'}
           size={18}
-          color="#FFFFFF"
+          color={colors.text}
         />
       </TouchableOpacity>
 
@@ -254,12 +290,15 @@ export default function GuestMapScreen() {
           </Text>
           <TouchableOpacity
             style={styles.locationCardBtn}
-            onPress={() =>
-              Alert.alert(
-                'Location Access',
-                'Open Settings → Privacy → Location Services → Cortege, then set to "While Using App".',
-              )
-            }
+            onPress={() => {
+              Linking.openSettings().catch(() =>
+                Alert.alert(
+                  'Location Access',
+                  'Open Settings → Privacy → Location Services → Cortege, then set to "While Using App".',
+                ),
+              );
+            }}
+            activeOpacity={0.85}
             accessibilityRole="button"
             accessibilityLabel="Open location settings"
           >
@@ -292,6 +331,7 @@ export default function GuestMapScreen() {
         <TouchableOpacity
           style={styles.createBtn}
           onPress={() => router.push('/(auth)/welcome')}
+          activeOpacity={0.85}
           accessibilityLabel="Create free Cortege account"
           accessibilityRole="button"
         >
@@ -301,6 +341,7 @@ export default function GuestMapScreen() {
         <TouchableOpacity
           style={styles.signInBtn}
           onPress={() => router.push('/(auth)/welcome')}
+          activeOpacity={0.7}
           accessibilityLabel="Sign in to Cortege"
           accessibilityRole="button"
         >
@@ -335,13 +376,14 @@ return StyleSheet.create({
   },
   markerEmoji: { fontSize: 15 },
 
+  // Theme-reactive floating map controls, matching IdleMapScreen's recenterBtn.
   recenterBtn: {
     position: 'absolute',
     left: 12,
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: '#1C1C1Cf5',
+    backgroundColor: colors.card,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
@@ -353,7 +395,6 @@ return StyleSheet.create({
     elevation: 4,
     zIndex: 10,
   },
-  recenterText: { fontSize: 22, color: colors.text },
 
   mapTypeBtn: {
     position: 'absolute',
@@ -361,7 +402,7 @@ return StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: '#1C1C1Cf5',
+    backgroundColor: colors.card,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
@@ -373,7 +414,6 @@ return StyleSheet.create({
     elevation: 4,
     zIndex: 10,
   },
-  mapTypeIcon: { fontSize: 18 },
 
   previewPill: {
     position: 'absolute',
@@ -385,7 +425,7 @@ return StyleSheet.create({
     paddingVertical: 6,
     paddingHorizontal: 12,
     borderWidth: 1,
-    borderColor: '#DC143C70',
+    borderColor: withAlpha(colors.accent, 0.44),
     gap: 6,
     zIndex: 10,
   },
@@ -476,27 +516,6 @@ return StyleSheet.create({
     marginBottom: 18,
   },
 
-  featureRow: {
-    flexDirection: 'row',
-    gap: 8,
-    marginBottom: 20,
-    flexWrap: 'wrap',
-    justifyContent: 'center',
-  },
-  featurePill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: colors.card,
-    borderRadius: 20,
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    borderWidth: 1,
-    borderColor: colors.border,
-    gap: 5,
-  },
-  featureIcon: { fontSize: 13 },
-  featureLabel: { color: '#CCCCCC', fontSize: 12, fontWeight: '600' },
-
   createBtn: {
     width: '100%',
     backgroundColor: colors.accent,
@@ -548,14 +567,17 @@ return StyleSheet.create({
     letterSpacing: 0.2,
   },
 
+  // Theme-reactive chip floating over the map (matches IdleMapScreen's
+  // nearbyPill): background/border/text all follow the active palette so the
+  // border stays visible in Light mode instead of a near-invisible white hairline.
   annotationBubble: {
     position: 'absolute',
     backgroundColor: colors.card,
     borderRadius: 10,
     paddingVertical: 5,
     paddingHorizontal: 10,
-    borderWidth: 0.5,
-    borderColor: 'rgba(255,255,255,0.15)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
     shadowColor: '#000',
     shadowOpacity: 0.4,
     shadowRadius: 4,
