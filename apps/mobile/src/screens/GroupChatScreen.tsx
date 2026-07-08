@@ -581,6 +581,10 @@ export default function GroupChatScreen() {
       pending: true,
     };
     setMessages((prev) => [optimisticMessage, ...prev]);
+    // The list is `inverted`, so a new message lands at the visual bottom only
+    // if the scroll offset is already there — if the user had scrolled up into
+    // history, force it back so they actually see the message they just sent.
+    flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
 
     try {
       const { data } = await apiClient.post<Message>(`/api/v1/groups/${groupId}/messages`, { text: trimmed });
@@ -857,11 +861,13 @@ export default function GroupChatScreen() {
                 onEndReachedThreshold={0.4}
                 ListFooterComponent={
                   loadingMore ? (
-                    <View style={styles.loadingMoreContainer}><SkeletonRow /></View>
+                    // `inverted` scaleY(-1)-transforms the whole content wrapper,
+                    // so counter-flip this component or it renders upside down.
+                    <View style={[styles.loadingMoreContainer, styles.invertedFix]}><SkeletonRow /></View>
                   ) : null
                 }
                 ListEmptyComponent={
-                  <View style={styles.emptyContainer}>
+                  <View style={[styles.emptyContainer, styles.invertedFix]}>
                     <Ionicons name="chatbubble-outline" size={40} color={colors.textSubtle} />
                     <Text style={styles.emptyText}>No messages yet. Say hi!</Text>
                   </View>
@@ -1067,6 +1073,11 @@ function createStyles(colors: ThemeColors) {
   loadingMoreContainer: {
     paddingVertical: theme.spacing.sm,
     paddingHorizontal: theme.spacing.md,
+  },
+  // Counter-flips ListEmptyComponent/ListFooterComponent against the
+  // FlatList's `inverted` transform, which otherwise renders them upside down.
+  invertedFix: {
+    transform: [{ scaleY: -1 }],
   },
 
   // Empty state
