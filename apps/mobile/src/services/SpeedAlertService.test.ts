@@ -7,15 +7,24 @@
  *  - a camera alerts at most once per 60 s (dedupe + timed re-arm)
  *  - loadCamerasNear swallows API failures and keeps the cached camera list
  *  - reportCamera / voteOnCamera post the right payloads and never throw
+ *  - offline failures (no HTTP response) are queued in the offline request
+ *    queue for replay; server rejections (4xx/5xx) are not
  */
 
 const mockGet = jest.fn();
 const mockPost = jest.fn();
+const mockEnqueue = jest.fn();
 
 jest.mock('./apiClient', () => ({
   apiClient: {
     get: (...args: unknown[]) => mockGet(...args),
     post: (...args: unknown[]) => mockPost(...args),
+  },
+}));
+
+jest.mock('./OfflineQueueService', () => ({
+  offlineQueue: {
+    enqueue: (...args: unknown[]) => mockEnqueue(...args),
   },
 }));
 
@@ -42,6 +51,7 @@ beforeEach(() => {
   jest.useFakeTimers();
   mockGet.mockReset();
   mockPost.mockReset();
+  mockEnqueue.mockReset();
 });
 
 afterEach(async () => {
@@ -187,5 +197,42 @@ describe('reportCamera / voteOnCamera', () => {
     mockPost.mockRejectedValue(new Error('network'));
     await expect(speedAlertService.reportCamera(0, 0, 'fixed')).resolves.toBeUndefined();
     await expect(speedAlertService.voteOnCamera('cam-1', 'confirm')).resolves.toBeUndefined();
+  });
+
+  it('reportCamera queues the report when offline (no HTTP response)', async () => {
+    mockPost.mockRejectedValue(new Error('Network Error')); // axios network error: no .response
+    await speedAlertService.reportCamera(1.5, 2.5, 'mobile');
+    expect(mockEnqueue).toHaveBeenCalledWith({
+      method: 'POST',
+      url: '/api/v1/speed-cameras',
+      body: { lat: 1.5, lng: 2.5, type: 'mobile', source: 'community' },
+      headers: {},
+    });
+  });
+
+  it('voteOnCamera queues the vote with a per-camera dedupeKey when offline', async () => {
+    mockPost.mockRejectedValue(new Error('Network Error'));
+    await speedAlertService.voteOnCamera('cam-9', 'deny');
+    expect(mockEnqueue).toHaveBeenCalledWith({
+      method: 'POST',
+      url: '/api/v1/speed-cameras/cam-9/vote',
+      body: { vote: 'deny' },
+      headers: {},
+      dedupeKey: 'camera-vote:cam-9',
+    });
+  });
+
+  it('does NOT queue when the server responded with an error (4xx/5xx)', async () => {
+    mockPost.mockRejectedValue({ response: { status: 422 } });
+    await speedAlertService.reportCamera(0, 0, 'fixed');
+    await speedAlertService.voteOnCamera('cam-1', 'confirm');
+    expect(mockEnqueue).not.toHaveBeenCalled();
+  });
+
+  it('does NOT queue on success', async () => {
+    mockPost.mockResolvedValue({});
+    await speedAlertService.reportCamera(0, 0, 'fixed');
+    await speedAlertService.voteOnCamera('cam-1', 'confirm');
+    expect(mockEnqueue).not.toHaveBeenCalled();
   });
 });

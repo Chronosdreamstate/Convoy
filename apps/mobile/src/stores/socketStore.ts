@@ -8,6 +8,8 @@ interface SocketState {
   lastSeenMap: Map<string, string>; // userId -> ISO timestamp
   setSocket: (socket: Socket | null) => void;
   setConnected: (connected: boolean) => void;
+  /** Disconnect the socket and clear all presence state (e.g. on sign-out). */
+  reset: () => void;
   updatePresence: (userIds: string[]) => void;
   _handlePresenceUpdate: (data: { userId: string; isOnline: boolean; lastSeen: string }) => void;
 }
@@ -51,6 +53,13 @@ export const useSocketStore = create<SocketState>((set, get) => ({
   },
 
   setConnected: (isConnected) => set({ isConnected }),
+
+  reset: () => {
+    // setSocket(null) detaches listeners and disconnects the previous socket;
+    // presence data is per-account and must not leak into the next session.
+    get().setSocket(null);
+    set({ onlineUserIds: new Set<string>(), lastSeenMap: new Map<string, string>() });
+  },
 
   updatePresence: (userIds: string[]) => {
     const { socket } = get();

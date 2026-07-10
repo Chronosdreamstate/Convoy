@@ -3,6 +3,10 @@ import * as Notifications from 'expo-notifications';
 import Constants from 'expo-constants';
 import { useAuthStore } from '../stores/authStore';
 import type { User } from '../stores/authStore';
+import { useGroupStore } from '../stores/groupStore';
+import { useLocationStore } from '../stores/locationStore';
+import { useSocketStore } from '../stores/socketStore';
+import { useRecentDestinationsStore } from '../stores/recentDestinationsStore';
 import { onboardingState } from '../utils/onboardingState';
 
 const SECURE_STORE_KEY = 'convoy_access_token';
@@ -150,6 +154,15 @@ export class AuthService {
       await SecureStore.deleteItemAsync('onboarding_complete').catch(() => {});
       await onboardingState.reset().catch(() => {});
       useAuthStore.getState().signOut();
+      // Reset all per-account in-memory state so the next sign-in (possibly a
+      // different person on this device) doesn't see the previous account's
+      // group, member positions, presence, or recent destinations. Without
+      // this, e.g. groupStore.activeGroupId survives sign-out and the next
+      // account briefly renders the old account's convoy.
+      useGroupStore.getState().leaveGroup();
+      useLocationStore.getState().clearGroup();
+      useSocketStore.getState().reset();
+      useRecentDestinationsStore.getState().clearDestinations();
     }
   }
 

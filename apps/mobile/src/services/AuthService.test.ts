@@ -14,12 +14,19 @@
 // ---------------------------------------------------------------
 const mockSetItemAsync = jest.fn().mockResolvedValue(undefined);
 const mockDeleteItemAsync = jest.fn().mockResolvedValue(undefined);
-const mockGetItemAsync = jest.fn().mockResolvedValue(null);
+// Key-aware rather than mockResolvedValueOnce-based: AuthService imports
+// persist-backed zustand stores (e.g. recentDestinationsStore) whose hydration
+// also calls getItemAsync at module load, which would consume queued
+// one-shot values meant for the token key.
+let storedAccessToken: string | null = null;
+const mockGetItemAsync = jest.fn((key: string) =>
+  Promise.resolve(key === 'convoy_access_token' ? storedAccessToken : null),
+);
 
 jest.mock('expo-secure-store', () => ({
   setItemAsync: (...args: unknown[]) => mockSetItemAsync(...args),
   deleteItemAsync: (...args: unknown[]) => mockDeleteItemAsync(...args),
-  getItemAsync: (...args: unknown[]) => mockGetItemAsync(...args),
+  getItemAsync: (key: string) => mockGetItemAsync(key),
 }));
 
 // ---------------------------------------------------------------
@@ -93,6 +100,7 @@ function getAuthService() {
 describe('AuthService — secure token storage', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    storedAccessToken = null;
   });
 
   describe('verifyOtp', () => {
@@ -251,7 +259,7 @@ describe('AuthService — secure token storage', () => {
 
   describe('loadStoredToken', () => {
     it('reads the token from SecureStore', async () => {
-      mockGetItemAsync.mockResolvedValueOnce('stored_token_abc');
+      storedAccessToken = 'stored_token_abc';
 
       const service = await getAuthService();
       const token = await service.loadStoredToken();
@@ -261,7 +269,7 @@ describe('AuthService — secure token storage', () => {
     });
 
     it('returns null when no token is stored', async () => {
-      mockGetItemAsync.mockResolvedValueOnce(null);
+      storedAccessToken = null;
 
       const service = await getAuthService();
       const token = await service.loadStoredToken();
@@ -270,7 +278,7 @@ describe('AuthService — secure token storage', () => {
     });
 
     it('does NOT read from AsyncStorage', async () => {
-      mockGetItemAsync.mockResolvedValueOnce(null);
+      storedAccessToken = null;
 
       const service = await getAuthService();
       await service.loadStoredToken();

@@ -1,4 +1,6 @@
 import { apiClient } from './apiClient';
+import { offlineQueue } from './OfflineQueueService';
+import { haversineDistanceM } from '../utils/geo';
 
 export interface SpeedCamera {
   id: string;
@@ -13,14 +15,14 @@ export interface SpeedCamera {
 
 const ALERT_RADIUS_M = 500;
 
-function distanceM(lat1: number, lng1: number, lat2: number, lng2: number): number {
-  const R = 6371000;
-  const φ1 = (lat1 * Math.PI) / 180;
-  const φ2 = (lat2 * Math.PI) / 180;
-  const Δφ = ((lat2 - lat1) * Math.PI) / 180;
-  const Δλ = ((lng2 - lng1) * Math.PI) / 180;
-  const h = Math.sin(Δφ / 2) ** 2 + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+/**
+ * Axios-shaped "no HTTP response" failure — the device is offline (or the
+ * server is unreachable). 4xx/5xx responses are NOT offline: the request got
+ * through and queueing a replay would not change the outcome (5xx were
+ * already retried with backoff by apiClient's interceptor).
+ */
+function isOfflineError(err: unknown): boolean {
+  return (err as { response?: unknown } | null)?.response === undefined;
 }
 
 class SpeedAlertService {
@@ -43,7 +45,7 @@ class SpeedAlertService {
 
   checkLocation(lat: number, lng: number): void {
     for (const camera of this.cameras) {
-      const dist = distanceM(lat, lng, camera.lat, camera.lng);
+      const dist = haversineDistanceM(lat, lng, camera.lat, camera.lng);
       if (dist <= ALERT_RADIUS_M && !this.alertedIds.has(camera.id)) {
         this.alertedIds.add(camera.id);
         this.onAlert?.(camera, Math.round(dist));
@@ -54,15 +56,34 @@ class SpeedAlertService {
   }
 
   async reportCamera(lat: number, lng: number, type: SpeedCamera['type']): Promise<void> {
+    const body = { lat, lng, type, source: 'community' as const };
     try {
-      await apiClient.post('/api/v1/speed-cameras', { lat, lng, type, source: 'community' });
-    } catch { /* fire-and-forget */ }
+      await apiClient.post('/api/v1/speed-cameras', body);
+    } catch (err) {
+      // Offline: queue the report for replay on reconnect. Server rejections
+      // (4xx/5xx) stay fire-and-forget — replaying wouldn't change them.
+      if (isOfflineError(err)) {
+        await offlineQueue.enqueue({ method: 'POST', url: '/api/v1/speed-cameras', body, headers: {} });
+      }
+    }
   }
 
   async voteOnCamera(id: string, vote: 'confirm' | 'deny'): Promise<void> {
     try {
       await apiClient.post(`/api/v1/speed-cameras/${id}/vote`, { vote });
-    } catch { /* fire-and-forget */ }
+    } catch (err) {
+      if (isOfflineError(err)) {
+        // dedupeKey: only the newest vote for a given camera is kept, so
+        // confirm-then-deny while offline replays only the deny.
+        await offlineQueue.enqueue({
+          method: 'POST',
+          url: `/api/v1/speed-cameras/${id}/vote`,
+          body: { vote },
+          headers: {},
+          dedupeKey: `camera-vote:${id}`,
+        });
+      }
+    }
   }
 }
 

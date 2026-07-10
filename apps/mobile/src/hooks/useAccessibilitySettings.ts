@@ -7,9 +7,11 @@ export function useAccessibilitySettings() {
   const [boldText, setBoldText] = useState(false);
 
   useEffect(() => {
-    AccessibilityInfo.isReduceMotionEnabled().then(setReduceMotion);
-    AccessibilityInfo.isScreenReaderEnabled().then(setScreenReaderActive);
-    (AccessibilityInfo.isBoldTextEnabled as (() => Promise<boolean>) | undefined)?.().then(setBoldText);
+    // .catch: these can reject on platforms lacking the capability — an
+    // accessibility probe failure must never surface as an unhandled rejection.
+    AccessibilityInfo.isReduceMotionEnabled().then(setReduceMotion).catch(() => {});
+    AccessibilityInfo.isScreenReaderEnabled().then(setScreenReaderActive).catch(() => {});
+    (AccessibilityInfo.isBoldTextEnabled as (() => Promise<boolean>) | undefined)?.().then(setBoldText).catch(() => {});
 
     const motionSub = AccessibilityInfo.addEventListener('reduceMotionChanged', setReduceMotion);
     const readerSub = AccessibilityInfo.addEventListener('screenReaderChanged', setScreenReaderActive);

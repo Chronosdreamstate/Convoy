@@ -10,6 +10,9 @@
  *    other 4xx dropped as non-retriable; 5xx/network kept with attempts++
  *  - items expire after 24 h or MAX_ATTEMPTS (5) failed attempts
  *  - stored full URLs are replayed as path+query so a fresh token is attached
+ *  - relative URLs (the common case for apiClient calls) are replayed as-is
+ *    instead of throwing in `new URL()` and burning retry attempts
+ *  - clear() empties both the in-memory queue and the persisted copy
  *  - queue persists to AsyncStorage and is restored by init()
  */
 
@@ -164,6 +167,36 @@ describe('processQueue', () => {
     expect(queue.size).toBe(0);
   });
 
+  it('replays a relative URL as-is (regression: new URL() threw and burned all attempts)', async () => {
+    const queue = freshQueue();
+    await queue.enqueue(makeRequestInput({
+      url: '/api/v1/speed-cameras/cam-1/vote?src=map',
+      body: { vote: 'confirm' },
+    }));
+
+    mockRequest.mockResolvedValue({});
+    await queue.processQueue();
+
+    expect(mockRequest).toHaveBeenCalledWith({
+      method: 'POST',
+      url: '/api/v1/speed-cameras/cam-1/vote?src=map',
+      data: { vote: 'confirm' },
+    });
+    expect(queue.size).toBe(0);
+  });
+
+  it('a relative URL is not misclassified as a network error (single attempt, success drains it)', async () => {
+    const queue = freshQueue();
+    await queue.enqueue(makeRequestInput({ url: '/api/v1/things' }));
+
+    mockRequest.mockResolvedValue({});
+    // One pass must be enough — previously this took 0 API calls and 5 passes
+    // to silently drop the item because URL parsing itself threw.
+    await queue.processQueue();
+    expect(mockRequest).toHaveBeenCalledTimes(1);
+    expect(queue.size).toBe(0);
+  });
+
   it('removes items on success', async () => {
     const queue = freshQueue();
     await queue.enqueue(makeRequestInput());
@@ -254,6 +287,32 @@ describe('processQueue', () => {
     const urls = mockRequest.mock.calls.map((c) => c[0].url);
     expect(urls).toEqual(['/api/fail', '/api/ok']);
     expect(queue.size).toBe(1); // only the failing item remains
+  });
+});
+
+// ---------------------------------------------------------------------------
+// clear
+// ---------------------------------------------------------------------------
+
+describe('clear', () => {
+  it('empties the queue and the persisted copy (sign-out semantics)', async () => {
+    const queue = freshQueue();
+    await queue.enqueue(makeRequestInput({ url: '/api/v1/a' }));
+    await queue.enqueue(makeRequestInput({ url: '/api/v1/b' }));
+    expect(queue.size).toBe(2);
+
+    await queue.clear();
+    expect(queue.size).toBe(0);
+    expect(await AsyncStorage.getItem('@convoy/offline_request_queue')).toBeNull();
+
+    // A "restarted" instance must not resurrect the cleared items
+    mockRequest.mockResolvedValue({});
+    const second = freshQueue();
+    await second.init();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(mockRequest).not.toHaveBeenCalled();
+    expect(second.size).toBe(0);
+    second.destroy();
   });
 });
 

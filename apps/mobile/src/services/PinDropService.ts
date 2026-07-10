@@ -18,7 +18,11 @@ export interface IPinStorage {
 /** Reverse-geocoding function type (injectable for testing). */
 export type GeocoderFn = (lat: number, lng: number) => Promise<string | null>;
 
-const STORAGE_KEY = 'convoy:dropped_pins';
+// NOTE: SecureStore keys may only contain alphanumerics, ".", "-", "_".
+// Dot-separated (not "convoy:dropped_pins") so this key stays valid if the
+// injected IPinStorage is ever backed by SecureStore — the colon variant is
+// the same class of bug that silently broke settings persistence.
+const STORAGE_KEY = 'convoy.dropped_pins';
 
 export class PinDropService {
   constructor(

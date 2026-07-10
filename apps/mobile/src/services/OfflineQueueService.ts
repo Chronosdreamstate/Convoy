@@ -105,9 +105,15 @@ class OfflineQueueService {
         }
 
         try {
-          // Extract path+query from stored full URL so apiClient can attach a fresh token
-          const parsed = new URL(item.url);
-          const path = parsed.pathname + parsed.search;
+          // Absolute URLs are reduced to path+query so apiClient resolves them
+          // against its own baseURL and attaches a fresh token; relative paths
+          // (the common case — apiClient calls use '/api/v1/...') are replayed
+          // as-is. Previously `new URL()` threw on relative paths, which was
+          // misclassified as a retriable network error and burned all
+          // MAX_ATTEMPTS before silently dropping the item.
+          const path = /^[a-z][a-z0-9+.-]*:\/\//i.test(item.url)
+            ? (() => { const parsed = new URL(item.url); return parsed.pathname + parsed.search; })()
+            : item.url;
           await apiClient.request({ method: item.method, url: path, data: item.body ?? undefined });
           this.queue = this.queue.filter((q) => q.id !== item.id);
         } catch (err: unknown) {
@@ -135,6 +141,16 @@ class OfflineQueueService {
 
   get size(): number {
     return this.queue.length;
+  }
+
+  /**
+   * Drop every queued request and the persisted copy. Called on sign-out so
+   * writes queued by one account are never replayed under another account's
+   * token after the next sign-in.
+   */
+  async clear(): Promise<void> {
+    this.queue = [];
+    await AsyncStorage.removeItem(QUEUE_KEY).catch(() => {});
   }
 
   destroy(): void {

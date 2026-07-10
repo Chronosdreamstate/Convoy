@@ -1,5 +1,5 @@
 ﻿import { useEffect, useRef, useState } from 'react';
-import { Alert, Animated, AppState, Linking, Platform, StyleSheet, Text, View } from 'react-native';
+import { Alert, Animated, Linking, Platform, StyleSheet, Text, View } from 'react-native';
 import PushPermissionModal from '../src/components/PushPermissionModal';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Stack, useRouter } from 'expo-router';
@@ -25,6 +25,7 @@ import { SyncService } from '../src/services/SyncService';
 import { SQLiteOfflineDB } from '../src/services/OfflineCacheService';
 import type { OfflineHazard, OfflineDrive } from '../src/services/OfflineCacheService';
 import { offlineQueue } from '../src/services/OfflineQueueService';
+import { connectivityService } from '../src/services/ConnectivityService';
 import { analytics } from '../src/services/AnalyticsService';
 import { carPlayService } from '../src/services/CarPlayService';
 import { androidAutoService } from '../src/services/AndroidAutoService';
@@ -66,15 +67,10 @@ const syncService = new SyncService(
       });
     },
   },
-  {
-    subscribe(callback: (online: boolean) => void): () => void {
-      const sub = AppState.addEventListener('change', (state) => {
-        if (state === 'active') callback(true);
-      });
-      callback(true);
-      return () => sub.remove();
-    },
-  },
+  // Real reachability monitoring (periodic /health probe + AppState) so a
+  // mid-session connectivity recovery triggers a sync without requiring the
+  // app to be backgrounded and foregrounded first.
+  connectivityService,
 );
 
 /** Navigate to the correct screen based on notification data. */
@@ -266,12 +262,32 @@ export default function RootLayout() {
     return () => syncService.stop();
   }, [isAuthenticated, isLoading]);
 
-  // Init general-purpose offline request queue on first auth
+  // Init general-purpose offline request queue on first auth; drain it on
+  // every connectivity recovery (not just app-foreground, which is all the
+  // queue's own AppState listener covers).
   useEffect(() => {
     if (!isAuthenticated || isLoading) return;
     void offlineQueue.init();
-    return () => offlineQueue.destroy();
+    const unsubscribe = connectivityService.subscribe((online) => {
+      if (online) void offlineQueue.processQueue();
+    });
+    return () => {
+      unsubscribe();
+      offlineQueue.destroy();
+    };
   }, [isAuthenticated, isLoading]);
+
+  // On sign-out, drop any queued offline writes — they belong to the
+  // signed-out account and must never replay under the next account's token.
+  const wasAuthenticatedRef = useRef(false);
+  useEffect(() => {
+    if (isAuthenticated) {
+      wasAuthenticatedRef.current = true;
+    } else if (wasAuthenticatedRef.current) {
+      wasAuthenticatedRef.current = false;
+      void offlineQueue.clear();
+    }
+  }, [isAuthenticated]);
 
   // Wire CarPlay / Android Auto session lifecycle listeners (Req 13.7).
   // Without calling start(), the native connect/disconnect/state-request
