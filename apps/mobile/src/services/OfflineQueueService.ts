@@ -95,37 +95,42 @@ class OfflineQueueService {
     if (this.processing || this.queue.length === 0) return;
     this.processing = true;
 
-    const snapshot = [...this.queue];
-    for (const item of snapshot) {
-      // Expire stale items
-      if (Date.now() - item.queuedAt > MAX_AGE_MS || item.attempts >= MAX_ATTEMPTS) {
-        this.queue = this.queue.filter((q) => q.id !== item.id);
-        continue;
-      }
+    try {
+      const snapshot = [...this.queue];
+      for (const item of snapshot) {
+        // Expire stale items
+        if (Date.now() - item.queuedAt > MAX_AGE_MS || item.attempts >= MAX_ATTEMPTS) {
+          this.queue = this.queue.filter((q) => q.id !== item.id);
+          continue;
+        }
 
-      try {
-        // Extract path+query from stored full URL so apiClient can attach a fresh token
-        const parsed = new URL(item.url);
-        const path = parsed.pathname + parsed.search;
-        await apiClient.request({ method: item.method, url: path, data: item.body ?? undefined });
-        this.queue = this.queue.filter((q) => q.id !== item.id);
-      } catch (err: unknown) {
-        const status = (err as { response?: { status?: number } }).response?.status;
-        if (status != null && status === 409) {
-          // Conflict = already applied, treat as success
+        try {
+          // Extract path+query from stored full URL so apiClient can attach a fresh token
+          const parsed = new URL(item.url);
+          const path = parsed.pathname + parsed.search;
+          await apiClient.request({ method: item.method, url: path, data: item.body ?? undefined });
           this.queue = this.queue.filter((q) => q.id !== item.id);
-        } else if (status != null && status >= 400 && status < 500) {
-          // Non-retriable client error — drop
-          this.queue = this.queue.filter((q) => q.id !== item.id);
-        } else {
-          // Network error or 5xx — keep, backoff handled by apiClient retry interceptor
-          item.attempts++;
+        } catch (err: unknown) {
+          const status = (err as { response?: { status?: number } }).response?.status;
+          if (status != null && status === 409) {
+            // Conflict = already applied, treat as success
+            this.queue = this.queue.filter((q) => q.id !== item.id);
+          } else if (status != null && status >= 400 && status < 500) {
+            // Non-retriable client error — drop
+            this.queue = this.queue.filter((q) => q.id !== item.id);
+          } else {
+            // Network error or 5xx — keep, backoff handled by apiClient retry interceptor
+            item.attempts++;
+          }
         }
       }
-    }
 
-    await this.persist();
-    this.processing = false;
+      await this.persist();
+    } finally {
+      // Always release the guard — a wedged `processing` flag would silently
+      // disable the offline queue for the rest of the app session.
+      this.processing = false;
+    }
   }
 
   get size(): number {

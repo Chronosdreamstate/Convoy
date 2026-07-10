@@ -19,8 +19,9 @@
  *   SearchService.search() returns [] when the online predicate is false.
  *   Validates: Requirement 18.8
  *
- * Property 37: Scenic routing preference persists across sessions
- *   ScenicRouteService persists the scenic flag; a new instance reads it back.
+ * Property 37: Scenic routing preference has one source of truth
+ *   ScenicRouteService reads/writes useSettingsStore.scenicRouting (persisted
+ *   across sessions by the store's persist middleware); instances never diverge.
  *   Validates: Requirement 22.5
  *
  * Property 38: Speed limit exceeded state is correctly computed
@@ -33,6 +34,7 @@ import { PinDropService, IPinStorage, DroppedPin, GeocoderFn } from './PinDropSe
 import { RouteService, MAX_WAYPOINTS, TRAFFIC_REFRESH_INTERVAL_MS } from './RouteService';
 import { SearchService, processSearchResults, MAX_SEARCH_RESULTS } from './SearchService';
 import { ScenicRouteService } from './ScenicRouteService';
+import { useSettingsStore } from '../stores/settingsStore';
 
 // ---------------------------------------------------------------------------
 // Test doubles
@@ -286,20 +288,23 @@ describe('Property 30: Search is disabled while offline', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Property 37: Scenic routing preference persists across sessions
+// Property 37: Scenic routing preference has one source of truth
 // ---------------------------------------------------------------------------
-describe('Property 37: Scenic routing preference persists across sessions', () => {
+describe('Property 37: Scenic routing preference has one source of truth', () => {
+  beforeEach(() => {
+    useSettingsStore.setState({ scenicRouting: false });
+  });
+
   it('for any boolean scenic setting, a new service instance reads back the same value', async () => {
     await fc.assert(
       fc.asyncProperty(
         fc.boolean(),
         async (scenic) => {
-          const storage = new InMemoryStorage();
-          const svc1 = new ScenicRouteService(storage);
+          const svc1 = new ScenicRouteService();
           await svc1.setScenicMode(scenic);
 
-          // Simulate a "new session" by creating a second instance over the same storage
-          const svc2 = new ScenicRouteService(storage);
+          // A second instance reads the same shared settings store
+          const svc2 = new ScenicRouteService();
           const read = await svc2.getScenicMode();
           expect(read).toBe(scenic);
         },
@@ -308,17 +313,17 @@ describe('Property 37: Scenic routing preference persists across sessions', () =
     );
   });
 
-  it('default value is false when nothing has been persisted', async () => {
-    const svc = new ScenicRouteService(new InMemoryStorage());
+  it('default value is false when nothing has been set', async () => {
+    const svc = new ScenicRouteService();
     expect(await svc.getScenicMode()).toBe(false);
   });
 
-  it('overwriting the preference persists the latest value', async () => {
-    const storage = new InMemoryStorage();
-    const svc = new ScenicRouteService(storage);
+  it('overwriting the preference keeps the latest value in the store', async () => {
+    const svc = new ScenicRouteService();
     await svc.setScenicMode(true);
     await svc.setScenicMode(false);
     expect(await svc.getScenicMode()).toBe(false);
+    expect(useSettingsStore.getState().scenicRouting).toBe(false);
   });
 });
 

@@ -48,8 +48,9 @@ export class DrivingModeService {
     private readonly carPlay: ICarPlayProvider,
   ) {}
 
-  /** Begin watching BT and CarPlay events (Req 28.1). */
+  /** Begin watching BT and CarPlay events (Req 28.1). Idempotent — re-calling replaces the previous subscriptions. */
   start(): void {
+    this.stop(); // avoid leaking subscriptions if start() is called twice
     this.unsubBt = this.bt.onVehicleConnectionChange((connected) => {
       this._btConnected = connected;
       this.notify();

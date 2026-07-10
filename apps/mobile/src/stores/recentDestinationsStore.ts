@@ -16,10 +16,31 @@ interface RecentDestinationsState {
   clearDestinations: () => void;
 }
 
+// Failures degrade to in-memory state instead of surfacing as unhandled
+// rejections — persistence is best-effort, the app must keep working.
 const secureStorage = createJSONStorage(() => ({
-  getItem: (name: string) => SecureStore.getItemAsync(name),
-  setItem: (name: string, value: string) => SecureStore.setItemAsync(name, value),
-  removeItem: (name: string) => SecureStore.deleteItemAsync(name),
+  getItem: async (name: string) => {
+    try {
+      return await SecureStore.getItemAsync(name);
+    } catch (err) {
+      console.warn('[recentDestinationsStore] Failed to read persisted recents:', err);
+      return null;
+    }
+  },
+  setItem: async (name: string, value: string) => {
+    try {
+      await SecureStore.setItemAsync(name, value);
+    } catch (err) {
+      console.warn('[recentDestinationsStore] Failed to persist recents:', err);
+    }
+  },
+  removeItem: async (name: string) => {
+    try {
+      await SecureStore.deleteItemAsync(name);
+    } catch (err) {
+      console.warn('[recentDestinationsStore] Failed to remove persisted recents:', err);
+    }
+  },
 }));
 
 export const MAX_RECENT = 5;
@@ -42,7 +63,10 @@ export const useRecentDestinationsStore = create<RecentDestinationsState>()(
       clearDestinations: () => set({ destinations: [] }),
     }),
     {
-      name: 'convoy:recent-destinations',
+      // NOTE: SecureStore keys may only contain alphanumerics, ".", "-", "_".
+      // The previous name 'convoy:recent-destinations' was rejected by SecureStore
+      // on every write, so recents silently never persisted across cold starts.
+      name: 'convoy.recent-destinations',
       storage: secureStorage,
       partialize: (state) => ({ destinations: state.destinations }),
     },

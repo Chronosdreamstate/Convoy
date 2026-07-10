@@ -47,6 +47,10 @@ export function useAuth() {
         }
         // If refresh succeeded, authService.refreshToken() already updated
         // the store via setAccessToken — nothing else to do here
+      } catch {
+        // SecureStore read / sign-out failure — treat as signed out rather
+        // than leaving an unhandled rejection and a stuck loading state.
+        if (!cancelled) storeSignOut();
       } finally {
         if (!cancelled) {
           setLoading(false);

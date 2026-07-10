@@ -18,11 +18,32 @@ interface SettingsState {
   setSettings: (s: Partial<Pick<SettingsState, 'mapStyle' | 'hazardAlertDistanceM' | 'scenicRouting' | 'pttMaxSeconds' | 'pttVolumePercent' | 'distanceUnit' | 'themeMode' | 'shareLocationWithFriends'>>) => void;
 }
 
-// SecureStore adapter for zustand/persist (non-sensitive app preferences)
+// SecureStore adapter for zustand/persist (non-sensitive app preferences).
+// Failures degrade to in-memory defaults instead of surfacing as unhandled
+// rejections — persistence is best-effort, the app must keep working.
 const secureStorage = createJSONStorage(() => ({
-  getItem: (name: string) => SecureStore.getItemAsync(name),
-  setItem: (name: string, value: string) => SecureStore.setItemAsync(name, value),
-  removeItem: (name: string) => SecureStore.deleteItemAsync(name),
+  getItem: async (name: string) => {
+    try {
+      return await SecureStore.getItemAsync(name);
+    } catch (err) {
+      console.warn('[settingsStore] Failed to read persisted settings:', err);
+      return null;
+    }
+  },
+  setItem: async (name: string, value: string) => {
+    try {
+      await SecureStore.setItemAsync(name, value);
+    } catch (err) {
+      console.warn('[settingsStore] Failed to persist settings:', err);
+    }
+  },
+  removeItem: async (name: string) => {
+    try {
+      await SecureStore.deleteItemAsync(name);
+    } catch (err) {
+      console.warn('[settingsStore] Failed to remove persisted settings:', err);
+    }
+  },
 }));
 
 export const useSettingsStore = create<SettingsState>()(
@@ -39,7 +60,10 @@ export const useSettingsStore = create<SettingsState>()(
       setSettings: (s) => set(s),
     }),
     {
-      name: 'convoy:settings',
+      // NOTE: SecureStore keys may only contain alphanumerics, ".", "-", "_".
+      // The previous name 'convoy:settings' was rejected by SecureStore on every
+      // write, so settings silently never persisted across cold starts.
+      name: 'convoy.settings',
       storage: secureStorage,
       partialize: (state) => ({
         mapStyle: state.mapStyle,

@@ -19,6 +19,25 @@ export interface ISyncApiClient {
   postDrive(drive: OfflineDrive): Promise<void>;
 }
 
+/**
+ * True when the error is a client error the server will reject on every retry
+ * (4xx validation failures). Excludes statuses that can succeed later:
+ * 401 (token refresh), 408 (timeout), 429 (rate limit).
+ * Network errors / 5xx have no `response.status` in axios-shaped errors or are
+ * >= 500 — both classify as transient.
+ */
+export function isPermanentApiError(err: unknown): boolean {
+  const status = (err as { response?: { status?: number } } | null)?.response?.status;
+  return (
+    typeof status === 'number' &&
+    status >= 400 &&
+    status < 500 &&
+    status !== 401 &&
+    status !== 408 &&
+    status !== 429
+  );
+}
+
 // ---------------------------------------------------------------------------
 // SyncService
 // ---------------------------------------------------------------------------
@@ -36,6 +55,7 @@ export class SyncService {
     private readonly onSyncComplete?: () => void,
     private readonly sleep: (ms: number) => Promise<void> = (ms) =>
       new Promise((r) => setTimeout(r, ms)),
+    private readonly isPermanentError: (err: unknown) => boolean = isPermanentApiError,
   ) {}
 
   /** Begin watching for connectivity changes. */
@@ -76,11 +96,48 @@ export class SyncService {
     }
   }
 
+  /**
+   * The bulk endpoint is transactional (all-or-nothing), so a 2xx means every
+   * hazard in the batch was inserted and it is safe to clear them all (Req 11.10).
+   * If the server permanently rejects the batch (4xx validation error), one bad
+   * queued item would otherwise poison the entire queue forever — so we fall back
+   * to posting items one at a time, dropping only the individually-rejected ones
+   * and keeping transient failures queued for the next sync.
+   */
   private async syncHazards(): Promise<void> {
     const hazards = await this.db.getPendingHazards();
     if (hazards.length === 0) return;
-    await this.retryWithBackoff(() => this.api.postBulkHazards(hazards), MAX_RETRIES);
-    await this.db.clearHazards(hazards.map((h) => h.id));
+    try {
+      await this.retryWithBackoff(() => this.api.postBulkHazards(hazards), MAX_RETRIES);
+      await this.db.clearHazards(hazards.map((h) => h.id));
+      return;
+    } catch (err) {
+      if (!this.isPermanentError(err)) throw err;
+      if (hazards.length === 1) {
+        // Single poison item — the server will never accept it; drop it so the
+        // queue doesn't stall forever.
+        console.warn('[SyncService] Dropping hazard permanently rejected by server:', hazards[0].id, err);
+        await this.db.clearHazards([hazards[0].id]);
+        return;
+      }
+    }
+
+    // Batch permanently rejected — isolate the poison item(s) per-item.
+    let firstTransientError: unknown;
+    for (const hazard of hazards) {
+      try {
+        await this.retryWithBackoff(() => this.api.postBulkHazards([hazard]), MAX_RETRIES);
+        await this.db.clearHazards([hazard.id]);
+      } catch (itemErr) {
+        if (this.isPermanentError(itemErr)) {
+          console.warn('[SyncService] Dropping hazard permanently rejected by server:', hazard.id, itemErr);
+          await this.db.clearHazards([hazard.id]);
+        } else if (firstTransientError === undefined) {
+          firstTransientError = itemErr;
+        }
+      }
+    }
+    if (firstTransientError !== undefined) throw firstTransientError;
   }
 
   private async syncDrives(): Promise<void> {
@@ -105,6 +162,9 @@ export class SyncService {
         return await fn();
       } catch (err) {
         lastError = err;
+        // A permanent (4xx validation) error will fail identically on every
+        // attempt — retrying just wastes battery and delays the caller.
+        if (this.isPermanentError(err)) throw err;
         if (attempt < maxRetries - 1) {
           await this.sleep(1000 * Math.pow(2, attempt));
         }

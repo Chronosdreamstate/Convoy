@@ -95,9 +95,22 @@ export class PTTService {
     // interrupted (rejoin would briefly drop the audio connection).
     if (!this.expiryListenerRegistered) {
       this.engine.onTokenPrivilegeWillExpire(async () => {
-        if (!this.session) return;
-        const refreshed = await this.tokenFetcher.fetchToken(this.session.groupId, this.session.channelId);
-        this.engine.renewToken(refreshed.token);
+        // Read the session at fire time (not via closure captures) so the
+        // refresh always targets the CURRENT channel across join/leave cycles.
+        const current = this.session;
+        if (!current) return;
+        try {
+          const refreshed = await this.tokenFetcher.fetchToken(current.groupId, current.channelId);
+          // Session may have changed while the fetch was in flight — don't
+          // apply a token for a channel we already left.
+          if (this.session?.channelId !== current.channelId) return;
+          this.engine.renewToken(refreshed.token);
+        } catch (err) {
+          // Refresh failure is non-fatal here: Agora fires this callback ~30s
+          // before expiry and will retry; worst case the channel drops and the
+          // next joinChannel() fetches a fresh token.
+          console.warn('[PTTService] PTT token refresh failed:', err);
+        }
       });
       this.expiryListenerRegistered = true;
     }

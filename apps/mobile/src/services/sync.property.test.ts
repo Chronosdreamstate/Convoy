@@ -12,7 +12,7 @@
  */
 
 import fc from 'fast-check';
-import { SyncService, ISyncApiClient, INetInfoProvider } from './SyncService';
+import { SyncService, ISyncApiClient, INetInfoProvider, isPermanentApiError } from './SyncService';
 import { IOfflineDB, OfflineHazard, OfflineDrive } from './OfflineCacheService';
 
 // ---------------------------------------------------------------------------
@@ -323,5 +323,117 @@ describe('Property 80: Drive sync processes all drives even when some fail', () 
 
     const svc = new SyncService(db, api, makeNetInfo(), undefined, async () => {});
     await expect(svc.sync()).rejects.toThrow('Failed: d2');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Poison-item isolation: a permanently-rejected hazard must not stall the queue
+// ---------------------------------------------------------------------------
+
+function makeHttpError(status: number): Error & { response: { status: number } } {
+  const err = new Error(`HTTP ${status}`) as Error & { response: { status: number } };
+  err.response = { status };
+  return err;
+}
+
+describe('isPermanentApiError classification', () => {
+  it('treats 4xx validation errors as permanent, except 401/408/429', () => {
+    expect(isPermanentApiError(makeHttpError(400))).toBe(true);
+    expect(isPermanentApiError(makeHttpError(403))).toBe(true);
+    expect(isPermanentApiError(makeHttpError(422))).toBe(true);
+    expect(isPermanentApiError(makeHttpError(401))).toBe(false);
+    expect(isPermanentApiError(makeHttpError(408))).toBe(false);
+    expect(isPermanentApiError(makeHttpError(429))).toBe(false);
+  });
+
+  it('treats 5xx, network errors, and non-HTTP errors as transient', () => {
+    expect(isPermanentApiError(makeHttpError(500))).toBe(false);
+    expect(isPermanentApiError(makeHttpError(503))).toBe(false);
+    expect(isPermanentApiError(new Error('network down'))).toBe(false);
+    expect(isPermanentApiError(null)).toBe(false);
+    expect(isPermanentApiError(undefined)).toBe(false);
+  });
+});
+
+describe('Hazard poison-item isolation on permanent (4xx) batch rejection', () => {
+  it('a single permanently-rejected hazard is dropped so the queue does not stall', async () => {
+    const { db, clearedHazards } = makeDb({ hazards: [makeOfflineHazard('bad')] });
+    const api: ISyncApiClient = {
+      postBulkHazards: jest.fn(async () => { throw makeHttpError(400); }),
+      postDrive: jest.fn(async () => {}),
+    };
+
+    const svc = new SyncService(db, api, makeNetInfo(), undefined, async () => {});
+    await svc.sync(); // must NOT throw — poison item is dropped
+
+    expect(clearedHazards).toEqual(['bad']);
+  });
+
+  it('batch 400 falls back to per-item sync: valid items post, poison item is dropped', async () => {
+    const hazards = [makeOfflineHazard('good1'), makeOfflineHazard('bad'), makeOfflineHazard('good2')];
+    const { db, clearedHazards } = makeDb({ hazards });
+    const api: ISyncApiClient = {
+      postBulkHazards: jest.fn(async (batch: OfflineHazard[]) => {
+        if (batch.some((h) => h.id === 'bad')) throw makeHttpError(400);
+      }),
+      postDrive: jest.fn(async () => {}),
+    };
+
+    const svc = new SyncService(db, api, makeNetInfo(), undefined, async () => {});
+    await svc.sync();
+
+    // All three cleared: good1/good2 after successful individual posts, bad dropped
+    expect(clearedHazards).toEqual(expect.arrayContaining(['good1', 'bad', 'good2']));
+    expect(clearedHazards).toHaveLength(3);
+  });
+
+  it('during per-item fallback, transiently-failing items stay queued and the error is re-thrown', async () => {
+    const hazards = [makeOfflineHazard('bad'), makeOfflineHazard('flaky')];
+    const { db, clearedHazards } = makeDb({ hazards });
+    const api: ISyncApiClient = {
+      postBulkHazards: jest.fn(async (batch: OfflineHazard[]) => {
+        if (batch.some((h) => h.id === 'bad')) throw makeHttpError(400);
+        throw new Error('network blip'); // transient failure for 'flaky'
+      }),
+      postDrive: jest.fn(async () => {}),
+    };
+
+    const svc = new SyncService(db, api, makeNetInfo(), undefined, async () => {});
+    await expect(svc.sync()).rejects.toThrow('network blip');
+
+    // Poison item dropped; transient item kept for the next sync
+    expect(clearedHazards).toEqual(['bad']);
+  });
+
+  it('permanent errors short-circuit the retry loop (no 3x retry on a 400)', async () => {
+    let calls = 0;
+    const { db } = makeDb({ hazards: [makeOfflineHazard('bad')] });
+    const api: ISyncApiClient = {
+      postBulkHazards: jest.fn(async () => { calls++; throw makeHttpError(400); }),
+      postDrive: jest.fn(async () => {}),
+    };
+
+    const svc = new SyncService(db, api, makeNetInfo(), undefined, async () => {});
+    await svc.sync();
+
+    // One batch attempt only — no backoff retries for an error that can never succeed
+    expect(calls).toBe(1);
+  });
+
+  it('transient failures (5xx / network / 429) still retry and never clear the queue', async () => {
+    for (const err of [makeHttpError(500), makeHttpError(429), new Error('offline')]) {
+      let calls = 0;
+      const { db, clearedHazards } = makeDb({ hazards: [makeOfflineHazard('h1')] });
+      const api: ISyncApiClient = {
+        postBulkHazards: jest.fn(async () => { calls++; throw err; }),
+        postDrive: jest.fn(async () => {}),
+      };
+
+      const svc = new SyncService(db, api, makeNetInfo(), undefined, async () => {});
+      await expect(svc.sync()).rejects.toThrow();
+
+      expect(calls).toBe(3); // full retry budget
+      expect(clearedHazards).toHaveLength(0); // nothing dropped
+    }
   });
 });

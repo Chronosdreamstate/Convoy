@@ -222,6 +222,9 @@ export class WebSocketService {
   }
 
   private _subscribeAppState(): void {
+    // connect() may be called repeatedly (e.g. after token refresh) — remove
+    // any previous subscription first so AppState listeners don't accumulate.
+    this._unsubscribeAppState();
     this.appStateSubscription = AppState.addEventListener('change', this._handleAppStateChange);
   }
 

@@ -1,7 +1,14 @@
 import { create } from 'zustand';
+import * as SecureStore from 'expo-secure-store';
 import { SiriShortcutsService } from '../services/SiriShortcutsService';
 
 const API_BASE_URL = `${process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000'}/api/v1`;
+
+// Same key AuthService uses — apiClient reads its Bearer token from SecureStore
+// on every request, so a refreshed token MUST be persisted there as well or
+// subsequent API calls keep sending the stale token. (AuthService can't be
+// imported here — it imports this store, which would create a require cycle.)
+const SECURE_STORE_KEY = 'convoy_access_token';
 
 export interface User {
   id: string;
@@ -93,6 +100,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         return false;
       }
       const { accessToken } = await res.json() as { accessToken: string };
+      // Persist first so apiClient's request interceptor (which reads
+      // SecureStore per request) immediately picks up the fresh token.
+      await SecureStore.setItemAsync(SECURE_STORE_KEY, accessToken).catch(() => {});
       set({ accessToken, token: accessToken });
       return true;
     } catch {
