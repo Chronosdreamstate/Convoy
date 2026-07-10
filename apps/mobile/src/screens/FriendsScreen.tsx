@@ -35,6 +35,14 @@ interface FriendRequest {
   callsign?: string;
   mutualCount?: number;
 }
+// Outgoing request from GET /friends/requests/sent
+interface SentRequest {
+  id: string;
+  addresseeId: string;
+  displayName: string;
+  avatarUrl?: string | null;
+  createdAt?: string;
+}
 interface SearchUser {
   id: string;
   displayName: string;
@@ -56,6 +64,19 @@ function avatarColor(name: string): string {
 }
 function initials(name: string) {
   return name.trim().split(/\s+/).slice(0, 2).map(w => w[0]?.toUpperCase() ?? '').join('');
+}
+
+// "3m ago" / "2h ago" / "5d ago" — for the Sent-requests subtitle
+function timeAgo(iso?: string): string | null {
+  if (!iso) return null;
+  const diffMs = Date.now() - new Date(iso).getTime();
+  if (!Number.isFinite(diffMs) || diffMs < 0) return null;
+  const mins = Math.floor(diffMs / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
 }
 
 function Avatar({ name, online }: { name: string; online?: boolean }) {
@@ -438,11 +459,74 @@ function RequestRow({
   );
 }
 
-// Requests tab
+// Sent (outgoing) request row with a withdraw action
+function SentRequestRow({
+  req,
+  onWithdraw,
+}: {
+  req: SentRequest;
+  onWithdraw: (req: SentRequest) => void;
+}) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+  const slideAnim = useRef(new Animated.Value(0)).current;
+  const opAnim = useRef(new Animated.Value(1)).current;
+
+  const handleWithdraw = () => {
+    Alert.alert(
+      'Withdraw Request',
+      `Withdraw your friend request to ${req.displayName}?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Withdraw', style: 'destructive', onPress: () => {
+            Animated.parallel([
+              Animated.timing(slideAnim, { toValue: -80, duration: 220, useNativeDriver: true }),
+              Animated.timing(opAnim, { toValue: 0, duration: 220, useNativeDriver: true }),
+            ]).start(() => onWithdraw(req));
+          },
+        },
+      ],
+    );
+  };
+
+  const sentAgo = timeAgo(req.createdAt);
+
+  return (
+    <Animated.View style={[styles.card, { transform: [{ translateX: slideAnim }], opacity: opAnim }]}>
+      <Avatar name={req.displayName} />
+      <View style={styles.cardInfo}>
+        <Text style={styles.cardName} numberOfLines={1}>{req.displayName}</Text>
+        <Text style={styles.cardSub} numberOfLines={1}>
+          Awaiting response{sentAgo ? ` · sent ${sentAgo}` : ''}
+        </Text>
+      </View>
+      <TouchableOpacity
+        style={styles.withdrawBtn}
+        onPress={handleWithdraw}
+        accessibilityRole="button"
+        accessibilityLabel={`Withdraw friend request to ${req.displayName}`}
+        hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+      >
+        <Text style={styles.withdrawBtnTxt}>Withdraw</Text>
+      </TouchableOpacity>
+    </Animated.View>
+  );
+}
+
+// Requests tab — incoming (accept/decline) + sent (withdraw) sections
+type RequestSectionKey = 'incoming' | 'sent';
+interface RequestsSection {
+  title: string;
+  key: RequestSectionKey;
+  data: Array<FriendRequest | SentRequest>;
+}
+
 function RequestsTab({ onCount }: { onCount: (n: number) => void }) {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const [reqs, setReqs] = useState<FriendRequest[]>([]);
+  const [sent, setSent] = useState<SentRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [acting, setActing] = useState<{ id: string; action: 'accept' | 'decline' } | null>(null);
@@ -450,14 +534,24 @@ function RequestsTab({ onCount }: { onCount: (n: number) => void }) {
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
-    try {
-      const { data } = await apiClient.get<{ requests: FriendRequest[] }>('/api/v1/friends/requests');
-      setReqs(data.requests);
-    } catch { setError('Failed to load requests.'); }
-    finally { setLoading(false); }
+    const [incoming, outgoing] = await Promise.allSettled([
+      apiClient.get<{ requests: FriendRequest[] }>('/api/v1/friends/requests'),
+      apiClient.get<{ requests: SentRequest[] }>('/api/v1/friends/requests/sent'),
+    ]);
+    if (incoming.status === 'fulfilled') setReqs(incoming.value.data.requests);
+    if (outgoing.status === 'fulfilled') setSent(outgoing.value.data.requests);
+    if (incoming.status === 'rejected' && outgoing.status === 'rejected') {
+      setError('Failed to load requests.');
+    } else if (incoming.status === 'rejected') {
+      setError('Failed to load incoming requests.');
+    } else if (outgoing.status === 'rejected') {
+      setError('Failed to load sent requests.');
+    }
+    setLoading(false);
   }, []);
 
   useEffect(() => { void load(); }, [load]);
+  // Badge counts only incoming requests — those are the actionable ones.
   useEffect(() => { onCount(reqs.length); }, [reqs.length, onCount]);
 
   const onRefresh = useCallback(async () => {
@@ -475,22 +569,52 @@ function RequestsTab({ onCount }: { onCount: (n: number) => void }) {
     finally { setActing(null); }
   }, []);
 
-  const renderRequestItem = useCallback(({ item }: { item: FriendRequest }) => (
-    <RequestRow req={item} onAct={act} acting={acting} />
-  ), [act, acting]);
+  // Withdraw an outgoing request — optimistic removal, rolled back on failure.
+  const withdraw = useCallback((req: SentRequest) => {
+    setSent(prev => prev.filter(r => r.id !== req.id));
+    void (async () => {
+      try {
+        await apiClient.delete(`/api/v1/friends/requests/${req.id}`);
+      } catch (e: unknown) {
+        const status = (e as { status?: number }).status;
+        // 404 = the request no longer exists server-side (already accepted,
+        // declined, or withdrawn elsewhere) — removed is the correct end state.
+        if (status === 404) return;
+        setSent(prev => {
+          const restored = [...prev.filter(r => r.id !== req.id), req];
+          restored.sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? ''));
+          return restored;
+        });
+        setError('Could not withdraw the request. Please try again.');
+      }
+    })();
+  }, []);
+
+  const sections = useMemo<RequestsSection[]>(() => {
+    const s: RequestsSection[] = [];
+    if (reqs.length > 0) s.push({ title: 'Incoming', key: 'incoming', data: reqs });
+    if (sent.length > 0) s.push({ title: 'Sent', key: 'sent', data: sent });
+    return s;
+  }, [reqs, sent]);
+
+  const renderRequestItem = useCallback(({ item, section }: { item: FriendRequest | SentRequest; section: RequestsSection }) => (
+    section.key === 'sent'
+      ? <SentRequestRow req={item as SentRequest} onWithdraw={withdraw} />
+      : <RequestRow req={item as FriendRequest} onAct={act} acting={acting} />
+  ), [act, acting, withdraw]);
 
   if (loading) {
     return <View style={styles.skeletonWrap}>{[0, 1, 2].map(i => <SkeletonRow key={i} />)}</View>;
   }
 
   // Load failed with nothing to show — full error state with a retry control.
-  if (error && reqs.length === 0) {
+  if (error && reqs.length === 0 && sent.length === 0) {
     return <ListError message={error} onRetry={() => void load()} />;
   }
 
   return (
-    <SectionList
-      sections={reqs.length > 0 ? [{ title: 'Pending', data: reqs }] : []}
+    <SectionList<FriendRequest | SentRequest, RequestsSection>
+      sections={sections}
       keyExtractor={item => item.id}
       contentContainerStyle={styles.listPad}
       showsVerticalScrollIndicator={false}
@@ -500,7 +624,7 @@ function RequestsTab({ onCount }: { onCount: (n: number) => void }) {
       }
       ListHeaderComponent={error ? <Text style={styles.errorTxt}>{error}</Text> : null}
       ListEmptyComponent={
-        !error ? <Empty icon="mail-unread-outline" title="No pending requests" sub="When someone adds you, they'll appear here." /> : null
+        !error ? <Empty icon="mail-unread-outline" title="No pending requests" sub="Incoming and sent friend requests will appear here." /> : null
       }
       renderSectionHeader={({ section }) => (
         <Text style={styles.sectionHeader}>{section.title} ({section.data.length})</Text>
@@ -787,6 +911,8 @@ function createStyles(colors: ThemeColors) {
   trashBtn: { width: 38, height: 38, borderRadius: 8, borderWidth: 1, borderColor: colors.accent, backgroundColor: 'transparent', alignItems: 'center', justifyContent: 'center' },
   acceptBtn: { width: 38, height: 38, borderRadius: 8, backgroundColor: colors.success, alignItems: 'center', justifyContent: 'center' },
   declineBtn: { width: 38, height: 38, borderRadius: 8, borderWidth: 1, borderColor: colors.border, backgroundColor: 'transparent', alignItems: 'center', justifyContent: 'center' },
+  withdrawBtn: { paddingHorizontal: 14, height: 38, borderRadius: 8, borderWidth: 1, borderColor: colors.accent, backgroundColor: 'transparent', alignItems: 'center', justifyContent: 'center' },
+  withdrawBtnTxt: { color: colors.accent, fontSize: 13, fontWeight: '700' },
 
   addBtn: { paddingHorizontal: 14, height: 34, borderRadius: 8, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center' },
   addBtnTxt: { color: colors.text, fontSize: 13, fontWeight: '700' },

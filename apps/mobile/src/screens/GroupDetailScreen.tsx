@@ -321,26 +321,45 @@ export default function GroupDetailScreen() {
         {/* Upcoming event — tappable through to the event detail screen so a
             rider can RSVP from here instead of dead-ending on a static card. */}
         {group.upcomingEvent && (
-          <TouchableOpacity
-            style={styles.eventCard}
-            onPress={() =>
-              router.push({
-                pathname: '/event/[id]',
-                params: { id: group.upcomingEvent!.id, groupId: group.id },
-              } as never)
-            }
-            accessibilityRole="button"
-            accessibilityLabel={`Next drive: ${group.upcomingEvent.title}, ${formatDate(group.upcomingEvent.scheduledFor)}. View details and RSVP`}
-          >
-            <View style={styles.eventCardBody}>
-              <Text style={styles.eventTitle}>
-                <Ionicons name="calendar-outline" size={11} color={colors.warning} /> Next drive
-              </Text>
-              <Text style={styles.eventName}>{group.upcomingEvent.title}</Text>
-              <Text style={styles.eventDate}>{formatDate(group.upcomingEvent.scheduledFor)}</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
-          </TouchableOpacity>
+          <>
+            <TouchableOpacity
+              style={styles.eventCard}
+              onPress={() =>
+                router.push({
+                  pathname: '/event/[id]',
+                  params: { id: group.upcomingEvent!.id, groupId: group.id },
+                } as never)
+              }
+              accessibilityRole="button"
+              accessibilityLabel={`Next drive: ${group.upcomingEvent.title}, ${formatDate(group.upcomingEvent.scheduledFor)}. View details and RSVP`}
+            >
+              <View style={styles.eventCardBody}>
+                <Text style={styles.eventTitle}>
+                  <Ionicons name="calendar-outline" size={11} color={colors.warning} /> Next drive
+                </Text>
+                <Text style={styles.eventName}>{group.upcomingEvent.title}</Text>
+                <Text style={styles.eventDate}>{formatDate(group.upcomingEvent.scheduledFor)}</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+            </TouchableOpacity>
+
+            {/* Full events list — the card above only surfaces the next drive */}
+            <TouchableOpacity
+              style={styles.seeAllEventsBtn}
+              onPress={() =>
+                router.push({
+                  pathname: '/group/[id]/events',
+                  params: { id: group.id, groupName: group.name },
+                } as never)
+              }
+              accessibilityRole="button"
+              accessibilityLabel="See all upcoming events for this group"
+            >
+              <Ionicons name="calendar-outline" size={15} color={colors.textMuted} />
+              <Text style={styles.seeAllEventsText}>See all events</Text>
+              <Ionicons name="chevron-forward" size={14} color={colors.textMuted} />
+            </TouchableOpacity>
+          </>
         )}
       </ScrollView>
 
@@ -472,6 +491,12 @@ function createStyles(colors: ThemeColors) {
   eventTitle: { color: colors.warning, fontSize: 11, fontWeight: '700', letterSpacing: 0.5, marginBottom: 4 },
   eventName: { color: colors.text, fontSize: 16, fontWeight: '600', marginBottom: 4 },
   eventDate: { color: colors.textMuted, fontSize: 13 },
+  seeAllEventsBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    backgroundColor: colors.card, borderRadius: 12, borderWidth: 1, borderColor: colors.border,
+    minHeight: 44, paddingHorizontal: 16, marginBottom: 16,
+  },
+  seeAllEventsText: { color: colors.textMuted, fontSize: 14, fontWeight: '600' },
 
   footer: { position: 'absolute', bottom: 0, left: 0, right: 0, padding: 20, backgroundColor: colors.bg, borderTopWidth: 1, borderTopColor: colors.card },
   footerRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },

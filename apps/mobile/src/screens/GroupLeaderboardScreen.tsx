@@ -45,6 +45,12 @@ interface LeaderboardMember {
 
 interface LeaderboardResponse {
   leaderboard: LeaderboardMember[];
+  /**
+   * The current user's own rank/value when they fall outside the visible
+   * rows. Being added server-side — optional until that change lands, and
+   * null when the user has no ranked data for the metric.
+   */
+  me?: { rank: number; value: number } | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -260,6 +266,7 @@ export default function GroupLeaderboardScreen() {
 
   const [activeMetric, setActiveMetric] = useState<Metric>('distance');
   const [members, setMembers] = useState<LeaderboardMember[]>([]);
+  const [myRank, setMyRank] = useState<{ rank: number; value: number } | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(false);
@@ -272,6 +279,12 @@ export default function GroupLeaderboardScreen() {
           { params: { metric, limit: 20 } },
         );
         setMembers(res.data.leaderboard ?? []);
+        // Defensive: `me` may be absent until the API change lands, or null
+        // when the user has no ranked data — hide the pinned row in both cases.
+        const me = res.data.me;
+        setMyRank(
+          me && typeof me.rank === 'number' && typeof me.value === 'number' ? me : null,
+        );
         setError(false);
       } catch {
         // A failed fetch must not render identically to a genuine "nobody's
@@ -290,6 +303,7 @@ export default function GroupLeaderboardScreen() {
   useEffect(() => {
     setLoading(true);
     setMembers([]);
+    setMyRank(null);
     void fetchLeaderboard(activeMetric);
   }, [activeMetric, fetchLeaderboard]);
 
@@ -341,6 +355,14 @@ export default function GroupLeaderboardScreen() {
   // ------------------------------------------------------------------
   // Data / empty state
   // ------------------------------------------------------------------
+
+  // Pinned "your rank" row — only when the signed-in user exists in the
+  // response's `me` field but is NOT one of the visible rows (outside top-N).
+  const showMyRank =
+    myRank !== null &&
+    members.length > 0 &&
+    !members.some((m) => m.userId === currentUserId);
+
   return (
     <SafeAreaView style={styles.container}>
       <Header onBack={handleBack} styles={styles} colors={colors} hitSlop={hitSlop} />
@@ -381,6 +403,32 @@ export default function GroupLeaderboardScreen() {
           renderItem={renderMemberItem}
           showsVerticalScrollIndicator={false}
         />
+      )}
+
+      {/* Pinned "your rank" footer — styled like the in-list YOU highlight so a
+          driver outside the top-N still sees where they stand. */}
+      {!loading && !(error && members.length === 0) && showMyRank && myRank && (
+        <View
+          style={styles.myRankBar}
+          accessibilityLabel={`Your rank: ${myRank.rank}, ${formatValue(myRank.value, activeMetric)}`}
+        >
+          <View style={styles.myRankCircle}>
+            <Text style={styles.myRankNumber} numberOfLines={1}>#{myRank.rank}</Text>
+          </View>
+          <View style={styles.memberInfo}>
+            <View style={styles.nameRow}>
+              <Text style={styles.displayName} numberOfLines={1}>
+                Your rank
+              </Text>
+              <View style={styles.youBadge}>
+                <Text style={styles.youBadgeText}>YOU</Text>
+              </View>
+            </View>
+          </View>
+          <Text style={styles.statValue} numberOfLines={1}>
+            {formatValue(myRank.value, activeMetric)}
+          </Text>
+        </View>
       )}
     </SafeAreaView>
   );
@@ -534,6 +582,35 @@ function createStyles(
       fontSize: 9,
       fontWeight: '800',
       letterSpacing: 0.8,
+    },
+
+    // Pinned "your rank" bar (user outside the visible top-N)
+    myRankBar: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: withAlpha(colors.accent, 0.08),
+      borderTopWidth: 1,
+      borderTopColor: withAlpha(colors.accent, 0.45),
+      paddingVertical: 14,
+      paddingHorizontal: spacing.md,
+      gap: spacing.sm,
+      minHeight: 56,
+    },
+    // Rank pill sized to fit 3+ digit ranks (unlike the fixed 28px rankCircle)
+    myRankCircle: {
+      backgroundColor: colors.accent,
+      borderRadius: radius.pill,
+      minWidth: 36,
+      height: 28,
+      paddingHorizontal: 8,
+      alignItems: 'center',
+      justifyContent: 'center',
+      flexShrink: 0,
+    },
+    myRankNumber: {
+      color: '#FFFFFF',
+      fontSize: 12,
+      fontWeight: '700',
     },
 
     // Rank badge

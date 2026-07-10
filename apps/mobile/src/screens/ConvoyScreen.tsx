@@ -488,7 +488,9 @@ export default function ConvoyScreen({ userId }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [groupName]);
+    // createGapThreshold/createAccessType were missing here — picking a pill
+    // after typing the name silently created the group with stale settings.
+  }, [groupName, createGapThreshold, createAccessType]);
 
   // ── Join group (Req 7.4) ──────────────────────────────────────────────────
   const handleJoin = useCallback(async () => {
@@ -590,7 +592,7 @@ export default function ConvoyScreen({ userId }: Props) {
         },
       },
     ]);
-  }, [group]);
+  }, [group, members.length]);
 
   // ── Mute member (Admin only, Req 10.11) ──────────────────────────────────
   const handleMute = useCallback(async (memberId: string) => {
@@ -1233,7 +1235,7 @@ export default function ConvoyScreen({ userId }: Props) {
       {upcomingEvent && (
         <TouchableOpacity
           style={styles.eventCard}
-          onPress={() => router.push({ pathname: '/event/[id]' as never, params: { id: upcomingEvent.id } })}
+          onPress={() => router.push({ pathname: '/event/[id]' as never, params: { id: upcomingEvent.id, groupId: group.id } })}
           accessibilityRole="button"
           accessibilityLabel={`Event: ${upcomingEvent.title}. Tap for details.`}
         >
@@ -1284,6 +1286,20 @@ export default function ConvoyScreen({ userId }: Props) {
               </View>
             )}
           </View>
+        </TouchableOpacity>
+      )}
+
+      {/* Full events list — the card above only surfaces the next event */}
+      {upcomingEvent && (
+        <TouchableOpacity
+          style={styles.seeAllEventsBtn}
+          onPress={() => router.push({ pathname: '/group/[id]/events' as never, params: { id: group.id, groupName: group.name } })}
+          accessibilityRole="button"
+          accessibilityLabel="See all upcoming events for this convoy"
+        >
+          <Text style={styles.seeAllEventsText}>
+            <Ionicons name="calendar-outline" size={13} color={colors.textMuted} />  See all events ›
+          </Text>
         </TouchableOpacity>
       )}
 
@@ -1978,6 +1994,8 @@ function createStyles(colors: ThemeColors) {
   scheduleBtn: {
     backgroundColor: colors.card,
     borderRadius: 10,
+    minHeight: 44,
+    justifyContent: 'center',
     paddingVertical: 10,
     paddingHorizontal: 14,
     marginBottom: 12,
@@ -1986,6 +2004,20 @@ function createStyles(colors: ThemeColors) {
     alignSelf: 'flex-start',
   },
   scheduleBtnText: { color: colors.textMuted, fontSize: 13, fontWeight: '600' },
+
+  // "See all events" link under the upcoming-event card
+  seeAllEventsBtn: {
+    backgroundColor: colors.card,
+    borderRadius: 10,
+    minHeight: 44,
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignSelf: 'flex-start',
+  },
+  seeAllEventsText: { color: colors.textMuted, fontSize: 13, fontWeight: '600' },
 
   // Quick action row
   quickActions: {
