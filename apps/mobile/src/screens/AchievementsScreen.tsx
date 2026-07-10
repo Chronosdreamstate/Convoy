@@ -5,6 +5,7 @@ import {
   Modal,
   RefreshControl,
   SafeAreaView,
+  Share,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -167,6 +168,21 @@ function DetailModal({ item, onClose, styles, colors }: DetailModalProps) {
   const hasProgress = item.total > 1;
   const isLocked = !item.unlocked;
 
+  // Share an unlocked badge as a formatted text brag — mirrors how sharing is
+  // invoked elsewhere (RN Share API, e.g. RouteReplay/DriveHistory screens).
+  // Share.share resolves on sheet dismissal, so no busy state is needed.
+  const handleShare = async () => {
+    try {
+      await Share.share({
+        title: 'CORTEGE Achievement',
+        message:
+          `${item.icon} Achievement unlocked: ${item.name}!\n` +
+          `"${item.desc}" — done. 🏆\n\n` +
+          'Join the convoy on CORTEGE: convoy.app/download',
+      });
+    } catch { /* user cancelled or share sheet unavailable */ }
+  };
+
   return (
     <Modal
       visible={item !== null}
@@ -227,6 +243,19 @@ function DetailModal({ item, onClose, styles, colors }: DetailModalProps) {
             </View>
             <ProgressBar progress={item.progress} total={item.total} styles={styles} />
           </View>
+        )}
+
+        {/* Share (unlocked badges only — locked ones have nothing to brag about yet) */}
+        {item.unlocked && (
+          <TouchableOpacity
+            style={styles.modalShareBtn}
+            onPress={() => { void handleShare(); }}
+            accessibilityRole="button"
+            accessibilityLabel={`Share ${item.name} achievement`}
+          >
+            <Ionicons name="share-social-outline" size={16} color="#FFFFFF" style={styles.modalShareIcon} />
+            <Text style={styles.modalShareBtnText}>Share</Text>
+          </TouchableOpacity>
         )}
 
         {/* Close */}
@@ -640,6 +669,26 @@ function createStyles(colors: ThemeColors, spacing: { xs: number; sm: number; md
     modalProgressCount: {
       fontSize: 13,
       color: colors.text,
+      fontWeight: '700',
+    },
+    // Share button — accent-filled primary action; label stays fixed white on
+    // the accent fill in both themes (matches the app's accent-button convention).
+    modalShareBtn: {
+      width: '100%',
+      flexDirection: 'row',
+      backgroundColor: colors.accent,
+      borderRadius: radius.md,
+      paddingVertical: 14,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginTop: 4,
+    },
+    modalShareIcon: {
+      marginRight: 8,
+    },
+    modalShareBtnText: {
+      color: '#FFFFFF',
+      fontSize: 15,
       fontWeight: '700',
     },
     modalCloseBtn: {

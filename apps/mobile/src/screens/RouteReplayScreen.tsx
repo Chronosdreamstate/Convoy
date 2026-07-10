@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Animated,
   PanResponder,
+  Platform,
   Pressable,
   SafeAreaView,
   ScrollView,
@@ -236,19 +236,35 @@ export default function RouteReplayScreen() {
   ).current;
 
   // ── Share ──────────────────────────────────────────────────────────────────
+  // Mirrors DriveHistoryScreen's share flow: generate a branded summary-card
+  // PNG server-side and attach it, falling back to text-only if card
+  // generation fails so sharing always works.
   const handleShare = useCallback(async () => {
     if (!drive) return;
     setSharing(true);
+
+    const shareText =
+      `🏁 I drove ${formatDistance(drive.distanceM)} in ${formatDuration(drive.durationS)} on CORTEGE!\n` +
+      (drive.topSpeedKph ? `⚡ Top speed: ${drive.topSpeedKph.toFixed(0)} km/h\n` : '') +
+      `📅 ${new Date(drive.startedAt).toLocaleDateString()}\nJoin CORTEGE: convoy.app/download`;
+
     try {
-      await Share.share({
-        title: 'My CORTEGE Drive',
-        message:
-          `🏁 I drove ${formatDistance(drive.distanceM)} in ${formatDuration(drive.durationS)} on CORTEGE!\n` +
-          (drive.topSpeedKph ? `⚡ Top speed: ${drive.topSpeedKph.toFixed(0)} km/h\n` : '') +
-          `📅 ${new Date(drive.startedAt).toLocaleDateString()}\nJoin CORTEGE: convoy.app/download`,
-      });
+      const res = await apiClient.post<{ summaryCardUrl: string }>(
+        `/api/v1/drives/${drive.id}/summary-card`,
+      );
+      const { summaryCardUrl } = res.data;
+      try {
+        await Share.share(
+          Platform.OS === 'ios'
+            ? { url: summaryCardUrl, message: shareText }
+            : { message: `${shareText}\n${summaryCardUrl}` },
+        );
+      } catch { /* user cancelled */ }
     } catch {
-      Alert.alert('Error', 'Could not open share sheet');
+      // Summary card endpoint failed — share text-only
+      try {
+        await Share.share({ message: shareText, title: 'My CORTEGE Drive' });
+      } catch { /* cancelled */ }
     } finally {
       setSharing(false);
     }

@@ -6,6 +6,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Animated,
   ScrollView,
   StyleSheet,
@@ -15,6 +16,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Socket } from 'socket.io-client';
+import { apiClient } from '../services/apiClient';
 import { pttAnalytics, PttStat } from '../services/PTTAnalyticsService';
 import { ThemeColors, useTheme, withAlpha } from '../theme';
 
@@ -84,6 +86,16 @@ function getVehicleEmoji(vehicleType?: string): string {
   return vehicleType ? (map[vehicleType.toLowerCase()] ?? '') : '';
 }
 
+/** Merge REST-backfilled history into the live entry list (Req 27.2).
+ *  Live entries win on id collision (they may already carry endedAt); result
+ *  is chronological by startedAt and capped to MAX_ENTRIES most-recent. */
+function mergeEntries(live: PttLogEntry[], backlog: PttLogEntry[]): PttLogEntry[] {
+  const seen = new Set(live.map((e) => e.id));
+  const merged = [...live, ...backlog.filter((e) => !seen.has(e.id))];
+  merged.sort((a, b) => new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime());
+  return merged.slice(-MAX_ENTRIES);
+}
+
 // ---------------------------------------------------------------------------
 // PulsingDot
 // ---------------------------------------------------------------------------
@@ -140,7 +152,13 @@ function LogRow({
   const name = entry.callsign ?? entry.displayName;
   const emoji = getVehicleEmoji(entry.vehicleType);
   const elapsed = formatRelative(entry.startedAt);
-  const duration = formatDuration(entry.startedAt, entry.endedAt);
+  // Only show a ticking (open-ended) duration while the transmission is
+  // actually live. Entries with no endedAt that AREN'T live — REST-backfilled
+  // history, or a missed ptt:ended event — would otherwise display an
+  // ever-growing bogus duration.
+  const duration = entry.endedAt || isActive
+    ? formatDuration(entry.startedAt, entry.endedAt)
+    : null;
 
   return (
     <Animated.View style={{ transform: [{ translateY }], opacity: rowOpacity }}>
@@ -169,7 +187,7 @@ function LogRow({
               {isActive && <Text style={styles.liveLabel}> LIVE</Text>}
             </View>
             <Text style={styles.channelLabel} numberOfLines={1}>
-              {entry.channelId ? `#${entry.channelId}` : 'all channels'} · {duration}
+              {entry.channelId ? `#${entry.channelId}` : 'all channels'}{duration ? ` · ${duration}` : ''}
             </Text>
           </View>
 
@@ -185,7 +203,7 @@ function LogRow({
         {isExpanded && (
           <View style={styles.expandedBody}>
             <Text style={styles.expandedRow}>🕐 {formatFullTimestamp(entry.startedAt)}</Text>
-            <Text style={styles.expandedRow}>⏱ Duration: {duration}</Text>
+            {duration != null && <Text style={styles.expandedRow}>⏱ Duration: {duration}</Text>}
             {entry.distanceFromLeaderM != null && (
               <Text style={styles.expandedRow}>
                 📍 {entry.distanceFromLeaderM >= 1000
@@ -226,10 +244,51 @@ function PTTLogPanel({ socket, initialEntries = [], groupId, isInMotion = false 
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [unread, setUnread] = useState(0);
   const [leaderboard, setLeaderboard] = useState<PttStat[]>([]);
+  const [backfillStatus, setBackfillStatus] = useState<'idle' | 'loading' | 'error' | 'done'>('idle');
 
   // Synchronous ref so handlePttEnded can read entries without a stale closure
   const entriesRef = useRef(entries);
   useEffect(() => { entriesRef.current = entries; }, [entries]);
+
+  // ── Cold-open backfill (Req 27.2) ──────────────────────────────────────────
+  // Live socket events only cover transmissions after this panel mounted;
+  // fetch the session's earlier log over REST and merge it in, so opening the
+  // panel mid-session shows the full history. Live events keep flowing
+  // independently — mergeEntries dedupes by id and re-sorts chronologically.
+  const fetchBacklog = useCallback(async () => {
+    if (!groupId) return;
+    setBackfillStatus('loading');
+    try {
+      const res = await apiClient.get<{
+        log: Array<{
+          id: string;
+          userId: string;
+          channelId: string | null;
+          startedAt: string;
+          endedAt: string | null;
+          displayName: string;
+          callsign: string | null;
+        }>;
+      }>(`/api/v1/groups/${groupId}/ptt-log`);
+      const backlog: PttLogEntry[] = res.data.log.map((r) => ({
+        id: r.id,
+        userId: r.userId,
+        displayName: r.displayName,
+        callsign: r.callsign,
+        channelId: r.channelId,
+        startedAt: r.startedAt,
+        endedAt: r.endedAt ?? undefined,
+      }));
+      setEntries((prev) => mergeEntries(prev, backlog));
+      setBackfillStatus('done');
+    } catch {
+      // Live updates still work without the backlog — degrade to a small
+      // inline notice with a manual retry.
+      setBackfillStatus('error');
+    }
+  }, [groupId]);
+
+  useEffect(() => { void fetchBacklog(); }, [fetchBacklog]);
 
   // Tick every second for relative timestamps
   useEffect(() => {
@@ -364,13 +423,34 @@ function PTTLogPanel({ socket, initialEntries = [], groupId, isInMotion = false 
         </TouchableOpacity>
       ) : (
         /* Expanded: scrollable list */
-        entries.length === 0 ? (
-          <View style={styles.emptyRow}>
-            <Text style={styles.emptyText}>No transmissions yet</Text>
-          </View>
-        ) : (
-          <>
-            {entries.length > 0 && (
+        <>
+          {backfillStatus === 'error' && (
+            <View style={styles.backfillNotice}>
+              <Text style={styles.backfillNoticeText}>Couldn't load earlier transmissions.</Text>
+              <TouchableOpacity
+                onPress={() => void fetchBacklog()}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                accessibilityRole="button"
+                accessibilityLabel="Retry loading earlier transmissions"
+              >
+                <Text style={styles.backfillRetryText}>Retry</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+          {entries.length === 0 ? (
+            <View style={styles.emptyRow}>
+              {backfillStatus === 'loading' ? (
+                <ActivityIndicator
+                  size="small"
+                  color={colors.textMuted}
+                  accessibilityLabel="Loading transmission history"
+                />
+              ) : (
+                <Text style={styles.emptyText}>No transmissions yet</Text>
+              )}
+            </View>
+          ) : (
+            <>
               <TouchableOpacity
                 onPress={() => socket.emit('ptt:replay_request', { groupId, userId: lastEntry?.userId })}
                 style={styles.replayLastBtn}
@@ -380,22 +460,22 @@ function PTTLogPanel({ socket, initialEntries = [], groupId, isInMotion = false 
                 <Ionicons name="repeat" size={13} color={colors.accent} />
                 <Text style={styles.replayLastBtnText}>Replay Last</Text>
               </TouchableOpacity>
-            )}
-            <ScrollView style={styles.list} showsVerticalScrollIndicator={false}>
-              {(isInMotion ? entries.slice(-IN_MOTION_LIST_CAP) : entries).map((entry) => (
-                <LogRow
-                  key={entry.id}
-                  entry={entry}
-                  isActive={entry.userId === activeUserId}
-                  tick={tick}
-                  isExpanded={expandedId === entry.id}
-                  onPress={() => handleRowPress(entry.id)}
-                  onReplayRequest={handleReplayRequest}
-                />
-              ))}
-            </ScrollView>
-          </>
-        )
+              <ScrollView style={styles.list} showsVerticalScrollIndicator={false}>
+                {(isInMotion ? entries.slice(-IN_MOTION_LIST_CAP) : entries).map((entry) => (
+                  <LogRow
+                    key={entry.id}
+                    entry={entry}
+                    isActive={entry.userId === activeUserId}
+                    tick={tick}
+                    isExpanded={expandedId === entry.id}
+                    onPress={() => handleRowPress(entry.id)}
+                    onReplayRequest={handleReplayRequest}
+                  />
+                ))}
+              </ScrollView>
+            </>
+          )}
+        </>
       )}
 
       {/* Stats footer — top 3 speakers, shown only when expanded and data exists */}
@@ -514,6 +594,27 @@ function makeStyles(colors: ThemeColors) {
     tickerText: {
       color: colors.textMuted,
       fontSize: 12,
+    },
+
+    // Backfill failure notice (history fetch failed; live updates unaffected)
+    backfillNotice: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 6,
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.border,
+    },
+    backfillNoticeText: {
+      color: colors.textSubtle,
+      fontSize: 11,
+    },
+    backfillRetryText: {
+      color: colors.accent,
+      fontSize: 11,
+      fontWeight: '700',
     },
 
     // List (expanded)
