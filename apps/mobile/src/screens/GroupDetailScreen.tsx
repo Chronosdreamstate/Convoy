@@ -318,15 +318,29 @@ export default function GroupDetailScreen() {
           </View>
         )}
 
-        {/* Upcoming event */}
+        {/* Upcoming event — tappable through to the event detail screen so a
+            rider can RSVP from here instead of dead-ending on a static card. */}
         {group.upcomingEvent && (
-          <View style={styles.eventCard}>
-            <Text style={styles.eventTitle}>
-              <Ionicons name="calendar-outline" size={11} color={colors.warning} /> Next drive
-            </Text>
-            <Text style={styles.eventName}>{group.upcomingEvent.title}</Text>
-            <Text style={styles.eventDate}>{formatDate(group.upcomingEvent.scheduledFor)}</Text>
-          </View>
+          <TouchableOpacity
+            style={styles.eventCard}
+            onPress={() =>
+              router.push({
+                pathname: '/event/[id]',
+                params: { id: group.upcomingEvent!.id, groupId: group.id },
+              } as never)
+            }
+            accessibilityRole="button"
+            accessibilityLabel={`Next drive: ${group.upcomingEvent.title}, ${formatDate(group.upcomingEvent.scheduledFor)}. View details and RSVP`}
+          >
+            <View style={styles.eventCardBody}>
+              <Text style={styles.eventTitle}>
+                <Ionicons name="calendar-outline" size={11} color={colors.warning} /> Next drive
+              </Text>
+              <Text style={styles.eventName}>{group.upcomingEvent.title}</Text>
+              <Text style={styles.eventDate}>{formatDate(group.upcomingEvent.scheduledFor)}</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+          </TouchableOpacity>
         )}
       </ScrollView>
 
@@ -449,7 +463,12 @@ function createStyles(colors: ThemeColors) {
   avatarExtra: { backgroundColor: colors.border },
   avatarExtraText: { color: colors.textMuted, fontSize: 11, fontWeight: '600' },
 
-  eventCard: { backgroundColor: colors.card, borderRadius: 12, padding: 16, borderLeftWidth: 4, borderLeftColor: colors.warning, marginBottom: 16 },
+  eventCard: {
+    backgroundColor: colors.card, borderRadius: 12, padding: 16,
+    borderLeftWidth: 4, borderLeftColor: colors.warning, marginBottom: 16,
+    flexDirection: 'row', alignItems: 'center', minHeight: 44,
+  },
+  eventCardBody: { flex: 1 },
   eventTitle: { color: colors.warning, fontSize: 11, fontWeight: '700', letterSpacing: 0.5, marginBottom: 4 },
   eventName: { color: colors.text, fontSize: 16, fontWeight: '600', marginBottom: 4 },
   eventDate: { color: colors.textMuted, fontSize: 13 },

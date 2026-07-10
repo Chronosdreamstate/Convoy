@@ -22,7 +22,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { SkeletonRow } from '../components/SkeletonLoader';
 import { NetworkError } from '../components/NetworkError';
 import { apiClient } from '../services/apiClient';
-import { ThemeColors, useTheme } from '../theme';
+import { useAuthStore } from '../stores/authStore';
+import { ThemeColors, useTheme, withAlpha } from '../theme';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -138,23 +139,35 @@ function MemberRow({
   member,
   rank,
   metric,
+  isYou,
   styles,
 }: {
   member: LeaderboardMember;
   rank: number;
   metric: Metric;
+  isYou: boolean;
   styles: Styles;
 }) {
   const isFirst = rank === 1;
 
   return (
-    <View style={[styles.row, isFirst && styles.rowFirst]}>
+    <View
+      style={[styles.row, isFirst && styles.rowFirst, isYou && styles.rowYou]}
+      accessibilityLabel={`Rank ${rank}: ${member.displayName}${isYou ? ', you' : ''}, ${formatValue(member.value, metric)}`}
+    >
       <RankBadge rank={rank} styles={styles} />
       <Avatar uri={member.avatarUrl ?? undefined} name={member.displayName} styles={styles} />
       <View style={styles.memberInfo}>
-        <Text style={styles.displayName} numberOfLines={1}>
-          {member.displayName}
-        </Text>
+        <View style={styles.nameRow}>
+          <Text style={styles.displayName} numberOfLines={1}>
+            {member.displayName}
+          </Text>
+          {isYou && (
+            <View style={styles.youBadge}>
+              <Text style={styles.youBadgeText}>YOU</Text>
+            </View>
+          )}
+        </View>
         {member.callsign ? (
           <Text style={styles.callsign} numberOfLines={1}>
             {member.callsign}
@@ -243,6 +256,7 @@ export default function GroupLeaderboardScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ groupId: string }>();
   const groupId = Array.isArray(params.groupId) ? params.groupId[0] : (params.groupId ?? '');
+  const currentUserId = useAuthStore((s) => s.user?.id);
 
   const [activeMetric, setActiveMetric] = useState<Metric>('distance');
   const [members, setMembers] = useState<LeaderboardMember[]>([]);
@@ -294,9 +308,15 @@ export default function GroupLeaderboardScreen() {
 
   const renderMemberItem = useCallback(
     ({ item, index }: { item: LeaderboardMember; index: number }) => (
-      <MemberRow member={item} rank={index + 1} metric={activeMetric} styles={styles} />
+      <MemberRow
+        member={item}
+        rank={index + 1}
+        metric={activeMetric}
+        isYou={item.userId === currentUserId}
+        styles={styles}
+      />
     ),
-    [activeMetric, styles],
+    [activeMetric, currentUserId, styles],
   );
 
   // ------------------------------------------------------------------
@@ -491,6 +511,30 @@ function createStyles(
       borderLeftColor: colors.accent,
       borderLeftWidth: 3,
     },
+    // The signed-in user's own row — subtle accent tint + "YOU" badge so a
+    // driver can find themself in the rankings at a glance.
+    rowYou: {
+      backgroundColor: withAlpha(colors.accent, 0.08),
+      borderColor: withAlpha(colors.accent, 0.45),
+    },
+    nameRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+    },
+    youBadge: {
+      backgroundColor: colors.accent,
+      borderRadius: radius.pill,
+      paddingHorizontal: 6,
+      paddingVertical: 1,
+      flexShrink: 0,
+    },
+    youBadgeText: {
+      color: '#FFFFFF',
+      fontSize: 9,
+      fontWeight: '800',
+      letterSpacing: 0.8,
+    },
 
     // Rank badge
     rankBadge: {
@@ -543,6 +587,7 @@ function createStyles(
       color: colors.text,
       ...typography.label,
       fontSize: 15,
+      flexShrink: 1,
     },
     callsign: {
       color: colors.textMuted,

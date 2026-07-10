@@ -98,6 +98,7 @@ export default function EventDetailScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [sharingEvent, setSharingEvent] = useState(false);
   const [reminding, setReminding] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
 
   const isAdmin = event?.createdBy === user?.id;
 
@@ -182,6 +183,42 @@ export default function EventDetailScreen() {
     } finally {
       setSharingEvent(false);
     }
+  }
+
+  // Cancel is a group-admin action on the API (DELETE returns 403 for anyone
+  // else), so it's gated behind the same isAdmin flag as "Remind All". The
+  // confirm dialog is explicit that everyone who RSVP'd loses the event.
+  function handleCancelEvent() {
+    if (!resolvedGroupId || !eventId || !event) return;
+    Alert.alert(
+      'Cancel Event',
+      `Cancel "${event.title}"? Members who RSVP'd will no longer see this event. This cannot be undone.`,
+      [
+        { text: 'Keep Event', style: 'cancel' },
+        {
+          text: 'Cancel Event',
+          style: 'destructive',
+          onPress: async () => {
+            setCancelling(true);
+            try {
+              await apiClient.delete(`/api/v1/groups/${resolvedGroupId}/events/${eventId}`);
+              Alert.alert('Event cancelled', 'This event has been removed from the group schedule.');
+              router.back();
+            } catch (err: unknown) {
+              const status = (err as { status?: number }).status;
+              Alert.alert(
+                'Error',
+                status === 403
+                  ? 'Only the group admin can cancel this event.'
+                  : 'Could not cancel the event. Please try again.',
+              );
+            } finally {
+              setCancelling(false);
+            }
+          },
+        },
+      ],
+    );
   }
 
   async function handleRemindAll() {
@@ -404,6 +441,24 @@ export default function EventDetailScreen() {
           <Text style={styles.remindBtnText}> {reminding ? 'Sending…' : 'Remind All Members'}</Text>
         </TouchableOpacity>
       )}
+
+      {/* Admin: cancel event */}
+      {isAdmin && (
+        <TouchableOpacity
+          style={[styles.cancelBtn, cancelling && styles.remindBtnDisabled]}
+          onPress={handleCancelEvent}
+          disabled={cancelling}
+          accessibilityRole="button"
+          accessibilityLabel="Cancel event"
+          accessibilityState={{ busy: cancelling, disabled: cancelling }}
+        >
+          {cancelling
+            ? <ActivityIndicator size="small" color={colors.error} />
+            : <Ionicons name="trash-outline" size={15} color={colors.error} />
+          }
+          <Text style={styles.cancelBtnText}> {cancelling ? 'Cancelling…' : 'Cancel Event'}</Text>
+        </TouchableOpacity>
+      )}
     </ScrollView>
   );
 }
@@ -529,6 +584,19 @@ function createStyles(colors: ThemeColors) {
   },
   remindBtnText: { fontSize: 15, fontWeight: '600', color: colors.text },
   remindBtnDisabled: { opacity: 0.6 },
+
+  cancelBtn: {
+    marginTop: 12,
+    flexDirection: 'row',
+    backgroundColor: withAlpha(colors.error, 0.08),
+    borderWidth: 1,
+    borderColor: withAlpha(colors.error, 0.4),
+    borderRadius: 14,
+    paddingVertical: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cancelBtnText: { fontSize: 15, fontWeight: '600', color: colors.error },
 
   emptyText: { fontSize: 16, color: colors.textMuted },
   backLink: { fontSize: 14, color: colors.accent },

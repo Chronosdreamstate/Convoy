@@ -77,6 +77,18 @@ interface DriveRecord {
 
 type DriveFilter = 'all' | 'solo' | 'group' | 'month';
 
+/** Server-side lifetime aggregates (GET /api/v1/drives/stats) — accurate across
+ *  ALL drives, unlike sums over the currently loaded pages. */
+interface LifetimeStats {
+  totalDrives: number;
+  totalDistanceM: number;
+  totalDurationS: number;
+  avgSpeedKph: number | null;
+  topSpeedKph: number | null;
+  longestDriveM: number | null;
+  longestDriveId: string | null;
+}
+
 type ListItem =
   | { type: 'header'; label: string; key: string }
   | { type: 'drive'; drive: DriveRecord };
@@ -344,21 +356,31 @@ function applyFilter(drives: DriveRecord[], filter: DriveFilter): DriveRecord[] 
 // Total stats header
 // ---------------------------------------------------------------------------
 
-function TotalStatsHeader({ drives, onExport }: { drives: DriveRecord[]; onExport: () => void }) {
+function TotalStatsHeader({ drives, stats, onExport }: { drives: DriveRecord[]; stats: LifetimeStats | null; onExport: () => void }) {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const distanceUnit = useSettingsStore((s) => s.distanceUnit);
-  const totalDistanceM = drives.reduce((sum, d) => sum + d.distanceM, 0);
+  // Prefer the server's lifetime aggregates — a page-1 sum silently
+  // under-reports for anyone with more than one page of drives. The local sum
+  // stays as a fallback so a failed stats fetch still shows something real.
+  const totalDistanceM = stats?.totalDistanceM ?? drives.reduce((sum, d) => sum + d.distanceM, 0);
+  const totalDrives = stats?.totalDrives ?? drives.length;
+  const totalDurationS = stats?.totalDurationS ?? drives.reduce((sum, d) => sum + d.durationS, 0);
   return (
     <View style={styles.statsHeader}>
       <View style={styles.statPill}>
         <Text style={styles.statPillValue}>{formatDistance(totalDistanceM, distanceUnit)}</Text>
-        <Text style={styles.statPillLabel}>Total Distance</Text>
+        <Text style={styles.statPillLabel}>Distance</Text>
       </View>
       <View style={styles.statPillDivider} />
       <View style={styles.statPill}>
-        <Text style={styles.statPillValue}>{drives.length}</Text>
-        <Text style={styles.statPillLabel}>Total Drives</Text>
+        <Text style={styles.statPillValue}>{totalDrives}</Text>
+        <Text style={styles.statPillLabel}>Drives</Text>
+      </View>
+      <View style={styles.statPillDivider} />
+      <View style={styles.statPill}>
+        <Text style={styles.statPillValue}>{formatDuration(totalDurationS)}</Text>
+        <Text style={styles.statPillLabel}>Drive Time</Text>
       </View>
       <TouchableOpacity
         style={styles.exportBtn}
@@ -617,7 +639,18 @@ export default function DriveHistoryScreen() {
   // badges shown, whether a Replay button is present), so a single hard-coded target
   // clips taller content — see toggleExpand/onLayout below for the self-correcting fix.
   const [expandContentHeights, setExpandContentHeights] = useState<Record<string, number>>({});
+  const [lifetimeStats, setLifetimeStats] = useState<LifetimeStats | null>(null);
   const router = useRouter();
+
+  // Lifetime aggregates for the header — fetched separately from the paged
+  // list so totals cover the user's entire history, not just loaded pages.
+  // Failure is non-fatal: TotalStatsHeader falls back to local page sums.
+  const fetchLifetimeStats = useCallback(async () => {
+    try {
+      const res = await apiClient.get<LifetimeStats>('/api/v1/drives/stats');
+      setLifetimeStats(res.data);
+    } catch { /* keep previous/fallback values */ }
+  }, []);
 
   const toggleExpand = useCallback((id: string) => {
     if (expandedId === id) {
@@ -653,11 +686,14 @@ export default function DriveHistoryScreen() {
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
-    await fetchDrives(1, true);
+    await Promise.all([fetchDrives(1, true), fetchLifetimeStats()]);
     setRefreshing(false);
-  }, [fetchDrives]);
+  }, [fetchDrives, fetchLifetimeStats]);
 
-  useEffect(() => { void fetchDrives(1, true); }, [fetchDrives]);
+  useEffect(() => {
+    void fetchDrives(1, true);
+    void fetchLifetimeStats();
+  }, [fetchDrives, fetchLifetimeStats]);
 
   const loadMore = useCallback(() => {
     if (!hasMore || loading || loadingMore) return;
@@ -725,6 +761,8 @@ export default function DriveHistoryScreen() {
               await apiClient.delete(`/api/v1/drives/${driveId}`);
               setDrives((prev) => prev.filter((d) => d.id !== driveId));
               setSelected(null);
+              // Lifetime totals in the header include the deleted drive — refresh them.
+              void fetchLifetimeStats();
             } catch {
               Alert.alert('Error', 'Could not delete this drive record. Please try again.');
             } finally {
@@ -734,7 +772,7 @@ export default function DriveHistoryScreen() {
         },
       ],
     );
-  }, []);
+  }, [fetchLifetimeStats]);
 
   const handleExport = useCallback(async () => {
     const header = csvRow([
@@ -1024,7 +1062,7 @@ export default function DriveHistoryScreen() {
         ListHeaderComponent={
           drives.length > 0 ? (
             <View>
-              <TotalStatsHeader drives={drives} onExport={handleExport} />
+              <TotalStatsHeader drives={drives} stats={lifetimeStats} onExport={handleExport} />
               <MonthlySummaryCard drives={drives} />
               <WeeklyStreakCard drives={drives} />
               <FilterPills active={activeFilter} onChange={setActiveFilter} />
@@ -1155,7 +1193,7 @@ function createStyles(colors: ThemeColors) {
     borderRadius: 14,
     marginBottom: 16,
     paddingVertical: 16,
-    paddingHorizontal: 24,
+    paddingHorizontal: 14,
     borderWidth: 1,
     borderColor: colors.border,
     alignItems: 'center',
