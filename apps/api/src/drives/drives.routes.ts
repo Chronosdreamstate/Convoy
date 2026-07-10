@@ -149,6 +149,9 @@ const lineStringSchema = z.object({
   coordinates: z.array(z.tuple([z.number(), z.number()])).min(1).max(50_000),
 });
 
+/** Max request body for POST /drives — see route registration comment. */
+export const DRIVE_BODY_LIMIT_BYTES = 8 * 1024 * 1024;
+
 const driveBodySchema = z.object({
   groupId: z.string().uuid().nullable().optional(),
   routeTrace: lineStringSchema,
@@ -264,7 +267,12 @@ const drivesRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // ── POST /drives ──────────────────────────────────────────────────────────
-  fastify.post('/drives', { preHandler: [authenticate, generalLimiter(fastify.redis)] }, async (request, reply) => {
+  // Route-level bodyLimit: a realistic 50k-point trace (~24 bytes/point) is
+  // ~1.2 MB of JSON, which Fastify's default 1 MB bodyLimit would reject with
+  // 413 before zod validation ever runs — breaking sync of legitimate ~12 h
+  // drives at 1 Hz. 8 MB keeps the zod coordinate cap (50,000 points) as the
+  // real boundary while still bounding pathological payloads.
+  fastify.post('/drives', { bodyLimit: DRIVE_BODY_LIMIT_BYTES, preHandler: [authenticate, generalLimiter(fastify.redis)] }, async (request, reply) => {
     const userId = (request.user as { sub: string }).sub;
 
     const parsed = driveBodySchema.safeParse(request.body);

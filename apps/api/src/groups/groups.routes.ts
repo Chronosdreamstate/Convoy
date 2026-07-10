@@ -1217,6 +1217,7 @@ async function groupsRoutes(
     '/groups/:id/events',
     { preHandler: [authenticate, generalLimiter(fastify.redis)] },
     async (request, reply) => {
+      const userId = (request.user as { sub: string }).sub;
       const { id } = request.params as { id: string };
 
       const groupResult = await fastify.db.query<{ access_type: string; status: string }>(
@@ -1226,11 +1227,20 @@ async function groupsRoutes(
       const group = groupResult.rows[0];
       if (!group) return reply.notFound('Group not found');
 
+      // Open groups are browsable pre-join; invite-only groups expose events
+      // to active members only (matches the rest of the events surface).
+      if (group.access_type === 'invite_only') {
+        const member = await getActiveMember(id, userId, fastify.db);
+        if (!member) return reply.forbidden('You are not a member of this group');
+      }
+
       const result = await fastify.db.query<{
         id: string; title: string; description: string | null;
         scheduled_for: string; status: string; created_by: string;
+        total_count: string;
       }>(
-        `SELECT ge.id, ge.title, ge.description, ge.scheduled_for, ge.status, ge.created_by
+        `SELECT ge.id, ge.title, ge.description, ge.scheduled_for, ge.status, ge.created_by,
+                COUNT(*) OVER() AS total_count
          FROM group_events ge
          WHERE ge.group_id = $1
            AND ge.scheduled_for > NOW()
@@ -1249,6 +1259,8 @@ async function groupsRoutes(
           status: e.status,
           createdBy: e.created_by,
         })),
+        // Total upcoming events for the group, not capped by the LIMIT above.
+        total: result.rows.length > 0 ? parseInt(result.rows[0].total_count, 10) : 0,
       });
     },
   );
@@ -1300,7 +1312,7 @@ async function groupsRoutes(
          LEFT JOIN drive_history dh ON dh.user_id = cm.user_id AND dh.group_id = $1
          WHERE cm.group_id = $1 AND cm.left_at IS NULL
          GROUP BY u.id, u.display_name, u.avatar_url, u.ptt_callsign
-         ORDER BY ${orderCol} DESC
+         ORDER BY ${orderCol} DESC, u.id ASC
          LIMIT $2`,
         [id, limit],
       );
@@ -1328,7 +1340,54 @@ async function groupsRoutes(
         };
       });
 
-      return reply.send({ leaderboard });
+      // Caller's own rank ("me"), so the client can show "Your rank: #34" even
+      // when the caller falls outside the top-N page. Null when the caller has
+      // no drives recorded in this group for the requested metric.
+      let me: { rank: number; value: number } | null = null;
+      const inList = leaderboard.find((row) => row.userId === userId);
+      if (inList) {
+        me = inList.driveCount > 0 ? { rank: inList.rank, value: inList.value } : null;
+      } else {
+        const orderExpr =
+          metric === 'convoys' ? 'COUNT(dh.id)' :
+          metric === 'time'    ? 'COALESCE(SUM(dh.duration_s), 0)' :
+                                 'COALESCE(SUM(dh.distance_m), 0)';
+
+        const meResult = await fastify.db.query<{
+          rank: string;
+          total_distance_m: string;
+          total_drives: string;
+          total_duration_s: string;
+        }>(
+          `WITH ranked AS (
+             SELECT
+               cm.user_id,
+               COALESCE(SUM(dh.distance_m), 0)::BIGINT AS total_distance_m,
+               COUNT(dh.id)::INT AS total_drives,
+               COALESCE(SUM(dh.duration_s), 0)::INT AS total_duration_s,
+               ROW_NUMBER() OVER (ORDER BY ${orderExpr} DESC, cm.user_id ASC) AS rank
+             FROM convoy_members cm
+             LEFT JOIN drive_history dh ON dh.user_id = cm.user_id AND dh.group_id = $1
+             WHERE cm.group_id = $1 AND cm.left_at IS NULL
+             GROUP BY cm.user_id
+           )
+           SELECT rank, total_distance_m, total_drives, total_duration_s
+           FROM ranked
+           WHERE user_id = $2`,
+          [id, userId],
+        );
+
+        const meRow = meResult.rows[0];
+        if (meRow && parseInt(meRow.total_drives, 10) > 0) {
+          const value =
+            metric === 'convoys' ? parseInt(meRow.total_drives, 10) :
+            metric === 'time'    ? Math.round(parseInt(meRow.total_duration_s, 10) / 60) :
+                                   Math.round(parseInt(meRow.total_distance_m, 10) / 100) / 10;
+          me = { rank: parseInt(meRow.rank, 10), value };
+        }
+      }
+
+      return reply.send({ leaderboard, me });
     },
   );
 

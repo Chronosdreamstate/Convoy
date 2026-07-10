@@ -434,9 +434,10 @@ export default async function pttRoutes(fastify: FastifyInstance): Promise<void>
 
     const result = await pool.query<{
       id: string; user_id: string; channel_id: string | null;
-      started_at: Date; display_name: string; ptt_callsign: string | null;
+      started_at: Date; ended_at: Date | null;
+      display_name: string; ptt_callsign: string | null;
     }>(
-      `SELECT l.id, l.user_id, l.channel_id, l.started_at,
+      `SELECT l.id, l.user_id, l.channel_id, l.started_at, l.ended_at,
               u.display_name, u.ptt_callsign
        FROM ptt_log l
        JOIN users u ON u.id = l.user_id
@@ -445,14 +446,16 @@ export default async function pttRoutes(fastify: FastifyInstance): Promise<void>
       [id],
     );
 
-    // Wrapped object for consistency with every other list endpoint. No mobile
-    // caller reads this via REST today (PTTLogPanel builds entries from socket events).
+    // Wrapped object for consistency with every other list endpoint.
+    // PTTLogPanel fetches this on mount to backfill transmissions that
+    // happened before the panel was opened (Req 27.2).
     return {
       log: result.rows.map((r) => ({
         id: r.id,
         userId: r.user_id,
         channelId: r.channel_id,
         startedAt: r.started_at.toISOString(),
+        endedAt: r.ended_at ? r.ended_at.toISOString() : null,
         displayName: r.display_name,
         callsign: r.ptt_callsign,
       })),

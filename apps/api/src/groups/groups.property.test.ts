@@ -277,10 +277,12 @@ async function poolQuery(sql: string, values?: unknown[]): Promise<{ rows: unkno
   if (norm.includes('FROM GROUP_EVENTS') && norm.includes("STATUS = 'UPCOMING'")) {
     const groupId = values![0] as string;
     const now = new Date();
-    const upcoming = events
+    const matching = events
       .filter((e) => e.group_id === groupId && e.scheduled_for > now && e.status === 'upcoming')
-      .sort((a, b) => a.scheduled_for.getTime() - b.scheduled_for.getTime())
-      .slice(0, 10);
+      .sort((a, b) => a.scheduled_for.getTime() - b.scheduled_for.getTime());
+    // COUNT(*) OVER() — window count computed before LIMIT
+    const total = matching.length;
+    const upcoming = matching.slice(0, 10);
     return {
       rows: upcoming.map((e) => ({
         id: e.id,
@@ -289,6 +291,7 @@ async function poolQuery(sql: string, values?: unknown[]): Promise<{ rows: unkno
         scheduled_for: e.scheduled_for.toISOString(),
         status: e.status,
         created_by: e.created_by,
+        total_count: String(total),
       })),
       rowCount: upcoming.length,
     };
@@ -2287,6 +2290,133 @@ describe('Property 121: GET /groups/:id/events only returns upcoming+future even
     const { events: aEvents } = JSON.parse(listA.body) as { events: { title: string }[] };
     expect(aEvents).toHaveLength(1);
     expect(aEvents[0].title).toBe('Event A');
+
+    await app.close();
+  });
+});
+
+// -------------------------------------------------------------------------
+// GET /groups/:id/events — `total` reflects all upcoming events (not the
+// LIMIT 10 page) and invite-only groups hide events from non-members
+// -------------------------------------------------------------------------
+describe('GET /groups/:id/events total count and invite-only access', () => {
+  beforeEach(() => { resetStore(); });
+
+  it('total equals the full upcoming count even when the list is capped at 10', async () => {
+    const app = buildTestApp();
+    await app.ready();
+
+    const adminId = '00000000-0000-0000-0000-125000000001';
+    const token = signToken(app, adminId);
+
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/api/v1/groups',
+      headers: authHeader(token),
+      payload: { name: 'Busy Events Group' },
+    });
+    const { id: groupId } = JSON.parse(createRes.body) as { id: string };
+
+    for (let i = 0; i < 13; i++) {
+      const futureDate = new Date(Date.now() + (i + 1) * 3_600_000).toISOString();
+      const res = await app.inject({
+        method: 'POST',
+        url: `/api/v1/groups/${groupId}/events`,
+        headers: authHeader(token),
+        payload: { title: `Run ${i}`, scheduledFor: futureDate },
+      });
+      expect(res.statusCode).toBe(201);
+    }
+
+    const listRes = await app.inject({
+      method: 'GET',
+      url: `/api/v1/groups/${groupId}/events`,
+      headers: authHeader(token),
+    });
+    expect(listRes.statusCode).toBe(200);
+    const body = JSON.parse(listRes.body) as { events: unknown[]; total: number };
+    expect(body.events).toHaveLength(10);
+    expect(body.total).toBe(13);
+
+    await app.close();
+  });
+
+  it('total is 0 with an empty list when the group has no upcoming events', async () => {
+    const app = buildTestApp();
+    await app.ready();
+
+    const adminId = '00000000-0000-0000-0000-125000000002';
+    const token = signToken(app, adminId);
+
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/api/v1/groups',
+      headers: authHeader(token),
+      payload: { name: 'Quiet Group' },
+    });
+    const { id: groupId } = JSON.parse(createRes.body) as { id: string };
+
+    const listRes = await app.inject({
+      method: 'GET',
+      url: `/api/v1/groups/${groupId}/events`,
+      headers: authHeader(token),
+    });
+    expect(listRes.statusCode).toBe(200);
+    const body = JSON.parse(listRes.body) as { events: unknown[]; total: number };
+    expect(body.events).toHaveLength(0);
+    expect(body.total).toBe(0);
+
+    await app.close();
+  });
+
+  it('invite-only groups return 403 to non-members and 200 to members; open groups stay browsable', async () => {
+    const app = buildTestApp();
+    await app.ready();
+
+    const adminId = '00000000-0000-0000-0000-125000000003';
+    const strangerId = '00000000-0000-0000-0000-125000000004';
+    const adminToken = signToken(app, adminId);
+    const strangerToken = signToken(app, strangerId);
+
+    const inviteRes = await app.inject({
+      method: 'POST',
+      url: '/api/v1/groups',
+      headers: authHeader(adminToken),
+      payload: { name: 'Private Group', accessType: 'invite_only' },
+    });
+    const { id: inviteGroupId } = JSON.parse(inviteRes.body) as { id: string };
+
+    const openRes = await app.inject({
+      method: 'POST',
+      url: '/api/v1/groups',
+      headers: authHeader(adminToken),
+      payload: { name: 'Open Group', accessType: 'open' },
+    });
+    const { id: openGroupId } = JSON.parse(openRes.body) as { id: string };
+
+    // Non-member cannot list an invite-only group's events
+    const asStranger = await app.inject({
+      method: 'GET',
+      url: `/api/v1/groups/${inviteGroupId}/events`,
+      headers: authHeader(strangerToken),
+    });
+    expect(asStranger.statusCode).toBe(403);
+
+    // The admin (an active member) still can
+    const asMember = await app.inject({
+      method: 'GET',
+      url: `/api/v1/groups/${inviteGroupId}/events`,
+      headers: authHeader(adminToken),
+    });
+    expect(asMember.statusCode).toBe(200);
+
+    // Open groups remain browsable by non-members (pre-join preview)
+    const openAsStranger = await app.inject({
+      method: 'GET',
+      url: `/api/v1/groups/${openGroupId}/events`,
+      headers: authHeader(strangerToken),
+    });
+    expect(openAsStranger.statusCode).toBe(200);
 
     await app.close();
   });

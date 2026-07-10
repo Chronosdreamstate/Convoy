@@ -148,7 +148,10 @@ function buildMockPool(): Pool {
 }
 
 function buildTestApp(): FastifyInstance {
-  const app = Fastify({ logger: false, bodyLimit: 8 * 1024 * 1024 });
+  // Deliberately no app-level bodyLimit override: POST /drives declares its own
+  // route-level bodyLimit (DRIVE_BODY_LIMIT_BYTES), and these tests exercise
+  // that real route config against Fastify's default 1 MB limit elsewhere.
+  const app = Fastify({ logger: false });
   app.register(fastifyCookie);
   app.register(fastifyJwt, {
     secret: 'test-secret-that-is-at-least-32-chars-long!!',
@@ -165,9 +168,15 @@ const USER_A = 'user-a';
 const USER_B = 'user-b';
 
 function makeTrace(points: number): { type: 'LineString'; coordinates: [number, number][] } {
+  // Realistic GPS precision (~24 bytes/point serialized) so large traces have
+  // realistic body sizes: 50k points is ~1.2 MB of JSON, past Fastify's
+  // default 1 MB bodyLimit and within the 8 MB route-level limit.
   return {
     type: 'LineString',
-    coordinates: Array.from({ length: points }, () => [0, 0] as [number, number]),
+    coordinates: Array.from({ length: points }, (_, i) => [
+      -122.419415 + (i % 1000) * 1e-6,
+      37.774929 + (i % 1000) * 1e-6,
+    ] as [number, number]),
   };
 }
 
@@ -208,16 +217,33 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe('POST /drives routeTrace point cap', () => {
-  it('accepts a trace with exactly 50,000 points', async () => {
+  it('accepts a trace with exactly 50,000 points, even past the default 1 MB bodyLimit', async () => {
+    const payload = validBody(50_000);
+    // Regression guard: a realistic 50k-point body must exceed Fastify's
+    // default 1 MB bodyLimit, so a 201 proves the route-level bodyLimit on
+    // POST /drives (not the zod cap alone) is what admits long drives.
+    expect(JSON.stringify(payload).length).toBeGreaterThan(1024 * 1024);
+
     const res = await app.inject({
       method: 'POST',
       url: '/api/v1/drives',
       headers: { Authorization: `Bearer ${tokenA}` },
-      payload: validBody(50_000),
+      payload,
     });
     expect(res.statusCode).toBe(201);
     const body = JSON.parse(res.body) as { routeTrace: { coordinates: unknown[] } };
     expect(body.routeTrace.coordinates).toHaveLength(50_000);
+  });
+
+  it('rejects a body larger than the 8 MB route bodyLimit with 413', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/drives',
+      headers: { Authorization: `Bearer ${tokenA}` },
+      payload: { ...validBody(), padding: 'x'.repeat(9 * 1024 * 1024) },
+    });
+    expect(res.statusCode).toBe(413);
+    expect(drives).toHaveLength(0); // nothing persisted
   });
 
   it('rejects a trace with 50,001 points with 400', async () => {
