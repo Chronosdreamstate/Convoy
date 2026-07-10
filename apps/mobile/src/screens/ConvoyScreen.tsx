@@ -257,12 +257,12 @@ export default function ConvoyScreen({ userId }: Props) {
   // Fetch PTT channels when group loads / changes
   const fetchChannels = useCallback(async (groupId: string) => {
     try {
-      const res = await apiClient.get<PttChannel[]>(`/api/v1/groups/${groupId}/channels`);
-      setPttChannels(res.data);
+      const res = await apiClient.get<{ channels: PttChannel[] }>(`/api/v1/groups/${groupId}/channels`);
+      setPttChannels(res.data.channels);
       // Auto-join "All" channel if not already in a channel
       setActivePttChannelId((prev) => {
         if (prev) return prev;
-        return res.data.find((c) => c.isAll)?.id ?? null;
+        return res.data.channels.find((c) => c.isAll)?.id ?? null;
       });
     } catch { /* silently fail */ }
   }, []);

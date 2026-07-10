@@ -964,6 +964,8 @@ export default function ConvoyEndScreen() {
             style={achievementStyles.backdrop}
             activeOpacity={1}
             onPress={dismissFirstConvoyAchievement}
+            accessibilityRole="button"
+            accessibilityLabel="Dismiss achievement"
           >
             <Animated.View
               style={[
@@ -1059,7 +1061,12 @@ export default function ConvoyEndScreen() {
             </TouchableOpacity>
           </View>
           {photos.length === 0 ? (
-            <TouchableOpacity style={styles.photoEmptyState} onPress={pickFromLibrary}>
+            <TouchableOpacity
+              style={styles.photoEmptyState}
+              onPress={pickFromLibrary}
+              accessibilityRole="button"
+              accessibilityLabel="Add photos from today's drive"
+            >
               <Ionicons name="camera-outline" size={24} color={colors.textMuted} style={styles.photoEmptyIcon} />
               <Text style={styles.photoEmptyText}>Add photos from today's drive</Text>
             </TouchableOpacity>
@@ -1156,6 +1163,8 @@ export default function ConvoyEndScreen() {
                 await Clipboard.setStringAsync('https://convoy.app/download');
                 Alert.alert('Link Copied!', 'Share convoy.app/download with your friends.');
               }}
+              accessibilityRole="button"
+              accessibilityLabel="Copy invite link"
             >
               <Text style={extraStyles.inviteBtnText}>Copy Invite Link</Text>
             </TouchableOpacity>

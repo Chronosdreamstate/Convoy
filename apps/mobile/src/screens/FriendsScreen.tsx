@@ -173,7 +173,10 @@ function FriendRow({
 
   const handleOpenDM = async () => {
     try {
-      const res = await apiClient.post<{ groupId: string }>('/api/v1/dm', { friendId: friend.id });
+      // NB: `friendId` is the friend's USER id — `friend.id` is the
+      // friendship-row id (used for DELETE /friends/:id) and the DM endpoint
+      // rejects it with "You are not friends with this user".
+      const res = await apiClient.post<{ groupId: string }>('/api/v1/dm', { friendId: friend.userId });
       (router.push as (href: { pathname: string; params?: Record<string, string> }) => void)({ pathname: '/group-chat', params: { groupId: res.data.groupId } });
     } catch {
       Alert.alert('Error', 'Could not open message thread.');
@@ -207,7 +210,14 @@ function FriendRow({
   const busy = removing || blocking;
 
   return (
-    <TouchableOpacity onPress={handleTap} activeOpacity={0.85} disabled={busy}>
+    <TouchableOpacity
+      onPress={handleTap}
+      activeOpacity={0.85}
+      disabled={busy}
+      accessibilityRole="button"
+      accessibilityLabel={`${friend.displayName}${friend.callsign ? `, callsign ${friend.callsign}` : ''}. Opens actions: message, invite, remove, or block`}
+      accessibilityState={{ disabled: busy }}
+    >
     <Animated.View style={[styles.card, { transform: [{ translateX: slideAnim }], opacity: opAnim }]}>
       <Avatar name={friend.displayName} online={friend.isOnline} />
       <View style={styles.cardInfo}>
@@ -569,6 +579,20 @@ export default function FriendsScreen() {
   const tabAnim = useRef(new Animated.Value(initialTab === 'requests' ? 1 : 0)).current;
   const [tabBarW, setTabBarW] = useState(0);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Prefetch the pending-request count on mount. RequestsTab only mounts once
+  // the user taps its tab, so without this the badge stayed at 0 and a driver
+  // with waiting requests had no cue to ever open the tab.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const { data } = await apiClient.get<{ requests: unknown[] }>('/api/v1/friends/requests');
+        if (!cancelled) setPending(data.requests.length);
+      } catch { /* badge stays hidden; RequestsTab corrects it on open */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   const switchTab = (idx: number) => {
     setTab(idx === 0 ? 'friends' : 'requests');

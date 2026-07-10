@@ -607,12 +607,16 @@ export default function ProfileScreen() {
               <TouchableOpacity
                 style={[styles.modalBtn, styles.modalBtnCancel]}
                 onPress={() => setShowAvatarModal(false)}
+                accessibilityRole="button"
+                accessibilityLabel="Cancel photo URL"
               >
                 <Text style={styles.modalBtnCancelText}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.modalBtn, styles.modalBtnConfirm]}
                 onPress={handleAvatarUrlConfirm}
+                accessibilityRole="button"
+                accessibilityLabel="Apply photo URL"
               >
                 <Text style={styles.modalBtnConfirmText}>Apply</Text>
               </TouchableOpacity>

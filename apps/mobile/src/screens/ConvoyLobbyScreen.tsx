@@ -130,6 +130,7 @@ export default function ConvoyLobbyScreen({ groupId, groupName, onConvoyStart }:
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const [members, setMembers] = useState<LobbyMember[]>([]);
+  const [membersError, setMembersError] = useState(false);
   const [selfReady, setSelfReady] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
@@ -210,6 +211,7 @@ export default function ConvoyLobbyScreen({ groupId, groupName, onConvoyStart }:
     apiClient
       .get<{ members: MemberApiItem[] }>(`/api/v1/groups/${groupId}/members`)
       .then((res) => {
+        setMembersError(false);
         setMembers((prev) => {
           // Preserve existing ready flags when refreshing the list
           const readySet = new Set(prev.filter((m) => m.isReady).map((m) => m.userId));
@@ -221,7 +223,9 @@ export default function ConvoyLobbyScreen({ groupId, groupName, onConvoyStart }:
           }));
         });
       })
-      .catch(() => {});
+      // Flag the failure so the empty state can offer a retry instead of
+      // showing "No members yet…" indefinitely after a failed fetch.
+      .catch(() => setMembersError(true));
   }, [groupId]);
 
   useEffect(() => {
@@ -388,9 +392,20 @@ export default function ConvoyLobbyScreen({ groupId, groupName, onConvoyStart }:
         ))}
 
         {members.length === 0 && (
-          <View style={styles.emptyMembers}>
-            <Text style={styles.emptyMembersText}>No members yet…</Text>
-          </View>
+          membersError ? (
+            <TouchableOpacity
+              style={styles.emptyMembers}
+              onPress={fetchMembers}
+              accessibilityRole="button"
+              accessibilityLabel="Retry loading members"
+            >
+              <Text style={styles.emptyMembersText}>Couldn't load members — tap to retry</Text>
+            </TouchableOpacity>
+          ) : (
+            <View style={styles.emptyMembers}>
+              <Text style={styles.emptyMembersText}>No members yet…</Text>
+            </View>
+          )
         )}
       </ScrollView>
 

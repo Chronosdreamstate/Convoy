@@ -29,6 +29,7 @@ import { FileSystemUploadType } from 'expo-file-system/legacy';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuthStore } from '../stores/authStore';
 import { useSocketStore } from '../stores/socketStore';
+import { useGroupStore } from '../stores/groupStore';
 import { apiClient } from '../services/apiClient';
 import { SkeletonRow } from '../components/SkeletonLoader';
 import { NetworkError } from '../components/NetworkError';
@@ -82,6 +83,38 @@ function avatarInitials(name: string): string {
     .map((w) => w[0] ?? '')
     .join('')
     .toUpperCase();
+}
+
+/**
+ * Pure reducer applying an add/remove reaction to a message list. Shared by
+ * the socket `group:reaction` handler and the optimistic local apply in
+ * `handleReact` so both paths stay in sync. Idempotent: adds use a Set, and
+ * removing an absent reaction is a no-op — safe when the socket echo of our
+ * own REST call arrives after we've already applied it locally.
+ */
+function applyReactionToMessages(
+  messages: Message[],
+  payload: { messageId: string; emoji: string; userId: string; action: 'add' | 'remove' },
+): Message[] {
+  return messages.map((m) => {
+    if (m.id !== payload.messageId) return m;
+    const reactions = m.reactions ? [...m.reactions] : [];
+    const idx = reactions.findIndex((r) => r.emoji === payload.emoji);
+    if (payload.action === 'add') {
+      if (idx >= 0) {
+        reactions[idx] = { ...reactions[idx], userIds: [...new Set([...reactions[idx].userIds, payload.userId])] };
+      } else {
+        reactions.push({ emoji: payload.emoji, userIds: [payload.userId] });
+      }
+    } else {
+      if (idx >= 0) {
+        const userIds = reactions[idx].userIds.filter((id) => id !== payload.userId);
+        if (userIds.length === 0) reactions.splice(idx, 1);
+        else reactions[idx] = { ...reactions[idx], userIds };
+      }
+    }
+    return { ...m, reactions };
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -493,10 +526,21 @@ export default function GroupChatScreen() {
   // Socket: real-time updates
   // ---------------------------------------------------------------------------
 
+  // The convoy socket is joined to the *active convoy's* room only. When this
+  // screen shows a different thread (a DM, or another group's chat opened
+  // while a convoy is live), every `group:message`/`chat:typing` event the
+  // socket receives belongs to the convoy — not to this thread — so they must
+  // be filtered out or convoy chatter would bleed into the DM view.
+  const activeGroupId = useGroupStore((s) => s.activeGroupId);
+  const socketCoversThread = !!socket && !!groupId && groupId === activeGroupId;
+
   useEffect(() => {
     if (!socket) return;
 
-    const handleMessage = (msg: Message) => {
+    const handleMessage = (msg: Message & { groupId?: string }) => {
+      // Only accept messages for THIS thread — the socket room is scoped to
+      // the active convoy, which may not be the thread on screen (see above).
+      if (msg.groupId && msg.groupId !== groupId) return;
       // De-duped by id: the sender's own message is already added optimistically
       // by `sendMessage` (and reconciled with the real id from the POST
       // response) before this broadcast round-trips back, so without this
@@ -505,31 +549,17 @@ export default function GroupChatScreen() {
     };
 
     const handleReaction = (payload: { messageId: string; emoji: string; userId: string; action: 'add' | 'remove' }) => {
-      setMessages((prev) =>
-        prev.map((m) => {
-          if (m.id !== payload.messageId) return m;
-          const reactions = m.reactions ? [...m.reactions] : [];
-          const idx = reactions.findIndex((r) => r.emoji === payload.emoji);
-          if (payload.action === 'add') {
-            if (idx >= 0) {
-              reactions[idx] = { ...reactions[idx], userIds: [...new Set([...reactions[idx].userIds, payload.userId])] };
-            } else {
-              reactions.push({ emoji: payload.emoji, userIds: [payload.userId] });
-            }
-          } else {
-            if (idx >= 0) {
-              const userIds = reactions[idx].userIds.filter((id) => id !== payload.userId);
-              if (userIds.length === 0) reactions.splice(idx, 1);
-              else reactions[idx] = { ...reactions[idx], userIds };
-            }
-          }
-          return { ...m, reactions };
-        }),
-      );
+      // Reactions for other threads match no messageId here, so this is
+      // inherently scoped; the reducer is also idempotent against the echo
+      // of our own optimistic apply.
+      setMessages((prev) => applyReactionToMessages(prev, payload));
     };
 
     const handleTyping = (payload: { userId: string; displayName: string }) => {
       if (payload.userId === currentUserId) return;
+      // Typing events carry no groupId — they can only be attributed to this
+      // thread when the socket room IS this thread's room.
+      if (!socketCoversThread) return;
       setTypingUser(payload.displayName);
       if (typingClearTimerRef.current) clearTimeout(typingClearTimerRef.current);
       typingClearTimerRef.current = setTimeout(() => setTypingUser(null), 3000);
@@ -544,7 +574,30 @@ export default function GroupChatScreen() {
       socket.off('group:reaction', handleReaction);
       socket.off('chat:typing', handleTyping);
     };
-  }, [socket, currentUserId]);
+  }, [socket, currentUserId, groupId, socketCoversThread]);
+
+  // Live-update fallback for threads the socket doesn't cover (DMs, or any
+  // chat opened without an active convoy connection): poll for new messages
+  // so the conversation still feels alive instead of only updating on
+  // re-entry. Skipped entirely while the socket room matches this thread.
+  useEffect(() => {
+    if (socketCoversThread || !groupId || !accessToken || loading || loadError) return;
+    const timer = setInterval(() => {
+      void (async () => {
+        try {
+          const { data } = await apiClient.get<{ messages: Message[] }>(
+            `/api/v1/groups/${groupId}/messages?limit=20`,
+          );
+          setMessages((prev) => {
+            const seen = new Set(prev.map((m) => m.id));
+            const fresh = data.messages.filter((m) => !seen.has(m.id));
+            return fresh.length > 0 ? [...fresh, ...prev] : prev;
+          });
+        } catch { /* transient poll failure — next tick retries */ }
+      })();
+    }, 6000);
+    return () => clearInterval(timer);
+  }, [socketCoversThread, groupId, accessToken, loading, loadError]);
 
   // Cleanup timers and recording on unmount
   useEffect(() => {
@@ -618,25 +671,26 @@ export default function GroupChatScreen() {
       Alert.alert('Permission Required', 'Microphone access is required to send voice messages.');
       return;
     }
-    await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
-    const { recording } = await Audio.Recording.createAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
-    recordingRef.current = recording;
-    setIsRecording(true);
-    setRecordingDuration(0);
-    durationIntervalRef.current = setInterval(() => setRecordingDuration((d) => d + 1), 1000);
+    try {
+      await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
+      const { recording } = await Audio.Recording.createAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
+      recordingRef.current = recording;
+      setIsRecording(true);
+      setRecordingDuration(0);
+      durationIntervalRef.current = setInterval(() => setRecordingDuration((d) => d + 1), 1000);
+    } catch {
+      // e.g. mic held by another app, or audio session init failure — without
+      // this catch the promise rejection was unhandled and the button did
+      // nothing with no feedback.
+      Alert.alert('Recording Unavailable', 'Could not start recording. Close other apps using the microphone and try again.');
+    }
   }, []);
 
-  const stopAndSendRecording = useCallback(async () => {
-    if (!recordingRef.current) return;
-    if (durationIntervalRef.current) clearInterval(durationIntervalRef.current);
-    setIsRecording(false);
-    setRecordingDuration(0);
-    const recording = recordingRef.current;
-    recordingRef.current = null;
-    await recording.stopAndUnloadAsync();
-    await Audio.setAudioModeAsync({ allowsRecordingIOS: false });
-    const uri = recording.getURI();
-    if (!uri || !groupId || !accessToken) return;
+  // Upload + send an already-recorded voice file. Separated from the
+  // stop-recording step so a failed upload can be retried without losing
+  // the recording the user just made.
+  const uploadVoiceMessage = useCallback(async (uri: string) => {
+    if (!groupId || !accessToken) return;
     setSending(true);
     try {
       const uploadResult = await FileSystem.uploadAsync(
@@ -651,13 +705,40 @@ export default function GroupChatScreen() {
         },
       );
       const { url: audioUrl } = JSON.parse(uploadResult.body) as { url: string };
-      await apiClient.post(`/api/v1/groups/${groupId}/messages`, { type: 'voice', audioUrl });
+      const { data } = await apiClient.post<Message>(`/api/v1/groups/${groupId}/messages`, { type: 'voice', audioUrl });
+      // Show the sent voice message immediately — outside an active convoy
+      // there is no socket echo to deliver it back to the sender.
+      setMessages((prev) => (prev.some((m) => m.id === data.id) ? prev : [data, ...prev]));
     } catch {
-      Alert.alert('Failed', 'Could not send voice message. Please try again.');
+      // Keep the recording and offer a retry rather than silently discarding
+      // what the user just said.
+      Alert.alert('Failed to Send', 'Could not send voice message.', [
+        { text: 'Discard', style: 'destructive' },
+        { text: 'Retry', onPress: () => void uploadVoiceMessage(uri) },
+      ]);
     } finally {
       setSending(false);
     }
   }, [groupId, accessToken, apiUrl]);
+
+  const stopAndSendRecording = useCallback(async () => {
+    if (!recordingRef.current) return;
+    if (durationIntervalRef.current) clearInterval(durationIntervalRef.current);
+    setIsRecording(false);
+    setRecordingDuration(0);
+    const recording = recordingRef.current;
+    recordingRef.current = null;
+    try {
+      await recording.stopAndUnloadAsync();
+      await Audio.setAudioModeAsync({ allowsRecordingIOS: false });
+    } catch {
+      Alert.alert('Failed', 'Could not finish the recording. Please try again.');
+      return;
+    }
+    const uri = recording.getURI();
+    if (!uri) return;
+    await uploadVoiceMessage(uri);
+  }, [uploadVoiceMessage]);
 
   const handleVoicePress = useCallback(() => {
     if (isRecording) {
@@ -673,12 +754,15 @@ export default function GroupChatScreen() {
 
   const handleInputChange = useCallback((text: string) => {
     setInputText(text);
-    if (!socket || !groupId || !user) return;
+    // Only emit typing when the socket room IS this thread — the server
+    // relays `chat:typing` to the socket's own (convoy) room, so emitting
+    // from a DM would show "X is typing…" to the whole convoy chat instead.
+    if (!socket || !socketCoversThread || !groupId || !user) return;
     if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
     typingTimerRef.current = setTimeout(() => {
       socket.emit('chat:typing', { groupId, displayName: user.displayName ?? 'Someone' });
     }, 1000);
-  }, [socket, groupId, user]);
+  }, [socket, socketCoversThread, groupId, user]);
 
   // ---------------------------------------------------------------------------
   // Reactions
@@ -688,19 +772,34 @@ export default function GroupChatScreen() {
     setReactionTarget(messageId);
   }, []);
 
+  // Reactions go through the REST endpoint (which persists AND broadcasts the
+  // socket event server-side) rather than a raw `chat:react` socket emit. The
+  // socket emit was scoped to the socket's own convoy room, so it silently
+  // did nothing in DMs and whenever no convoy socket existed. The optimistic
+  // local apply keeps the pill instant; a failed call rolls it back.
   const handleReact = useCallback((messageId: string, emoji: string) => {
-    if (!socket || !groupId) return;
+    if (!groupId || !currentUserId) return;
     const msg = messages.find((m) => m.id === messageId);
+    if (msg?.pending || msg?.failed || msg?.id.startsWith('local-')) return; // not on the server yet
     const reaction = msg?.reactions?.find((r) => r.emoji === emoji);
     const alreadyReacted = reaction?.userIds.includes(currentUserId) ?? false;
-    socket.emit('chat:react', {
-      messageId,
-      groupId,
-      emoji,
-      userId: currentUserId,
-      action: alreadyReacted ? 'remove' : 'add',
+    const action: 'add' | 'remove' = alreadyReacted ? 'remove' : 'add';
+
+    setMessages((prev) => applyReactionToMessages(prev, { messageId, emoji, userId: currentUserId, action }));
+
+    const request = action === 'add'
+      ? apiClient.post(`/api/v1/groups/${groupId}/messages/${messageId}/react`, { emoji })
+      : apiClient.delete(`/api/v1/groups/${groupId}/messages/${messageId}/react`, { data: { emoji } });
+    request.catch(() => {
+      // Roll back the optimistic apply
+      setMessages((prev) => applyReactionToMessages(prev, {
+        messageId,
+        emoji,
+        userId: currentUserId,
+        action: action === 'add' ? 'remove' : 'add',
+      }));
     });
-  }, [socket, groupId, messages, currentUserId]);
+  }, [groupId, messages, currentUserId]);
 
   const handleReactionSelect = useCallback((emoji: string) => {
     if (reactionTarget) handleReact(reactionTarget, emoji);
