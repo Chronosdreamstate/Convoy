@@ -56,6 +56,37 @@ export interface DriveRecord extends DriveBody {
 
 export { haversineDistanceM };
 
+/**
+ * Hard cap on uploaded route-trace points. Mirrors the API's routeTrace
+ * validation limit (50k) — a multi-day drive at one fix every ~3 s crosses it
+ * after roughly 1.7 days, and would also blow the route body size limit.
+ */
+export const MAX_TRACE_POINTS = 50_000;
+
+/**
+ * Uniformly downsample `points` to at most `maxPoints`, always preserving the
+ * first and last elements and the original order. Index selection is
+ * round(i * (len-1) / (maxPoints-1)) — an even keep-every-Nth spread that can
+ * never return more than maxPoints entries. Returns the input array unchanged
+ * (same reference) when it is already within budget.
+ */
+export function downsampleTrace<T>(points: T[], maxPoints: number = MAX_TRACE_POINTS): T[] {
+  if (maxPoints < 2) throw new RangeError('maxPoints must be at least 2');
+  if (points.length <= maxPoints) return points;
+
+  const lastIdx = points.length - 1;
+  const out: T[] = [];
+  let prevIdx = -1;
+  for (let i = 0; i < maxPoints; i++) {
+    const idx = Math.round((i * lastIdx) / (maxPoints - 1));
+    if (idx !== prevIdx) {
+      out.push(points[idx]);
+      prevIdx = idx;
+    }
+  }
+  return out;
+}
+
 /** Compute drive stats from an ordered array of track points. Returns null if < 2 points. */
 export function computeDriveStats(points: TrackPoint[]): DriveStats | null {
   if (points.length < 2) return null;
@@ -77,7 +108,10 @@ export function computeDriveStats(points: TrackPoint[]): DriveStats | null {
   return {
     routeTrace: {
       type: 'LineString',
-      coordinates: points.map((p) => [p.lng, p.lat]),
+      // Distance/duration/speeds above use EVERY buffered point; only the
+      // uploaded polyline is thinned, so stats stay exact while the trace can
+      // never exceed the API's 50k-point routeTrace cap (Req 19.1).
+      coordinates: downsampleTrace(points).map((p) => [p.lng, p.lat]),
     },
     distanceM: Math.round(distanceM),
     durationS,

@@ -14,6 +14,15 @@ interface SocketState {
   _handlePresenceUpdate: (data: { userId: string; isOnline: boolean; lastSeen: string }) => void;
 }
 
+// connect/disconnect handlers attached to the CURRENT store socket, kept so
+// they can be detached precisely when the socket is replaced. Screens may run
+// several WebSocketService instances concurrently (e.g. IdleMapScreen's
+// personal-room socket never enters the store) — tracking per-socket ensures
+// only the store's active socket ever drives `isConnected`, and detaching by
+// handler reference never strips listeners other code attached to the same
+// events (WebSocketService's heartbeat, MapScreen's own connect handlers).
+let liveHandlers: { onConnect: () => void; onDisconnect: () => void } | null = null;
+
 export const useSocketStore = create<SocketState>((set, get) => ({
   socket: null,
   isConnected: false,
@@ -22,11 +31,37 @@ export const useSocketStore = create<SocketState>((set, get) => ({
 
   setSocket: (socket) => {
     const prev = get().socket;
-    if (prev && prev !== socket) {
+    if (prev === socket) {
+      // Same socket re-set — listeners are already attached; just refresh the
+      // connected flag rather than stacking duplicate handlers.
+      set({ isConnected: socket?.connected ?? false });
+      return;
+    }
+    if (prev) {
       prev.off('member:online');
       prev.off('member:offline');
       prev.off('presence:update');
+      if (liveHandlers) {
+        prev.off('connect', liveHandlers.onConnect);
+        prev.off('disconnect', liveHandlers.onDisconnect);
+      }
       prev.disconnect();
+    }
+    liveHandlers = null;
+
+    if (socket) {
+      // Keep isConnected live for the whole app (offline banners, chat poll
+      // fallback) — guard on identity so a socket that was already replaced
+      // can never flip the flag for its successor.
+      const onConnect = () => {
+        if (get().socket === socket) set({ isConnected: true });
+      };
+      const onDisconnect = () => {
+        if (get().socket === socket) set({ isConnected: false });
+      };
+      socket.on('connect', onConnect);
+      socket.on('disconnect', onDisconnect);
+      liveHandlers = { onConnect, onDisconnect };
     }
 
     if (socket) {

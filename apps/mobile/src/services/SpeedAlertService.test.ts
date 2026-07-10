@@ -26,6 +26,9 @@ jest.mock('./OfflineQueueService', () => ({
   offlineQueue: {
     enqueue: (...args: unknown[]) => mockEnqueue(...args),
   },
+  // Real classifier semantics: offline = axios error without an HTTP response.
+  isOfflineError: (err: unknown) =>
+    (err as { response?: unknown } | null)?.response === undefined,
 }));
 
 import { speedAlertService, SpeedCamera } from './SpeedAlertService';

@@ -15,6 +15,17 @@ const MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
 const MAX_ATTEMPTS = 5;
 const MAX_QUEUE_SIZE = 100;
 
+/**
+ * Axios-shaped "no HTTP response" failure — the device is offline (or the
+ * server is unreachable). 4xx/5xx responses are NOT offline: the request got
+ * through and queueing a replay would not change the outcome (5xx were
+ * already retried with backoff by apiClient's interceptor). Shared by every
+ * service that follows the enqueue-on-offline-failure pattern.
+ */
+export function isOfflineError(err: unknown): boolean {
+  return (err as { response?: unknown } | null)?.response === undefined;
+}
+
 export interface QueuedRequest {
   id: string;
   method: 'POST' | 'PUT' | 'PATCH' | 'DELETE';

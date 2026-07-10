@@ -24,6 +24,8 @@ import fc from 'fast-check';
 import {
   haversineDistanceM,
   computeDriveStats,
+  downsampleTrace,
+  MAX_TRACE_POINTS,
   TrackPoint,
 } from './DriveService';
 
@@ -210,5 +212,88 @@ describe('Property 90: computeDriveStats.topSpeedKph is null when all speeds are
       ),
       { numRuns: 50 },
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Property 91: downsampleTrace bounds the trace, preserving endpoints + order
+// ---------------------------------------------------------------------------
+describe('Property 91: downsampleTrace never exceeds the budget and preserves endpoints', () => {
+  it('output length <= maxPoints, first/last preserved, order is a subsequence', () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 0, max: 5_000 }),   // input length
+        fc.integer({ min: 2, max: 500 }),      // budget
+        (len, maxPoints) => {
+          const input = Array.from({ length: len }, (_, i) => i);
+          const out = downsampleTrace(input, maxPoints);
+
+          expect(out.length).toBeLessThanOrEqual(maxPoints);
+          if (len > 0) {
+            expect(out[0]).toBe(0);
+            expect(out[out.length - 1]).toBe(len - 1);
+          }
+          // Strictly increasing values => order preserved, no duplicates
+          for (let i = 1; i < out.length; i++) {
+            expect(out[i]).toBeGreaterThan(out[i - 1]);
+          }
+        },
+      ),
+      { numRuns: 200 },
+    );
+  });
+
+  it('returns the input unchanged (same reference) when already within budget', () => {
+    fc.assert(
+      fc.property(fc.integer({ min: 0, max: 300 }), (len) => {
+        const input = Array.from({ length: len }, (_, i) => i);
+        expect(downsampleTrace(input, 300)).toBe(input);
+      }),
+      { numRuns: 50 },
+    );
+  });
+
+  it('spreads kept indices roughly uniformly (max gap is bounded)', () => {
+    const input = Array.from({ length: 10_000 }, (_, i) => i);
+    const out = downsampleTrace(input, 100);
+    // Ideal gap is ~101; allow slack for rounding but catch clustering bugs.
+    for (let i = 1; i < out.length; i++) {
+      expect(out[i] - out[i - 1]).toBeLessThanOrEqual(Math.ceil(9_999 / 99) + 1);
+    }
+  });
+
+  it('throws for a budget below 2', () => {
+    expect(() => downsampleTrace([1, 2, 3], 1)).toThrow(RangeError);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Property 92: computeDriveStats caps routeTrace at MAX_TRACE_POINTS
+// ---------------------------------------------------------------------------
+describe('Property 92: computeDriveStats routeTrace never exceeds MAX_TRACE_POINTS', () => {
+  it('a multi-day-sized buffer produces a trace at the cap, keeping endpoints and exact stats', () => {
+    // ~60k points ≈ 2 days at one fix every ~3 s — over the 50k API cap.
+    const count = MAX_TRACE_POINTS + 10_000;
+    const points: TrackPoint[] = Array.from({ length: count }, (_, i) =>
+      makePoint(0.00001 * i, 0, 30, i * 3_000),
+    );
+
+    const stats = computeDriveStats(points)!;
+
+    expect(stats.routeTrace.coordinates.length).toBeLessThanOrEqual(MAX_TRACE_POINTS);
+    // Endpoints survive downsampling ([lng, lat] ordering)
+    expect(stats.routeTrace.coordinates[0]).toEqual([0, 0]);
+    const lastCoord = stats.routeTrace.coordinates[stats.routeTrace.coordinates.length - 1];
+    expect(lastCoord[1]).toBeCloseTo(0.00001 * (count - 1), 10);
+    // Stats still computed from EVERY point, not the thinned trace
+    expect(stats.durationS).toBe(Math.round(((count - 1) * 3_000) / 1000));
+  });
+
+  it('traces at or under the cap are not modified', () => {
+    const points: TrackPoint[] = Array.from({ length: 500 }, (_, i) =>
+      makePoint(0.001 * i, 0.001 * i, 40, i * 3_000),
+    );
+    const stats = computeDriveStats(points)!;
+    expect(stats.routeTrace.coordinates).toHaveLength(500);
   });
 });

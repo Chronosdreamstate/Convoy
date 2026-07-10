@@ -78,6 +78,19 @@ function makeOfflineCache() {
   };
 }
 
+function makeVoteQueue() {
+  const enqueued: Array<{ method: string; url: string; body: unknown; dedupeKey?: string }> = [];
+  return {
+    queue: {
+      enqueue: jest.fn(async (req: { method: 'POST'; url: string; body: unknown; headers: Record<string, string>; dedupeKey?: string }) => {
+        enqueued.push(req);
+        return `queued-${enqueued.length}`;
+      }),
+    },
+    enqueued,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Property 71: Offline hazard reports are queued locally
 // ---------------------------------------------------------------------------
@@ -166,37 +179,107 @@ describe('Property 72: API failure while online falls back to offline queue', ()
 });
 
 // ---------------------------------------------------------------------------
-// Property 73: Confirm/dismiss votes are best-effort (no offline queuing)
+// Property 73: Confirm/dismiss votes queue for replay on offline-shaped
+// failures (no HTTP response), stay fire-and-forget on server rejections,
+// and dedupe per hazard (last-write-wins).
 // ---------------------------------------------------------------------------
-describe('Property 73: Confirm/dismiss votes are best-effort', () => {
-  it('confirm() does not throw when API fails', async () => {
+describe('Property 73: Confirm/dismiss votes queue offline, never throw', () => {
+  const defaultNow = () => Date.now();
+
+  it('confirm() does not throw when API fails, and queues the vote for replay', async () => {
     const { api } = makeApi({ confirmShouldFail: true });
     const { cache } = makeOfflineCache();
-    const svc = new HazardService(api, cache, () => true);
+    const { queue, enqueued } = makeVoteQueue();
+    const svc = new HazardService(api, cache, () => true, defaultNow, queue);
 
     await expect(svc.confirm('h-1')).resolves.not.toThrow();
+    // Votes never touch the SQLite hazard-report cache
     expect(cache.saveOfflineHazard).not.toHaveBeenCalled();
+    expect(enqueued).toEqual([
+      { method: 'POST', url: '/api/v1/hazards/h-1/confirm', body: {}, headers: {}, dedupeKey: 'hazard-vote:h-1' },
+    ]);
   });
 
-  it('dismiss() does not throw when API fails', async () => {
+  it('dismiss() does not throw when API fails, and queues the vote for replay', async () => {
     const { api } = makeApi({ dismissShouldFail: true });
     const { cache } = makeOfflineCache();
-    const svc = new HazardService(api, cache, () => true);
+    const { queue, enqueued } = makeVoteQueue();
+    const svc = new HazardService(api, cache, () => true, defaultNow, queue);
 
     await expect(svc.dismiss('h-1')).resolves.not.toThrow();
     expect(cache.saveOfflineHazard).not.toHaveBeenCalled();
+    expect(enqueued).toEqual([
+      { method: 'POST', url: '/api/v1/hazards/h-1/dismiss', body: {}, headers: {}, dedupeKey: 'hazard-vote:h-1' },
+    ]);
+  });
+
+  it('queues directly (without calling the API) when offline', async () => {
+    const { api } = makeApi();
+    const { cache } = makeOfflineCache();
+    const { queue, enqueued } = makeVoteQueue();
+    const svc = new HazardService(api, cache, () => false, defaultNow, queue);
+
+    await svc.confirm('h-2');
+
+    expect(api.confirmHazard).not.toHaveBeenCalled();
+    expect(enqueued).toHaveLength(1);
+    expect(enqueued[0].url).toBe('/api/v1/hazards/h-2/confirm');
+  });
+
+  it('does NOT queue when the server responded with an error (4xx/5xx)', async () => {
+    const rejection = Object.assign(new Error('Unprocessable'), { response: { status: 422 } });
+    const api = {
+      createHazard: jest.fn(),
+      confirmHazard: jest.fn().mockRejectedValue(rejection),
+      dismissHazard: jest.fn().mockRejectedValue(rejection),
+    };
+    const { cache } = makeOfflineCache();
+    const { queue, enqueued } = makeVoteQueue();
+    const svc = new HazardService(api, cache, () => true, defaultNow, queue);
+
+    await expect(svc.confirm('h-3')).resolves.not.toThrow();
+    await expect(svc.dismiss('h-3')).resolves.not.toThrow();
+    expect(enqueued).toHaveLength(0);
+  });
+
+  it('does NOT queue votes for locally-created offline hazards (no server id yet)', async () => {
+    const { api } = makeApi();
+    const { cache } = makeOfflineCache();
+    const { queue, enqueued } = makeVoteQueue();
+    const svc = new HazardService(api, cache, () => false, defaultNow, queue);
+
+    await svc.confirm('offline-1700000000000-ab1cd');
+    await svc.dismiss('offline-1700000000000-ab1cd');
+
+    expect(enqueued).toHaveLength(0);
+  });
+
+  it('confirm then dismiss on the same hazard share a dedupeKey (last-write-wins on replay)', async () => {
+    const { api } = makeApi({ confirmShouldFail: true, dismissShouldFail: true });
+    const { cache } = makeOfflineCache();
+    const { queue, enqueued } = makeVoteQueue();
+    const svc = new HazardService(api, cache, () => true, defaultNow, queue);
+
+    await svc.confirm('h-4');
+    await svc.dismiss('h-4');
+
+    expect(enqueued).toHaveLength(2);
+    expect(enqueued[0].dedupeKey).toBe('hazard-vote:h-4');
+    expect(enqueued[1].dedupeKey).toBe('hazard-vote:h-4');
   });
 
   it('confirm/dismiss calls API when online', async () => {
     const { api, confirmed, dismissed } = makeApi();
     const { cache } = makeOfflineCache();
-    const svc = new HazardService(api, cache, () => true);
+    const { queue, enqueued } = makeVoteQueue();
+    const svc = new HazardService(api, cache, () => true, defaultNow, queue);
 
     await svc.confirm('h-confirm');
     await svc.dismiss('h-dismiss');
 
     expect(confirmed).toContain('h-confirm');
     expect(dismissed).toContain('h-dismiss');
+    expect(enqueued).toHaveLength(0);
   });
 });
 

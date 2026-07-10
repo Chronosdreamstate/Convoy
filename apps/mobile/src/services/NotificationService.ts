@@ -11,6 +11,7 @@ import Constants from 'expo-constants';
 import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
 import { apiClient } from './apiClient';
+import { offlineQueue, isOfflineError } from './OfflineQueueService';
 
 // ---------------------------------------------------------------------------
 // Module-level notification handler
@@ -196,8 +197,27 @@ export class NotificationService {
       const { data: pushToken } = await this.tokenProvider.getExpoPushTokenAsync({ projectId });
 
       const platform = this.tokenProvider.getPlatform();
-      await apiClient.post('/api/v1/devices', { pushToken, platform });
-      this.registered = true;
+      const body = { pushToken, platform };
+      try {
+        await apiClient.post('/api/v1/devices', body);
+        this.registered = true;
+      } catch (err) {
+        // Offline (no HTTP response): queue the registration for replay so the
+        // device still receives pushes without waiting for the next app start.
+        // Registration is an idempotent upsert keyed by pushToken and the
+        // queue is cleared on sign-out, so replay can never surprise the user.
+        // dedupeKey keeps only the newest token if this races a token refresh.
+        // Server rejections stay fire-and-forget (replay wouldn't change them).
+        if (isOfflineError(err)) {
+          await offlineQueue.enqueue({
+            method: 'POST',
+            url: '/api/v1/devices',
+            body,
+            headers: {},
+            dedupeKey: 'device-register',
+          });
+        }
+      }
     } catch {
       // Non-fatal — notifications won't arrive but app continues
     }

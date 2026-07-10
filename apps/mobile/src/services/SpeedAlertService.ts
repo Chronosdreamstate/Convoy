@@ -1,5 +1,5 @@
 import { apiClient } from './apiClient';
-import { offlineQueue } from './OfflineQueueService';
+import { offlineQueue, isOfflineError } from './OfflineQueueService';
 import { haversineDistanceM } from '../utils/geo';
 
 export interface SpeedCamera {
@@ -14,16 +14,6 @@ export interface SpeedCamera {
 }
 
 const ALERT_RADIUS_M = 500;
-
-/**
- * Axios-shaped "no HTTP response" failure — the device is offline (or the
- * server is unreachable). 4xx/5xx responses are NOT offline: the request got
- * through and queueing a replay would not change the outcome (5xx were
- * already retried with backoff by apiClient's interceptor).
- */
-function isOfflineError(err: unknown): boolean {
-  return (err as { response?: unknown } | null)?.response === undefined;
-}
 
 class SpeedAlertService {
   private cameras: SpeedCamera[] = [];

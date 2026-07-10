@@ -82,7 +82,18 @@ jest.mock('./apiClient', () => ({
   },
 }));
 
+// Mock the offline request queue so registration replay can be asserted
+jest.mock('./OfflineQueueService', () => ({
+  offlineQueue: {
+    enqueue: jest.fn().mockResolvedValue('queued-id'),
+  },
+  // Real classifier semantics: offline = axios error without an HTTP response.
+  isOfflineError: (err: unknown) =>
+    (err as { response?: unknown } | null)?.response === undefined,
+}));
+
 import { apiClient } from './apiClient';
+import { offlineQueue } from './OfflineQueueService';
 
 const ALL_CATEGORIES: NotificationCategory[] = [
   'hazard', 'group_invite', 'group_event', 'rally_point',
@@ -207,6 +218,64 @@ describe('Property 114: registerToken only POSTs device token when permission is
     await svc.registerToken();
 
     expect(provider.requestPermissionsAsync).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Property 114b: offline registration failures are queued for replay
+// ---------------------------------------------------------------------------
+
+describe('Property 114b: registerToken queues the device registration when offline', () => {
+  beforeEach(() => {
+    (apiClient.post as jest.Mock).mockReset();
+    (offlineQueue.enqueue as jest.Mock).mockClear();
+  });
+
+  afterAll(() => {
+    (apiClient.post as jest.Mock).mockResolvedValue({});
+  });
+
+  it('queues with a stable dedupeKey when the POST gets no HTTP response', async () => {
+    (apiClient.post as jest.Mock).mockRejectedValue(new Error('Network Error')); // no .response
+    const provider = buildTokenProvider({ existingStatus: 'granted', tokenData: 'tok-1', platform: 'ios' });
+    const { handler } = buildHandler();
+    const svc = new NotificationService(provider, handler);
+
+    await expect(svc.registerToken()).resolves.toBeUndefined();
+
+    expect(offlineQueue.enqueue).toHaveBeenCalledTimes(1);
+    expect(offlineQueue.enqueue).toHaveBeenCalledWith({
+      method: 'POST',
+      url: '/api/v1/devices',
+      body: { pushToken: 'tok-1', platform: 'ios' },
+      headers: {},
+      dedupeKey: 'device-register',
+    });
+    // Replay is pending — the session is not marked registered yet
+    expect(svc.isRegistered).toBe(false);
+  });
+
+  it('does NOT queue when the server rejected the registration (4xx/5xx)', async () => {
+    (apiClient.post as jest.Mock).mockRejectedValue(
+      Object.assign(new Error('Bad Request'), { response: { status: 400 } }),
+    );
+    const provider = buildTokenProvider({ existingStatus: 'granted' });
+    const { handler } = buildHandler();
+    const svc = new NotificationService(provider, handler);
+
+    await expect(svc.registerToken()).resolves.toBeUndefined();
+    expect(offlineQueue.enqueue).not.toHaveBeenCalled();
+  });
+
+  it('does NOT queue on success', async () => {
+    (apiClient.post as jest.Mock).mockResolvedValue({});
+    const provider = buildTokenProvider({ existingStatus: 'granted' });
+    const { handler } = buildHandler();
+    const svc = new NotificationService(provider, handler);
+
+    await svc.registerToken();
+    expect(offlineQueue.enqueue).not.toHaveBeenCalled();
+    expect(svc.isRegistered).toBe(true);
   });
 });
 
