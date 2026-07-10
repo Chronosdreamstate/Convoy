@@ -83,6 +83,14 @@ const OTP_RATE_WINDOW_SECONDS = 600; // 10 minutes
 const OTP_VERIFY_LIMIT = 5;
 const OTP_VERIFY_WINDOW_SECONDS = 600;
 
+/** Email signup rate-limit: 5 attempts per IP per 15 minutes.
+ * Each signup runs a bcrypt hash (cost 10), so without a dedicated limiter an
+ * attacker could use this endpoint as a CPU-amplification vector — the global
+ * 200 req/min/IP limit still allows ~200 bcrypt hashes per minute per IP.
+ * Keyed by IP (not email) because rotating the email is free for an attacker. */
+const SIGNUP_LIMIT = 5;
+const SIGNUP_WINDOW_SECONDS = 900;
+
 async function authRoutes(fastify: FastifyInstance, _opts: FastifyPluginOptions): Promise<void> {
   // -------------------------------------------------------------------------
   // POST /auth/otp/request
@@ -189,6 +197,17 @@ async function authRoutes(fastify: FastifyInstance, _opts: FastifyPluginOptions)
     }
 
     const { email, password } = result.data;
+
+    // Brute-force / CPU-amplification protection (mirrors rl:otpverify above):
+    // counted before any DB or bcrypt work so failed attempts burn quota too.
+    const signupKey = `rl:signup:${request.ip}`;
+    const signupAttempts = await fastify.redis.incr(signupKey);
+    if (signupAttempts === 1) {
+      await fastify.redis.expire(signupKey, SIGNUP_WINDOW_SECONDS);
+    }
+    if (signupAttempts > SIGNUP_LIMIT) {
+      return reply.tooManyRequests('Too many signup attempts. Please try again later.');
+    }
 
     // Reject if this email already has an email auth provider (prevents duplicate rows)
     const existing = await fastify.db.query(

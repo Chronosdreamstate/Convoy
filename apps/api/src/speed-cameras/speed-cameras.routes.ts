@@ -3,6 +3,7 @@ import { Pool } from 'pg';
 import { z } from 'zod';
 import { authenticate } from '../middleware/authenticate';
 import { generalLimiter } from '../middleware/rateLimiter';
+import { haversineMeters } from '../utils/geo';
 
 const CAMERA_TYPES = ['fixed', 'mobile', 'avg_speed', 'red_light'] as const;
 
@@ -18,20 +19,6 @@ const createCameraSchema = z.object({
 const voteSchema = z.object({
   vote: z.enum(['confirm', 'deny']),
 });
-
-// Haversine filter — avoids PostGIS dependency
-function haversineMeters(
-  lat1: number, lng1: number,
-  lat2: number, lng2: number,
-): number {
-  const R = 6371000;
-  const φ1 = (lat1 * Math.PI) / 180;
-  const φ2 = (lat2 * Math.PI) / 180;
-  const Δφ = ((lat2 - lat1) * Math.PI) / 180;
-  const Δλ = ((lng2 - lng1) * Math.PI) / 180;
-  const h = Math.sin(Δφ / 2) ** 2 + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
-}
 
 export default async function speedCamerasRoutes(fastify: FastifyInstance): Promise<void> {
   const pool: Pool = fastify.db;
@@ -76,7 +63,7 @@ export default async function speedCamerasRoutes(fastify: FastifyInstance): Prom
 
       const radiusM = radiusKm * 1000;
       const cameras = rows.rows
-        .filter((r) => haversineMeters(latNum, lngNum, r.lat, r.lng) <= radiusM)
+        .filter((r) => haversineMeters({ lat: latNum, lng: lngNum }, { lat: r.lat, lng: r.lng }) <= radiusM)
         .map((r) => ({
           id: r.id,
           lat: r.lat,

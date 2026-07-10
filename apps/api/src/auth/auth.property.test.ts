@@ -412,3 +412,46 @@ describe('Property P128-P130: Token refresh behaviour', () => {
     await app.close();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Regression: POST /auth/email/signup is rate-limited per IP
+// ---------------------------------------------------------------------------
+describe('POST /auth/email/signup rate limiting', () => {
+  /**
+   * Each signup runs a bcrypt hash, so the endpoint is a CPU-amplification
+   * vector without a dedicated limiter (the global 200 req/min/IP limit still
+   * allows ~200 hashes per minute). Mirrors the rl:otpverify pattern: max 5
+   * attempts per IP per 15 minutes, counted regardless of outcome.
+   */
+  it('returns 429 after 5 signup attempts from the same IP', async () => {
+    const app = buildTestApp();
+    await app.ready();
+
+    const inject = (n: number, ip: string) =>
+      app.inject({
+        method: 'POST',
+        url: '/api/v1/auth/email/signup',
+        remoteAddress: ip,
+        payload: { email: `user${n}@example.com`, password: 'password123' },
+      });
+
+    // First 5 attempts are allowed through the limiter (they may still fail
+    // further down against the mocked DB — the point is they are NOT 429).
+    for (let i = 0; i < 5; i++) {
+      const res = await inject(i, '10.0.0.1');
+      expect(res.statusCode).not.toBe(429);
+    }
+
+    // 6th and 7th attempts from the same IP are rejected by the limiter.
+    for (let i = 5; i < 7; i++) {
+      const res = await inject(i, '10.0.0.1');
+      expect(res.statusCode).toBe(429);
+    }
+
+    // A different IP is unaffected (limit is keyed per IP, not global).
+    const other = await inject(99, '10.0.0.2');
+    expect(other.statusCode).not.toBe(429);
+
+    await app.close();
+  });
+});

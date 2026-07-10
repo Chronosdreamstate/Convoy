@@ -143,7 +143,10 @@ export function hydrateSummaryCardUrl(url: string | null, accessToken: string): 
 
 const lineStringSchema = z.object({
   type: z.literal('LineString'),
-  coordinates: z.array(z.tuple([z.number(), z.number()])).min(1),
+  // Cap the trace length: at a 1 Hz fix rate 50k points is ~14 h of driving,
+  // far beyond any real drive, and an explicit bound keeps a single row from
+  // approaching the body-size limit with a megabyte-scale JSONB blob.
+  coordinates: z.array(z.tuple([z.number(), z.number()])).min(1).max(50_000),
 });
 
 const driveBodySchema = z.object({

@@ -94,6 +94,7 @@ export default async function placesRoutes(app: FastifyInstance) {
 
   app.get<{ Querystring: { q?: string; lat?: string; lng?: string; limit?: string } }>('/places/search', { preHandler: [authenticate, generalLimiter(app.redis)] }, async (req, reply) => {
     const q = req.query.q?.trim() ?? '';
+    if (q.length > 200) return reply.badRequest('Search query too long (max 200 characters)');
     const lat = req.query.lat !== undefined ? parseFloat(req.query.lat) : null;
     const lng = req.query.lng !== undefined ? parseFloat(req.query.lng) : null;
     const clientLimit = req.query.limit !== undefined
@@ -169,6 +170,9 @@ export default async function placesRoutes(app: FastifyInstance) {
     const lat = parseFloat(req.query.lat ?? '');
     const lng = parseFloat(req.query.lng ?? '');
     if (isNaN(lat) || isNaN(lng)) return reply.status(400).send({ error: 'lat and lng are required' });
+    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+      return reply.status(400).send({ error: 'lat must be -90 to 90 and lng must be -180 to 180' });
+    }
 
     try {
       const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&addressdetails=1`;

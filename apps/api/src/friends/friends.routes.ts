@@ -72,6 +72,9 @@ async function friendsRoutes(
     if (!q || q.trim().length < 2) {
       return reply.badRequest('Search query must be at least 2 characters');
     }
+    if (q.trim().length > 100) {
+      return reply.badRequest('Search query too long (max 100 characters)');
+    }
 
     const term = `%${q.trim()}%`;
 

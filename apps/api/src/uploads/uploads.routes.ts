@@ -59,7 +59,11 @@ export default async function uploadsRoutes(fastify: FastifyInstance) {
     '/uploads/:filename',
     async (request, reply) => {
       const { filename } = request.params;
-      if (filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
+      // Uploaded files are always named `${randomUUID()}.${ext}` by this module,
+      // so anything else is invalid by construction. A strict allowlist (rather
+      // than just blocking `..`/slashes) also rules out Windows-specific tricks
+      // like NTFS alternate data streams (`file.jpg::$DATA`) or trailing dots.
+      if (!/^[0-9a-fA-F-]{36}\.[a-zA-Z0-9]{1,8}$/.test(filename)) {
         return reply.badRequest('Invalid filename');
       }
       const filePath = path.join(uploadsDir, filename);
