@@ -526,13 +526,53 @@ export default function GroupChatScreen() {
   // Socket: real-time updates
   // ---------------------------------------------------------------------------
 
-  // The convoy socket is joined to the *active convoy's* room only. When this
-  // screen shows a different thread (a DM, or another group's chat opened
-  // while a convoy is live), every `group:message`/`chat:typing` event the
-  // socket receives belongs to the convoy — not to this thread — so they must
-  // be filtered out or convoy chatter would bleed into the DM view.
+  // Which threads does the socket cover live?
+  //  * The active convoy's room — joined at connect.
+  //  * Every DM room the user belongs to — the server joins them at connect
+  //    and on POST /dm, and the dm:join emit below covers channels created
+  //    mid-session. So a connected socket pushes `group:message` /
+  //    `group:reaction` for DM threads too — no polling needed.
+  // A chat opened for some *other* (non-active, non-DM) group is NOT covered:
+  // its events must be filtered out (or convoy chatter would bleed into this
+  // view) and the poll fallback below keeps that thread alive instead.
   const activeGroupId = useGroupStore((s) => s.activeGroupId);
-  const socketCoversThread = !!socket && !!groupId && groupId === activeGroupId;
+  const socketCoversThread =
+    !!socket && !!groupId && (groupId === activeGroupId || groupType === 'dm');
+
+  // Live connectivity — server push only reaches us while the socket is
+  // actually connected; when it drops, the poll below takes over as the
+  // degraded-mode fallback until socket.io reconnects.
+  const [socketConnected, setSocketConnected] = useState<boolean>(socket?.connected ?? false);
+  useEffect(() => {
+    if (!socket) {
+      setSocketConnected(false);
+      return;
+    }
+    setSocketConnected(socket.connected);
+    const onConnect = () => setSocketConnected(true);
+    const onDisconnect = () => setSocketConnected(false);
+    socket.on('connect', onConnect);
+    socket.on('disconnect', onDisconnect);
+    return () => {
+      socket.off('connect', onConnect);
+      socket.off('disconnect', onDisconnect);
+    };
+  }, [socket]);
+
+  // DM threads: make sure this socket is in the thread's room. Connect-time
+  // join on the server only sees channels that existed at connect, so a
+  // channel created mid-session (e.g. the other side just opened this DM)
+  // would otherwise miss live events until reconnect. Idempotent; the server
+  // verifies membership before joining.
+  useEffect(() => {
+    if (!socket || !groupId || groupType !== 'dm') return;
+    const join = () => socket.emit('dm:join', { groupId });
+    if (socket.connected) join();
+    socket.on('connect', join);
+    return () => {
+      socket.off('connect', join);
+    };
+  }, [socket, groupId, groupType]);
 
   useEffect(() => {
     if (!socket) return;
@@ -555,11 +595,12 @@ export default function GroupChatScreen() {
       setMessages((prev) => applyReactionToMessages(prev, payload));
     };
 
-    const handleTyping = (payload: { userId: string; displayName: string }) => {
+    const handleTyping = (payload: { userId: string; displayName: string; groupId?: string }) => {
       if (payload.userId === currentUserId) return;
-      // Typing events carry no groupId — they can only be attributed to this
-      // thread when the socket room IS this thread's room.
-      if (!socketCoversThread) return;
+      // The server stamps the thread's groupId on typing relays — accept only
+      // events for THIS thread. Legacy events without a groupId can only be
+      // attributed here when the socket's convoy room IS this thread's room.
+      if (payload.groupId ? payload.groupId !== groupId : !socketCoversThread) return;
       setTypingUser(payload.displayName);
       if (typingClearTimerRef.current) clearTimeout(typingClearTimerRef.current);
       typingClearTimerRef.current = setTimeout(() => setTypingUser(null), 3000);
@@ -576,12 +617,13 @@ export default function GroupChatScreen() {
     };
   }, [socket, currentUserId, groupId, socketCoversThread]);
 
-  // Live-update fallback for threads the socket doesn't cover (DMs, or any
-  // chat opened without an active convoy connection): poll for new messages
-  // so the conversation still feels alive instead of only updating on
-  // re-entry. Skipped entirely while the socket room matches this thread.
+  // Degraded-mode fallback ONLY: DM threads (and the active convoy's chat)
+  // are pushed live over the socket, so polling runs solely while the socket
+  // can't cover this thread — either it's disconnected, or the thread is a
+  // non-active non-DM group the socket has no room for. Once the socket
+  // (re)connects and covers the thread, the poll stops.
   useEffect(() => {
-    if (socketCoversThread || !groupId || !accessToken || loading || loadError) return;
+    if ((socketCoversThread && socketConnected) || !groupId || !accessToken || loading || loadError) return;
     const timer = setInterval(() => {
       void (async () => {
         try {
@@ -597,7 +639,7 @@ export default function GroupChatScreen() {
       })();
     }, 6000);
     return () => clearInterval(timer);
-  }, [socketCoversThread, groupId, accessToken, loading, loadError]);
+  }, [socketCoversThread, socketConnected, groupId, accessToken, loading, loadError]);
 
   // Cleanup timers and recording on unmount
   useEffect(() => {
@@ -754,9 +796,10 @@ export default function GroupChatScreen() {
 
   const handleInputChange = useCallback((text: string) => {
     setInputText(text);
-    // Only emit typing when the socket room IS this thread — the server
-    // relays `chat:typing` to the socket's own (convoy) room, so emitting
-    // from a DM would show "X is typing…" to the whole convoy chat instead.
+    // Only emit typing for threads the socket covers (active convoy or a DM
+    // room it has joined). The server relays `chat:typing` to the payload's
+    // groupId room after verifying this socket is actually in it, so DM
+    // typing indicators work and nothing can leak into the wrong thread.
     if (!socket || !socketCoversThread || !groupId || !user) return;
     if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
     typingTimerRef.current = setTimeout(() => {

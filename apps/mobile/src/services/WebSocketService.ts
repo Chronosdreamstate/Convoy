@@ -195,6 +195,15 @@ export class WebSocketService {
     return this.socket;
   }
 
+  /**
+   * Whether the underlying socket is currently connected. Consumers use this
+   * to decide between live server push and degraded-mode fallbacks (e.g.
+   * GroupChatScreen only polls a DM thread while the socket is down).
+   */
+  get connected(): boolean {
+    return this.socket?.connected ?? false;
+  }
+
   // ---------------------------------------------------------------------------
   // Private helpers
   // ---------------------------------------------------------------------------
@@ -205,6 +214,10 @@ export class WebSocketService {
     this.lastLocationEmitTs = Date.now();
   }
 
+  // The app-level 'ping' doubles as a presence heartbeat: the server refreshes
+  // the Redis-backed `presence:online:<userId>` TTL on it (in addition to the
+  // engine.io pong), so pausing it while backgrounded lets presence naturally
+  // decay to offline for long-backgrounded apps.
   private _startHeartbeat(): void {
     this._stopHeartbeat();
     this.heartbeatTimer = setInterval(() => {

@@ -4,6 +4,7 @@ import { randomBytes } from 'crypto';
 import { authenticate } from '../middleware/authenticate';
 import { generalLimiter } from '../middleware/rateLimiter';
 import { isBlocked } from '../friends/friends.routes';
+import { normalizeDmPair, joinDmRoomSockets } from '../dm/dm.routes';
 
 // ---------------------------------------------------------------------------
 // Privacy constants
@@ -189,7 +190,21 @@ async function nearbyRoutes(
         return reply.forbidden('This user is not available for nearby messages');
       }
 
-      // Find an existing DM group shared by exactly these two users.
+      const [dmUserA, dmUserB] = normalizeDmPair(userId, strangerId);
+
+      // Fast path: pair-column lookup (unique-indexed since migration 033).
+      const byPair = await fastify.db.query<{ id: string }>(
+        `SELECT id FROM convoy_groups
+         WHERE type = 'dm' AND dm_user_a = $1 AND dm_user_b = $2`,
+        [dmUserA, dmUserB],
+      );
+      if ((byPair.rowCount ?? 0) > 0) {
+        const existingId = byPair.rows[0].id;
+        joinDmRoomSockets(fastify.io, existingId, [userId, strangerId]);
+        return reply.send({ groupId: existingId });
+      }
+
+      // Legacy fallback: pre-033 DM channels without stamped pair columns.
       const existing = await fastify.db.query<{ id: string }>(
         `SELECT g.id FROM convoy_groups g
          JOIN convoy_members m1 ON m1.group_id = g.id AND m1.user_id = $1 AND m1.left_at IS NULL
@@ -201,33 +216,65 @@ async function nearbyRoutes(
       );
 
       if ((existing.rowCount ?? 0) > 0) {
-        return reply.send({ groupId: existing.rows[0].id });
+        const existingId = existing.rows[0].id;
+        joinDmRoomSockets(fastify.io, existingId, [userId, strangerId]);
+        return reply.send({ groupId: existingId });
       }
 
-      // Create a new DM group — retry on join_code collision.
+      // Create a new DM group — retry on join_code collision. The pair unique
+      // index (migration 033) turns a concurrent duplicate create into zero
+      // returned rows; converge on the winner's row in that case.
       let groupId: string | null = null;
+      let lostCreationRace = false;
       for (let attempt = 0; attempt < 5; attempt++) {
         const joinCode = randomBytes(3).toString('hex').toUpperCase();
         try {
           const created = await fastify.db.query<{ id: string }>(
-            `INSERT INTO convoy_groups (name, join_code, admin_id, access_type, type)
-             VALUES ('dm', $1, $2, 'invite_only', 'dm')
+            `INSERT INTO convoy_groups (name, join_code, admin_id, access_type, type, dm_user_a, dm_user_b)
+             VALUES ('dm', $1, $2, 'invite_only', 'dm', $3, $4)
+             ON CONFLICT (dm_user_a, dm_user_b)
+               WHERE type = 'dm' AND dm_user_a IS NOT NULL AND dm_user_b IS NOT NULL
+               DO NOTHING
              RETURNING id`,
-            [joinCode, userId],
+            [joinCode, userId, dmUserA, dmUserB],
           );
-          groupId = created.rows[0].id;
+          if ((created.rowCount ?? 0) === 0) {
+            lostCreationRace = true;
+          } else {
+            groupId = created.rows[0].id;
+          }
           break;
         } catch (err: unknown) {
           if ((err as { code?: string }).code !== '23505') throw err;
         }
       }
 
+      if (lostCreationRace) {
+        const winner = await fastify.db.query<{ id: string }>(
+          `SELECT id FROM convoy_groups
+           WHERE type = 'dm' AND dm_user_a = $1 AND dm_user_b = $2`,
+          [dmUserA, dmUserB],
+        );
+        if ((winner.rowCount ?? 0) === 0) return reply.internalServerError('Could not create DM channel');
+        const winnerId = winner.rows[0].id;
+        await fastify.db.query(
+          `INSERT INTO convoy_members (group_id, user_id) VALUES ($1, $2), ($1, $3)
+           ON CONFLICT (group_id, user_id) DO NOTHING`,
+          [winnerId, userId, strangerId],
+        );
+        joinDmRoomSockets(fastify.io, winnerId, [userId, strangerId]);
+        return reply.send({ groupId: winnerId });
+      }
+
       if (!groupId) return reply.internalServerError('Could not create DM channel');
 
       await fastify.db.query(
-        `INSERT INTO convoy_members (group_id, user_id) VALUES ($1, $2), ($1, $3)`,
+        `INSERT INTO convoy_members (group_id, user_id) VALUES ($1, $2), ($1, $3)
+         ON CONFLICT (group_id, user_id) DO NOTHING`,
         [groupId, userId, strangerId],
       );
+
+      joinDmRoomSockets(fastify.io, groupId, [userId, strangerId]);
 
       return reply.status(201).send({ groupId });
     },

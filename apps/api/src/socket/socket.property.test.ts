@@ -13,7 +13,18 @@
 import fc from 'fast-check';
 import { Pool } from 'pg';
 import Redis from 'ioredis';
-import { handleLocationUpdate, haversineMeters, IoBroadcaster, LocationPayload } from './socket.handler';
+import {
+  getPresence,
+  getUserDmGroupIds,
+  handleLocationUpdate,
+  haversineMeters,
+  IoBroadcaster,
+  LocationPayload,
+  PRESENCE_ONLINE_TTL_SECONDS,
+  refreshPresence,
+  setPresenceOffline,
+  setPresenceOnline,
+} from './socket.handler';
 
 // ---------------------------------------------------------------------------
 // Test doubles
@@ -342,6 +353,199 @@ describe('Property 97: haversineMeters(A, B) >= 0 for any coordinate pair', () =
         },
       ),
       { numRuns: 500 },
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Redis-backed presence (replaces the old in-memory per-process Map, which
+// gave wrong answers across multiple nodes behind the socket.io Redis
+// adapter). FakeRedis simulates the string commands + EX TTLs the presence
+// helpers use, with a manually advanced clock so expiry is deterministic.
+// ---------------------------------------------------------------------------
+
+class FakeRedis {
+  private store = new Map<string, { value: string; expiresAt: number | null }>();
+  now = 1_700_000_000_000;
+
+  advanceMs(ms: number): void {
+    this.now += ms;
+  }
+
+  private live(key: string): { value: string; expiresAt: number | null } | null {
+    const entry = this.store.get(key);
+    if (!entry) return null;
+    if (entry.expiresAt !== null && entry.expiresAt <= this.now) {
+      this.store.delete(key);
+      return null;
+    }
+    return entry;
+  }
+
+  async set(key: string, value: string, ...args: unknown[]): Promise<'OK'> {
+    let expiresAt: number | null = null;
+    const exIdx = args.findIndex((a) => a === 'EX');
+    if (exIdx >= 0) expiresAt = this.now + Number(args[exIdx + 1]) * 1000;
+    this.store.set(key, { value, expiresAt });
+    return 'OK';
+  }
+
+  async get(key: string): Promise<string | null> {
+    return this.live(key)?.value ?? null;
+  }
+
+  async del(key: string): Promise<number> {
+    const had = this.live(key) ? 1 : 0;
+    this.store.delete(key);
+    return had;
+  }
+
+  async mget(...keys: string[]): Promise<(string | null)[]> {
+    return keys.map((k) => this.live(k)?.value ?? null);
+  }
+}
+
+function fakeRedis(): { redis: Redis; fake: FakeRedis } {
+  const fake = new FakeRedis();
+  return { redis: fake as unknown as Redis, fake };
+}
+
+describe('Redis-backed presence', () => {
+  it('Property: a connected user is online with the connect-time lastSeen; unknown users are offline', async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        fc.uuid(),
+        fc.uuid(),
+        fc.hexaString({ minLength: 4, maxLength: 20 }), // socketId
+        async (userId, strangerId, socketId) => {
+          fc.pre(userId !== strangerId);
+          const { redis, fake } = fakeRedis();
+          await setPresenceOnline(redis, userId, socketId, fake.now);
+
+          const result = await getPresence(redis, [userId, strangerId]);
+          expect(result).toEqual([
+            { id: userId, isOnline: true, lastSeen: new Date(fake.now).toISOString() },
+            { id: strangerId, isOnline: false, lastSeen: null },
+          ]);
+        },
+      ),
+      { numRuns: 30 },
+    );
+  });
+
+  it('Property (multi-tab guard): the old socket disconnecting never flips a reconnected user offline', async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        fc.uuid(),
+        fc.hexaString({ minLength: 4, maxLength: 20 }),
+        fc.hexaString({ minLength: 4, maxLength: 20 }),
+        async (userId, socketA, socketB) => {
+          fc.pre(socketA !== socketB);
+          const { redis, fake } = fakeRedis();
+
+          // Socket A connects, then socket B connects (reconnect / second tab)
+          await setPresenceOnline(redis, userId, socketA, fake.now);
+          fake.advanceMs(1000);
+          await setPresenceOnline(redis, userId, socketB, fake.now);
+
+          // A's disconnect: no longer the owner → no transition, still online
+          const transitionedA = await setPresenceOffline(redis, userId, socketA, fake.now);
+          expect(transitionedA).toBe(false);
+          expect((await getPresence(redis, [userId]))[0].isOnline).toBe(true);
+
+          // B's disconnect: owner → transitions offline, lastSeen updated
+          fake.advanceMs(1000);
+          const transitionedB = await setPresenceOffline(redis, userId, socketB, fake.now);
+          expect(transitionedB).toBe(true);
+          expect((await getPresence(redis, [userId]))[0]).toEqual({
+            id: userId,
+            isOnline: false,
+            lastSeen: new Date(fake.now).toISOString(),
+          });
+        },
+      ),
+      { numRuns: 30 },
+    );
+  });
+
+  it('Property (TTL heartbeat): presence expires without refresh, survives with it, and lastSeen outlives the online flag', async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        fc.uuid(),
+        fc.hexaString({ minLength: 4, maxLength: 20 }),
+        fc.integer({ min: 1, max: 20 }), // heartbeat count
+        async (userId, socketId, beats) => {
+          const { redis, fake } = fakeRedis();
+          const connectedAt = fake.now;
+          await setPresenceOnline(redis, userId, socketId, fake.now);
+
+          // Heartbeats every 25s keep the user online well past the raw TTL
+          for (let i = 0; i < beats; i++) {
+            fake.advanceMs(25_000);
+            await refreshPresence(redis, userId, socketId, fake.now);
+            expect((await getPresence(redis, [userId]))[0].isOnline).toBe(true);
+          }
+
+          // No more heartbeats → online flag expires after the TTL…
+          fake.advanceMs(PRESENCE_ONLINE_TTL_SECONDS * 1000 + 1);
+          const afterExpiry = (await getPresence(redis, [userId]))[0];
+          expect(afterExpiry.isOnline).toBe(false);
+          // …but lastSeen (24h TTL) survives — never earlier than connect time
+          expect(afterExpiry.lastSeen).not.toBeNull();
+          expect(new Date(afterExpiry.lastSeen as string).getTime()).toBeGreaterThanOrEqual(connectedAt);
+        },
+      ),
+      { numRuns: 20 },
+    );
+  });
+
+  it('a stale socket heartbeat never steals presence ownership from a newer socket', async () => {
+    const { redis, fake } = fakeRedis();
+    const userId = '99999999-9999-9999-9999-999999999999';
+    await setPresenceOnline(redis, userId, 'old-socket', fake.now);
+    fake.advanceMs(1000);
+    await setPresenceOnline(redis, userId, 'new-socket', fake.now);
+
+    fake.advanceMs(1000);
+    await refreshPresence(redis, userId, 'old-socket', fake.now);
+
+    // Ownership still with new-socket: its disconnect transitions offline
+    expect(await setPresenceOffline(redis, userId, 'new-socket', fake.now)).toBe(true);
+  });
+
+  it('getPresence caps the lookup at 100 user ids', async () => {
+    const { redis } = fakeRedis();
+    const ids = Array.from({ length: 150 }, (_, i) => `user-${i}`);
+    const result = await getPresence(redis, ids);
+    expect(result).toHaveLength(100);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// DM room membership lookup — connect-time `group:<dmId>` room joins are fed
+// by this query, which must return exactly the user's active DM channels.
+// ---------------------------------------------------------------------------
+describe('getUserDmGroupIds', () => {
+  it('Property: returns exactly the ids the membership query yields, in order', async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        fc.uuid(),
+        fc.array(fc.uuid(), { minLength: 0, maxLength: 10 }),
+        async (userId, dmIds) => {
+          const seenParams: unknown[][] = [];
+          const db = {
+            query: async (_sql: string, params: unknown[]) => {
+              seenParams.push(params);
+              return { rows: dmIds.map((id) => ({ id })), rowCount: dmIds.length };
+            },
+          } as unknown as Pool;
+
+          const result = await getUserDmGroupIds(db, userId);
+          expect(result).toEqual(dmIds);
+          expect(seenParams).toEqual([[userId]]);
+        },
+      ),
+      { numRuns: 30 },
     );
   });
 });

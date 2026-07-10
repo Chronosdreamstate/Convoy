@@ -6,15 +6,16 @@ import Redis from 'ioredis';
 import { canTransmit, isDurationExceeded } from '../ptt/ptt.routes';
 import { computeExpiresAt } from '../hazards/hazards.routes';
 import { incrementStatCounter } from '../db/statCounters';
+import { haversineMeters, LatLng } from '../utils/geo';
+
+// Re-exported so existing consumers (property/integration tests) that import
+// these from socket.handler keep working after the move to utils/geo.
+export { haversineMeters };
+export type { LatLng };
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
-
-export interface LatLng {
-  lat: number;
-  lng: number;
-}
 
 export interface LocationPayload {
   lat: number;
@@ -38,21 +39,6 @@ export const locationSchema = z.object({
 });
 
 const STALE_THRESHOLD_MS = 30_000; // 30 seconds (Property 40)
-
-// ---------------------------------------------------------------------------
-// Pure helper: Haversine great-circle distance in metres
-// ---------------------------------------------------------------------------
-export function haversineMeters(a: LatLng, b: LatLng): number {
-  const R = 6_371_000;
-  const toRad = (d: number) => (d * Math.PI) / 180;
-  const φ1 = toRad(a.lat);
-  const φ2 = toRad(b.lat);
-  const Δφ = toRad(b.lat - a.lat);
-  const Δλ = toRad(b.lng - a.lng);
-  const x =
-    Math.sin(Δφ / 2) ** 2 + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
-}
 
 // ---------------------------------------------------------------------------
 // Core location update handler — exported for unit testing
@@ -487,27 +473,121 @@ export async function handleHazardProximity(params: {
 }
 
 // ---------------------------------------------------------------------------
-// Global presence store (in-memory, per-process)
+// Presence store (Redis-backed, cluster-wide)
+//
+// Presence used to live in an in-memory per-process Map, but socket.io runs
+// with the Redis adapter for horizontal scaling — with more than one node a
+// `presence:get` answered by node A knew nothing about sockets on node B, so
+// presence answers were simply wrong cluster-wide. Presence now lives in
+// Redis:
+//
+//   presence:online:<userId>   -> owning socketId, TTL-refreshed heartbeat.
+//     Existence of the key == "online". The TTL (rather than relying solely
+//     on disconnect events) also self-heals when a node dies without firing
+//     disconnects. Refreshed by the engine.io pong the client sends every
+//     pingInterval (25s by default) and by the app-level 'ping' heartbeat
+//     WebSocketService emits.
+//   presence:lastseen:<userId> -> ISO timestamp, 24h TTL.
+//     The TTL replaces the old prunePresence() sweep: entries for users not
+//     seen in 24h simply expire.
+//
+// The client-facing API shape ({ id, isOnline, lastSeen }[] via presence:get,
+// and presence:update events) is unchanged.
 // ---------------------------------------------------------------------------
-interface PresenceEntry {
-  isOnline: boolean;
-  lastSeen: Date;
-  socketId: string;
-}
-const presence = new Map<string, PresenceEntry>();
 
-// The map otherwise grows forever (one entry per user ever connected to this
-// process). Prune entries that have been offline for over 24h; checked lazily
-// on new connections so no timer is needed.
-const PRESENCE_PRUNE_AFTER_MS = 24 * 60 * 60 * 1000;
-const PRESENCE_PRUNE_MIN_SIZE = 1000;
-function prunePresence(now: number): void {
-  if (presence.size < PRESENCE_PRUNE_MIN_SIZE) return;
-  for (const [id, entry] of presence) {
-    if (!entry.isOnline && now - entry.lastSeen.getTime() > PRESENCE_PRUNE_AFTER_MS) {
-      presence.delete(id);
-    }
-  }
+export const PRESENCE_ONLINE_TTL_SECONDS = 90; // ~3 missed 25s heartbeats
+export const PRESENCE_LASTSEEN_TTL_SECONDS = 24 * 60 * 60;
+
+const presenceOnlineKey = (userId: string) => `presence:online:${userId}`;
+const presenceLastSeenKey = (userId: string) => `presence:lastseen:${userId}`;
+
+/** Mark a user online, owned by the given socket. Exported for property tests. */
+export async function setPresenceOnline(
+  redis: Redis,
+  userId: string,
+  socketId: string,
+  now: number = Date.now(),
+): Promise<void> {
+  await redis.set(presenceOnlineKey(userId), socketId, 'EX', PRESENCE_ONLINE_TTL_SECONDS);
+  await redis.set(
+    presenceLastSeenKey(userId),
+    new Date(now).toISOString(),
+    'EX',
+    PRESENCE_LASTSEEN_TTL_SECONDS,
+  );
+}
+
+/**
+ * Heartbeat: re-arm the online TTL — but only when this socket still owns the
+ * user's presence (a newer connection from another device/tab takes ownership
+ * and must not be clobbered by a stale socket's heartbeat). An expired key
+ * (owner === null) is re-established: the socket is demonstrably still alive.
+ */
+export async function refreshPresence(
+  redis: Redis,
+  userId: string,
+  socketId: string,
+  now: number = Date.now(),
+): Promise<void> {
+  const owner = await redis.get(presenceOnlineKey(userId));
+  if (owner !== null && owner !== socketId) return;
+  await setPresenceOnline(redis, userId, socketId, now);
+}
+
+/**
+ * Mark a user offline on disconnect. Returns true only when the presence
+ * actually transitioned (i.e. this socket owned it) — the multi-tab guard:
+ * if the user reconnected (new socket owns the key), the old socket's
+ * disconnect must not flip them offline.
+ */
+export async function setPresenceOffline(
+  redis: Redis,
+  userId: string,
+  socketId: string,
+  now: number = Date.now(),
+): Promise<boolean> {
+  const owner = await redis.get(presenceOnlineKey(userId));
+  if (owner !== socketId) return false;
+  await redis.del(presenceOnlineKey(userId));
+  await redis.set(
+    presenceLastSeenKey(userId),
+    new Date(now).toISOString(),
+    'EX',
+    PRESENCE_LASTSEEN_TTL_SECONDS,
+  );
+  return true;
+}
+
+/** Bulk presence lookup backing the `presence:get` socket query. */
+export async function getPresence(
+  redis: Redis,
+  userIds: string[],
+): Promise<{ id: string; isOnline: boolean; lastSeen: string | null }[]> {
+  const ids = userIds.slice(0, 100);
+  if (ids.length === 0) return [];
+  const online = await redis.mget(...ids.map(presenceOnlineKey));
+  const lastSeen = await redis.mget(...ids.map(presenceLastSeenKey));
+  return ids.map((id, i) => ({
+    id,
+    isOnline: online[i] !== null && online[i] !== undefined,
+    lastSeen: lastSeen[i] ?? null,
+  }));
+}
+
+// ---------------------------------------------------------------------------
+// DM room membership — a user's DM channels are joined as socket rooms on
+// connect so `group:message` / `group:reaction` broadcasts (groups/
+// chat.routes.ts emits to `group:<id>`) reach DM participants live even when
+// neither user is in a convoy. Exported for property tests.
+// ---------------------------------------------------------------------------
+export async function getUserDmGroupIds(db: Pool, userId: string): Promise<string[]> {
+  const result = await db.query<{ id: string }>(
+    `SELECT g.id FROM convoy_groups g
+     JOIN convoy_members m ON m.group_id = g.id
+     WHERE g.type = 'dm' AND m.user_id = $1 AND m.left_at IS NULL`,
+    [userId],
+  );
+  return result.rows.map((r) => r.id);
 }
 
 // ---------------------------------------------------------------------------
@@ -555,14 +635,49 @@ export function registerSocketHandlers(
       }
     }
 
-    // Track presence (and lazily evict long-offline entries)
-    prunePresence(Date.now());
-    presence.set(userId, { isOnline: true, lastSeen: new Date(), socketId: socket.id });
+    // Track presence in Redis (cluster-wide; TTL-based heartbeat below)
+    await setPresenceOnline(fastify.redis, userId, socket.id).catch((err: unknown) =>
+      fastify.log.error({ err }, 'presence online error'),
+    );
+
+    // Keep the online TTL armed. The engine.io layer receives a pong from the
+    // client every pingInterval (25s default) regardless of app traffic —
+    // hook it as the heartbeat so presence survives idle-but-connected
+    // sockets and self-expires when a node dies without disconnect events.
+    (socket.conn as unknown as { on(ev: string, cb: (p: { type?: string }) => void): void }).on(
+      'packet',
+      (packet) => {
+        if (packet?.type !== 'pong') return;
+        refreshPresence(fastify.redis, userId, socket.id).catch((err: unknown) =>
+          fastify.log.error({ err }, 'presence refresh error'),
+        );
+      },
+    );
+    // Belt-and-braces: WebSocketService also emits an app-level 'ping' every
+    // 25s while foregrounded — refresh on that too.
+    socket.on('ping', () => {
+      refreshPresence(fastify.redis, userId, socket.id).catch((err: unknown) =>
+        fastify.log.error({ err }, 'presence refresh error'),
+      );
+    });
 
     // Personal room — joined unconditionally (even with no active group) so
     // standalone/direct events (friend SOS, PTT DMs, gap alerts, etc.) always reach
     // this socket.
     await socket.join(`user:${userId}`);
+
+    // DM channel rooms — joined unconditionally so DM messages/reactions
+    // (broadcast to `group:<dmId>` by groups/chat.routes.ts) arrive live even
+    // with no active convoy. Channels created mid-session are covered by
+    // POST /dm's socketsJoin and by the dm:join handler below.
+    try {
+      const dmGroupIds = await getUserDmGroupIds(fastify.db, userId);
+      for (const dmGroupId of dmGroupIds) {
+        await socket.join(`group:${dmGroupId}`);
+      }
+    } catch (err: unknown) {
+      fastify.log.error({ err }, 'dm room join error');
+    }
 
     if (groupId) {
       // Join group room — must be awaited before broadcasting
@@ -587,17 +702,41 @@ export function registerSocketHandlers(
     ) => {
       if (typeof callback !== 'function') return;
       const { userIds } = (data as { userIds?: string[] }) ?? {};
-      if (!Array.isArray(userIds)) { callback([]); return; }
-      callback(
-        userIds.slice(0, 100).map((id) => {
-          const entry = presence.get(id);
-          return {
-            id,
-            isOnline: entry?.isOnline ?? false,
-            lastSeen: entry?.lastSeen.toISOString() ?? null,
-          };
-        }),
-      );
+      if (!Array.isArray(userIds) || !userIds.every((id) => typeof id === 'string')) {
+        callback([]);
+        return;
+      }
+      getPresence(fastify.redis, userIds)
+        .then(callback)
+        .catch((err: unknown) => {
+          fastify.log.error({ err }, 'presence get error');
+          callback([]);
+        });
+    });
+
+    // dm:join — explicitly join a DM channel room. Covers channels that came
+    // into existence after this socket connected (connect-time DM room join
+    // above only sees channels that already existed) — e.g. the other side
+    // opened a brand-new DM thread with us mid-session. Membership-checked:
+    // only an active member of a type='dm' group may join its room.
+    socket.on('dm:join', (data: unknown, callback?: (result: { ok: boolean }) => void) => {
+      const cb = typeof callback === 'function' ? callback : undefined;
+      const { groupId: dmGroupId } = (data as { groupId?: string }) ?? {};
+      if (!dmGroupId || typeof dmGroupId !== 'string') { cb?.({ ok: false }); return; }
+      (async () => {
+        const check = await fastify.db.query(
+          `SELECT 1 FROM convoy_members m
+           JOIN convoy_groups g ON g.id = m.group_id
+           WHERE g.id = $1 AND g.type = 'dm' AND m.user_id = $2 AND m.left_at IS NULL`,
+          [dmGroupId, userId],
+        );
+        if ((check.rowCount ?? 0) === 0) { cb?.({ ok: false }); return; }
+        await socket.join(`group:${dmGroupId}`);
+        cb?.({ ok: true });
+      })().catch((err: unknown) => {
+        fastify.log.error({ err }, 'dm join error');
+        cb?.({ ok: false });
+      });
     });
 
     // Handle real-time location updates (Req 8.1, 8.2)
@@ -738,48 +877,42 @@ export function registerSocketHandlers(
       })().catch((err: unknown) => fastify.log.error({ err }, 'ptt admin mute error'));
     });
 
-    // Relay typing indicator to group room (excludes sender)
+    // Relay typing indicator (excludes sender).
+    //
+    // The payload may carry a target groupId (GroupChatScreen always sends
+    // one): when present it must name a room this socket is actually in
+    // (its convoy room or one of its DM rooms joined above) — this both
+    // authorizes the relay and lets DM threads show typing indicators.
+    // Without a payload groupId, fall back to the socket's convoy room.
     socket.on('chat:typing', (data: unknown) => {
-      const { displayName } = (data as { displayName?: string }) ?? {};
+      const { displayName, groupId: targetGroupId } =
+        (data as { displayName?: string; groupId?: string }) ?? {};
       if (!displayName) return;
-      // Include userId so recipients can filter out their own echo (GroupChatScreen
-      // compares payload.userId === currentUserId) — previously omitted, which meant
-      // that check always failed and a typing user would see their own indicator.
-      socket.to(`group:${groupId}`).emit('chat:typing', { userId, displayName });
+      let room: string | null = null;
+      if (targetGroupId && typeof targetGroupId === 'string') {
+        if (!socket.rooms.has(`group:${targetGroupId}`)) return; // not a member of that thread
+        room = `group:${targetGroupId}`;
+      } else if (groupId) {
+        room = `group:${groupId}`;
+      }
+      if (!room) return;
+      // Include userId so recipients can filter out their own echo, and the
+      // thread's groupId so recipients can attribute the event to the right
+      // conversation (GroupChatScreen drops events for other threads).
+      socket.to(room).emit('chat:typing', {
+        userId,
+        displayName,
+        groupId: room.slice('group:'.length),
+      });
     });
 
-    // Persist and broadcast emoji reaction on a group message
-    socket.on('chat:react', (data: unknown) => {
-      const { messageId, emoji, action } =
-        (data as { messageId?: string; emoji?: string; action?: string }) ?? {};
-      if (!messageId || !emoji || (action !== 'add' && action !== 'remove')) return;
-
-      (async () => {
-        // Verify the message belongs to this group before touching the DB
-        const msgCheck = await fastify.db.query<{ id: string }>(
-          'SELECT id FROM group_messages WHERE id = $1 AND group_id = $2',
-          [messageId, groupId],
-        );
-        if ((msgCheck.rowCount ?? 0) === 0) return;
-
-        if (action === 'add') {
-          await fastify.db.query(
-            `INSERT INTO message_reactions (message_id, user_id, emoji)
-             VALUES ($1, $2, $3)
-             ON CONFLICT DO NOTHING`,
-            [messageId, userId, emoji],
-          );
-        } else {
-          await fastify.db.query(
-            `DELETE FROM message_reactions
-             WHERE message_id = $1 AND user_id = $2 AND emoji = $3`,
-            [messageId, userId, emoji],
-          );
-        }
-
-        io.to(`group:${groupId}`).emit('group:reaction', { messageId, userId, emoji, action });
-      })().catch((err: unknown) => fastify.log.error({ err }, 'chat react error'));
-    });
+    // DEPRECATED — 'chat:react' (persist + broadcast emoji reaction) was
+    // removed. The mobile client reacts via the REST endpoints
+    // POST/DELETE /groups/:id/messages/:messageId/react (groups/
+    // chat.routes.ts), which persist and broadcast `group:reaction`
+    // server-side and work for DM threads too. No shipped client emits
+    // 'chat:react' anymore (verified: no emit sites in apps/mobile); any
+    // stale client emitting it is simply ignored by socket.io.
 
     // hazard:vote — confirm or dismiss a hazard (up=confirm, down=dismiss)
     socket.on('hazard:vote', (data: unknown) => {
@@ -933,16 +1066,19 @@ export function registerSocketHandlers(
     // Notify group on disconnect and clean up Redis presence (Req 8.3)
     socket.on('disconnect', () => {
       lastLocUpdate.delete(socket.id);
-      // Only mark offline if this is the user's current socket (guard against multi-tab)
-      const entry = presence.get(userId);
-      if (entry?.socketId === socket.id) {
-        presence.set(userId, { isOnline: false, lastSeen: new Date(), socketId: socket.id });
-        io.to(`group:${groupId}`).emit('presence:update', {
-          userId,
-          isOnline: false,
-          lastSeen: new Date().toISOString(),
-        });
-      }
+      // Only mark offline if this socket still owns the user's presence
+      // (guard against multi-tab / reconnect races) — setPresenceOffline
+      // returns false when a newer socket has taken ownership.
+      setPresenceOffline(fastify.redis, userId, socket.id)
+        .then((transitioned) => {
+          if (!transitioned) return;
+          io.to(`group:${groupId}`).emit('presence:update', {
+            userId,
+            isOnline: false,
+            lastSeen: new Date().toISOString(),
+          });
+        })
+        .catch((err: unknown) => fastify.log.error({ err }, 'presence offline error'));
       io.to(`group:${groupId}`).emit('member:left', { userId });
       io.to(`group:${groupId}`).emit('member:offline', { userId, ts: Date.now() });
       fastify.redis.del(`loc:${groupId}:${userId}`).catch((err: unknown) => fastify.log.error({ err }, 'redis del error'));
