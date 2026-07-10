@@ -77,6 +77,12 @@ const BCRYPT_ROUNDS = 10;
 const OTP_RATE_LIMIT = 5;
 const OTP_RATE_WINDOW_SECONDS = 600; // 10 minutes
 
+/** OTP verification rate-limit: 5 attempts per phone per 10 minutes (Req 37.2).
+ * Without this, an attacker gets unlimited guesses at the 6-digit OTP within its
+ * 300s TTL — the request-side limit above only caps how often codes are SENT. */
+const OTP_VERIFY_LIMIT = 5;
+const OTP_VERIFY_WINDOW_SECONDS = 600;
+
 async function authRoutes(fastify: FastifyInstance, _opts: FastifyPluginOptions): Promise<void> {
   // -------------------------------------------------------------------------
   // POST /auth/otp/request
@@ -122,6 +128,17 @@ async function authRoutes(fastify: FastifyInstance, _opts: FastifyPluginOptions)
 
     const { phone, otp } = result.data;
 
+    // Brute-force protection: cap verification ATTEMPTS per phone, independent of
+    // the request-side limit. Counted before comparison so failed guesses burn quota.
+    const verifyKey = `rl:otpverify:${phone}`;
+    const attempts = await fastify.redis.incr(verifyKey);
+    if (attempts === 1) {
+      await fastify.redis.expire(verifyKey, OTP_VERIFY_WINDOW_SECONDS);
+    }
+    if (attempts > OTP_VERIFY_LIMIT) {
+      return reply.tooManyRequests('Too many verification attempts. Please request a new OTP later.');
+    }
+
     try {
       await verifyOtp(phone, otp, fastify.redis);
     } catch {
@@ -133,6 +150,9 @@ async function authRoutes(fastify: FastifyInstance, _opts: FastifyPluginOptions)
         },
       });
     }
+
+    // Successful verification clears the attempt counter for this phone
+    await fastify.redis.del(verifyKey);
 
     const user = await upsertUserByPhone(phone, fastify.db);
     const { accessToken, refreshToken } = await issueTokens(user.id, fastify);

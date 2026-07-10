@@ -226,12 +226,16 @@ export default async function pttRoutes(fastify: FastifyInstance): Promise<void>
       [id],
     );
 
-    return result.rows.map((r) => ({
-      id: r.id,
-      name: r.name,
-      isAll: r.is_all,
-      memberCount: parseInt(r.member_count, 10),
-    }));
+    // Wrapped object for consistency with every other list endpoint ({ groups },
+    // { members }, { hazards }, ...) — NOTE: mobile ConvoyScreen must read .channels
+    return {
+      channels: result.rows.map((r) => ({
+        id: r.id,
+        name: r.name,
+        isAll: r.is_all,
+        memberCount: parseInt(r.member_count, 10),
+      })),
+    };
   });
 
   // -------------------------------------------------------------------------
@@ -441,14 +445,18 @@ export default async function pttRoutes(fastify: FastifyInstance): Promise<void>
       [id],
     );
 
-    return result.rows.map((r) => ({
-      id: r.id,
-      userId: r.user_id,
-      channelId: r.channel_id,
-      startedAt: r.started_at.toISOString(),
-      displayName: r.display_name,
-      callsign: r.ptt_callsign,
-    }));
+    // Wrapped object for consistency with every other list endpoint. No mobile
+    // caller reads this via REST today (PTTLogPanel builds entries from socket events).
+    return {
+      log: result.rows.map((r) => ({
+        id: r.id,
+        userId: r.user_id,
+        channelId: r.channel_id,
+        startedAt: r.started_at.toISOString(),
+        displayName: r.display_name,
+        callsign: r.ptt_callsign,
+      })),
+    };
   });
 }
 

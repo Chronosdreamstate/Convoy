@@ -64,6 +64,26 @@ const announcementSchema = z.object({
   message: z.string().min(1, 'message is required').max(200, 'message must be 200 characters or fewer'),
 });
 
+// Matches the mobile WaypointManagementScreen Waypoint shape. Field length caps +
+// stripped unknown keys prevent arbitrary multi-MB JSON blobs from being persisted
+// into convoy_groups.waypoints and re-broadcast to the whole group.
+const waypointItemSchema = z.object({
+  id: z.string().min(1).max(64),
+  name: z.string().max(100),
+  address: z.string().max(200),
+  type: z.enum(['waypoint', 'photo_stop', 'fuel', 'rest', 'food', 'destination']).optional(),
+  lat: z.number().min(-90).max(90).optional(),
+  lng: z.number().min(-180).max(180).optional(),
+});
+
+const setWaypointsSchema = z.object({
+  waypoints: z.array(waypointItemSchema).max(20).default([]),
+});
+
+const transferAdminSchema = z.object({
+  newAdminId: z.string().uuid('newAdminId must be a valid user id'),
+});
+
 // ---------------------------------------------------------------------------
 // Row types
 // ---------------------------------------------------------------------------
@@ -1589,8 +1609,11 @@ async function groupsRoutes(
       if (!group) return reply.notFound('Group not found');
       if (group.admin_id !== userId) return reply.forbidden('Only the group admin can set waypoints');
 
-      const body = request.body as { waypoints?: unknown[] };
-      const waypoints = Array.isArray(body?.waypoints) ? body.waypoints.slice(0, 20) : [];
+      const parsedWaypoints = setWaypointsSchema.safeParse(request.body ?? {});
+      if (!parsedWaypoints.success) {
+        return reply.badRequest(parsedWaypoints.error.errors[0].message);
+      }
+      const waypoints = parsedWaypoints.data.waypoints;
 
       await fastify.db.query(
         `UPDATE convoy_groups SET waypoints = $1::jsonb WHERE id = $2`,
@@ -1625,8 +1648,9 @@ async function groupsRoutes(
       const userId = (request.user as { sub: string }).sub;
       const { id } = request.params as { id: string };
 
-      const { newAdminId } = request.body as { newAdminId?: string };
-      if (!newAdminId) return reply.badRequest('newAdminId is required');
+      const parsedTransfer = transferAdminSchema.safeParse(request.body);
+      if (!parsedTransfer.success) return reply.badRequest(parsedTransfer.error.errors[0].message);
+      const { newAdminId } = parsedTransfer.data;
       if (newAdminId === userId) return reply.badRequest('Cannot transfer admin to yourself');
 
       const groupResult = await fastify.db.query<{ admin_id: string; status: string }>(

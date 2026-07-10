@@ -496,6 +496,20 @@ interface PresenceEntry {
 }
 const presence = new Map<string, PresenceEntry>();
 
+// The map otherwise grows forever (one entry per user ever connected to this
+// process). Prune entries that have been offline for over 24h; checked lazily
+// on new connections so no timer is needed.
+const PRESENCE_PRUNE_AFTER_MS = 24 * 60 * 60 * 1000;
+const PRESENCE_PRUNE_MIN_SIZE = 1000;
+function prunePresence(now: number): void {
+  if (presence.size < PRESENCE_PRUNE_MIN_SIZE) return;
+  for (const [id, entry] of presence) {
+    if (!entry.isOnline && now - entry.lastSeen.getTime() > PRESENCE_PRUNE_AFTER_MS) {
+      presence.delete(id);
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Socket.io connection handler factory
 // ---------------------------------------------------------------------------
@@ -541,7 +555,8 @@ export function registerSocketHandlers(
       }
     }
 
-    // Track presence
+    // Track presence (and lazily evict long-offline entries)
+    prunePresence(Date.now());
     presence.set(userId, { isOnline: true, lastSeen: new Date(), socketId: socket.id });
 
     // Personal room — joined unconditionally (even with no active group) so
@@ -857,11 +872,11 @@ export function registerSocketHandlers(
       })().catch((err: unknown) => fastify.log.error({ err }, 'hazard vote error'));
     });
 
-    // convoy:member_ready — relay lobby ready-state to group
-    socket.on('convoy:member_ready', (data: unknown) => {
-      const { userId: readyUserId } = (data as { userId?: string }) ?? {};
-      if (!readyUserId) return;
-      socket.to(`group:${groupId}`).emit('convoy:member_ready', { userId: readyUserId });
+    // convoy:member_ready — relay lobby ready-state to group.
+    // The authenticated socket identity is used, NOT the payload — otherwise any
+    // member could spoof another member's ready state in the lobby.
+    socket.on('convoy:member_ready', () => {
+      socket.to(`group:${groupId}`).emit('convoy:member_ready', { userId });
     });
 
     // convoy:start — admin starts the convoy from lobby
