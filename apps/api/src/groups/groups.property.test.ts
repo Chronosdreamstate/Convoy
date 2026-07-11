@@ -273,9 +273,10 @@ async function poolQuery(sql: string, values?: unknown[]): Promise<{ rows: unkno
     };
   }
 
-  // SELECT FROM group_events (GET /groups/:id/events — upcoming only)
+  // SELECT FROM group_events (GET /groups/:id/events — upcoming only,
+  // LEFT JOIN event_rsvps on the caller for the additive my_rsvp column)
   if (norm.includes('FROM GROUP_EVENTS') && norm.includes("STATUS = 'UPCOMING'")) {
-    const groupId = values![0] as string;
+    const [groupId, callerId] = values as [string, string | undefined];
     const now = new Date();
     const matching = events
       .filter((e) => e.group_id === groupId && e.scheduled_for > now && e.status === 'upcoming')
@@ -291,6 +292,8 @@ async function poolQuery(sql: string, values?: unknown[]): Promise<{ rows: unkno
         scheduled_for: e.scheduled_for.toISOString(),
         status: e.status,
         created_by: e.created_by,
+        my_rsvp:
+          rsvps.find((r) => r.event_id === e.id && r.user_id === callerId)?.status ?? null,
         total_count: String(total),
       })),
       rowCount: upcoming.length,
@@ -2417,6 +2420,141 @@ describe('GET /groups/:id/events total count and invite-only access', () => {
       headers: authHeader(strangerToken),
     });
     expect(openAsStranger.statusCode).toBe(200);
+
+    await app.close();
+  });
+});
+
+// -------------------------------------------------------------------------
+// GET /groups/:id/events — additive `myRsvp` field (caller's own RSVP,
+// LEFT JOINed into the list so the events screen needs no per-event fetch)
+// -------------------------------------------------------------------------
+describe('GET /groups/:id/events myRsvp field', () => {
+  beforeEach(() => { resetStore(); });
+
+  interface EventsBody {
+    events: Array<{ id: string; myRsvp: 'going' | 'maybe' | 'not_going' | null }>;
+    total: number;
+  }
+
+  it('myRsvp is null before RSVPing and mirrors the caller status after each upsert', async () => {
+    const app = buildTestApp();
+    await app.ready();
+
+    const adminId = '00000000-0000-0000-0000-126000000001';
+    const token = signToken(app, adminId);
+
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/api/v1/groups',
+      headers: authHeader(token),
+      payload: { name: 'MyRsvp Group' },
+    });
+    const { id: groupId } = JSON.parse(createRes.body) as { id: string };
+
+    const eventRes = await app.inject({
+      method: 'POST',
+      url: `/api/v1/groups/${groupId}/events`,
+      headers: authHeader(token),
+      payload: { title: 'Sunday Run', scheduledFor: new Date(Date.now() + 3_600_000).toISOString() },
+    });
+    expect(eventRes.statusCode).toBe(201);
+    const { event } = JSON.parse(eventRes.body) as { event: { id: string } };
+
+    // No RSVP yet — the field must be present and explicitly null
+    const before = await app.inject({
+      method: 'GET',
+      url: `/api/v1/groups/${groupId}/events`,
+      headers: authHeader(token),
+    });
+    expect(before.statusCode).toBe(200);
+    const beforeBody = JSON.parse(before.body) as EventsBody;
+    expect(beforeBody.events).toHaveLength(1);
+    expect(beforeBody.events[0].myRsvp).toBeNull();
+
+    // Every status the RSVP endpoint accepts round-trips through the list
+    for (const status of ['going', 'maybe', 'not_going'] as const) {
+      const rsvpRes = await app.inject({
+        method: 'POST',
+        url: `/api/v1/groups/${groupId}/events/${event.id}/rsvp`,
+        headers: authHeader(token),
+        payload: { status },
+      });
+      expect(rsvpRes.statusCode).toBe(200);
+
+      const listRes = await app.inject({
+        method: 'GET',
+        url: `/api/v1/groups/${groupId}/events`,
+        headers: authHeader(token),
+      });
+      expect(listRes.statusCode).toBe(200);
+      const body = JSON.parse(listRes.body) as EventsBody;
+      expect(body.events).toHaveLength(1);
+      expect(body.events[0].myRsvp).toBe(status);
+      expect(body.total).toBe(1);
+    }
+
+    await app.close();
+  });
+
+  it('myRsvp is per-caller: one member RSVPing never leaks into another caller list', async () => {
+    const app = buildTestApp();
+    await app.ready();
+
+    const adminId = '00000000-0000-0000-0000-126000000002';
+    const memberId = '00000000-0000-0000-0000-126000000003';
+    const adminToken = signToken(app, adminId);
+    const memberToken = signToken(app, memberId);
+
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/api/v1/groups',
+      headers: authHeader(adminToken),
+      payload: { name: 'Two Member RSVP Group' },
+    });
+    const { id: groupId, joinCode } = JSON.parse(createRes.body) as { id: string; joinCode: string };
+
+    const joinRes = await app.inject({
+      method: 'POST',
+      url: '/api/v1/groups/join',
+      headers: authHeader(memberToken),
+      payload: { code: joinCode },
+    });
+    expect(joinRes.statusCode).toBe(200);
+
+    const eventRes = await app.inject({
+      method: 'POST',
+      url: `/api/v1/groups/${groupId}/events`,
+      headers: authHeader(adminToken),
+      payload: { title: 'Canyon Drive', scheduledFor: new Date(Date.now() + 7_200_000).toISOString() },
+    });
+    expect(eventRes.statusCode).toBe(201);
+    const { event } = JSON.parse(eventRes.body) as { event: { id: string } };
+
+    // Only the admin RSVPs
+    const rsvpRes = await app.inject({
+      method: 'POST',
+      url: `/api/v1/groups/${groupId}/events/${event.id}/rsvp`,
+      headers: authHeader(adminToken),
+      payload: { status: 'going' },
+    });
+    expect(rsvpRes.statusCode).toBe(200);
+
+    const asAdmin = await app.inject({
+      method: 'GET',
+      url: `/api/v1/groups/${groupId}/events`,
+      headers: authHeader(adminToken),
+    });
+    const adminBody = JSON.parse(asAdmin.body) as EventsBody;
+    expect(adminBody.events[0].myRsvp).toBe('going');
+
+    const asMember = await app.inject({
+      method: 'GET',
+      url: `/api/v1/groups/${groupId}/events`,
+      headers: authHeader(memberToken),
+    });
+    const memberBody = JSON.parse(asMember.body) as EventsBody;
+    expect(memberBody.events[0].myRsvp).toBeNull();
 
     await app.close();
   });

@@ -1237,17 +1237,20 @@ async function groupsRoutes(
       const result = await fastify.db.query<{
         id: string; title: string; description: string | null;
         scheduled_for: string; status: string; created_by: string;
+        my_rsvp: 'going' | 'maybe' | 'not_going' | null;
         total_count: string;
       }>(
         `SELECT ge.id, ge.title, ge.description, ge.scheduled_for, ge.status, ge.created_by,
+                r.status AS my_rsvp,
                 COUNT(*) OVER() AS total_count
          FROM group_events ge
+         LEFT JOIN event_rsvps r ON r.event_id = ge.id AND r.user_id = $2
          WHERE ge.group_id = $1
            AND ge.scheduled_for > NOW()
            AND ge.status = 'upcoming'
          ORDER BY ge.scheduled_for ASC
          LIMIT 10`,
-        [id],
+        [id, userId],
       );
 
       return reply.send({
@@ -1258,6 +1261,9 @@ async function groupsRoutes(
           scheduledFor: e.scheduled_for,
           status: e.status,
           createdBy: e.created_by,
+          // The caller's own RSVP, joined in above so the events screen
+          // doesn't need a per-event /rsvps fetch. Null = no RSVP yet.
+          myRsvp: e.my_rsvp ?? null,
         })),
         // Total upcoming events for the group, not capped by the LIMIT above.
         total: result.rows.length > 0 ? parseInt(result.rows[0].total_count, 10) : 0,

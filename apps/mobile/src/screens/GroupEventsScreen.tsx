@@ -3,8 +3,9 @@
  *
  * Reached from GroupDetailScreen / ConvoyScreen via "See all events".
  * API: GET /api/v1/groups/{groupId}/events → { events, total? }
- * Each row shows name / date / the current user's RSVP status and navigates
- * to the existing /event/[id] detail screen (where the RSVP is made).
+ * Each row shows name / date / the current user's RSVP status (`myRsvp`,
+ * joined into the list response server-side — no per-event fetches) and
+ * navigates to the existing /event/[id] detail screen (where the RSVP is made).
  */
 
 import React, { useCallback, useMemo, useRef, useState } from 'react';
@@ -37,6 +38,13 @@ interface GroupEvent {
   scheduledFor: string;
   status: string;
   createdBy: string;
+  /**
+   * The caller's own RSVP, included in the list response server-side.
+   * `null` = member hasn't RSVPed yet (show the "RSVP ›" nudge);
+   * `undefined` = older API without the field → hide the pill entirely
+   * rather than show a misleading cta.
+   */
+  myRsvp?: RsvpStatus | null;
 }
 
 interface EventsResponse {
@@ -44,10 +52,6 @@ interface EventsResponse {
   /** Total upcoming events — being added server-side; optional until it lands. */
   total?: number;
 }
-
-// The user's RSVP per event. `undefined` = unknown (fetch failed / not a
-// member) → hide the pill entirely rather than show a misleading "RSVP" cta.
-type RsvpMap = Record<string, RsvpStatus | null | undefined>;
 
 const SKELETON_COUNT = 4;
 
@@ -196,7 +200,6 @@ export default function GroupEventsScreen() {
   const groupName = Array.isArray(params.groupName) ? params.groupName[0] : params.groupName;
 
   const [events, setEvents] = useState<GroupEvent[]>([]);
-  const [rsvps, setRsvps] = useState<RsvpMap>({});
   const [total, setTotal] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -213,27 +216,12 @@ export default function GroupEventsScreen() {
       if (!silent) setLoading(true);
       try {
         const res = await apiClient.get<EventsResponse>(`/api/v1/groups/${groupId}/events`);
-        const evs = res.data.events ?? [];
-        setEvents(evs);
+        // Each event carries the caller's own RSVP (`myRsvp`) inline — no
+        // per-event /rsvps fetches needed. Older APIs omit the field, which
+        // simply hides the pill.
+        setEvents(res.data.events ?? []);
         setTotal(typeof res.data.total === 'number' ? res.data.total : null);
         setError(false);
-
-        // Enrich each row with the current user's RSVP. Per-event and
-        // non-fatal: a failed lookup (e.g. viewer isn't a member — the rsvps
-        // endpoint is member-only) just hides that row's pill.
-        const statuses = await Promise.all(
-          evs.map(async (e): Promise<[string, RsvpStatus | null | undefined]> => {
-            try {
-              const r = await apiClient.get<{ myStatus: RsvpStatus | null }>(
-                `/api/v1/groups/${groupId}/events/${e.id}/rsvps`,
-              );
-              return [e.id, r.data.myStatus ?? null];
-            } catch {
-              return [e.id, undefined];
-            }
-          }),
-        );
-        setRsvps(Object.fromEntries(statuses));
       } catch {
         setError(true);
       } finally {
@@ -277,13 +265,13 @@ export default function GroupEventsScreen() {
     ({ item }: { item: GroupEvent }) => (
       <EventRow
         event={item}
-        myRsvp={rsvps[item.id]}
+        myRsvp={item.myRsvp}
         onPress={() => openEvent(item.id)}
         styles={styles}
         colors={colors}
       />
     ),
-    [rsvps, openEvent, styles, colors],
+    [openEvent, styles, colors],
   );
 
   const countLabel =
