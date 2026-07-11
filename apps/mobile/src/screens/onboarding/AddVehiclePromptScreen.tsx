@@ -9,6 +9,8 @@ import {
   StyleSheet,
   ActivityIndicator,
   SafeAreaView,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -18,6 +20,9 @@ import { onboardingState } from '../../utils/onboardingState';
 import { useTheme } from '../../theme';
 
 type VehicleIconName = ComponentProps<typeof MaterialCommunityIcons>['name'];
+
+// Text/icons that always sit on the crimson accent fill — stays light in both themes.
+const ON_ACCENT = '#FFFFFF';
 
 const VEHICLE_TYPES: Array<{ key: string; icon: VehicleIconName; label: string }> = [
   { key: 'sedan', icon: 'car', label: 'Car' },
@@ -34,6 +39,7 @@ export default function AddVehiclePromptScreen() {
   const [vehicleName, setVehicleName] = useState('');
   const [selectedType, setSelectedType] = useState<string>('sedan');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const scaleAnim = useRef(new Animated.Value(0.8)).current;
   const pillScales = useRef(VEHICLE_TYPES.map(() => new Animated.Value(1))).current;
@@ -47,7 +53,7 @@ export default function AddVehiclePromptScreen() {
       tension: 60,
       useNativeDriver: true,
     }).start();
-  }, []);
+  }, [scaleAnim]);
 
   const handleSelectType = (key: string, idx: number) => {
     setSelectedType(key);
@@ -59,8 +65,8 @@ export default function AddVehiclePromptScreen() {
   };
 
   const handleSubmit = async () => {
-    if (!vehicleName.trim() || isLeavingRef.current) return;
-    isLeavingRef.current = true;
+    if (!vehicleName.trim() || isLeavingRef.current || loading) return;
+    setError(null);
     setLoading(true);
     try {
       await apiClient.post('/api/v1/vehicles', {
@@ -68,16 +74,22 @@ export default function AddVehiclePromptScreen() {
         type: selectedType,
       });
     } catch {
-      // non-blocking — proceed regardless
-    } finally {
+      // Don't silently drop the user's ride — surface the failure and let
+      // them retry (or bail out via "Skip for now", which stays available).
       setLoading(false);
-      await onboardingState.markComplete('vehicle');
-      router.replace('/(onboarding)/ptt-tutorial' as never);
+      setError("Couldn't save your ride. Check your connection and try again, or skip for now.");
+      return;
     }
+    setLoading(false);
+    isLeavingRef.current = true;
+    await onboardingState.markComplete('vehicle');
+    router.replace('/(onboarding)/ptt-tutorial' as never);
   };
 
   const handleSkip = async () => {
-    if (isLeavingRef.current) return;
+    // `loading` guard: don't allow skip to race a submit that's in flight —
+    // it could fire a second navigation when the submit lands.
+    if (isLeavingRef.current || loading) return;
     isLeavingRef.current = true;
     await onboardingState.markSkipped('vehicle');
     router.replace('/(onboarding)/ptt-tutorial' as never);
@@ -85,6 +97,10 @@ export default function AddVehiclePromptScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
+      <KeyboardAvoidingView
+        style={styles.keyboardAvoid}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      >
       <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
         {/* Decorative hero illustration */}
         <Animated.Text style={[styles.emoji, { transform: [{ scale: scaleAnim }] }]}>
@@ -99,7 +115,7 @@ export default function AddVehiclePromptScreen() {
           placeholder="e.g. 2021 Subaru WRX STI"
           placeholderTextColor={theme.colors.textSubtle}
           value={vehicleName}
-          onChangeText={setVehicleName}
+          onChangeText={(text) => { setVehicleName(text); if (error) setError(null); }}
           maxLength={60}
           autoCapitalize="words"
           returnKeyType="done"
@@ -123,7 +139,7 @@ export default function AddVehiclePromptScreen() {
                   <MaterialCommunityIcons
                     name={t.icon}
                     size={22}
-                    color={isSelected ? theme.colors.text : theme.colors.textMuted}
+                    color={isSelected ? ON_ACCENT : theme.colors.textMuted}
                   />
                   <Text style={[styles.pillText, isSelected && styles.pillTextActive]}>
                     {t.label}
@@ -133,6 +149,8 @@ export default function AddVehiclePromptScreen() {
             );
           })}
         </View>
+
+        {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
         <TouchableOpacity
           style={[styles.submitBtn, !vehicleName.trim() && styles.submitBtnDisabled]}
@@ -144,7 +162,7 @@ export default function AddVehiclePromptScreen() {
           accessibilityState={{ disabled: !vehicleName.trim() || loading, busy: loading }}
         >
           {loading ? (
-            <ActivityIndicator color={theme.colors.text} />
+            <ActivityIndicator color={ON_ACCENT} />
           ) : (
             <Text style={styles.submitBtnText}>Add My Ride</Text>
           )}
@@ -160,6 +178,7 @@ export default function AddVehiclePromptScreen() {
           <Text style={styles.skipText}>Skip for now →</Text>
         </TouchableOpacity>
       </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
@@ -167,6 +186,7 @@ export default function AddVehiclePromptScreen() {
 function createStyles(theme: ReturnType<typeof useTheme>) {
   return StyleSheet.create({
     safe: { flex: 1, backgroundColor: theme.colors.bg },
+    keyboardAvoid: { flex: 1 },
     container: {
       flexGrow: 1,
       alignItems: 'center',
@@ -209,7 +229,14 @@ function createStyles(theme: ReturnType<typeof useTheme>) {
     },
     pillActive: { backgroundColor: theme.colors.accent, borderColor: theme.colors.accent },
     pillText: { fontSize: 11, color: theme.colors.textMuted, textAlign: 'center' },
-    pillTextActive: { color: theme.colors.text, fontWeight: '600' },
+    pillTextActive: { color: ON_ACCENT, fontWeight: '600' },
+    errorText: {
+      fontSize: 13,
+      color: theme.colors.error,
+      textAlign: 'center',
+      lineHeight: 18,
+      marginTop: -4,
+    },
     submitBtn: {
       width: '100%',
       backgroundColor: theme.colors.accent,
@@ -219,7 +246,7 @@ function createStyles(theme: ReturnType<typeof useTheme>) {
       marginTop: 8,
     },
     submitBtnDisabled: { opacity: 0.4 },
-    submitBtnText: { fontSize: 16, fontWeight: '700', color: theme.colors.text },
+    submitBtnText: { fontSize: 16, fontWeight: '700', color: ON_ACCENT },
     skipText: { fontSize: 14, color: theme.colors.textSubtle, marginTop: 4 },
   });
 }

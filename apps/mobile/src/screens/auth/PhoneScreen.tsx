@@ -18,19 +18,24 @@ import { Ionicons } from '@expo/vector-icons';
 import { authService } from '../../services/AuthService';
 import { useTheme } from '../../theme';
 
+// Text that always sits on the crimson accent fill — stays light in both themes.
+const ON_ACCENT = '#FFFFFF';
+
+// `digits` = length of the national number after the dial code (e.g. AU mobiles
+// are 9 digits after +61, not 10 — a flat 10-digit rule would lock AU users out).
 const COUNTRIES = [
-  { code: 'US', flag: '🇺🇸', dial: '+1',  label: 'United States'  },
-  { code: 'CA', flag: '🇨🇦', dial: '+1',  label: 'Canada'          },
-  { code: 'GB', flag: '🇬🇧', dial: '+44', label: 'United Kingdom'  },
-  { code: 'AU', flag: '🇦🇺', dial: '+61', label: 'Australia'       },
-  { code: 'MX', flag: '🇲🇽', dial: '+52', label: 'Mexico'          },
+  { code: 'US', flag: '🇺🇸', dial: '+1',  label: 'United States',  digits: 10, placeholder: '(555) 123-4567' },
+  { code: 'CA', flag: '🇨🇦', dial: '+1',  label: 'Canada',          digits: 10, placeholder: '(555) 123-4567' },
+  { code: 'GB', flag: '🇬🇧', dial: '+44', label: 'United Kingdom',  digits: 10, placeholder: '7911 123456' },
+  { code: 'AU', flag: '🇦🇺', dial: '+61', label: 'Australia',       digits: 9,  placeholder: '412 345 678' },
+  { code: 'MX', flag: '🇲🇽', dial: '+52', label: 'Mexico',          digits: 10, placeholder: '55 1234 5678' },
 ] as const;
 
 type Country = typeof COUNTRIES[number];
 
-function formatPhone(raw: string, dial: string): string {
-  const d = raw.replace(/\D/g, '').slice(0, 10);
-  if (dial !== '+1') return d;
+function formatPhone(raw: string, country: Country): string {
+  const d = raw.replace(/\D/g, '').slice(0, country.digits);
+  if (country.dial !== '+1') return d;
   if (d.length <= 3) return d;
   if (d.length <= 6) return `(${d.slice(0, 3)}) ${d.slice(3)}`;
   return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`;
@@ -47,14 +52,14 @@ export default function PhoneScreen() {
   const [error, setError] = useState<string | null>(null);
 
   const handleChangeText = (text: string) => {
-    const raw = text.replace(/\D/g, '').slice(0, 10);
+    const raw = text.replace(/\D/g, '').slice(0, country.digits);
     setDigits(raw);
     if (error) setError(null);
   };
 
   const handleSendOtp = async () => {
-    if (digits.length < 10) {
-      setError('Please enter a valid 10-digit phone number.');
+    if (digits.length < country.digits) {
+      setError(`Please enter a valid ${country.digits}-digit phone number.`);
       return;
     }
     const e164 = country.dial + digits;
@@ -129,9 +134,9 @@ export default function PhoneScreen() {
 
               <TextInput
                 style={styles.input}
-                value={formatPhone(digits, country.dial)}
+                value={formatPhone(digits, country)}
                 onChangeText={handleChangeText}
-                placeholder="(555) 123-4567"
+                placeholder={country.placeholder}
                 placeholderTextColor={theme.colors.textMuted}
                 keyboardType="phone-pad"
                 autoComplete="tel"
@@ -146,17 +151,17 @@ export default function PhoneScreen() {
             {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
             <TouchableOpacity
-              style={[styles.button, (isLoading || digits.length < 10) && styles.buttonDisabled]}
+              style={[styles.button, (isLoading || digits.length < country.digits) && styles.buttonDisabled]}
               onPress={() => { void handleSendOtp(); }}
-              disabled={isLoading || digits.length < 10}
+              disabled={isLoading || digits.length < country.digits}
               activeOpacity={0.8}
               accessibilityRole="button"
               accessibilityLabel="Continue"
               accessibilityHint="Sends a one-time code to your phone"
-              accessibilityState={{ disabled: isLoading || digits.length < 10 }}
+              accessibilityState={{ disabled: isLoading || digits.length < country.digits }}
             >
               {isLoading
-                ? <ActivityIndicator color={theme.colors.text} />
+                ? <ActivityIndicator color={ON_ACCENT} />
                 : <Text style={styles.buttonText}>Continue →</Text>}
             </TouchableOpacity>
           </View>
@@ -268,7 +273,7 @@ function createStyles(theme: ReturnType<typeof useTheme>) {
       elevation: 6,
     },
     buttonDisabled: { opacity: 0.5 },
-    buttonText: { color: theme.colors.text, fontSize: 16, fontWeight: '700', letterSpacing: 0.3 },
+    buttonText: { color: ON_ACCENT, fontSize: 16, fontWeight: '700', letterSpacing: 0.3 },
     // Modal
     overlay: {
       flex: 1,

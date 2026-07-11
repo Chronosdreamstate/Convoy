@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -28,6 +28,10 @@ import { useTheme } from '../../theme';
 
 type Theme = ReturnType<typeof useTheme>;
 type IoniconName = keyof typeof Ionicons.glyphMap;
+
+// Text/icons that always sit on the crimson accent fill (active chips, save
+// button, switch thumbs on an accent track) — stays light in both themes.
+const ON_ACCENT = '#FFFFFF';
 
 interface Settings {
   hazardAlertDistanceM: number;
@@ -166,7 +170,7 @@ function ChipSelector<T extends string | number>({ options, selected, onSelect }
               <Ionicons
                 name={opt.icon}
                 size={13}
-                color={active ? theme.colors.text : theme.colors.textMuted}
+                color={active ? ON_ACCENT : theme.colors.textMuted}
                 style={styles.chipIcon}
               />
             ) : null}
@@ -235,11 +239,22 @@ export default function SettingsScreen() {
   const [themeMode, setThemeMode] = useState<'light' | 'dark' | 'system'>(storedThemeMode);
   const [visibleToNearby, setVisibleToNearby] = useState(false);
 
-  useEffect(() => {
-    loadSettings();
+  const applySettings = useCallback((s: Settings) => {
+    setMapStyle(s.mapStyle);
+    setHazardDistM(s.hazardAlertDistanceM);
+    setCacheMb(s.tileCacheLimitMb);
+    setScenicRouting(s.scenicRouting);
+    setNotifHazard(s.notifHazard);
+    setNotifGroupEvents(s.notifGroupEvents);
+    setNotifFriendRequests(s.notifFriendRequests);
+    setNotifNavigation(s.notifNavigation);
+    setVisibleToNearby(s.visibleToNearby ?? false);
+    // Defensive: the backend field may not exist yet if the friend-location-sharing
+    // work hasn't landed on this deployment — default to off (not sharing) either way.
+    setShareLocationWithFriends(s.shareLocationWithFriends ?? false);
   }, []);
 
-  const loadSettings = async (opts?: { silent?: boolean }) => {
+  const loadSettings = useCallback(async (opts?: { silent?: boolean }) => {
     if (!opts?.silent) setIsLoading(true);
     setError(null);
     try {
@@ -260,28 +275,19 @@ export default function SettingsScreen() {
       setIsLoading(false);
       setIsRefreshing(false);
     }
-  };
+  }, [applySettings, setGlobalSettings]);
+
+  // Both deps are stable (useCallback([]) + zustand store action), so this
+  // still fetches exactly once on mount.
+  useEffect(() => {
+    void loadSettings();
+  }, [loadSettings]);
 
   // Pull-to-refresh — also doubles as the retry action for the "Failed to
   // load settings" error banner, since that copy promises a way to try again.
   const handleRefresh = () => {
     setIsRefreshing(true);
     void loadSettings({ silent: true });
-  };
-
-  const applySettings = (s: Settings) => {
-    setMapStyle(s.mapStyle);
-    setHazardDistM(s.hazardAlertDistanceM);
-    setCacheMb(s.tileCacheLimitMb);
-    setScenicRouting(s.scenicRouting);
-    setNotifHazard(s.notifHazard);
-    setNotifGroupEvents(s.notifGroupEvents);
-    setNotifFriendRequests(s.notifFriendRequests);
-    setNotifNavigation(s.notifNavigation);
-    setVisibleToNearby(s.visibleToNearby ?? false);
-    // Defensive: the backend field may not exist yet if the friend-location-sharing
-    // work hasn't landed on this deployment — default to off (not sharing) either way.
-    setShareLocationWithFriends(s.shareLocationWithFriends ?? false);
   };
 
   const handleSave = async () => {
@@ -497,7 +503,7 @@ export default function SettingsScreen() {
             icon="trophy-outline"
             label="Achievements"
             subtitle="Track your convoy milestones"
-            onPress={() => router.push('/achievements' as any)}
+            onPress={() => router.push('/achievements' as never)}
           />
           <SettingRow
             icon="download-outline"
@@ -510,12 +516,12 @@ export default function SettingsScreen() {
           <SettingRow
             icon="lock-closed-outline"
             label="Privacy Policy"
-            onPress={() => router.push('/privacy' as any)}
+            onPress={() => router.push('/privacy' as never)}
           />
           <SettingRow
             icon="document-text-outline"
             label="Terms of Service"
-            onPress={() => router.push('/terms' as any)}
+            onPress={() => router.push('/terms' as never)}
             last
           />
         </View>
@@ -532,7 +538,7 @@ export default function SettingsScreen() {
                 value={notifHazard}
                 onValueChange={(v) => { setNotifHazard(v); mark(); }}
                 trackColor={{ false: theme.colors.border, true: theme.colors.accent }}
-                thumbColor={theme.colors.text}
+                thumbColor={ON_ACCENT}
                 accessibilityLabel="Hazard notifications toggle"
               />
             }
@@ -546,7 +552,7 @@ export default function SettingsScreen() {
                 value={notifGroupEvents}
                 onValueChange={(v) => { setNotifGroupEvents(v); mark(); }}
                 trackColor={{ false: theme.colors.border, true: theme.colors.accent }}
-                thumbColor={theme.colors.text}
+                thumbColor={ON_ACCENT}
                 accessibilityLabel="Group events notifications toggle"
               />
             }
@@ -560,7 +566,7 @@ export default function SettingsScreen() {
                 value={notifFriendRequests}
                 onValueChange={(v) => { setNotifFriendRequests(v); mark(); }}
                 trackColor={{ false: theme.colors.border, true: theme.colors.accent }}
-                thumbColor={theme.colors.text}
+                thumbColor={ON_ACCENT}
                 accessibilityLabel="Friend requests notifications toggle"
               />
             }
@@ -574,7 +580,7 @@ export default function SettingsScreen() {
                 value={notifNavigation}
                 onValueChange={(v) => { setNotifNavigation(v); mark(); }}
                 trackColor={{ false: theme.colors.border, true: theme.colors.accent }}
-                thumbColor={theme.colors.text}
+                thumbColor={ON_ACCENT}
                 accessibilityLabel="Navigation notifications toggle"
               />
             }
@@ -611,7 +617,7 @@ export default function SettingsScreen() {
                   }
                 }}
                 trackColor={{ false: theme.colors.border, true: theme.colors.accent }}
-                thumbColor={theme.colors.text}
+                thumbColor={ON_ACCENT}
                 accessibilityLabel="Visible to nearby drivers toggle"
               />
             }
@@ -641,7 +647,7 @@ export default function SettingsScreen() {
                   }
                 }}
                 trackColor={{ false: theme.colors.border, true: theme.colors.accent }}
-                thumbColor={theme.colors.text}
+                thumbColor={ON_ACCENT}
                 accessibilityLabel="Share my location with friends toggle"
               />
             }
@@ -663,7 +669,7 @@ export default function SettingsScreen() {
             icon="ban-outline"
             label="Blocked Users"
             subtitle="View and unblock users you've blocked"
-            onPress={() => router.push('/blocked-users' as any)}
+            onPress={() => router.push('/blocked-users' as never)}
             last
           />
         </View>
@@ -730,7 +736,7 @@ export default function SettingsScreen() {
                 value={scenicRouting}
                 onValueChange={(v) => { setScenicRouting(v); mark(); }}
                 trackColor={{ false: theme.colors.border, true: theme.colors.accent }}
-                thumbColor={theme.colors.text}
+                thumbColor={ON_ACCENT}
                 accessibilityLabel="Scenic routing toggle"
               />
             }
@@ -864,7 +870,7 @@ export default function SettingsScreen() {
           accessibilityState={{ disabled: !isDirty || isSaving }}
         >
           {isSaving ? (
-            <ActivityIndicator color={theme.colors.text} />
+            <ActivityIndicator color={ON_ACCENT} />
           ) : (
             <Text style={styles.saveButtonText}>Save Settings</Text>
           )}
@@ -920,7 +926,7 @@ function createStyles(theme: Theme) {
     marginBottom: theme.spacing.md,
   },
   errorText: {
-    color: theme.colors.accent,
+    color: theme.colors.error,
     fontSize: 13,
     flexShrink: 1,
     paddingRight: theme.spacing.sm,
@@ -1073,7 +1079,7 @@ function createStyles(theme: Theme) {
     fontWeight: '500',
   },
   chipTextActive: {
-    color: theme.colors.text,
+    color: ON_ACCENT,
     fontWeight: '700',
   },
 
@@ -1117,7 +1123,7 @@ function createStyles(theme: Theme) {
     opacity: 0.4,
   },
   saveButtonText: {
-    color: theme.colors.text,
+    color: ON_ACCENT,
     fontSize: 16,
     fontWeight: '700',
   },

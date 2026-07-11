@@ -21,6 +21,9 @@ import { useTheme } from '../../theme';
 
 const DIGIT_COUNT = 6;
 
+// Text that always sits on the crimson accent fill — stays light in both themes.
+const ON_ACCENT = '#FFFFFF';
+
 export default function OtpScreen() {
   const router = useRouter();
   const theme = useTheme();
@@ -202,7 +205,7 @@ export default function OtpScreen() {
               accessibilityState={{ disabled: isVerifying || otp.length !== DIGIT_COUNT }}
             >
               {isVerifying
-                ? <ActivityIndicator color={theme.colors.text} />
+                ? <ActivityIndicator color={ON_ACCENT} />
                 : <Text style={styles.buttonText}>Verify</Text>}
             </TouchableOpacity>
 
@@ -293,7 +296,7 @@ function createStyles(theme: ReturnType<typeof useTheme>) {
       elevation: 6,
     },
     buttonDisabled: { opacity: 0.5 },
-    buttonText: { color: theme.colors.text, fontSize: 16, fontWeight: '700' },
+    buttonText: { color: ON_ACCENT, fontSize: 16, fontWeight: '700' },
     resendRow: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center' },
     resendText: { color: theme.colors.textMuted, fontSize: 14 },
     resendLink: { color: theme.colors.accent, fontSize: 14, fontWeight: '600' },

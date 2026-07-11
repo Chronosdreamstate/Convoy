@@ -29,6 +29,9 @@ interface BlockedUser {
   callsign?: string | null;
 }
 
+// Text that always sits on the crimson accent fill — stays light in both themes.
+const ON_ACCENT = '#FFFFFF';
+
 const AVATAR_COLORS = ['#DC143C', '#6366F1', '#0EA5E9', '#10B981', '#F59E0B', '#EC4899', '#8B5CF6', '#14B8A6'];
 function avatarColor(name: string): string {
   let h = 0;
@@ -143,8 +146,10 @@ export default function BlockedUsersScreen() {
                 style={styles.unblockBtn}
                 onPress={() => handleUnblock(user)}
                 disabled={unblockingId === user.id}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                 accessibilityRole="button"
                 accessibilityLabel={`Unblock ${user.displayName}`}
+                accessibilityState={{ disabled: unblockingId === user.id, busy: unblockingId === user.id }}
               >
                 {unblockingId === user.id ? (
                   <ActivityIndicator color={colors.accent} size="small" />
@@ -177,7 +182,7 @@ function createStyles(colors: ThemeColors) {
     placeholder: { width: 44 },
     skeletonWrap: { padding: 16 },
     list: { padding: 16 },
-    errorTxt: { color: colors.accent, fontSize: 13, marginBottom: 12 },
+    errorTxt: { color: colors.error, fontSize: 13, marginBottom: 12 },
     row: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -222,6 +227,6 @@ function createStyles(colors: ThemeColors) {
       alignItems: 'center',
       justifyContent: 'center',
     },
-    retryBtnText: { color: colors.text, fontSize: 15, fontWeight: '700' },
+    retryBtnText: { color: ON_ACCENT, fontSize: 15, fontWeight: '700' },
   });
 }

@@ -11,6 +11,9 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../theme';
 
+// Text/icons that always sit on the crimson accent fill — stays light in both themes.
+const ON_ACCENT = '#FFFFFF';
+
 export default function PTTTutorialScreen() {
   const router = useRouter();
   const theme = useTheme();
@@ -74,7 +77,7 @@ export default function PTTTutorialScreen() {
 
             {/* Mock PTT button — non-functional UI demo */}
             <View style={styles.pttButton}>
-              <Ionicons name="mic" size={36} color={theme.colors.text} />
+              <Ionicons name="mic" size={36} color={ON_ACCENT} />
             </View>
           </View>
 
@@ -175,7 +178,7 @@ function createStyles(theme: ReturnType<typeof useTheme>) {
     gotItText: {
       fontSize: 16,
       fontWeight: '700',
-      color: theme.colors.text,
+      color: ON_ACCENT,
     },
     skipText: {
       fontSize: 14,

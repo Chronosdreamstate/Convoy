@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, SafeAreaView, Platform,
   ScrollView, ActivityIndicator, TextInput, Modal, Alert, RefreshControl, Switch, KeyboardAvoidingView,
@@ -12,6 +12,9 @@ import { useTheme, withAlpha, ThemeColors } from '../../theme';
 
 // ---------- type helpers ----------
 type VehicleIconName = React.ComponentProps<typeof MaterialCommunityIcons>['name'];
+
+// Text/icons that always sit on the crimson accent fill — stays light in both themes.
+const ON_ACCENT = '#FFFFFF';
 
 const TYPE_ICON: Record<string, VehicleIconName> = {
   Car: 'car', Truck: 'truck', Motorcycle: 'motorbike', SUV: 'car-estate', Classic: 'car-side', Sports: 'car-sports',
@@ -106,15 +109,12 @@ export default function GarageScreen() {
   const [isSaving, setIsSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
-  useEffect(() => { void loadVehicles(); }, []);
+  // Return-key focus chain across the add/edit form: Make → Model → Nickname → Year
+  const modelInputRef = useRef<TextInput>(null);
+  const nicknameInputRef = useRef<TextInput>(null);
+  const yearInputRef = useRef<TextInput>(null);
 
-  const handleRefresh = useCallback(async () => {
-    setIsRefreshing(true);
-    await loadVehicles(true);
-    setIsRefreshing(false);
-  }, []);
-
-  const loadVehicles = async (silent = false) => {
+  const loadVehicles = useCallback(async (silent = false) => {
     if (!silent) setIsLoading(true);
     setError(null);
     try {
@@ -123,7 +123,15 @@ export default function GarageScreen() {
       if (res.data.mods) setMods(res.data.mods);
     } catch { setError('Failed to load garage. Please try again.'); }
     finally { if (!silent) setIsLoading(false); }
-  };
+  }, []);
+
+  useEffect(() => { void loadVehicles(); }, [loadVehicles]);
+
+  const handleRefresh = useCallback(async () => {
+    setIsRefreshing(true);
+    await loadVehicles(true);
+    setIsRefreshing(false);
+  }, [loadVehicles]);
 
   const openAddModal = () => {
     // Req 34 — block the add-vehicle form entry point while in motion
@@ -412,6 +420,7 @@ export default function GarageScreen() {
                   placeholderTextColor={colors.textSubtle}
                   onSubmitEditing={handleAddMod}
                   returnKeyType="done"
+                  submitBehavior="submit"
                   maxLength={60}
                   accessibilityLabel="New modification"
                 />
@@ -422,7 +431,7 @@ export default function GarageScreen() {
                   accessibilityRole="button"
                   accessibilityLabel="Add mod"
                 >
-                  <MaterialCommunityIcons name="plus" size={22} color={colors.text} />
+                  <MaterialCommunityIcons name="plus" size={22} color={ON_ACCENT} />
                 </TouchableOpacity>
               </View>
             )}
@@ -436,7 +445,7 @@ export default function GarageScreen() {
       </ScrollView>
 
       <TouchableOpacity style={styles.fab} onPress={openAddModal} accessibilityRole="button" accessibilityLabel="Add vehicle">
-        <MaterialCommunityIcons name="plus" size={28} color={colors.text} />
+        <MaterialCommunityIcons name="plus" size={28} color={ON_ACCENT} />
       </TouchableOpacity>
 
       {/* Add / Edit modal */}
@@ -490,17 +499,24 @@ export default function GarageScreen() {
                     onChangeText={(val) => setForm((p) => ({ ...p, make: val }))}
                     placeholder="Ford"
                     placeholderTextColor={colors.textSubtle}
+                    returnKeyType="next"
+                    submitBehavior="submit"
+                    onSubmitEditing={() => modelInputRef.current?.focus()}
                     accessibilityLabel="Vehicle make"
                   />
                 </View>
                 <View style={[styles.formField, { flex: 1 }]}>
                   <Text style={styles.formLabel}>Model</Text>
                   <TextInput
+                    ref={modelInputRef}
                     style={styles.formInput}
                     value={form.model}
                     onChangeText={(val) => setForm((p) => ({ ...p, model: val }))}
                     placeholder="Mustang"
                     placeholderTextColor={colors.textSubtle}
+                    returnKeyType="next"
+                    submitBehavior="submit"
+                    onSubmitEditing={() => nicknameInputRef.current?.focus()}
                     accessibilityLabel="Vehicle model"
                   />
                 </View>
@@ -510,11 +526,15 @@ export default function GarageScreen() {
               <View style={styles.formField}>
                 <Text style={styles.formLabel}>Nickname (optional)</Text>
                 <TextInput
+                  ref={nicknameInputRef}
                   style={styles.formInput}
                   value={form.name}
                   onChangeText={(val) => setForm((p) => ({ ...p, name: val }))}
                   placeholder="My Stang"
                   placeholderTextColor={colors.textSubtle}
+                  returnKeyType="next"
+                  submitBehavior="submit"
+                  onSubmitEditing={() => yearInputRef.current?.focus()}
                   accessibilityLabel="Vehicle nickname"
                 />
               </View>
@@ -523,12 +543,14 @@ export default function GarageScreen() {
               <View style={styles.formField}>
                 <Text style={styles.formLabel}>Year</Text>
                 <TextInput
+                  ref={yearInputRef}
                   style={styles.formInput}
                   value={form.year}
                   onChangeText={(val) => setForm((p) => ({ ...p, year: val.replace(/\D/g, '') }))}
                   placeholder="2019"
                   placeholderTextColor={colors.textSubtle}
                   keyboardType="number-pad"
+                  returnKeyType="done"
                   maxLength={4}
                   accessibilityLabel="Vehicle year"
                 />
@@ -582,7 +604,7 @@ export default function GarageScreen() {
                 accessibilityState={{ disabled: isSaving }}
               >
                 {isSaving
-                  ? <ActivityIndicator color={colors.text} />
+                  ? <ActivityIndicator color={ON_ACCENT} />
                   : <Text style={styles.saveButtonText}>{editingId ? 'Save Changes' : 'Add Vehicle'}</Text>
                 }
               </TouchableOpacity>
@@ -605,7 +627,7 @@ function createStyles(colors: ThemeColors) {
     header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 24 },
     title: { fontSize: 28, fontWeight: '700', color: colors.text },
     subtitle: { color: colors.textMuted, fontSize: 13 },
-    errorText: { color: colors.accent, fontSize: 13, marginBottom: 12 },
+    errorText: { color: colors.error, fontSize: 13, marginBottom: 12 },
 
     fuelLogCard: {
       flexDirection: 'row', alignItems: 'center', gap: 12,
@@ -626,7 +648,7 @@ function createStyles(colors: ThemeColors) {
       alignItems: 'center', minHeight: 52, justifyContent: 'center',
       shadowColor: colors.accent, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.35, shadowRadius: 8, elevation: 6,
     },
-    emptyButtonText: { color: colors.text, fontSize: 16, fontWeight: '700' },
+    emptyButtonText: { color: ON_ACCENT, fontSize: 16, fontWeight: '700' },
 
     vehicleCard: {
       backgroundColor: colors.card, borderRadius: 12, borderWidth: 1, borderColor: colors.border,
@@ -697,7 +719,10 @@ function createStyles(colors: ThemeColors) {
     colorGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 4 },
     colorOption: { width: 32, height: 32, borderRadius: 16, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
     colorOptionSelected: { borderColor: colors.text, borderWidth: 2.5 },
-    colorCheck: { color: colors.text, fontSize: 14, fontWeight: '800', textShadowColor: 'rgba(0,0,0,0.6)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 },
+    // The check sits on an arbitrary paint swatch, not UI chrome — always-white
+    // with a dark shadow reads on every swatch in both themes (colors.text
+    // would be a black check on the Black/Brown swatches in light mode).
+    colorCheck: { color: ON_ACCENT, fontSize: 14, fontWeight: '800', textShadowColor: 'rgba(0,0,0,0.6)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 },
     colorLabel: { fontSize: 12, color: colors.textMuted, marginTop: 6 },
 
     toggleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, paddingVertical: 4 },
@@ -705,6 +730,6 @@ function createStyles(colors: ThemeColors) {
 
     saveButton: { backgroundColor: colors.accent, borderRadius: 14, paddingVertical: 16, alignItems: 'center', marginTop: 8, minHeight: 52, justifyContent: 'center' },
     saveButtonDisabled: { opacity: 0.5 },
-    saveButtonText: { color: colors.text, fontSize: 16, fontWeight: '700' },
+    saveButtonText: { color: ON_ACCENT, fontSize: 16, fontWeight: '700' },
   });
 }

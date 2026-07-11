@@ -20,6 +20,9 @@ import { useTheme } from '../../theme';
 
 type Mode = 'signin' | 'signup';
 
+// Text that always sits on the crimson accent fill — stays light in both themes.
+const ON_ACCENT = '#FFFFFF';
+
 function isValidEmail(e: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
 }
@@ -245,7 +248,7 @@ export default function EmailScreen() {
                 accessibilityState={{ disabled: isSubmitDisabled }}
               >
                 {isLoading ? (
-                  <ActivityIndicator color={theme.colors.text} />
+                  <ActivityIndicator color={ON_ACCENT} />
                 ) : (
                   <Text style={styles.buttonText}>{mode === 'signin' ? 'Sign In' : 'Sign Up'}</Text>
                 )}
@@ -389,7 +392,7 @@ function createStyles(theme: ReturnType<typeof useTheme>) {
       opacity: 0.5,
     },
     buttonText: {
-      color: theme.colors.text,
+      color: ON_ACCENT,
       fontSize: 16,
       fontWeight: '700',
       letterSpacing: 0.3,

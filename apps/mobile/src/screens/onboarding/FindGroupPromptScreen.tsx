@@ -40,7 +40,9 @@ export default function FindGroupPromptScreen() {
         ]),
       ]),
     ]).start();
-  }, []);
+    // All deps are useRef(...).current Animated.Values — stable for the
+    // component's lifetime, so this still runs exactly once.
+  }, [card1Opacity, card1Translate, card2Opacity, card2Translate, headerOpacity]);
 
   const isCompletingRef = useRef(false);
 

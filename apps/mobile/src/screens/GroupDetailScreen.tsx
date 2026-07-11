@@ -17,6 +17,9 @@ import { apiClient } from '../services/apiClient';
 import { SkeletonBox, SkeletonRow } from '../components/SkeletonLoader';
 import { useTheme, withAlpha, ThemeColors } from '../theme';
 
+// Text/icons that always sit on the crimson accent fill — stays light in both themes.
+const ON_ACCENT = '#FFFFFF';
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -113,6 +116,10 @@ export default function GroupDetailScreen() {
   // below). Starts at a sane estimate so there's no flash of under-padding
   // before the first onLayout fires.
   const [footerHeight, setFooterHeight] = useState(100);
+  // Total upcoming events, from GET /groups/:id/events (`total` is optional —
+  // being added server-side). Purely decorative on the "See all events" row;
+  // null (endpoint failed / field absent) just hides the count.
+  const [eventsTotal, setEventsTotal] = useState<number | null>(null);
 
   const fetchGroup = useCallback(async () => {
     if (!id) return;
@@ -136,6 +143,24 @@ export default function GroupDetailScreen() {
 
   useEffect(() => { void fetchGroup(); }, [fetchGroup]);
 
+  // Best-effort fetch of the upcoming-events total for the "See all events"
+  // affordance. Non-blocking and silent on failure — the row works without it.
+  const hasUpcomingEvent = !!group?.upcomingEvent;
+  useEffect(() => {
+    if (!id || !hasUpcomingEvent) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await apiClient.get<{ total?: number }>(`/api/v1/groups/${id}/events`);
+        const total = typeof res.data?.total === 'number' ? res.data.total : null;
+        if (!cancelled) setEventsTotal(total);
+      } catch {
+        // decorative only — leave the label as plain "See all events"
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [id, hasUpcomingEvent]);
+
   const handleShare = useCallback(async () => {
     if (!group || sharing) return;
     setSharing(true);
@@ -154,11 +179,12 @@ export default function GroupDetailScreen() {
         title: `Join ${group.name} on CORTEGE`,
       });
     } catch {
-      // fallback share without invite link
+      // fallback share without invite link; swallow a second failure too —
+      // an unhandled rejection here would escape the outer catch
       await Share.share({
         message: `Check out "${group.name}" on CORTEGE — the car enthusiast convoy app! convoy.app`,
         title: `Join ${group.name} on CORTEGE`,
-      });
+      }).catch(() => {});
     } finally {
       setSharing(false);
     }
@@ -213,7 +239,7 @@ export default function GroupDetailScreen() {
           <Text style={styles.errorText}>{error ?? 'This group may have been removed or is no longer available.'}</Text>
           <TouchableOpacity style={styles.retryBtn} onPress={fetchGroup} accessibilityRole="button" accessibilityLabel="Retry loading group">
             <Text style={styles.retryText}>
-              <Ionicons name="refresh" size={15} color={colors.text} /> Try Again
+              <Ionicons name="refresh" size={15} color={ON_ACCENT} /> Try Again
             </Text>
           </TouchableOpacity>
         </View>
@@ -353,10 +379,16 @@ export default function GroupDetailScreen() {
                 } as never)
               }
               accessibilityRole="button"
-              accessibilityLabel="See all upcoming events for this group"
+              accessibilityLabel={
+                eventsTotal !== null && eventsTotal > 0
+                  ? `See all ${eventsTotal} upcoming events for this group`
+                  : 'See all upcoming events for this group'
+              }
             >
               <Ionicons name="calendar-outline" size={15} color={colors.textMuted} />
-              <Text style={styles.seeAllEventsText}>See all events</Text>
+              <Text style={styles.seeAllEventsText}>
+                {eventsTotal !== null && eventsTotal > 0 ? `See all events (${eventsTotal})` : 'See all events'}
+              </Text>
               <Ionicons name="chevron-forward" size={14} color={colors.textMuted} />
             </TouchableOpacity>
           </>
@@ -390,9 +422,9 @@ export default function GroupDetailScreen() {
               accessibilityState={{ disabled: joining, busy: joining }}
             >
               {joining ? (
-                <ActivityIndicator color={colors.text} />
+                <ActivityIndicator color={ON_ACCENT} />
               ) : (
-                <Text style={styles.joinText}>Join Convoy</Text>
+                <Text style={styles.joinBtnText}>Join Convoy</Text>
               )}
             </TouchableOpacity>
           )}
@@ -455,7 +487,7 @@ function createStyles(colors: ThemeColors) {
   errorTitle: { color: colors.text, fontSize: 18, fontWeight: '700', textAlign: 'center', marginBottom: 8 },
   errorText: { color: colors.textMuted, fontSize: 15, textAlign: 'center', lineHeight: 21, marginBottom: 20 },
   retryBtn: { backgroundColor: colors.accent, paddingHorizontal: 24, paddingVertical: 12, borderRadius: 12, minHeight: 44, justifyContent: 'center' },
-  retryText: { color: colors.text, fontSize: 15, fontWeight: '700' },
+  retryText: { color: ON_ACCENT, fontSize: 15, fontWeight: '700' },
 
   groupName: { color: colors.text, fontSize: 28, fontWeight: '700', marginBottom: 4 },
   adminText: { color: colors.textMuted, fontSize: 14, marginBottom: 16 },
@@ -503,7 +535,10 @@ function createStyles(colors: ThemeColors) {
   joinBtn: { backgroundColor: colors.accent, borderRadius: 16, paddingVertical: 18, alignItems: 'center' },
   joinBtnDisabled: { opacity: 0.5 },
   viewBtn: { backgroundColor: colors.card, borderRadius: 16, paddingVertical: 18, alignItems: 'center', borderWidth: 1, borderColor: colors.accent },
+  // "View Convoy" sits on a card fill (theme text color); "Join Convoy" sits
+  // on the accent fill (always-light text).
   joinText: { color: colors.text, fontSize: 17, fontWeight: '700' },
+  joinBtnText: { color: ON_ACCENT, fontSize: 17, fontWeight: '700' },
   leaderboardBtn: { width: 56, height: 56, borderRadius: 16, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
   leaderboardIcon: { fontSize: 24 },
   });

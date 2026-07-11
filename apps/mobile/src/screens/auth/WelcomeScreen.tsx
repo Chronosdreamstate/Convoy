@@ -21,6 +21,11 @@ import { useAccessibilitySettings } from '../../hooks/useAccessibilitySettings';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
+// Text/icons that always sit on a fixed dark or accent fill (crimson CTA,
+// Apple's brand-black button) — stays light in both themes. In light mode
+// theme.colors.text is near-black, which would be invisible on these fills.
+const ON_ACCENT = '#FFFFFF';
+
 const SLIDES = [
   {
     emoji: '🚗',
@@ -281,10 +286,10 @@ export default function WelcomeScreen() {
                 accessibilityState={{ disabled: isAppleSigningIn, busy: isAppleSigningIn }}
               >
                 {isAppleSigningIn ? (
-                  <ActivityIndicator color={theme.colors.text} />
+                  <ActivityIndicator color={ON_ACCENT} />
                 ) : (
                   <>
-                    <Ionicons name="logo-apple" size={20} color={theme.colors.text} />
+                    <Ionicons name="logo-apple" size={20} color={ON_ACCENT} />
                     <Text style={styles.appleButtonText}>Sign in with Apple</Text>
                   </>
                 )}
@@ -467,7 +472,7 @@ function createStyles(theme: ReturnType<typeof useTheme>) {
       elevation: 6,
     },
     ctaText: {
-      color: theme.colors.text,
+      color: ON_ACCENT,
       fontSize: 17,
       fontWeight: '700',
       letterSpacing: 0.5,
@@ -533,7 +538,7 @@ function createStyles(theme: ReturnType<typeof useTheme>) {
     },
     appleButtonDisabled: { opacity: 0.45 },
     appleButtonText: {
-      color: theme.colors.text,
+      color: ON_ACCENT,
       fontSize: 16,
       fontWeight: '600',
       letterSpacing: 0.3,
