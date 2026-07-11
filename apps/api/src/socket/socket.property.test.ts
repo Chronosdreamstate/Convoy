@@ -13,6 +13,8 @@
 import fc from 'fast-check';
 import { Pool } from 'pg';
 import Redis from 'ioredis';
+import type { FastifyInstance } from 'fastify';
+import type { Server as SocketIO, Socket } from 'socket.io';
 import {
   getPresence,
   getUserDmGroupIds,
@@ -22,6 +24,7 @@ import {
   LocationPayload,
   PRESENCE_ONLINE_TTL_SECONDS,
   refreshPresence,
+  registerSocketHandlers,
   setPresenceOffline,
   setPresenceOnline,
 } from './socket.handler';
@@ -547,6 +550,214 @@ describe('getUserDmGroupIds', () => {
       ),
       { numRuns: 30 },
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Socket connect race — the connection handler must register EVERY event
+// listener synchronously; the async connect-time setup (active-group lookup,
+// membership check, presence write, room joins) is captured in an internal
+// `ready` promise that setup-dependent handlers await. A client emitting
+// immediately after 'connect' must never lose the event or its ack.
+// ---------------------------------------------------------------------------
+
+function deferred<T>(): { promise: Promise<T>; resolve: (v: T) => void } {
+  let resolve!: (v: T) => void;
+  const promise = new Promise<T>((r) => {
+    resolve = r;
+  });
+  return { promise, resolve };
+}
+
+/** Drain all pending microtasks (mock redis/db calls never touch real timers). */
+const flush = (): Promise<void> => new Promise<void>((r) => setImmediate(r));
+
+type QueryResult = { rows: unknown[]; rowCount: number };
+type QueryFn = (sql: string, params?: unknown[]) => Promise<QueryResult>;
+
+class MockSocket {
+  connected = true;
+  rooms = new Set<string>();
+  conn = { on: (): void => undefined };
+  /** socket.to(room).emit(...) relays land here */
+  emissions: Emission[] = [];
+  private listeners = new Map<string, Array<(...args: unknown[]) => void>>();
+
+  constructor(
+    public id: string,
+    public data: Record<string, unknown>,
+  ) {}
+
+  on(event: string, cb: (...args: unknown[]) => void): this {
+    const list = this.listeners.get(event) ?? [];
+    list.push(cb);
+    this.listeners.set(event, list);
+    return this;
+  }
+
+  registeredEvents(): string[] {
+    return [...this.listeners.keys()];
+  }
+
+  /** Simulates a client emit arriving at the server. */
+  trigger(event: string, ...args: unknown[]): void {
+    for (const cb of this.listeners.get(event) ?? []) cb(...args);
+  }
+
+  async join(room: string): Promise<void> {
+    this.rooms.add(room);
+  }
+
+  to(room: string): { emit(event: string, payload: unknown): void } {
+    return {
+      emit: (event: string, payload: unknown) =>
+        this.emissions.push({ room, event, data: payload }),
+    };
+  }
+
+  disconnect(): this {
+    this.connected = false;
+    this.trigger('disconnect');
+    return this;
+  }
+}
+
+function connMockRedis(): Redis {
+  return {
+    set: async () => 'OK',
+    get: async () => null,
+    del: async () => 1,
+    mget: async (...keys: string[]) => keys.map(() => null),
+    hgetall: async () => ({}),
+    hset: async () => 1,
+    expire: async () => 1,
+    incrbyfloat: async () => 0,
+    sadd: async () => 1,
+  } as unknown as Redis;
+}
+
+function connMockFastify(query: QueryFn): FastifyInstance {
+  return {
+    db: { query } as unknown as Pool,
+    redis: connMockRedis(),
+    log: { error: () => undefined, info: () => undefined },
+  } as unknown as FastifyInstance;
+}
+
+describe('registerSocketHandlers — connect race (synchronous listener registration)', () => {
+  const EXPECTED_EVENTS = [
+    'ping',
+    'presence:get',
+    'dm:join',
+    'location:update',
+    'ptt:start',
+    'ptt:end',
+    'convoy:alert',
+    'ptt:replay_request',
+    'ptt:admin_mute',
+    'chat:typing',
+    'hazard:vote',
+    'convoy:member_ready',
+    'convoy:start',
+    'sos:acknowledge',
+    'waypoint:reached',
+    'disconnect',
+  ];
+
+  it('registers every event listener synchronously, before any connect-time DB call resolves', () => {
+    // Every DB call hangs forever — if listener registration awaited any of
+    // the connect-time queries, no listener would exist yet.
+    const never = deferred<QueryResult>();
+    const handler = registerSocketHandlers(
+      connMockFastify(() => never.promise),
+      buildMockIO([]) as unknown as SocketIO,
+    );
+    const socket = new MockSocket('sync-1', { userId: 'u-sync', groupId: '' });
+
+    handler(socket as unknown as Socket);
+
+    for (const event of EXPECTED_EVENTS) {
+      expect(socket.registeredEvents()).toContain(event);
+    }
+  });
+
+  it('presence:get emitted before setup completes is queued, not dropped — acked once ready', async () => {
+    const groupLookup = deferred<QueryResult>();
+    const handler = registerSocketHandlers(
+      connMockFastify((sql) =>
+        sql.includes('SELECT group_id') ? groupLookup.promise : Promise.resolve({ rows: [], rowCount: 0 }),
+      ),
+      buildMockIO([]) as unknown as SocketIO,
+    );
+    const socket = new MockSocket('race-presence', { userId: 'u-p', groupId: '' });
+    handler(socket as unknown as Socket);
+
+    // First emit, immediately after connect — the old code lost this event
+    // because the listener was only registered after the awaited lookups.
+    const ack = jest.fn();
+    socket.trigger('presence:get', { userIds: [] }, ack);
+    await flush();
+    expect(ack).not.toHaveBeenCalled(); // gated on setup, never dropped
+
+    groupLookup.resolve({ rows: [], rowCount: 0 });
+    await flush();
+    expect(ack).toHaveBeenCalledTimes(1);
+    expect(ack).toHaveBeenCalledWith([]);
+  });
+
+  it('location:update emitted before the membership check resolves still fans out to the group room', async () => {
+    const memberCheck = deferred<QueryResult>();
+    const ioLog: Emission[] = [];
+    const handler = registerSocketHandlers(
+      connMockFastify((sql) =>
+        sql.includes('SELECT id FROM convoy_members')
+          ? memberCheck.promise
+          : Promise.resolve({ rows: [], rowCount: 0 }),
+      ),
+      buildMockIO(ioLog) as unknown as SocketIO,
+    );
+    const socket = new MockSocket('race-loc', { userId: 'u-loc', groupId: 'g-loc' });
+    handler(socket as unknown as Socket);
+
+    socket.trigger('location:update', {
+      lat: 1,
+      lng: 2,
+      heading: 0,
+      speed_kph: 10,
+      ts: Date.now(),
+    });
+    await flush();
+    expect(ioLog.filter((e) => e.event === 'location:update')).toHaveLength(0); // still gated
+
+    memberCheck.resolve({ rows: [{ id: 'm1' }], rowCount: 1 });
+    await flush();
+    const fanned = ioLog.filter((e) => e.event === 'location:update');
+    expect(fanned).toHaveLength(1);
+    expect(fanned[0].room).toBe('group:g-loc');
+    expect(socket.rooms.has('group:g-loc')).toBe(true); // room joined before fan-out
+  });
+
+  it('a socket that fails the membership check is disconnected and its early emits are dropped without acks', async () => {
+    const memberCheck = deferred<QueryResult>();
+    const handler = registerSocketHandlers(
+      connMockFastify((sql) =>
+        sql.includes('SELECT id FROM convoy_members')
+          ? memberCheck.promise
+          : Promise.resolve({ rows: [], rowCount: 0 }),
+      ),
+      buildMockIO([]) as unknown as SocketIO,
+    );
+    const socket = new MockSocket('race-unauth', { userId: 'u-bad', groupId: 'g-not-mine' });
+    handler(socket as unknown as Socket);
+
+    const ack = jest.fn();
+    socket.trigger('presence:get', { userIds: [] }, ack);
+
+    memberCheck.resolve({ rows: [], rowCount: 0 }); // not a member
+    await flush();
+    expect(socket.connected).toBe(false); // disconnected by setup
+    expect(ack).not.toHaveBeenCalled(); // gated handlers drop everything
+    expect(socket.rooms.size).toBe(0); // no rooms were joined
   });
 });
 

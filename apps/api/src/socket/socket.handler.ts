@@ -600,7 +600,7 @@ export function registerSocketHandlers(
   const lastLocUpdate = new Map<string, number>();
   const LOC_RATE_LIMIT_MS = 500; // max 2 location updates per second per socket
 
-  return async (socket: Socket) => {
+  return (socket: Socket) => {
     const userId = socket.data.userId as string;
     let groupId = socket.data.groupId as string;
 
@@ -609,36 +609,112 @@ export function registerSocketHandlers(
       return;
     }
 
-    // Auto-rejoin on reconnect: if groupId is absent from auth (e.g. client reconnected
-    // with only a JWT), look up the user's current active group membership in the DB.
-    // A user with no active convoy at all (e.g. IdleMapScreen, the groupless/friend-SOS
-    // case) is still a valid connection — they just don't get a group room. They still
-    // need their personal `user:<id>` room joined below so standalone events like a
-    // friend's SOS (`POST /sos` → `sos:alert`) reach them live.
-    if (!groupId) {
-      const activeGroup = await fastify.db.query<{ group_id: string }>(
-        `SELECT group_id FROM convoy_members WHERE user_id = $1 AND left_at IS NULL LIMIT 1`,
-        [userId],
-      );
-      groupId = activeGroup.rows[0]?.group_id ?? '';
-    }
-
-    if (groupId) {
-      // Verify active membership before joining room — prevents unauthorized room access
-      const memberCheck = await fastify.db.query<{ id: string }>(
-        `SELECT id FROM convoy_members WHERE group_id = $1 AND user_id = $2 AND left_at IS NULL`,
-        [groupId, userId],
-      );
-      if (memberCheck.rows.length === 0) {
-        socket.disconnect(true);
-        return;
+    // ── Connect-time async setup, captured as a `ready` promise ────────────
+    //
+    // Everything that needs a DB/Redis round-trip on connect (active-group
+    // lookup, membership check, presence write, room joins, join broadcasts)
+    // runs inside this promise. Event listeners are registered SYNCHRONOUSLY
+    // below — previously they were registered only after these awaits, so a
+    // client emitting immediately after 'connect' raced the setup and could
+    // lose the event (and its ack) entirely. Listeners that depend on the
+    // setup's results (the resolved groupId, joined rooms, membership
+    // authorization) await `ready` internally via whenReady() instead of
+    // dropping early events.
+    //
+    // setupOk stays false when the socket never became authorized (membership
+    // check failed / setup crashed) — whenReady() then returns false and every
+    // gated listener drops the event, matching the old behavior where no
+    // listeners existed at all on such sockets.
+    let setupOk = false;
+    const ready: Promise<void> = (async () => {
+      // Auto-rejoin on reconnect: if groupId is absent from auth (e.g. client reconnected
+      // with only a JWT), look up the user's current active group membership in the DB.
+      // A user with no active convoy at all (e.g. IdleMapScreen, the groupless/friend-SOS
+      // case) is still a valid connection — they just don't get a group room. They still
+      // need their personal `user:<id>` room joined below so standalone events like a
+      // friend's SOS (`POST /sos` → `sos:alert`) reach them live.
+      if (!groupId) {
+        const activeGroup = await fastify.db.query<{ group_id: string }>(
+          `SELECT group_id FROM convoy_members WHERE user_id = $1 AND left_at IS NULL LIMIT 1`,
+          [userId],
+        );
+        groupId = activeGroup.rows[0]?.group_id ?? '';
       }
-    }
 
-    // Track presence in Redis (cluster-wide; TTL-based heartbeat below)
-    await setPresenceOnline(fastify.redis, userId, socket.id).catch((err: unknown) =>
-      fastify.log.error({ err }, 'presence online error'),
-    );
+      if (groupId) {
+        // Verify active membership before joining room — prevents unauthorized room access
+        const memberCheck = await fastify.db.query<{ id: string }>(
+          `SELECT id FROM convoy_members WHERE group_id = $1 AND user_id = $2 AND left_at IS NULL`,
+          [groupId, userId],
+        );
+        if (memberCheck.rows.length === 0) {
+          socket.disconnect(true);
+          return;
+        }
+      }
+
+      // Client vanished during the DB round-trips above — don't write presence
+      // or join rooms for a dead socket.
+      if (!socket.connected) return;
+
+      // Track presence in Redis (cluster-wide; TTL-based heartbeat below)
+      await setPresenceOnline(fastify.redis, userId, socket.id).catch((err: unknown) =>
+        fastify.log.error({ err }, 'presence online error'),
+      );
+
+      // Personal room — joined unconditionally (even with no active group) so
+      // standalone/direct events (friend SOS, PTT DMs, gap alerts, etc.) always reach
+      // this socket.
+      await socket.join(`user:${userId}`);
+
+      // DM channel rooms — joined unconditionally so DM messages/reactions
+      // (broadcast to `group:<dmId>` by groups/chat.routes.ts) arrive live even
+      // with no active convoy. Channels created mid-session are covered by
+      // POST /dm's socketsJoin and by the dm:join handler below.
+      try {
+        const dmGroupIds = await getUserDmGroupIds(fastify.db, userId);
+        for (const dmGroupId of dmGroupIds) {
+          await socket.join(`group:${dmGroupId}`);
+        }
+      } catch (err: unknown) {
+        fastify.log.error({ err }, 'dm room join error');
+      }
+
+      if (groupId) {
+        // Join group room — must be awaited before broadcasting
+        await socket.join(`group:${groupId}`);
+
+        // Notify other group members (Req 8.3)
+        socket.to(`group:${groupId}`).emit('member:joined', { userId });
+        // Presence: broadcast online status with timestamp to the full group room
+        io.to(`group:${groupId}`).emit('member:online', { userId, ts: Date.now() });
+        // Emit presence snapshot for all current group members to the joining user
+        io.to(`group:${groupId}`).emit('presence:update', {
+          userId,
+          isOnline: true,
+          lastSeen: new Date().toISOString(),
+        });
+      }
+
+      setupOk = true;
+    })().catch((err: unknown) => {
+      fastify.log.error({ err }, 'socket connection setup error');
+      socket.disconnect(true);
+    });
+
+    /**
+     * Awaits the connect-time setup. Resolves true once the socket is fully
+     * set up (rooms joined, groupId resolved); false when the socket never
+     * became authorized — gated listeners must then drop the event. Never
+     * rejects (`ready` swallows its own errors above).
+     */
+    const whenReady = async (): Promise<boolean> => {
+      await ready;
+      return setupOk;
+    };
+
+    // ── Event listeners — registered synchronously so first emits are never
+    //    lost; anything depending on the async setup awaits whenReady() ─────
 
     // Keep the online TTL armed. The engine.io layer receives a pong from the
     // client every pingInterval (25s default) regardless of app traffic —
@@ -648,52 +724,18 @@ export function registerSocketHandlers(
       'packet',
       (packet) => {
         if (packet?.type !== 'pong') return;
-        refreshPresence(fastify.redis, userId, socket.id).catch((err: unknown) =>
-          fastify.log.error({ err }, 'presence refresh error'),
-        );
+        whenReady()
+          .then((ok) => (ok ? refreshPresence(fastify.redis, userId, socket.id) : undefined))
+          .catch((err: unknown) => fastify.log.error({ err }, 'presence refresh error'));
       },
     );
     // Belt-and-braces: WebSocketService also emits an app-level 'ping' every
     // 25s while foregrounded — refresh on that too.
     socket.on('ping', () => {
-      refreshPresence(fastify.redis, userId, socket.id).catch((err: unknown) =>
-        fastify.log.error({ err }, 'presence refresh error'),
-      );
+      whenReady()
+        .then((ok) => (ok ? refreshPresence(fastify.redis, userId, socket.id) : undefined))
+        .catch((err: unknown) => fastify.log.error({ err }, 'presence refresh error'));
     });
-
-    // Personal room — joined unconditionally (even with no active group) so
-    // standalone/direct events (friend SOS, PTT DMs, gap alerts, etc.) always reach
-    // this socket.
-    await socket.join(`user:${userId}`);
-
-    // DM channel rooms — joined unconditionally so DM messages/reactions
-    // (broadcast to `group:<dmId>` by groups/chat.routes.ts) arrive live even
-    // with no active convoy. Channels created mid-session are covered by
-    // POST /dm's socketsJoin and by the dm:join handler below.
-    try {
-      const dmGroupIds = await getUserDmGroupIds(fastify.db, userId);
-      for (const dmGroupId of dmGroupIds) {
-        await socket.join(`group:${dmGroupId}`);
-      }
-    } catch (err: unknown) {
-      fastify.log.error({ err }, 'dm room join error');
-    }
-
-    if (groupId) {
-      // Join group room — must be awaited before broadcasting
-      await socket.join(`group:${groupId}`);
-
-      // Notify other group members (Req 8.3)
-      socket.to(`group:${groupId}`).emit('member:joined', { userId });
-      // Presence: broadcast online status with timestamp to the full group room
-      io.to(`group:${groupId}`).emit('member:online', { userId, ts: Date.now() });
-      // Emit presence snapshot for all current group members to the joining user
-      io.to(`group:${groupId}`).emit('presence:update', {
-        userId,
-        isOnline: true,
-        lastSeen: new Date().toISOString(),
-      });
-    }
 
     // Bulk presence query handler — client sends list of userIds, gets back online status
     socket.on('presence:get', (
@@ -706,8 +748,12 @@ export function registerSocketHandlers(
         callback([]);
         return;
       }
-      getPresence(fastify.redis, userIds)
-        .then(callback)
+      whenReady()
+        .then((ok) => {
+          // Never-authorized socket: no ack — it is being disconnected.
+          if (!ok) return;
+          return getPresence(fastify.redis, userIds).then(callback);
+        })
         .catch((err: unknown) => {
           fastify.log.error({ err }, 'presence get error');
           callback([]);
@@ -724,6 +770,7 @@ export function registerSocketHandlers(
       const { groupId: dmGroupId } = (data as { groupId?: string }) ?? {};
       if (!dmGroupId || typeof dmGroupId !== 'string') { cb?.({ ok: false }); return; }
       (async () => {
+        if (!(await whenReady())) { cb?.({ ok: false }); return; }
         const check = await fastify.db.query(
           `SELECT 1 FROM convoy_members m
            JOIN convoy_groups g ON g.id = m.group_id
@@ -748,47 +795,56 @@ export function registerSocketHandlers(
 
       const parsed = locationSchema.safeParse(data);
       if (!parsed.success) return;
-      if (groupId) {
-        handleLocationUpdate({
-          groupId,
+      // Gate on connect-time setup so an update emitted immediately after
+      // 'connect' (before the active-group lookup resolved groupId) lands in
+      // the right branch instead of being dropped or mis-routed as groupless.
+      void whenReady().then((ok) => {
+        if (!ok) return;
+        if (groupId) {
+          handleLocationUpdate({
+            groupId,
+            userId,
+            location: parsed.data,
+            redis: fastify.redis,
+            db: fastify.db,
+            io,
+            enqueueNotification: fastify.enqueueNotification,
+          }).catch((err: unknown) => fastify.log.error({ err }, 'location update error'));
+        } else {
+          // Groupless connection (e.g. IdleMapScreen) — no convoy to broadcast
+          // to, so just cache for GET /friends/locations if the user has opted
+          // into friend-level location sharing.
+          handleFriendLocationUpdate({
+            userId,
+            location: parsed.data,
+            redis: fastify.redis,
+            db: fastify.db,
+          }).catch((err: unknown) => fastify.log.error({ err }, 'friend location update error'));
+        }
+        // Proximity check runs alongside gap-alert logic (Req 11.7, 11.8, 15.1)
+        handleHazardProximity({
           userId,
-          location: parsed.data,
-          redis: fastify.redis,
+          location: { lat: parsed.data.lat, lng: parsed.data.lng },
           db: fastify.db,
+          redis: fastify.redis,
           io,
           enqueueNotification: fastify.enqueueNotification,
-        }).catch((err: unknown) => fastify.log.error({ err }, 'location update error'));
-      } else {
-        // Groupless connection (e.g. IdleMapScreen) — no convoy to broadcast
-        // to, so just cache for GET /friends/locations if the user has opted
-        // into friend-level location sharing.
-        handleFriendLocationUpdate({
-          userId,
-          location: parsed.data,
-          redis: fastify.redis,
-          db: fastify.db,
-        }).catch((err: unknown) => fastify.log.error({ err }, 'friend location update error'));
-      }
-      // Proximity check runs alongside gap-alert logic (Req 11.7, 11.8, 15.1)
-      handleHazardProximity({
-        userId,
-        location: { lat: parsed.data.lat, lng: parsed.data.lng },
-        db: fastify.db,
-        redis: fastify.redis,
-        io,
-        enqueueNotification: fastify.enqueueNotification,
-      }).catch((err: unknown) => fastify.log.error({ err }, 'hazard proximity error'));
+        }).catch((err: unknown) => fastify.log.error({ err }, 'hazard proximity error'));
+      });
     });
 
     // PTT start (Req 10.1–10.4)
     socket.on('ptt:start', (data: unknown) => {
       const { channelId } = (data as PttStartPayload) ?? {};
       if (!channelId) return;
-      handlePttStart({
-        groupId, userId, channelId,
-        db: fastify.db,
-        io,
-      }).catch((err: unknown) => fastify.log.error({ err }, 'ptt start error'));
+      void whenReady().then((ok) => {
+        if (!ok) return;
+        handlePttStart({
+          groupId, userId, channelId,
+          db: fastify.db,
+          io,
+        }).catch((err: unknown) => fastify.log.error({ err }, 'ptt start error'));
+      });
     });
 
     // PTT end (Req 10.5, 10.6). logId may be absent on a fast tap-and-release
@@ -796,11 +852,14 @@ export function registerSocketHandlers(
     // back to the member's most recent open transmission in this case.
     socket.on('ptt:end', (data: unknown) => {
       const { logId } = (data as { logId?: string }) ?? {};
-      handlePttEnd({
-        groupId, userId, logId,
-        db: fastify.db,
-        io,
-      }).catch((err: unknown) => fastify.log.error({ err }, 'ptt end error'));
+      void whenReady().then((ok) => {
+        if (!ok) return;
+        handlePttEnd({
+          groupId, userId, logId,
+          db: fastify.db,
+          io,
+        }).catch((err: unknown) => fastify.log.error({ err }, 'ptt end error'));
+      });
     });
 
     // Quick-action convoy alerts (Stopping / Regrouping / Incident)
@@ -810,9 +869,12 @@ export function registerSocketHandlers(
         message?: string;
         groupId?: string;
       }) ?? {};
-      if (!type || !message || alertGroupId !== groupId) return;
+      if (!type || !message) return;
 
       (async () => {
+        // The alertGroupId check needs the resolved groupId — gate on setup.
+        if (!(await whenReady())) return;
+        if (alertGroupId !== groupId) return;
         const result = await fastify.db.query<{ ptt_callsign: string | null; display_name: string }>(
           'SELECT ptt_callsign, display_name FROM users WHERE id = $1',
           [userId],
@@ -847,7 +909,10 @@ export function registerSocketHandlers(
     // PTT replay request — logs the intent (audio storage not yet implemented)
     socket.on('ptt:replay_request', (data: unknown) => {
       const { messageId } = (data as { messageId?: string }) ?? {};
-      fastify.log.info({ messageId, groupId, userId }, 'ptt replay requested');
+      void whenReady().then((ok) => {
+        if (!ok) return;
+        fastify.log.info({ messageId, groupId, userId }, 'ptt replay requested');
+      });
     });
 
     // Admin mute/unmute a member's PTT (Req 10.11)
@@ -856,6 +921,7 @@ export function registerSocketHandlers(
       if (!targetUserId || typeof muted !== 'boolean') return;
 
       (async () => {
+        if (!(await whenReady())) return;
         // Verify emitter is the group admin
         const adminCheck = await fastify.db.query<{ admin_id: string }>(
           'SELECT admin_id FROM convoy_groups WHERE id = $1 AND status = \'active\'',
@@ -888,21 +954,26 @@ export function registerSocketHandlers(
       const { displayName, groupId: targetGroupId } =
         (data as { displayName?: string; groupId?: string }) ?? {};
       if (!displayName) return;
-      let room: string | null = null;
-      if (targetGroupId && typeof targetGroupId === 'string') {
-        if (!socket.rooms.has(`group:${targetGroupId}`)) return; // not a member of that thread
-        room = `group:${targetGroupId}`;
-      } else if (groupId) {
-        room = `group:${groupId}`;
-      }
-      if (!room) return;
-      // Include userId so recipients can filter out their own echo, and the
-      // thread's groupId so recipients can attribute the event to the right
-      // conversation (GroupChatScreen drops events for other threads).
-      socket.to(room).emit('chat:typing', {
-        userId,
-        displayName,
-        groupId: room.slice('group:'.length),
+      // Room membership (socket.rooms) and the convoy-room fallback (groupId)
+      // are both produced by the connect-time setup — gate on it.
+      void whenReady().then((ok) => {
+        if (!ok) return;
+        let room: string | null = null;
+        if (targetGroupId && typeof targetGroupId === 'string') {
+          if (!socket.rooms.has(`group:${targetGroupId}`)) return; // not a member of that thread
+          room = `group:${targetGroupId}`;
+        } else if (groupId) {
+          room = `group:${groupId}`;
+        }
+        if (!room) return;
+        // Include userId so recipients can filter out their own echo, and the
+        // thread's groupId so recipients can attribute the event to the right
+        // conversation (GroupChatScreen drops events for other threads).
+        socket.to(room).emit('chat:typing', {
+          userId,
+          displayName,
+          groupId: room.slice('group:'.length),
+        });
       });
     });
 
@@ -923,6 +994,7 @@ export function registerSocketHandlers(
       const reverseCol = vote === 'up' ? 'dismissal_count' : 'confirmation_count';
 
       (async () => {
+        if (!(await whenReady())) return;
         // Check hazard exists and is active
         const hazard = await fastify.db.query<{ id: string; confirmation_count: number; dismissal_count: number }>(
           `SELECT id, confirmation_count, dismissal_count FROM hazard_reports WHERE id = $1 AND status = 'active'`,
@@ -1009,7 +1081,10 @@ export function registerSocketHandlers(
     // The authenticated socket identity is used, NOT the payload — otherwise any
     // member could spoof another member's ready state in the lobby.
     socket.on('convoy:member_ready', () => {
-      socket.to(`group:${groupId}`).emit('convoy:member_ready', { userId });
+      void whenReady().then((ok) => {
+        if (!ok) return;
+        socket.to(`group:${groupId}`).emit('convoy:member_ready', { userId });
+      });
     });
 
     // convoy:start — admin starts the convoy from lobby
@@ -1017,6 +1092,7 @@ export function registerSocketHandlers(
       const { groupId: payloadGroupId } = (data as { groupId?: string }) ?? {};
       if (!payloadGroupId) return;
       try {
+        if (!(await whenReady())) return;
         const group = await fastify.db.query<{ admin_id: string; name: string }>(
           `SELECT admin_id, name FROM convoy_groups WHERE id = $1`,
           [payloadGroupId],
@@ -1049,10 +1125,13 @@ export function registerSocketHandlers(
     socket.on('sos:acknowledge', (data: unknown) => {
       const { sosId, memberName } = (data as { sosId?: string; memberName?: string }) ?? {};
       if (!sosId) return;
-      socket.to(`group:${groupId}`).emit('sos:acknowledged', { sosId, memberName, acknowledgedBy: userId });
-      incrementStatCounter(fastify.db, userId, 'sos_hero', 1).catch((err: unknown) =>
-        fastify.log.error({ err }, 'sos_hero counter increment error'),
-      );
+      void whenReady().then((ok) => {
+        if (!ok) return;
+        socket.to(`group:${groupId}`).emit('sos:acknowledged', { sosId, memberName, acknowledgedBy: userId });
+        incrementStatCounter(fastify.db, userId, 'sos_hero', 1).catch((err: unknown) =>
+          fastify.log.error({ err }, 'sos_hero counter increment error'),
+        );
+      });
     });
 
     // waypoint:reached — relay waypoint arrival notification to group
@@ -1060,28 +1139,38 @@ export function registerSocketHandlers(
       const { waypointId, type, message } =
         (data as { waypointId?: string; type?: string; message?: string }) ?? {};
       if (!waypointId) return;
-      socket.to(`group:${groupId}`).emit('waypoint:reached', { waypointId, type, message, userId });
+      void whenReady().then((ok) => {
+        if (!ok) return;
+        socket.to(`group:${groupId}`).emit('waypoint:reached', { waypointId, type, message, userId });
+      });
     });
 
     // Notify group on disconnect and clean up Redis presence (Req 8.3)
     socket.on('disconnect', () => {
       lastLocUpdate.delete(socket.id);
-      // Only mark offline if this socket still owns the user's presence
-      // (guard against multi-tab / reconnect races) — setPresenceOffline
-      // returns false when a newer socket has taken ownership.
-      setPresenceOffline(fastify.redis, userId, socket.id)
-        .then((transitioned) => {
-          if (!transitioned) return;
-          io.to(`group:${groupId}`).emit('presence:update', {
-            userId,
-            isOnline: false,
-            lastSeen: new Date().toISOString(),
-          });
-        })
-        .catch((err: unknown) => fastify.log.error({ err }, 'presence offline error'));
-      io.to(`group:${groupId}`).emit('member:left', { userId });
-      io.to(`group:${groupId}`).emit('member:offline', { userId, ts: Date.now() });
-      fastify.redis.del(`loc:${groupId}:${userId}`).catch((err: unknown) => fastify.log.error({ err }, 'redis del error'));
+      // Await setup before cleaning up: orders the offline transition after
+      // the connect-time presence write for instantly-dropped connections,
+      // and guarantees groupId is the resolved value. A socket that never
+      // became authorized (ok === false) set nothing up — skip entirely.
+      void whenReady().then((ok) => {
+        if (!ok) return;
+        // Only mark offline if this socket still owns the user's presence
+        // (guard against multi-tab / reconnect races) — setPresenceOffline
+        // returns false when a newer socket has taken ownership.
+        setPresenceOffline(fastify.redis, userId, socket.id)
+          .then((transitioned) => {
+            if (!transitioned) return;
+            io.to(`group:${groupId}`).emit('presence:update', {
+              userId,
+              isOnline: false,
+              lastSeen: new Date().toISOString(),
+            });
+          })
+          .catch((err: unknown) => fastify.log.error({ err }, 'presence offline error'));
+        io.to(`group:${groupId}`).emit('member:left', { userId });
+        io.to(`group:${groupId}`).emit('member:offline', { userId, ts: Date.now() });
+        fastify.redis.del(`loc:${groupId}:${userId}`).catch((err: unknown) => fastify.log.error({ err }, 'redis del error'));
+      });
     });
   };
 }

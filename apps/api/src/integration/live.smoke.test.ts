@@ -279,35 +279,29 @@ function waitForEvent<T>(
 }
 
 /**
- * emit-with-ack with retries. The server registers its event listeners inside
- * an async connection handler (after several awaited DB/Redis calls), so an
- * emit fired immediately after 'connect' can land before the listener exists
- * and be silently dropped. Retrying makes readiness deterministic.
+ * emit-with-ack, single attempt — deliberately NO retries. The server
+ * registers all socket event listeners synchronously at the top of its
+ * connection handler (async DB/Redis setup is gated behind an internal
+ * `ready` promise instead), so the very first emit after 'connect' must be
+ * delivered and acked. If this ever times out, first-emit delivery has
+ * regressed on the server.
  */
-async function emitWithAckRetry<T>(
+function emitWithAck<T>(
   socket: SmokeSocket,
   event: string,
   payload: unknown,
-  { attempts = 8, ackTimeoutMs = 1000 } = {},
+  { ackTimeoutMs = 8000 } = {},
 ): Promise<T> {
-  let lastError: unknown = new Error('no attempts made');
-  for (let i = 0; i < attempts; i++) {
-    try {
-      return await new Promise<T>((resolve, reject) => {
-        const timer = setTimeout(
-          () => reject(new Error(`ack timeout for '${event}'`)),
-          ackTimeoutMs,
-        );
-        socket.emit(event, payload, (result: T) => {
-          clearTimeout(timer);
-          resolve(result);
-        });
-      });
-    } catch (err) {
-      lastError = err;
-    }
-  }
-  throw lastError;
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error(`ack timeout for '${event}'`)),
+      ackTimeoutMs,
+    );
+    socket.emit(event, payload, (result: T) => {
+      clearTimeout(timer);
+      resolve(result);
+    });
+  });
 }
 
 /**
@@ -453,14 +447,17 @@ describeLive('LIVE smoke: real app against docker Postgres + Redis', () => {
         reject(err instanceof Error ? err : new Error(`connect_error: ${JSON.stringify(err)}`));
       });
     });
-    // Wait until the server-side connection handler has finished registering
-    // listeners (presence:get answering is the readiness signal).
-    await emitWithAckRetry<PresenceEntry[]>(socket, 'presence:get', { userIds: [] });
+    // First-emit proof: this presence:get is fired immediately after
+    // 'connect' with NO retry — the server registers listeners synchronously,
+    // so the emit must be received and acked (the ack itself waits on the
+    // server's internal connect-time setup, so it doubles as a readiness
+    // barrier for the joined-rooms state later tests rely on).
+    await emitWithAck<PresenceEntry[]>(socket, 'presence:get', { userIds: [] });
     return socket;
   }
 
   function presenceVia(socket: SmokeSocket, userIds: string[]): Promise<PresenceEntry[]> {
-    return emitWithAckRetry<PresenceEntry[]>(socket, 'presence:get', { userIds });
+    return emitWithAck<PresenceEntry[]>(socket, 'presence:get', { userIds });
   }
 
   // ------------------------------------------------------------------ set up
@@ -511,21 +508,9 @@ describeLive('LIVE smoke: real app against docker Postgres + Redis', () => {
     else process.env.DATABASE_URL = savedDatabaseUrl;
     if (savedRedisUrl === undefined) delete process.env.REDIS_URL;
     else process.env.REDIS_URL = savedRedisUrl;
-
-    // Some dependency teardown (BullMQ/ioredis) leaves short-lived ref'd
-    // timers that fire a few seconds AFTER app.close() resolves. Wait them
-    // out (bounded) so jest exits immediately instead of warning that it
-    // "did not exit one second after the test run".
-    const drainDeadline = Date.now() + 4500;
-    for (;;) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const resources = (process as any).getActiveResourcesInfo() as string[];
-      const pending = resources.filter((r) => r === 'Timeout' || r === 'TCPSocketWrap').length;
-      // <= 1: jest's own afterAll-timeout timer is always present while this
-      // hook runs, so one residual Timeout means everything else has drained.
-      if (pending <= 1 || Date.now() > drainDeadline) break;
-      await new Promise((r) => setTimeout(r, 150));
-    }
+    // No post-close drain needed: the notifications/group-expiry plugins now
+    // await BullMQ worker/queue close and connection.quit() to completion in
+    // their onClose hooks, so app.close() resolves with no ref'd timers left.
   }, 90_000);
 
   // ------------------------------------------------------------------- tests
