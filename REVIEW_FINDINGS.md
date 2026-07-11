@@ -1,7 +1,20 @@
 # CONVOY Codebase Quality Review
 
 **Date:** 2026-06-25  
-**Scope:** services, API routes, screens, stores, tests, security
+**Scope:** services, API routes, screens, stores, tests, security  
+**Status:** CLOSED — all 28 findings resolved. This document is a historical record, not an open backlog.
+
+## 2026-07-10 update
+
+All 28 original findings are resolved (see the 2026-07-01 fix log below). Since then, three further hardening/feature waves landed on master (13 commits, `c40936e`..`025c70e`):
+
+- **DM realtime + presence:** live DM delivery via user rooms, Redis-backed presence, DM pair uniqueness; DM/chat isolation fixes; chat inverted-list rendering fixes.
+- **Offline resilience:** connectivity-triggered sync service, offline queue wired end-to-end and expanded, settings persistence, hazard-sync poison-item handling, sign-out state reset, service listener leak fixes, live socket-connected flag.
+- **API hardening + spec-gap features:** analytics crash/rate-limit fixes, signup limiter, input caps, upload allowlist, OTP verify rate limit, waypoint validation, ready-state spoofing fix; group events list + cancellation + RSVP, leaderboard caller rank/you-marker, lifetime drive stats, achievement sharing; broad regression test coverage.
+
+Nothing below is actionable; the findings text is preserved as written for reference.
+
+---
 
 **Fixes applied 2026-07-01:**
 - Findings 1, 2, 3, 4, 6 — already resolved before this review was applied

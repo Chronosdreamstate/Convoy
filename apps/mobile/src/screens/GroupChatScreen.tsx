@@ -541,23 +541,11 @@ export default function GroupChatScreen() {
 
   // Live connectivity — server push only reaches us while the socket is
   // actually connected; when it drops, the poll below takes over as the
-  // degraded-mode fallback until socket.io reconnects.
-  const [socketConnected, setSocketConnected] = useState<boolean>(socket?.connected ?? false);
-  useEffect(() => {
-    if (!socket) {
-      setSocketConnected(false);
-      return;
-    }
-    setSocketConnected(socket.connected);
-    const onConnect = () => setSocketConnected(true);
-    const onDisconnect = () => setSocketConnected(false);
-    socket.on('connect', onConnect);
-    socket.on('disconnect', onDisconnect);
-    return () => {
-      socket.off('connect', onConnect);
-      socket.off('disconnect', onDisconnect);
-    };
-  }, [socket]);
+  // degraded-mode fallback until socket.io reconnects. The store's
+  // `isConnected` flag tracks exactly this socket (the screen reads `socket`
+  // from the same store, and socketStore.setSocket attaches identity-guarded
+  // connect/disconnect handlers), so no local listeners are needed here.
+  const socketConnected = useSocketStore((s) => s.isConnected);
 
   // DM threads: make sure this socket is in the thread's room. Connect-time
   // join on the server only sees channels that existed at connect, so a
