@@ -67,7 +67,7 @@ interface Props {
 // HazardReportModal
 // ---------------------------------------------------------------------------
 
-export default function HazardReportModal({ visible, onClose, lat, lng, isInMotion = false }: Props) {
+function HazardReportModal({ visible, onClose, lat, lng, isInMotion = false }: Props) {
   const { colors } = useTheme();
   const s = useMemo(() => makeStyles(colors), [colors]);
   const [type,       setType]       = useState<HazardKey | null>(null);
@@ -315,3 +315,10 @@ function makeStyles(colors: ThemeColors) {
     toastTxt:    { fontSize: 13, fontWeight: '600', color: '#DCFCE7', textAlign: 'center' },
   });
 }
+
+// Memoized: mounted permanently in MapScreen (usually with visible=false), which
+// re-renders on every GPS tick; onClose is a stable callback there and lat/lng
+// only change when a new report location is chosen.
+const MemoHazardReportModal = React.memo(HazardReportModal);
+MemoHazardReportModal.displayName = 'HazardReportModal';
+export default MemoHazardReportModal;

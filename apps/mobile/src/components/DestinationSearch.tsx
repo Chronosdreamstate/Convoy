@@ -98,7 +98,7 @@ function makeSkeletonStyles(colors: ThemeColors) {
   });
 }
 
-export default function DestinationSearch({
+function DestinationSearch({
   isOnline,
   onSelect,
   placeholder = 'Search destination…',
@@ -477,3 +477,11 @@ function makeStyles(colors: ThemeColors) {
     noResults: { padding: 16, color: colors.textMuted, textAlign: 'center', fontSize: 13 },
   });
 }
+
+// Memoized: MapScreen (the sole consumer) re-renders on every GPS tick, but this
+// component's render output doesn't depend on per-tick data — userLat/userLng
+// are only read at search time via the refs above, and MapScreen passes them
+// quantized so the props stay stable between ticks.
+const MemoDestinationSearch = React.memo(DestinationSearch);
+MemoDestinationSearch.displayName = 'DestinationSearch';
+export default MemoDestinationSearch;

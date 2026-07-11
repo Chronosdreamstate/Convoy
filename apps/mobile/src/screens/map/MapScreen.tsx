@@ -148,6 +148,19 @@ function formatElapsed(receivedAt: number): string {
   return s < 60 ? `${s}s ago` : `${Math.floor(s / 60)}m ago`;
 }
 
+// Hoisted so the quick-action pill row doesn't rebuild this array on every
+// render — MapScreen re-renders on every GPS tick.
+const QUICK_ACTIONS = [
+  { type: 'stopping', label: 'Stopping', message: '🚦 Stopping', icon: 'hand-left' as const },
+  { type: 'regroup',  label: 'Regrouping', message: '🔄 Regrouping', icon: 'sync' as const },
+  { type: 'incident', label: 'Incident', message: '⚠️ Incident', icon: 'warning' as const },
+];
+
+// Stable identities for FlatList / ConvoyBanner props — inline versions would be
+// recreated on every GPS-tick render and defeat those children's memoization.
+const memberKeyExtractor = (m: MemberLocation) => m.userId;
+const noopBannerPress = () => { /* navigation handled by parent tab */ };
+
 function memberInitials(name: string): string {
   return name
     .trim()
@@ -303,6 +316,11 @@ const MemberMarker = React.memo(
   (prev, next) =>
     prev.member.lat === next.member.lat &&
     prev.member.lng === next.member.lng &&
+    // heading/displayName are rendered (chevron rotation, marker label) and can
+    // change on an update that leaves lat/lng identical — without these checks
+    // the memo held stale output in that case.
+    prev.member.heading === next.member.heading &&
+    prev.member.displayName === next.member.displayName &&
     prev.member.speedKph === next.member.speedKph &&
     prev.member.receivedAt === next.member.receivedAt &&
     prev.myLat === next.myLat &&
@@ -353,8 +371,18 @@ async function flushOfflineHazards(): Promise<void> {
 }
 
 export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChannelId }: Props) {
-  const { user, token } = useAuthStore();
-  const { memberLocations, stalePositions, updateMemberLocation, clearGroup, evictStale, setStalePositions, clearStalePositions } = useLocationStore();
+  // Per-slice selectors — subscribing to the whole store re-rendered this
+  // (very hot) screen on unrelated store changes, e.g. authStore.isLoading
+  // flips or locationStore.myLocation writes from other screens.
+  const user = useAuthStore((s) => s.user);
+  const token = useAuthStore((s) => s.token);
+  const memberLocations = useLocationStore((s) => s.memberLocations);
+  const stalePositions = useLocationStore((s) => s.stalePositions);
+  const updateMemberLocation = useLocationStore((s) => s.updateMemberLocation);
+  const clearGroup = useLocationStore((s) => s.clearGroup);
+  const evictStale = useLocationStore((s) => s.evictStale);
+  const setStalePositions = useLocationStore((s) => s.setStalePositions);
+  const clearStalePositions = useLocationStore((s) => s.clearStalePositions);
   const setIsInMotion = useMotionStore((s) => s.setIsInMotion);
   const groupName = useGroupStore((s) => s.name);
   const groupMemberCount = useGroupStore((s) => s.memberCount);
@@ -431,8 +459,12 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
   // Callsign of the member currently transmitting PTT — used for CarPlay/AndroidAuto waveform
   const [transmittingCallsign, setTransmittingCallsign] = useState<string | null>(null);
 
-  // Reactive socket and settings from shared stores
-  const { socket } = useSocketStore();
+  // Reactive socket and settings from shared stores. Selecting only `socket`
+  // matters here: the whole-store subscription used previously re-rendered
+  // MapScreen on every presence update (onlineUserIds/lastSeenMap are rebuilt
+  // per member:online/offline/presence:update event), none of which this
+  // screen displays.
+  const socket = useSocketStore((s) => s.socket);
   const mapStyle = useSettingsStore((s) => s.mapStyle);
   const setSettings = useSettingsStore((s) => s.setSettings);
   const scenicRouting = useSettingsStore((s) => s.scenicRouting);
@@ -574,14 +606,20 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [memberCount, autoCenterAll, groupId]);
 
-  // Sync CarPlay + AndroidAuto with current convoy state
+  // Sync CarPlay + AndroidAuto with current convoy state. Every field of the
+  // synced state derives from the member COUNT (and the scalars below), never
+  // from individual coordinates — so depend on memberCount / user?.pttCallsign
+  // rather than the memberLocations and user objects, which change identity on
+  // every member GPS tick / auth write and made this effect rebuild + diff the
+  // state object each time for a guaranteed no-op sync.
+  const myPttCallsign = user?.pttCallsign ?? '';
   useEffect(() => {
     const state = {
       groupId: groupId ?? null,
       memberCount,
       routeActive: routeCoords.length > 0,
       pttChannelId: pttChannelId ?? null,
-      myCallsign: user?.pttCallsign ?? '',
+      myCallsign: myPttCallsign,
       activeGroupName: groupName ?? null,
       nearbyGroupCount: 0,
       convoyStatus: groupId ? 'active' as const : 'idle' as const,
@@ -593,11 +631,11 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
       speedLimitKph: null,
       isOverSpeedLimit: false,
       positionInConvoy: 1,
-      convoyTotalCars: Object.keys(memberLocations).length + 1,
+      convoyTotalCars: memberCount + 1,
     };
     if (Platform.OS === 'ios') carPlayService.syncStateIfChanged(state);
     else if (Platform.OS === 'android') androidAutoService.syncStateIfChanged(state);
-  }, [groupId, memberLocations, routeCoords.length, pttChannelId, user, groupName, transmittingCallsign]);
+  }, [groupId, memberCount, routeCoords.length, pttChannelId, myPttCallsign, groupName, transmittingCallsign]);
 
   // Pulsing ring animation when actively transmitting PTT
   useEffect(() => {
@@ -1246,13 +1284,19 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
     dest: { lat: number; lng: number },
     opts?: { offerRouteChoice?: boolean },
   ) => {
-    if (!myLocation) {
+    // Read position from myLocationRef (updated on every GPS tick alongside the
+    // myLocation state) instead of the state itself — an event-time read is
+    // always current, and dropping the state dep keeps this callback's identity
+    // stable across GPS ticks so memoized children (DestinationSearch et al.)
+    // that receive it (directly or via handleSearchSelect) can bail out.
+    const origin = myLocationRef.current;
+    if (!origin) {
       Alert.alert('Location unavailable', 'Waiting for a GPS fix before we can calculate a route.');
       return;
     }
     setIsCalcRoute(true);
     try {
-      const routeBody = { origin: { lat: myLocation.lat, lng: myLocation.lng }, destination: dest, scenic: scenicRouting };
+      const routeBody = { origin: { lat: origin.lat, lng: origin.lng }, destination: dest, scenic: scenicRouting };
       let alts: RouteAlternative[] | undefined;
 
       if (scenicRouting) {
@@ -1300,15 +1344,19 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
     } finally {
       setIsCalcRoute(false);
     }
-  }, [myLocation, scenicRouting, showQuickAlert]);
+  }, [scenicRouting, showQuickAlert]);
 
   const handleSearchSelect = useCallback((result: SearchResult) => {
     const destCoord = { latitude: result.lat, longitude: result.lng };
+    // myLocationRef, not myLocation state: keeps this callback stable across GPS
+    // ticks — it's DestinationSearch's onSelect prop, and that component is
+    // memoized. The event-time ref read is always current.
+    const loc = myLocationRef.current;
     // Frame both the current location and the destination so the new route is visible,
     // falling back to a simple pan when we don't have a GPS fix yet.
-    if (myLocation && mapRef.current) {
+    if (loc && mapRef.current) {
       mapRef.current.fitToCoordinates(
-        [{ latitude: myLocation.lat, longitude: myLocation.lng }, destCoord],
+        [{ latitude: loc.lat, longitude: loc.lng }, destCoord],
         { edgePadding: { top: 120, right: 60, bottom: 300, left: 60 }, animated: true },
       );
     } else {
@@ -1320,7 +1368,7 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
     // offerRouteChoice: true — this is the one entry point with no existing route-
     // choice UI of its own, so it's where ScenicRouteSelector gets offered.
     void calculateRouteToDestination({ lat: result.lat, lng: result.lng }, { offerRouteChoice: true });
-  }, [myLocation, calculateRouteToDestination]);
+  }, [calculateRouteToDestination]);
 
   const handlePttStart = useCallback(() => {
     HapticService.pttStart();
@@ -1364,7 +1412,9 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
   }, [pttChannelId]);
 
   const handleCalculateRoute = useCallback(async () => {
-    if (!myLocation || !routeDestInput.trim()) return;
+    // Ref read (not myLocation state) — same stable-identity rationale as
+    // calculateRouteToDestination above, which re-checks the fix itself.
+    if (!myLocationRef.current || !routeDestInput.trim()) return;
     setIsCalcRoute(true);
     try {
       const searchRes = await apiClient.get<Array<{ lat: number; lng: number; name: string }>>(
@@ -1378,7 +1428,7 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
     } finally {
       setIsCalcRoute(false);
     }
-  }, [myLocation, routeDestInput, calculateRouteToDestination]);
+  }, [routeDestInput, calculateRouteToDestination]);
 
   const handleSelectRouteAlt = useCallback((idx: number) => {
     setSelectedRouteIdx(idx);
@@ -1422,17 +1472,21 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
   }, [groupId, routeAlternatives, selectedRouteIdx]);
 
   const handleHazardSelect = useCallback(async (type: HazardType) => {
-    if (!myLocation) {
+    // myLocationRef read at press time (always current) — a myLocation state dep
+    // would change this callback's identity every GPS tick and defeat the
+    // memoized HazardPicker that receives it as onSelect.
+    const loc = myLocationRef.current;
+    if (!loc) {
       Alert.alert('Location required', 'Enable location permissions to report a hazard.');
       return;
     }
     // HazardService queues the report in the offline cache on failure, so it
     // really is synced later (Req 11.9, 11.10) rather than just dropped.
-    const result = await hazardService.report(type, myLocation.lat, myLocation.lng);
+    const result = await hazardService.report(type, loc.lat, loc.lng);
     if (!result) {
       Alert.alert('Hazard Queued', 'No connection — this report will send once you reconnect.');
     }
-  }, [myLocation]);
+  }, []);
 
   const handleFuelStationSelect = useCallback(async (station: { id: string; name: string; distanceM: number; lat: number; lng: number; address: string }) => {
     if (!groupId) return;
@@ -1444,12 +1498,23 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
     }
   }, [groupId]);
 
+  // Gap severity per member, computed once per gapAlerts change — the marker
+  // loop and member rows previously each ran a gapAlerts.find() per member per
+  // render (O(members × alerts) on every GPS tick).
+  const gapStatusById = useMemo(() => {
+    const byId: Record<string, 'warning' | 'alert'> = {};
+    for (const a of gapAlerts) {
+      byId[a.memberId] = a.distanceM > gapThresholdM * 1.5 ? 'alert' : 'warning';
+    }
+    return byId;
+  }, [gapAlerts, gapThresholdM]);
+
   const renderMemberRow = useCallback(({ item: m }: { item: MemberLocation }) => {
     const isStale = Date.now() - m.receivedAt > 30_000;
     const memberName = m.displayName ?? `Member ${m.userId.slice(0, 6)}`;
     const callsign = memberCallsignsRef.current[m.userId];
-    const gapAlert = gapAlerts.find(a => a.memberId === m.userId);
-    const dotColor = isStale ? colors.textSubtle : gapAlert ? (gapAlert.distanceM > gapThresholdM * 1.5 ? colors.accent : colors.warning) : colors.success;
+    const gapStatus = gapStatusById[m.userId];
+    const dotColor = isStale ? colors.textSubtle : gapStatus === 'alert' ? colors.accent : gapStatus === 'warning' ? colors.warning : colors.success;
     const distM = myLocation ? haversineDistanceM(myLocation.lat, myLocation.lng, m.lat, m.lng) : null;
     const distLabel = distM != null ? (distM >= 1000 ? `📍 ${(distM / 1000).toFixed(1)} km` : `📍 ${Math.round(distM)} m`) : null;
     const battery = (m as any).batteryPercent as number | undefined;
@@ -1483,7 +1548,9 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
         )}
       </View>
     );
-  }, [groupId, handlePickSosTarget, gapAlerts, myLocation]);
+  // myLocation stays a dep on purpose: rows display live distance-from-me, so
+  // they must re-render per GPS tick while the member list is open.
+  }, [groupId, handlePickSosTarget, gapStatusById, myLocation, styles, colors]);
 
   const staleMs = 30_000;
 
@@ -1506,6 +1573,70 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
 
   const rallies = useMemo(() => Array.from(rallyPoints.values()), [rallyPoints]);
   const sosPinList = useMemo(() => Array.from(sosPins.values()), [sosPins]);
+  // Materialized once per hazardPins change; the JSX previously ran
+  // Array.from() on every render. The expiry .filter() stays inline in the JSX
+  // on purpose — it depends on Date.now(), so memoizing it would keep expired
+  // pins visible until the next hazardPins state change.
+  const hazardPinList = useMemo(() => Array.from(hazardPins.values()), [hazardPins]);
+
+  // Derived once per render instead of four separate deriveMotionState() calls
+  // in the JSX. As a boolean it is also a memo-friendly prop: DestinationSearch,
+  // PTTLogPanel and HazardPicker only re-render when the motion STATE flips,
+  // not on every speed change.
+  const isInMotion = deriveMotionState(mySpeedKph) === 'in_motion';
+
+  // FlatList data — memoized so the in-motion `.slice(0, 4)` doesn't hand the
+  // list a brand-new array identity on every render.
+  const memberListData = useMemo(
+    () => (isInMotion ? sortedMembers.slice(0, 4) : sortedMembers),
+    [isInMotion, sortedMembers],
+  );
+
+  // Search-bias coordinates for DestinationSearch, quantized to ~110 m
+  // (3 decimal places). The raw fix changes every GPS tick, which forced the
+  // memoized search bar to re-render per tick; a 110 m step is far below the
+  // city-scale viewbox bias the backend applies, so results are unaffected.
+  const searchBiasLat = myLocation == null ? null : Math.round(myLocation.lat * 1000) / 1000;
+  const searchBiasLng = myLocation == null ? null : Math.round(myLocation.lng * 1000) / 1000;
+
+  // Weather coordinates, quantized to ~2 km (0.02°). useWeather's effect keys
+  // on [latitude, longitude], so passing the raw per-tick fix tore the effect
+  // down and issued a fresh Open-Meteo fetch on EVERY GPS tick (its documented
+  // 10-minute refresh interval never survived long enough to fire). Weather is
+  // ~10 km-scale data; a 2 km step is well inside its resolution.
+  const weatherLat = myLocation == null ? null : Math.round(myLocation.lat * 50) / 50;
+  const weatherLng = myLocation == null ? null : Math.round(myLocation.lng * 50) / 50;
+
+  // Stable identities for memoized children's close/dismiss props — inline
+  // arrows would be recreated on every GPS-tick render and defeat their memo.
+  const closeHazardPicker = useCallback(() => setShowHazardPicker(false), []);
+  const closeHazardModal = useCallback(() => setShowHazardModal(false), []);
+  const closeScenicSelector = useCallback(() => setShowScenicSelector(false), []);
+  const completeCoachMarks = useCallback(() => setShowCoachMarks(false), []);
+  const dismissFuelBanner = useCallback(() => setShowFuelBanner(false), []);
+  const dismissGapAlert = useCallback(() => setGapAlerts((p) => p.slice(1)), []);
+
+  // SosAlertModal handlers — stable except when the alert queue itself changes.
+  const handleSosNavigate = useCallback(() => {
+    const first = sosAlerts[0];
+    if (first) {
+      mapRef.current?.animateToRegion({
+        latitude: first.pin.lat,
+        longitude: first.pin.lng,
+        latitudeDelta: 0.01,
+        longitudeDelta: 0.01,
+      }, 800);
+    }
+    setSosAlerts((p) => p.slice(1));
+  }, [sosAlerts]);
+  const handleSosDismiss = useCallback(() => setSosAlerts((p) => p.slice(1)), []);
+  const handleSosAcknowledge = useCallback(() => {
+    const first = sosAlerts[0];
+    if (socketRef.current && first) {
+      socketRef.current.emit('sos:acknowledge', { sosId: first.pin.id, memberName: first.memberName });
+    }
+    setSosAlerts((p) => p.slice(1));
+  }, [sosAlerts]);
 
   // Safe-area-aware top offset for floating UI elements.
   // ConvoyBanner (rendered below, always visible on this screen) is a self-positioned,
@@ -1517,8 +1648,9 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
   // margins so the two rows stack instead of overlapping.
   const topBase = insets.top + 8 + 52;
 
-  // Weather data for the HUD pill (non-critical — silently omitted when unavailable)
-  const weather = useWeather({ latitude: myLocation?.lat ?? null, longitude: myLocation?.lng ?? null });
+  // Weather data for the HUD pill (non-critical — silently omitted when
+  // unavailable). Quantized coords — see weatherLat/weatherLng above.
+  const weather = useWeather({ latitude: weatherLat, longitude: weatherLng });
 
   return (
     <View style={styles.container}>
@@ -1535,8 +1667,7 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
         onPress={() => { if (autoCenterAll) setAutoCenterAll(false); }}
       >
         {members.map((m: MemberLocation) => {
-          const ga = gapAlerts.find(a => a.memberId === m.userId);
-          const gapStatus = ga ? (ga.distanceM > gapThresholdM * 1.5 ? 'alert' as const : 'warning' as const) : 'ok' as const;
+          const gapStatus = gapStatusById[m.userId] ?? ('ok' as const);
           return (
             <MemberMarker
               key={m.userId}
@@ -1581,7 +1712,7 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
         {sosPinList.map((s) => (
           <Marker key={s.id} coordinate={{ latitude: s.lat, longitude: s.lng }} title="SOS" pinColor={colors.accent} />
         ))}
-        {Array.from(hazardPins.values())
+        {hazardPinList
           .filter((h) => !h.reportedAt || Date.now() - h.reportedAt < HAZARD_EXPIRY_MS)
           .map((h) => (
           <Marker
@@ -1657,10 +1788,10 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
         <View style={[styles.searchWrapper, { top: topBase }]}>
           <DestinationSearch
             isOnline={isOnline}
-            isInMotion={deriveMotionState(mySpeedKph) === 'in_motion'}
+            isInMotion={isInMotion}
             onSelect={handleSearchSelect}
-            userLat={myLocation?.lat ?? null}
-            userLng={myLocation?.lng ?? null}
+            userLat={searchBiasLat}
+            userLng={searchBiasLng}
           />
         </View>
       )}
@@ -1737,7 +1868,7 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
                 style={styles.fabItem}
                 onPress={() => {
                   setFabOpen(false);
-                  if (deriveMotionState(mySpeedKph) === 'in_motion') {
+                  if (isInMotion) {
                     Alert.alert('Pull Over First', 'Please stop before planning a route.');
                     return;
                   }
@@ -1873,11 +2004,7 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
       {groupId && pttChannelId && !drivingModeActive && !fabOpen && (
         <>
           <View style={[styles.quickActionRow, { bottom: insets.bottom + 228 }]}>
-            {([
-              { type: 'stopping', label: 'Stopping', message: '🚦 Stopping', icon: 'hand-left' as const },
-              { type: 'regroup',  label: 'Regrouping', message: '🔄 Regrouping', icon: 'sync' as const },
-              { type: 'incident', label: 'Incident', message: '⚠️ Incident', icon: 'warning' as const },
-            ]).map(({ type, label, message, icon }) => (
+            {QUICK_ACTIONS.map(({ type, label, message, icon }) => (
               <TouchableOpacity
                 key={type}
                 style={styles.quickActionPill}
@@ -1951,13 +2078,16 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
           "Report Hazard" / "Stopping / Regrouping / Incident" pills. */}
       {showFuelBanner && myLocation && (
         <View style={[styles.fuelBannerWrapper, { bottom: insets.bottom + 274 }]}>
+          {/* Quantized coords (~110 m) + stable onDismiss so this memoized
+              banner doesn't re-render on every GPS tick while open; the fuel
+              search radius is kilometers, so the rounding is immaterial. */}
           <FuelSuggestionBanner
             groupId={groupId}
-            myLat={myLocation.lat}
-            myLng={myLocation.lng}
+            myLat={Math.round(myLocation.lat * 1000) / 1000}
+            myLng={Math.round(myLocation.lng * 1000) / 1000}
             isAdmin={isAdmin}
             onSelectStation={handleFuelStationSelect}
-            onDismiss={() => setShowFuelBanner(false)}
+            onDismiss={dismissFuelBanner}
           />
         </View>
       )}
@@ -1969,7 +2099,7 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
             memberName={memberNamesRef.current[gapAlerts[0].memberId] ?? `Member ${gapAlerts[0].memberId.slice(0, 6)}`}
             distanceM={gapAlerts[0].distanceM}
             thresholdM={gapThresholdM}
-            onDismiss={() => setGapAlerts((p) => p.slice(1))}
+            onDismiss={dismissGapAlert}
           />
         </View>
       )}
@@ -2027,24 +2157,9 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
         memberName={sosAlerts[0]?.memberName ?? ''}
         locationLat={sosAlerts[0]?.pin.lat ?? 0}
         locationLng={sosAlerts[0]?.pin.lng ?? 0}
-        onNavigate={() => {
-          if (sosAlerts[0]) {
-            mapRef.current?.animateToRegion({
-              latitude: sosAlerts[0].pin.lat,
-              longitude: sosAlerts[0].pin.lng,
-              latitudeDelta: 0.01,
-              longitudeDelta: 0.01,
-            }, 800);
-          }
-          setSosAlerts((p) => p.slice(1));
-        }}
-        onDismiss={() => setSosAlerts((p) => p.slice(1))}
-        onAcknowledge={() => {
-          if (socketRef.current && sosAlerts[0]) {
-            socketRef.current.emit('sos:acknowledge', { sosId: sosAlerts[0].pin.id, memberName: sosAlerts[0].memberName });
-          }
-          setSosAlerts((p) => p.slice(1));
-        }}
+        onNavigate={handleSosNavigate}
+        onDismiss={handleSosDismiss}
+        onAcknowledge={handleSosAcknowledge}
       />
 
       {/* Member panel — hidden in driving mode (Req 28) */}
@@ -2113,12 +2228,12 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
 
               {panelTab === 'pttlog' ? (
                 socket
-                  ? <PTTLogPanel socket={socket} groupId={groupId} isInMotion={deriveMotionState(mySpeedKph) === 'in_motion'} />
+                  ? <PTTLogPanel socket={socket} groupId={groupId} isInMotion={isInMotion} />
                   : <View style={styles.panelConnecting}><Text style={styles.emptyText}>Connecting…</Text></View>
               ) : (
                 <FlatList
-                  data={deriveMotionState(mySpeedKph) === 'in_motion' ? sortedMembers.slice(0, 4) : sortedMembers}
-                  keyExtractor={(m) => m.userId}
+                  data={memberListData}
+                  keyExtractor={memberKeyExtractor}
                   renderItem={renderMemberRow}
                   removeClippedSubviews
                   ListEmptyComponent={<Text style={styles.emptyText}>No members yet</Text>}
@@ -2238,17 +2353,20 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
       {/* Hazard picker bottom sheet (legacy — motion-aware type selection) */}
       <HazardPicker
         visible={showHazardPicker}
-        isInMotion={deriveMotionState(mySpeedKph) === 'in_motion'}
+        isInMotion={isInMotion}
         onSelect={handleHazardSelect}
-        onClose={() => setShowHazardPicker(false)}
+        onClose={closeHazardPicker}
       />
 
       {/* Hazard report modal — full form with severity, note, and GPS coords.
           isInMotion restricts the type grid and hides severity/note per Req 31.1/31.2,
           same threshold as HazardPicker above. */}
+      {/* isInMotion here is deliberately `mySpeedKph > 5` (kph), NOT the shared
+          isInMotion value — deriveMotionState's threshold is 5 mph (~8 kph), and
+          this modal's stricter cutoff is pre-existing behavior kept as-is. */}
       <HazardReportModal
         visible={showHazardModal}
-        onClose={() => setShowHazardModal(false)}
+        onClose={closeHazardModal}
         lat={hazardModalCoords?.lat ?? null}
         lng={hazardModalCoords?.lng ?? null}
         isInMotion={mySpeedKph > 5}
@@ -2396,7 +2514,7 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
         groupName={groupName ?? 'Convoy'}
         memberCount={groupMemberCount}
         isAdmin={isAdmin}
-        onPress={() => { /* navigation handled by parent tab */ }}
+        onPress={noopBannerPress}
       />
 
       {/* Scenic-vs-fastest route picker — offered after picking a destination from
@@ -2414,8 +2532,8 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
             routes={scenicSelectorRoutes}
             selectedIndex={selectedRouteIdx}
             onSelect={handleSelectRouteAlt}
-            onConfirm={() => setShowScenicSelector(false)}
-            onDismiss={() => setShowScenicSelector(false)}
+            onConfirm={closeScenicSelector}
+            onDismiss={closeScenicSelector}
           />
         </View>
       </Modal>
@@ -2425,7 +2543,7 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
           CoachMarkOverlay's own onComplete-triggered SecureStore write. */}
       <CoachMarkOverlay
         visible={showCoachMarks}
-        onComplete={() => setShowCoachMarks(false)}
+        onComplete={completeCoachMarks}
       />
     </View>
   );

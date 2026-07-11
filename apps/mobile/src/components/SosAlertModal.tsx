@@ -25,7 +25,7 @@ interface Props {
   onAcknowledge: () => void;
 }
 
-export default function SosAlertModal({
+function SosAlertModal({
   visible,
   memberName,
   locationLat,
@@ -413,3 +413,10 @@ function makeStyles(colors: ThemeColors) {
     },
   });
 }
+
+// Memoized: mounted permanently in MapScreen (visible=false almost always),
+// which re-renders on every GPS tick; MapScreen passes stable callbacks, and
+// the internal countdown already reads them via refs.
+const MemoSosAlertModal = React.memo(SosAlertModal);
+MemoSosAlertModal.displayName = 'SosAlertModal';
+export default MemoSosAlertModal;

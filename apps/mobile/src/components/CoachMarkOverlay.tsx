@@ -53,7 +53,7 @@ interface Props {
   onComplete: () => void;
 }
 
-export default function CoachMarkOverlay({ visible, onComplete }: Props) {
+function CoachMarkOverlay({ visible, onComplete }: Props) {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [step, setStep] = useState(0);
@@ -263,3 +263,9 @@ function makeStyles(colors: ThemeColors) {
     },
   });
 }
+
+// Memoized: mounted permanently in MapScreen (visible=false after the first-run
+// tour), which re-renders on every GPS tick; both props are stable there.
+const MemoCoachMarkOverlay = React.memo(CoachMarkOverlay);
+MemoCoachMarkOverlay.displayName = 'CoachMarkOverlay';
+export default MemoCoachMarkOverlay;

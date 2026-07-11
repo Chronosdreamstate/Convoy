@@ -108,7 +108,7 @@ function HazardCard({ label, emoji, isSelected, size, onPress, styles }: CardPro
 // HazardPicker
 // ---------------------------------------------------------------------------
 
-export default function HazardPicker({ visible, isInMotion, onSelect, onClose }: Props) {
+function HazardPicker({ visible, isInMotion, onSelect, onClose }: Props) {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [selectedType, setSelectedType] = useState<HazardType | null>(null);
@@ -308,3 +308,9 @@ function makeStyles(colors: ThemeColors) {
     },
   });
 }
+
+// Memoized: mounted permanently in MapScreen (usually with visible=false), which
+// re-renders on every GPS tick; all props are stable callbacks/booleans there.
+const MemoHazardPicker = React.memo(HazardPicker);
+MemoHazardPicker.displayName = 'HazardPicker';
+export default MemoHazardPicker;
