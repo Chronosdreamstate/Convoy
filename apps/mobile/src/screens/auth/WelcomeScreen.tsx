@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   Animated,
   View,
   Text,
@@ -14,16 +13,15 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { authService } from '../../services/AuthService';
-import { useAuthStore } from '../../stores/authStore';
+import AppleSignInButton from '../../components/AppleSignInButton';
 import { useTheme } from '../../theme';
 import { useAccessibilitySettings } from '../../hooks/useAccessibilitySettings';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
-// Text/icons that always sit on a fixed dark or accent fill (crimson CTA,
-// Apple's brand-black button) — stays light in both themes. In light mode
-// theme.colors.text is near-black, which would be invisible on these fills.
+// Text/icons that always sit on a fixed dark or accent fill (crimson CTA) —
+// stays light in both themes. In light mode theme.colors.text is near-black,
+// which would be invisible on these fills.
 const ON_ACCENT = '#FFFFFF';
 
 const SLIDES = [
@@ -56,7 +54,6 @@ export default function WelcomeScreen() {
   const router = useRouter();
   const theme = useTheme();
   const styles = useMemo(() => createStyles(theme), [theme]);
-  const { setUser, setAccessToken } = useAuthStore();
   const { reduceMotion } = useAccessibilitySettings();
 
   const [currentSlide, setCurrentSlide] = useState(0);
@@ -124,34 +121,6 @@ export default function WelcomeScreen() {
 
   const handleOpenUrl = (url: string) => {
     Linking.openURL(url).catch(() => {});
-  };
-
-  const handleAppleSignIn = async () => {
-    if (Platform.OS !== 'ios' || isAppleSigningIn) return;
-    setIsAppleSigningIn(true);
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      const AppleAuth = require('expo-apple-authentication');
-      const credential = await AppleAuth.signInAsync({
-        requestedScopes: [
-          AppleAuth.AppleAuthenticationScope.FULL_NAME,
-          AppleAuth.AppleAuthenticationScope.EMAIL,
-        ],
-      });
-      if (credential.identityToken) {
-        const result = await authService.signInSocial('apple', credential.identityToken);
-        setUser(result.user);
-        setAccessToken(result.accessToken);
-        router.replace('/(tabs)/map');
-      }
-    } catch (err: unknown) {
-      const code = (err as { code?: string })?.code;
-      if (code !== 'ERR_REQUEST_CANCELED') {
-        Alert.alert('Sign In Failed', 'Could not sign in with Apple. Please try another method.');
-      }
-    } finally {
-      setIsAppleSigningIn(false);
-    }
   };
 
   const handleGoogleSignIn = () => {
@@ -274,27 +243,7 @@ export default function WelcomeScreen() {
               <View style={styles.dividerLine} />
             </View>
 
-            {Platform.OS === 'ios' && (
-              <TouchableOpacity
-                style={[styles.appleButton, isAppleSigningIn && styles.appleButtonDisabled]}
-                onPress={() => { void handleAppleSignIn(); }}
-                disabled={isAppleSigningIn}
-                activeOpacity={0.8}
-                accessibilityRole="button"
-                accessibilityLabel="Sign in with Apple"
-                accessibilityHint="Signs you in with your Apple ID"
-                accessibilityState={{ disabled: isAppleSigningIn, busy: isAppleSigningIn }}
-              >
-                {isAppleSigningIn ? (
-                  <ActivityIndicator color={ON_ACCENT} />
-                ) : (
-                  <>
-                    <Ionicons name="logo-apple" size={20} color={ON_ACCENT} />
-                    <Text style={styles.appleButtonText}>Sign in with Apple</Text>
-                  </>
-                )}
-              </TouchableOpacity>
-            )}
+            <AppleSignInButton onLoadingChange={setIsAppleSigningIn} />
 
             <TouchableOpacity
               style={[
@@ -518,30 +467,6 @@ function createStyles(theme: ReturnType<typeof useTheme>) {
       color: theme.colors.textSubtle,
       fontSize: 13,
       marginHorizontal: 12,
-    },
-    // Apple's Sign in with Apple button is brand-mandated to be solid black
-    // with a near-black hairline border regardless of app theme — intentionally
-    // not themed.
-    appleButton: {
-      flexDirection: 'row',
-      backgroundColor: '#000000',
-      borderRadius: 14,
-      paddingVertical: 18,
-      paddingHorizontal: theme.spacing.lg,
-      alignItems: 'center',
-      justifyContent: 'center',
-      gap: 8,
-      minHeight: 56,
-      marginBottom: 10,
-      borderWidth: 1,
-      borderColor: '#333333',
-    },
-    appleButtonDisabled: { opacity: 0.45 },
-    appleButtonText: {
-      color: ON_ACCENT,
-      fontSize: 16,
-      fontWeight: '600',
-      letterSpacing: 0.3,
     },
     // Dims a social button (and blocks re-entry) while an auth request is pending.
     socialButtonDisabled: {

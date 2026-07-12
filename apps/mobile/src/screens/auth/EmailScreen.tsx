@@ -16,6 +16,7 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { authService } from '../../services/AuthService';
 import { useAuthStore } from '../../stores/authStore';
+import AppleSignInButton from '../../components/AppleSignInButton';
 import { useTheme } from '../../theme';
 
 type Mode = 'signin' | 'signup';
@@ -41,6 +42,7 @@ export default function EmailScreen() {
   const [emailError, setEmailError] = useState<string | null>(null);
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
+  const [isAppleSigningIn, setIsAppleSigningIn] = useState(false);
 
   const passwordRef = useRef<TextInput>(null);
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -131,7 +133,7 @@ export default function EmailScreen() {
     setPassword('');
   };
 
-  const isSubmitDisabled = isLoading || !email.trim() || !password;
+  const isSubmitDisabled = isLoading || isAppleSigningIn || !email.trim() || !password;
   const emailValid = isValidEmail(email.trim());
 
   return (
@@ -269,6 +271,22 @@ export default function EmailScreen() {
                   </Text>
                 </TouchableOpacity>
               </View>
+
+              {/* Sign in with Apple must be offered wherever alternative auth is
+                  offered (Req 36.1 / App Store Guideline 4.8) — iOS only. */}
+              {Platform.OS === 'ios' && (
+                <>
+                  <View style={styles.dividerRow}>
+                    <View style={styles.dividerLine} />
+                    <Text style={styles.dividerText}>or</Text>
+                    <View style={styles.dividerLine} />
+                  </View>
+                  <AppleSignInButton
+                    disabled={isLoading}
+                    onLoadingChange={setIsAppleSigningIn}
+                  />
+                </>
+              )}
             </View>
           </Animated.View>
         </ScrollView>
@@ -410,6 +428,24 @@ function createStyles(theme: ReturnType<typeof useTheme>) {
       color: theme.colors.accent,
       fontSize: 14,
       fontWeight: '600',
+    },
+    // "or" divider between the primary email form and social auth — matches
+    // the WelcomeScreen divider treatment.
+    dividerRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginTop: 16,
+      marginBottom: 8,
+    },
+    dividerLine: {
+      flex: 1,
+      height: 1,
+      backgroundColor: theme.colors.border,
+    },
+    dividerText: {
+      color: theme.colors.textSubtle,
+      fontSize: 13,
+      marginHorizontal: 12,
     },
   });
 }

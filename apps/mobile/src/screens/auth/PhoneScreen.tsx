@@ -16,6 +16,7 @@ import {
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { authService } from '../../services/AuthService';
+import AppleSignInButton from '../../components/AppleSignInButton';
 import { useTheme } from '../../theme';
 
 // Text that always sits on the crimson accent fill — stays light in both themes.
@@ -49,6 +50,7 @@ export default function PhoneScreen() {
   const [digits, setDigits] = useState('');
   const [showPicker, setShowPicker] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [isAppleSigningIn, setIsAppleSigningIn] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const handleChangeText = (text: string) => {
@@ -151,19 +153,35 @@ export default function PhoneScreen() {
             {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
             <TouchableOpacity
-              style={[styles.button, (isLoading || digits.length < country.digits) && styles.buttonDisabled]}
+              style={[styles.button, (isLoading || isAppleSigningIn || digits.length < country.digits) && styles.buttonDisabled]}
               onPress={() => { void handleSendOtp(); }}
-              disabled={isLoading || digits.length < country.digits}
+              disabled={isLoading || isAppleSigningIn || digits.length < country.digits}
               activeOpacity={0.8}
               accessibilityRole="button"
               accessibilityLabel="Continue"
               accessibilityHint="Sends a one-time code to your phone"
-              accessibilityState={{ disabled: isLoading || digits.length < country.digits }}
+              accessibilityState={{ disabled: isLoading || isAppleSigningIn || digits.length < country.digits }}
             >
               {isLoading
                 ? <ActivityIndicator color={ON_ACCENT} />
                 : <Text style={styles.buttonText}>Continue →</Text>}
             </TouchableOpacity>
+
+            {/* Sign in with Apple must be offered wherever alternative auth is
+                offered (Req 36.1 / App Store Guideline 4.8) — iOS only. */}
+            {Platform.OS === 'ios' && (
+              <>
+                <View style={styles.dividerRow}>
+                  <View style={styles.dividerLine} />
+                  <Text style={styles.dividerText}>or</Text>
+                  <View style={styles.dividerLine} />
+                </View>
+                <AppleSignInButton
+                  disabled={isLoading}
+                  onLoadingChange={setIsAppleSigningIn}
+                />
+              </>
+            )}
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -274,6 +292,22 @@ function createStyles(theme: ReturnType<typeof useTheme>) {
     },
     buttonDisabled: { opacity: 0.5 },
     buttonText: { color: ON_ACCENT, fontSize: 16, fontWeight: '700', letterSpacing: 0.3 },
+    // "or" divider between the primary phone form and social auth — matches
+    // the WelcomeScreen divider treatment.
+    dividerRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    dividerLine: {
+      flex: 1,
+      height: 1,
+      backgroundColor: theme.colors.border,
+    },
+    dividerText: {
+      color: theme.colors.textSubtle,
+      fontSize: 13,
+      marginHorizontal: 12,
+    },
     // Modal
     overlay: {
       flex: 1,
