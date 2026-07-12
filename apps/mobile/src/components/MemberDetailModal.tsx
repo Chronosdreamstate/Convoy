@@ -62,6 +62,14 @@ function formatDistance(m: number): string {
   return m >= 1000 ? `${(m / 1000).toFixed(1)}km` : `${Math.round(m)}m`;
 }
 
+/** "5 min" / "1 h 20 min" — mirrors the backend's route durationText format. */
+function formatEta(seconds: number): string {
+  const m = Math.round(seconds / 60);
+  if (m < 1) return '<1 min';
+  if (m < 60) return `${m} min`;
+  return `${Math.floor(m / 60)} h ${m % 60} min`;
+}
+
 // Vehicle colour is free text ("Midnight Blue", "red", ...). Resolve common
 // colour words to a renderable swatch hex; unknown colours render text-only.
 const SWATCH_COLORS: Record<string, string> = {
@@ -104,6 +112,7 @@ export default function MemberDetailModal({
   const [muting, setMuting] = useState(false);
   const [vehicle, setVehicle] = useState<MemberVehicle | null>(null);
   const [vehicleLoading, setVehicleLoading] = useState(false);
+  const [etaSeconds, setEtaSeconds] = useState<number | null>(null);
 
   // Fetch the member's active vehicle when the sheet opens (Req 29.4/29.5).
   // The vehicle is static garage data, so it's pulled on demand rather than
@@ -125,6 +134,25 @@ export default function MemberDetailModal({
       .finally(() => { if (!cancelled) setVehicleLoading(false); });
     return () => { cancelled = true; };
   }, [visible, memberUserId]);
+
+  // Fetch the member's ETA to the shared destination when the sheet opens
+  // (Req 8.5). Computed server-side from the same cached destination and live
+  // fix every client sees, so all viewers read a synchronized value — the
+  // same fetch-on-open pattern as the vehicle card above. No pushed route,
+  // no live fix, a stationary member, or any fetch failure all resolve to
+  // null, which simply omits the ETA pill.
+  useEffect(() => {
+    if (!visible || !memberUserId || !activeGroupId) {
+      setEtaSeconds(null);
+      return;
+    }
+    let cancelled = false;
+    apiClient
+      .get<{ etaSeconds: number | null }>(`/api/v1/groups/${activeGroupId}/members/${memberUserId}/eta`)
+      .then((res) => { if (!cancelled) setEtaSeconds(res.data.etaSeconds ?? null); })
+      .catch(() => { if (!cancelled) setEtaSeconds(null); });
+    return () => { cancelled = true; };
+  }, [visible, memberUserId, activeGroupId]);
 
   if (!member) return null;
 
@@ -217,6 +245,12 @@ export default function MemberDetailModal({
             <View style={styles.statPill}>
               <Ionicons name="navigate-outline" size={13} color={colors.text} />
               <Text style={styles.statText}>{formatDistance(member.distanceM)} behind</Text>
+            </View>
+          )}
+          {etaSeconds != null && (
+            <View style={styles.statPill} testID="member-eta-pill">
+              <Ionicons name="time-outline" size={13} color={colors.text} />
+              <Text style={styles.statText}>ETA {formatEta(etaSeconds)}</Text>
             </View>
           )}
           {member.isMuted && (

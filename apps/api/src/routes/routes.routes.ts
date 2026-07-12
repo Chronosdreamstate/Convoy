@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { authenticate } from '../middleware/authenticate';
 import { generalLimiter } from '../middleware/rateLimiter';
 import { env } from '../config/env';
+import { haversineMeters } from '../utils/geo';
 
 // ---------------------------------------------------------------------------
 // Shared types
@@ -177,6 +178,25 @@ export function processMapboxRoutes(routes: MapboxRoute[]): Route[] {
   }));
 }
 
+/**
+ * Below this speed a member is effectively stationary and remaining-distance ÷
+ * speed would produce an absurd (or infinite) ETA, so no estimate is returned.
+ */
+export const MIN_ETA_SPEED_KPH = 3;
+
+/**
+ * Honest member-ETA estimate (Req 8.5): remaining distance to the shared
+ * destination divided by the member's most recently reported speed. Returns
+ * null when the member is effectively stationary (below MIN_ETA_SPEED_KPH) or
+ * either input is non-finite/negative — a fabricated ETA would be worse than
+ * omitting the row. Pure function — exported for property testing.
+ */
+export function computeEtaSeconds(distanceM: number, speedKph: number): number | null {
+  if (!Number.isFinite(distanceM) || distanceM < 0) return null;
+  if (!Number.isFinite(speedKph) || speedKph < MIN_ETA_SPEED_KPH) return null;
+  return Math.round(distanceM / (speedKph / 3.6));
+}
+
 // ---------------------------------------------------------------------------
 // Schemas
 // ---------------------------------------------------------------------------
@@ -328,6 +348,49 @@ async function routesRoutes(
     });
 
     return reply.status(200).send({ message: 'Route pushed to group' });
+  });
+
+  // -------------------------------------------------------------------------
+  // GET /groups/:id/members/:userId/eta — member ETA to the shared destination
+  // (Req 8.5). Computed server-side from the same Redis-cached destination
+  // (written by the route push above) and live member fix every client sees,
+  // so all viewers read a synchronized value. `etaSeconds: null` means "no
+  // honest estimate" — no pushed route, no live fix, or a stationary member —
+  // and clients simply omit the ETA row.
+  // -------------------------------------------------------------------------
+  fastify.get('/groups/:id/members/:userId/eta', { preHandler: [authenticate, generalLimiter(fastify.redis)] }, async (request, reply) => {
+    const callerId = (request.user as { sub: string }).sub;
+    const { id: groupId, userId: memberId } = request.params as { id: string; userId: string };
+
+    // Verify caller is an active member of the group
+    const memberResult = await fastify.db.query<{ id: string }>(
+      'SELECT id FROM convoy_members WHERE group_id = $1 AND user_id = $2 AND left_at IS NULL',
+      [groupId, callerId],
+    );
+    if (!memberResult.rows[0]) return reply.forbidden('You are not a member of this group');
+
+    // Shared destination — only exists while a pushed route is active (24h TTL)
+    const destRaw = await fastify.redis.hgetall(`route:${groupId}:dest`);
+    if (!destRaw?.lat || !destRaw?.lng) {
+      return reply.send({ etaSeconds: null, distanceM: null });
+    }
+
+    // Member's last live fix (35s TTL — the same cache the map fan-out uses),
+    // so a member with no entry here is offline/stale by definition.
+    const locRaw = await fastify.redis.hgetall(`loc:${groupId}:${memberId}`);
+    if (!locRaw?.lat || !locRaw?.lng) {
+      return reply.send({ etaSeconds: null, distanceM: null });
+    }
+
+    const distanceM = Math.round(haversineMeters(
+      { lat: Number(locRaw.lat), lng: Number(locRaw.lng) },
+      { lat: Number(destRaw.lat), lng: Number(destRaw.lng) },
+    ));
+
+    return reply.send({
+      etaSeconds: computeEtaSeconds(distanceM, Number(locRaw.speed_kph)),
+      distanceM,
+    });
   });
 }
 
