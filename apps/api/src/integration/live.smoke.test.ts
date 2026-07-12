@@ -35,12 +35,24 @@
  *   sockets → location:update fan-out → Redis-backed presence:get (online and
  *   offline transitions) → REST chat + group:message broadcast → DM channel
  *   between two convoy-less users incl. concurrent-create convergence →
- *   hazard report REST + hazard:new broadcast + GET /hazards readback.
+ *   hazard report REST + hazard:new broadcast + GET /hazards readback →
+ *   rally point ("Meet Me Here": rally:set broadcast, GET /rally/active
+ *   backfill, cancel permissions + rally:cancelled cleanup) → emergency SOS
+ *   (sos:alert broadcast, Redis persistence with expiry TTL armed, cooldown,
+ *   owner resolve + sos:cancelled + Redis cleanup) → group events (admin-only
+ *   create + group:event_created, RSVP upsert + event:rsvp_updated, per-caller
+ *   myRsvp in GET /events, admin cancel + group:event_cancelled) → PTT
+ *   (REST channel list + token mint, live ptt:start → ptt:transmit fan-out,
+ *   ptt:end → ptt:ended, REST GET /ptt-log backfill oldest-first) → uploads
+ *   (multipart photo upload into a suite-scoped UPLOADS_DIR, byte-exact GET
+ *   readback with correct content type, disallowed mimetype rejected,
+ *   GET filename allowlist enforced).
  */
 
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import http from 'node:http';
+import os from 'node:os';
 import path from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { Pool } from 'pg';
@@ -316,7 +328,7 @@ function httpRequest(
   headers: Record<string, string>,
   body?: string,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-): Promise<{ status: number; json: any }> {
+): Promise<{ status: number; json: any; headers: http.IncomingHttpHeaders }> {
   return new Promise((resolve, reject) => {
     const req = http.request(url, { method, headers, agent: false }, (res) => {
       let data = '';
@@ -332,7 +344,7 @@ function httpRequest(
         } catch {
           json = data;
         }
-        resolve({ status: res.statusCode ?? 0, json });
+        resolve({ status: res.statusCode ?? 0, json, headers: res.headers });
       });
     });
     req.on('error', reject);
@@ -383,6 +395,9 @@ describeLive('LIVE smoke: real app against docker Postgres + Redis', () => {
 
   let savedDatabaseUrl: string | undefined;
   let savedRedisUrl: string | undefined;
+  let savedUploadsDir: string | undefined;
+  /** Suite-scoped uploads dir (under os.tmpdir) — removed wholesale in afterAll. */
+  const smokeUploadsDir = path.join(os.tmpdir(), `convoy-live-smoke-uploads-${Date.now().toString(36)}`);
   let app: FastifyInstance | undefined;
   let baseUrl = '';
   let adminRedis: Redis | undefined;
@@ -467,8 +482,13 @@ describeLive('LIVE smoke: real app against docker Postgres + Redis', () => {
 
     savedDatabaseUrl = process.env.DATABASE_URL;
     savedRedisUrl = process.env.REDIS_URL;
+    savedUploadsDir = process.env.UPLOADS_DIR;
     process.env.DATABASE_URL = SMOKE_DATABASE_URL;
     process.env.REDIS_URL = SMOKE_REDIS_URL;
+    // Same lazy-import trick as DATABASE_URL: config/env is read after this
+    // override, so uploaded files land in a throwaway per-run directory
+    // instead of the developer's real ./uploads.
+    process.env.UPLOADS_DIR = smokeUploadsDir;
 
     await recreateScratchDatabase();
     await migrateScratchDatabase();
@@ -504,10 +524,14 @@ describeLive('LIVE smoke: real app against docker Postgres + Redis', () => {
       console.warn(`[live.smoke] failed to drop ${SMOKE_DB}: ${(err as Error).message}`);
     });
 
+    fs.rmSync(smokeUploadsDir, { recursive: true, force: true });
+
     if (savedDatabaseUrl === undefined) delete process.env.DATABASE_URL;
     else process.env.DATABASE_URL = savedDatabaseUrl;
     if (savedRedisUrl === undefined) delete process.env.REDIS_URL;
     else process.env.REDIS_URL = savedRedisUrl;
+    if (savedUploadsDir === undefined) delete process.env.UPLOADS_DIR;
+    else process.env.UPLOADS_DIR = savedUploadsDir;
     // No post-close drain needed: the notifications/group-expiry plugins now
     // await BullMQ worker/queue close and connection.quit() to completion in
     // their onClose hooks, so app.close() resolves with no ref'd timers left.
@@ -756,6 +780,389 @@ describeLive('LIVE smoke: real app against docker Postgres + Redis', () => {
     expect(hazard.status).toBe('active');
     expect(hazard.lat).toBeCloseTo(lat, 5);
     expect(hazard.lng).toBeCloseTo(lng, 5);
+  }, 30_000);
+
+  it('rally point: rally:set broadcast, GET /rally/active backfill, cancel permissions and rally:cancelled cleanup', async () => {
+    // Paris — far from every other flow's coordinates.
+    const lat = 48.8566;
+    const lng = 2.3522;
+
+    const onRally = waitForEvent<{
+      id: string;
+      broadcasterId: string;
+      lat: number;
+      lng: number;
+      type: string;
+    }>(socketB, 'rally:set');
+
+    const created = await api('POST', `/groups/${groupId}/rally`, {
+      token: users.a.token,
+      body: { lat, lng, type: 'meetup' },
+    });
+    expect(created.status).toBe(201);
+    expect(created.json.broadcasterId).toBe(users.a.id);
+    expect(created.json.isActive).toBe(true);
+    expect(created.json.type).toBe('meetup');
+    const rallyId: string = created.json.id;
+
+    // Live delivery to the other member (Req 20.1, 20.3).
+    const broadcast = await onRally;
+    expect(broadcast.id).toBe(rallyId);
+    expect(broadcast.broadcasterId).toBe(users.a.id);
+    expect(broadcast.lat).toBeCloseTo(lat, 6);
+    expect(broadcast.lng).toBeCloseTo(lng, 6);
+
+    // Backfill for members who missed the live push (late join / reconnect).
+    const active = await api('GET', `/groups/${groupId}/rally/active`, { token: users.b.token });
+    expect(active.status).toBe(200);
+    expect(active.json.rallyPoint?.id).toBe(rallyId);
+    expect(active.json.rallyPoint.lat).toBeCloseTo(lat, 5);
+    expect(active.json.rallyPoint.type).toBe('meetup');
+
+    // Non-member can neither broadcast nor read (Req 20.6).
+    const outsiderPost = await api('POST', `/groups/${groupId}/rally`, {
+      token: users.d.token,
+      body: { lat, lng },
+    });
+    expect(outsiderPost.status).toBe(403);
+    const outsiderGet = await api('GET', `/groups/${groupId}/rally/active`, {
+      token: users.d.token,
+    });
+    expect(outsiderGet.status).toBe(403);
+
+    // A plain member who didn't set it cannot cancel it (only broadcaster/admin).
+    const memberCancel = await api('DELETE', `/groups/${groupId}/rally/${rallyId}`, {
+      token: users.b.token,
+    });
+    expect(memberCancel.status).toBe(403);
+
+    // Broadcaster cancels → rally:cancelled cleanup broadcast (Req 20.5).
+    const onCancelled = waitForEvent<{ rallyId: string }>(
+      socketB,
+      'rally:cancelled',
+      (d) => d.rallyId === rallyId,
+    );
+    const cancelled = await api('DELETE', `/groups/${groupId}/rally/${rallyId}`, {
+      token: users.a.token,
+    });
+    expect(cancelled.status).toBe(200);
+    await onCancelled;
+
+    // Cleaned up: no active rally left, and double-cancel is guarded (409).
+    const afterCancel = await api('GET', `/groups/${groupId}/rally/active`, {
+      token: users.a.token,
+    });
+    expect(afterCancel.status).toBe(200);
+    expect(afterCancel.json.rallyPoint).toBeNull();
+    const again = await api('DELETE', `/groups/${groupId}/rally/${rallyId}`, {
+      token: users.a.token,
+    });
+    expect(again.status).toBe(409);
+  }, 30_000);
+
+  it('emergency SOS: sos:alert broadcast, Redis TTL armed, cooldown, owner resolve clears pin', async () => {
+    // NYC — distinct from every other flow's coordinates.
+    const lat = 40.7128;
+    const lng = -74.006;
+
+    const onAlert = waitForEvent<{ id: string; userId: string; groupId: string; type: string }>(
+      socketA,
+      'sos:alert',
+      (d) => d.userId === users.b.id,
+    );
+
+    const raised = await api('POST', `/groups/${groupId}/sos`, {
+      token: users.b.token,
+      body: { lat, lng, type: 'breakdown' },
+    });
+    expect(raised.status).toBe(201);
+    expect(raised.json.userId).toBe(users.b.id);
+    expect(raised.json.groupId).toBe(groupId);
+    expect(raised.json.type).toBe('breakdown');
+    const sosId: string = raised.json.id;
+
+    // Group members see the pin live (Req 25.1).
+    const alert = await onAlert;
+    expect(alert.id).toBe(sosId);
+    expect(alert.type).toBe('breakdown');
+
+    // Persisted in Redis with the 2h expiry TTL armed (transient by design).
+    expect(await adminRedis!.exists(`sos:${sosId}`)).toBe(1);
+    const ttl = await adminRedis!.ttl(`sos:${sosId}`);
+    expect(ttl).toBeGreaterThan(0);
+    expect(ttl).toBeLessThanOrEqual(7_200);
+
+    // Cooldown: an immediate second SOS from the same user is rejected (Req 37.5).
+    const second = await api('POST', `/groups/${groupId}/sos`, {
+      token: users.b.token,
+      body: { lat, lng },
+    });
+    expect(second.status).toBe(429);
+
+    // Non-member cannot raise SOS in this group.
+    const outsider = await api('POST', `/groups/${groupId}/sos`, {
+      token: users.d.token,
+      body: { lat, lng },
+    });
+    expect(outsider.status).toBe(403);
+
+    // Owner resolves → sos:cancelled broadcast + Redis keys cleared (Req 25.6).
+    const onCancelled = waitForEvent<{ sosId: string }>(
+      socketA,
+      'sos:cancelled',
+      (d) => d.sosId === sosId,
+    );
+    const resolved = await api('DELETE', `/groups/${groupId}/sos/${sosId}`, {
+      token: users.b.token,
+    });
+    expect(resolved.status).toBe(200);
+    await onCancelled;
+    expect(await adminRedis!.exists(`sos:${sosId}`)).toBe(0);
+    expect(await adminRedis!.exists(`sos:user:${groupId}:${users.b.id}`)).toBe(0);
+
+    // Already-cleared SOS → 404.
+    const gone = await api('DELETE', `/groups/${groupId}/sos/${sosId}`, {
+      token: users.b.token,
+    });
+    expect(gone.status).toBe(404);
+
+    // Flow cleanup: drop B's 60s cooldown key so later flows (or an immediate
+    // partial re-run against the same Redis DB) aren't throttled by this test.
+    await adminRedis!.del(`sos:cooldown:${users.b.id}`);
+  }, 30_000);
+
+  it('group events: admin create + broadcast, RSVP upsert with live counts, myRsvp in list, admin cancel', async () => {
+    const scheduledFor = new Date(Date.now() + 24 * 3600 * 1000).toISOString();
+
+    // Only the admin can create events.
+    const nonAdmin = await api('POST', `/groups/${groupId}/events`, {
+      token: users.b.token,
+      body: { title: 'not allowed', scheduledFor },
+    });
+    expect(nonAdmin.status).toBe(403);
+
+    const onCreated = waitForEvent<{ groupId: string; event: { id: string; title: string } }>(
+      socketB,
+      'group:event_created',
+    );
+    const created = await api('POST', `/groups/${groupId}/events`, {
+      token: users.a.token,
+      body: {
+        title: `Live Smoke Meet ${runId}`,
+        scheduledFor,
+        description: 'live smoke scheduled convoy',
+      },
+    });
+    expect(created.status).toBe(201);
+    const eventId: string = created.json.event.id;
+    const createdBroadcast = await onCreated;
+    expect(createdBroadcast.event.id).toBe(eventId);
+
+    // B RSVPs going — response and event:rsvp_updated broadcast carry counts.
+    const onRsvp = waitForEvent<{ eventId: string; counts: Record<string, number> }>(
+      socketA,
+      'event:rsvp_updated',
+      (d) => d.eventId === eventId,
+    );
+    const rsvp = await api('POST', `/groups/${groupId}/events/${eventId}/rsvp`, {
+      token: users.b.token,
+      body: { status: 'going' },
+    });
+    expect(rsvp.status).toBe(200);
+    expect(rsvp.json.counts).toEqual({ going: 1, maybe: 0, not_going: 0 });
+    const rsvpBroadcast = await onRsvp;
+    expect(rsvpBroadcast.counts.going).toBe(1);
+
+    // Changing the answer upserts (no duplicate row): going → maybe.
+    const changed = await api('POST', `/groups/${groupId}/events/${eventId}/rsvp`, {
+      token: users.b.token,
+      body: { status: 'maybe' },
+    });
+    expect(changed.status).toBe(200);
+    expect(changed.json.counts).toEqual({ going: 0, maybe: 1, not_going: 0 });
+
+    // GET /events joins the caller's own RSVP as myRsvp.
+    const listB = await api('GET', `/groups/${groupId}/events`, { token: users.b.token });
+    expect(listB.status).toBe(200);
+    const eventForB = listB.json.events.find((e: { id: string }) => e.id === eventId);
+    expect(eventForB).toBeDefined();
+    expect(eventForB.title).toBe(`Live Smoke Meet ${runId}`);
+    expect(eventForB.myRsvp).toBe('maybe');
+
+    const listA = await api('GET', `/groups/${groupId}/events`, { token: users.a.token });
+    const eventForA = listA.json.events.find((e: { id: string }) => e.id === eventId);
+    expect(eventForA.myRsvp).toBeNull();
+
+    // Cancel: members can't, admin can (204 + group:event_cancelled broadcast).
+    const memberCancel = await api('DELETE', `/groups/${groupId}/events/${eventId}`, {
+      token: users.b.token,
+    });
+    expect(memberCancel.status).toBe(403);
+
+    const onCancelled = waitForEvent<{ eventId: string }>(
+      socketB,
+      'group:event_cancelled',
+      (d) => d.eventId === eventId,
+    );
+    const del = await api('DELETE', `/groups/${groupId}/events/${eventId}`, {
+      token: users.a.token,
+    });
+    expect(del.status).toBe(204);
+    await onCancelled;
+
+    // Cancelled event no longer listed; late RSVPs are rejected.
+    const after = await api('GET', `/groups/${groupId}/events`, { token: users.a.token });
+    expect(after.json.events.some((e: { id: string }) => e.id === eventId)).toBe(false);
+    const lateRsvp = await api('POST', `/groups/${groupId}/events/${eventId}/rsvp`, {
+      token: users.a.token,
+      body: { status: 'going' },
+    });
+    expect(lateRsvp.status).toBe(404);
+  }, 30_000);
+
+  it('PTT: REST channel list + token mint, live ptt:start/ptt:end fan-out, REST ptt-log backfill', async () => {
+    // The "All" channel is auto-created with the group (Req 26.2).
+    const channels = await api('GET', `/groups/${groupId}/channels`, { token: users.a.token });
+    expect(channels.status).toBe(200);
+    const allChannel = channels.json.channels.find((c: { isAll: boolean }) => c.isAll);
+    expect(allChannel).toBeDefined();
+    expect(allChannel.memberCount).toBeGreaterThanOrEqual(2);
+
+    // REST token mint for the channel (dev-mode Agora token — no creds in env).
+    const minted = await api('POST', '/ptt/token', {
+      token: users.a.token,
+      body: { groupId, channelId: allChannel.id },
+    });
+    expect(minted.status).toBe(200);
+    expect(typeof minted.json.token).toBe('string');
+    expect(minted.json.token.length).toBeGreaterThan(0);
+    expect(minted.json.uid).toBeGreaterThan(0);
+    expect(typeof minted.json.channelName).toBe('string');
+
+    // Non-member cannot mint a token for this group's channel.
+    const outsiderMint = await api('POST', '/ptt/token', {
+      token: users.d.token,
+      body: { groupId, channelId: allChannel.id },
+    });
+    expect(outsiderMint.status).toBe(403);
+
+    // Live transmission: A keys up → every member's personal room gets ptt:transmit.
+    const onTransmit = waitForEvent<{ logId: string; userId: string; channelId: string }>(
+      socketB,
+      'ptt:transmit',
+      (d) => d.userId === users.a.id,
+    );
+    socketA.emit('ptt:start', { channelId: allChannel.id });
+    const transmit = await onTransmit;
+    expect(transmit.channelId).toBe(allChannel.id);
+    expect(typeof transmit.logId).toBe('string');
+    const logId = transmit.logId;
+
+    // Release → ptt:ended closes out the ptt_log row.
+    const onEnded = waitForEvent<{ logId: string; durationExceeded: boolean }>(
+      socketB,
+      'ptt:ended',
+      (d) => d.logId === logId,
+    );
+    socketA.emit('ptt:end', { logId });
+    const ended = await onEnded;
+    expect(ended.durationExceeded).toBe(false);
+
+    // REST backfill (Req 27.2): the completed transmission is readable with
+    // the sender's identity, a stamped endedAt, in oldest-first order.
+    const log = await api('GET', `/groups/${groupId}/ptt-log`, { token: users.b.token });
+    expect(log.status).toBe(200);
+    const entry = log.json.log.find((l: { id: string }) => l.id === logId);
+    expect(entry).toBeDefined();
+    expect(entry.userId).toBe(users.a.id);
+    expect(entry.channelId).toBe(allChannel.id);
+    expect(entry.startedAt).toBeTruthy();
+    expect(entry.endedAt).toBeTruthy();
+    expect(typeof entry.displayName).toBe('string');
+    const startTimes = log.json.log.map((l: { startedAt: string }) =>
+      new Date(l.startedAt).getTime(),
+    );
+    expect([...startTimes].sort((x: number, y: number) => x - y)).toEqual(startTimes);
+
+    // Only active members can read the log (Property 47).
+    const outsiderLog = await api('GET', `/groups/${groupId}/ptt-log`, { token: users.d.token });
+    expect(outsiderLog.status).toBe(403);
+  }, 30_000);
+
+  it('uploads: photo stored and served back byte-exact, disallowed mimetype rejected, filename allowlist enforced', async () => {
+    // The server only checks the declared mimetype, so an ASCII payload keeps
+    // the multipart body safely transportable as a plain string.
+    const payload = `live-smoke-upload-payload-${runId}`;
+    const boundary = `----liveSmokeBoundary${runId}`;
+    const multipart = (filename: string, contentType: string): string =>
+      `--${boundary}\r\n` +
+      `Content-Disposition: form-data; name="file"; filename="${filename}"\r\n` +
+      `Content-Type: ${contentType}\r\n` +
+      `\r\n` +
+      payload +
+      `\r\n--${boundary}--\r\n`;
+    const multipartHeaders = (token?: string): Record<string, string> => ({
+      'content-type': `multipart/form-data; boundary=${boundary}`,
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+    });
+
+    // Upload requires auth.
+    const noAuth = await httpRequest(
+      'POST',
+      `${baseUrl}/api/v1/uploads/photo`,
+      multipartHeaders(),
+      multipart('smoke.png', 'image/png'),
+    );
+    expect(noAuth.status).toBe(401);
+
+    // Allowed image type → 201 with a served-back URL.
+    const uploaded = await httpRequest(
+      'POST',
+      `${baseUrl}/api/v1/uploads/photo`,
+      multipartHeaders(users.a.token),
+      multipart('smoke.png', 'image/png'),
+    );
+    expect(uploaded.status).toBe(201);
+    expect(typeof uploaded.json.url).toBe('string');
+    const storedName = uploaded.json.url.split('/').pop() as string;
+    // The uuid.ext naming contract the GET allowlist depends on.
+    expect(storedName).toMatch(/^[0-9a-fA-F-]{36}\.png$/);
+    expect(fs.existsSync(path.join(smokeUploadsDir, storedName))).toBe(true);
+
+    // Byte-exact readback with the right content type (via baseUrl — the URL
+    // in the response points at BASE_URL, which is not this ephemeral port).
+    const fetched = await httpRequest('GET', `${baseUrl}/api/v1/uploads/${storedName}`, {});
+    expect(fetched.status).toBe(200);
+    expect(fetched.json).toBe(payload);
+    expect(fetched.headers['content-type']).toBe('image/png');
+
+    // Disallowed mimetype on the photo endpoint is rejected, nothing stored.
+    const before = fs.readdirSync(smokeUploadsDir).length;
+    const badType = await httpRequest(
+      'POST',
+      `${baseUrl}/api/v1/uploads/photo`,
+      multipartHeaders(users.a.token),
+      multipart('evil.txt', 'text/plain'),
+    );
+    expect(badType.status).toBe(400);
+    expect(fs.readdirSync(smokeUploadsDir).length).toBe(before);
+
+    // GET filename allowlist: non-uuid names are rejected outright (400, not
+    // 404) — this is the uuid.ext contract that blocks traversal-style names.
+    const evilName = await httpRequest('GET', `${baseUrl}/api/v1/uploads/evil.txt`, {});
+    expect(evilName.status).toBe(400);
+
+    // Well-formed but unknown uuid.ext → clean 404.
+    const missing = await httpRequest(
+      'GET',
+      `${baseUrl}/api/v1/uploads/00000000-0000-4000-8000-000000000000.png`,
+      {},
+    );
+    expect(missing.status).toBe(404);
+
+    // Flow cleanup: remove the stored file now (afterAll rm of the whole
+    // suite-scoped dir is the backstop).
+    fs.unlinkSync(path.join(smokeUploadsDir, storedName));
   }, 30_000);
 
   it('presence flips offline (with lastSeen) after a socket disconnects', async () => {
