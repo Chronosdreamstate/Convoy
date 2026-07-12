@@ -6,7 +6,14 @@
  */
 
 import fc from 'fast-check';
-import { processMapboxRoutes, formatDistance, formatDuration, extractSpeedLimitKph } from './routes.routes';
+import {
+  processMapboxRoutes,
+  formatDistance,
+  formatDuration,
+  extractSpeedLimitKph,
+  extractCongestionSegments,
+  CongestionLevel,
+} from './routes.routes';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -137,6 +144,100 @@ describe('extractSpeedLimitKph', () => {
       }),
       { numRuns: 50 },
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Req 6.2: extractCongestionSegments — per-segment traffic congestion
+// ---------------------------------------------------------------------------
+describe('extractCongestionSegments (Req 6.2)', () => {
+  it('returns [] when legs is undefined or empty', () => {
+    expect(extractCongestionSegments(undefined)).toEqual([]);
+    expect(extractCongestionSegments([])).toEqual([]);
+  });
+
+  it('returns [] when the congestion annotation is absent (Mapbox omitted it)', () => {
+    expect(extractCongestionSegments([{ annotation: { maxspeed: [{ speed: 50, unit: 'km/h' }] } }])).toEqual([]);
+    expect(extractCongestionSegments([{ annotation: {} }, {}])).toEqual([]);
+  });
+
+  it('passes through the five Mapbox levels verbatim, in order', () => {
+    const legs = [{ annotation: { congestion: ['low', 'moderate', 'heavy', 'severe', 'unknown'] } }];
+    expect(extractCongestionSegments(legs)).toEqual(['low', 'moderate', 'heavy', 'severe', 'unknown']);
+  });
+
+  it('concatenates congestion across legs in leg order', () => {
+    const legs = [
+      { annotation: { congestion: ['low', 'low'] } },
+      { annotation: { congestion: ['severe'] } },
+    ];
+    expect(extractCongestionSegments(legs)).toEqual(['low', 'low', 'severe']);
+  });
+
+  it('normalises unrecognised values to "unknown"', () => {
+    const legs = [{ annotation: { congestion: ['low', 'gridlock', '', 'HEAVY'] } }];
+    expect(extractCongestionSegments(legs)).toEqual(['low', 'unknown', 'unknown', 'unknown']);
+  });
+
+  it('property: output length equals total annotation entries and every value is a valid level', () => {
+    const validLevels: CongestionLevel[] = ['low', 'moderate', 'heavy', 'severe', 'unknown'];
+    const congestionArb = fc.array(
+      fc.oneof(fc.constantFrom(...validLevels), fc.string({ maxLength: 10 })),
+      { maxLength: 20 },
+    );
+    const legsArb = fc.array(
+      fc.record({ annotation: fc.record({ congestion: congestionArb }) }),
+      { maxLength: 4 },
+    );
+    fc.assert(
+      fc.property(legsArb, (legs) => {
+        const result = extractCongestionSegments(legs);
+        const totalEntries = legs.reduce((n, l) => n + l.annotation.congestion.length, 0);
+        expect(result).toHaveLength(totalEntries);
+        for (const level of result) expect(validLevels).toContain(level);
+      }),
+      { numRuns: 50 },
+    );
+  });
+});
+
+describe('processMapboxRoutes carries congestionSegments (Req 6.2)', () => {
+  it('surfaces congestion aligned with geometry: N coordinates → N-1 segments', () => {
+    const coordinates: [number, number][] = [[0, 0], [1, 1], [2, 2], [3, 3]];
+    const congestion = ['low', 'heavy', 'severe'];  // one per coordinate pair
+    const [route] = processMapboxRoutes([{
+      distance: 1000,
+      duration: 60,
+      geometry: { type: 'LineString', coordinates },
+      legs: [{ annotation: { congestion } }],
+    }]);
+    expect(route.congestionSegments).toEqual(['low', 'heavy', 'severe']);
+    expect(route.congestionSegments).toHaveLength(route.geometry.coordinates.length - 1);
+  });
+
+  it('routes without any legs/annotation get an empty congestionSegments (backward compatible)', () => {
+    const [route] = processMapboxRoutes([{
+      distance: 1000,
+      duration: 60,
+      geometry: { type: 'LineString', coordinates: [[0, 0], [1, 1]] as [number, number][] },
+    }]);
+    expect(route.congestionSegments).toEqual([]);
+  });
+
+  it('congestion and speed-limit segments stay index-aligned (same leg concatenation)', () => {
+    const legs = [
+      { annotation: { maxspeed: [{ speed: 50, unit: 'km/h' }, { unknown: true }], congestion: ['low', 'severe'] } },
+      { annotation: { maxspeed: [{ speed: 30, unit: 'km/h' }], congestion: ['moderate'] } },
+    ];
+    const [route] = processMapboxRoutes([{
+      distance: 1000,
+      duration: 60,
+      geometry: { type: 'LineString', coordinates: [[0, 0], [1, 1], [2, 2], [3, 3]] as [number, number][] },
+      legs,
+    }]);
+    expect(route.speedLimitSegmentsKph).toEqual([50, null, 30]);
+    expect(route.congestionSegments).toEqual(['low', 'severe', 'moderate']);
+    expect(route.congestionSegments.length).toBe(route.speedLimitSegmentsKph.length);
   });
 });
 

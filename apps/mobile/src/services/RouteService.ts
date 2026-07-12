@@ -2,12 +2,64 @@
 
 export interface LatLng { lat: number; lng: number }
 
+/** Per-segment congestion level as delivered by the backend (Mapbox Directions levels). */
+export type CongestionLevel = 'low' | 'moderate' | 'heavy' | 'severe' | 'unknown';
+
+/**
+ * Spec Req 6.2 four-tier congestion color coding for the route line:
+ * green / yellow / red / dark-red. `null` = unknown congestion → no tint
+ * (segment renders in the default route color).
+ */
+export type CongestionTier = 'green' | 'yellow' | 'red' | 'dark-red';
+
 export interface Route {
   distance: number;
   duration: number;
   distanceText: string;
   durationText: string;
   geometry: { type: 'LineString'; coordinates: [number, number][] };
+  /**
+   * Per-segment traffic congestion, aligned with `geometry.coordinates` the
+   * same way speedLimitSegmentsKph is: entry i covers the segment between
+   * coordinates[i] and coordinates[i + 1]. Optional — older servers omit it.
+   */
+  congestionSegments?: CongestionLevel[];
+}
+
+/**
+ * Map a Mapbox congestion level to the spec's four-tier color coding
+ * (Req 6.2): low→green, moderate→yellow, heavy→red, severe→dark-red.
+ * 'unknown', missing, or any unrecognised value → null (no tint).
+ * Pure function — MapScreen polyline wiring consumes tiers, never raw levels.
+ */
+export function congestionLevelToTier(level: string | null | undefined): CongestionTier | null {
+  switch (level) {
+    case 'low': return 'green';
+    case 'moderate': return 'yellow';
+    case 'heavy': return 'red';
+    case 'severe': return 'dark-red';
+    default: return null;
+  }
+}
+
+/**
+ * Per-segment congestion tiers for a route, guaranteed aligned with its
+ * geometry: the result always has exactly `coordinates.length - 1` entries
+ * (0 for degenerate geometries), where entry i colors the segment between
+ * coordinates[i] and coordinates[i + 1]. A missing/short congestionSegments
+ * field (old server, no Mapbox data) pads with null; extra entries are
+ * truncated. Pure function — safe to call during render.
+ */
+export function congestionTierSegments(
+  route: Pick<Route, 'geometry' | 'congestionSegments'>,
+): (CongestionTier | null)[] {
+  const segmentCount = Math.max(route.geometry.coordinates.length - 1, 0);
+  const levels = route.congestionSegments ?? [];
+  const tiers: (CongestionTier | null)[] = new Array(segmentCount);
+  for (let i = 0; i < segmentCount; i++) {
+    tiers[i] = congestionLevelToTier(levels[i]);
+  }
+  return tiers;
 }
 
 export const MAX_WAYPOINTS = 10;

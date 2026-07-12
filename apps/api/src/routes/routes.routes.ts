@@ -18,6 +18,13 @@ export interface RouteGeometry {
   coordinates: [number, number][];
 }
 
+/**
+ * Traffic congestion level for one route segment, as reported by the Mapbox
+ * Directions `congestion` annotation (Req 6.2 four-tier coloring:
+ * low→green, moderate→yellow, heavy→red, severe→dark-red).
+ */
+export type CongestionLevel = 'low' | 'moderate' | 'heavy' | 'severe' | 'unknown';
+
 export interface Route {
   distance: number;  // metres
   duration: number;  // seconds
@@ -33,6 +40,14 @@ export interface Route {
    * (Req 23.1, 23.2).
    */
   speedLimitSegmentsKph: (number | null)[];
+  /**
+   * Per-segment traffic congestion level, aligned exactly like
+   * `speedLimitSegmentsKph`: entry i describes the segment between
+   * `geometry.coordinates[i]` and `geometry.coordinates[i + 1]` (concatenated
+   * across legs). Drives the four-tier route-line color coding (Req 6.2).
+   * Empty when Mapbox supplied no congestion annotation.
+   */
+  congestionSegments: CongestionLevel[];
 }
 
 interface MapboxMaxspeedEntry {
@@ -43,7 +58,7 @@ interface MapboxMaxspeedEntry {
 }
 
 interface MapboxLeg {
-  annotation?: { maxspeed?: MapboxMaxspeedEntry[] };
+  annotation?: { maxspeed?: MapboxMaxspeedEntry[]; congestion?: string[] };
 }
 
 interface MapboxRoute {
@@ -125,6 +140,26 @@ export function extractSpeedLimitSegmentsKph(legs?: MapboxLeg[]): (number | null
   return segments;
 }
 
+const CONGESTION_LEVELS: ReadonlySet<string> = new Set(['low', 'moderate', 'heavy', 'severe', 'unknown']);
+
+/**
+ * Per-segment traffic congestion level, aligned to the coordinate segments of
+ * the merged route geometry exactly like `extractSpeedLimitSegmentsKph` (one
+ * entry per leg-segment, concatenated in leg order). Req 6.2 — feeds the
+ * client's four-tier route-line color coding. Unrecognised values from Mapbox
+ * are normalised to 'unknown'; a missing annotation yields an empty array.
+ */
+export function extractCongestionSegments(legs?: MapboxLeg[]): CongestionLevel[] {
+  if (!legs?.length) return [];
+  const segments: CongestionLevel[] = [];
+  for (const leg of legs) {
+    for (const level of (leg.annotation?.congestion ?? [])) {
+      segments.push(CONGESTION_LEVELS.has(level) ? (level as CongestionLevel) : 'unknown');
+    }
+  }
+  return segments;
+}
+
 /**
  * Cap Mapbox alternatives at 3 and normalise to Route shape.
  * Exported for Property 6 testing.
@@ -138,6 +173,7 @@ export function processMapboxRoutes(routes: MapboxRoute[]): Route[] {
     geometry: r.geometry,
     speedLimitKph: extractSpeedLimitKph(r.legs),
     speedLimitSegmentsKph: extractSpeedLimitSegmentsKph(r.legs),
+    congestionSegments: extractCongestionSegments(r.legs),
   }));
 }
 
@@ -169,6 +205,10 @@ const pushRouteSchema = z.object({
     // "–" for a pushed route even when Mapbox supplied real data (Req 23.1).
     speedLimitKph: z.number().nullable().optional(),
     speedLimitSegmentsKph: z.array(z.number().nullable()).optional(),
+    // Same stripping hazard as above: without this, congestion data would be
+    // dropped from the route:pushed broadcast and pushed routes would render
+    // without traffic color coding on members' maps (Req 6.2).
+    congestionSegments: z.array(z.enum(['low', 'moderate', 'heavy', 'severe', 'unknown'])).optional(),
   }),
 });
 
@@ -204,7 +244,9 @@ async function routesRoutes(
       // every /routes/calculate call fail.
       overview: 'full',
       steps: 'false',
-      annotations: 'maxspeed',  // Req 23: populate speed limit HUD
+      // Req 23: maxspeed populates the speed limit HUD; Req 6.2: congestion
+      // drives the four-tier route-line color coding.
+      annotations: 'maxspeed,congestion',
       access_token: env.MAPBOX_API_TOKEN,
     });
 
