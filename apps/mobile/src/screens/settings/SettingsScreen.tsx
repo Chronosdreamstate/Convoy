@@ -24,6 +24,7 @@ import { authService } from '../../services/AuthService';
 import { SiriShortcutsService } from '../../services/SiriShortcutsService';
 import { SkeletonBox } from '../../components/SkeletonLoader';
 import { useSettingsStore } from '../../stores/settingsStore';
+import { useAuthStore } from '../../stores/authStore';
 import { useTheme } from '../../theme';
 
 type Theme = ReturnType<typeof useTheme>;
@@ -365,11 +366,30 @@ export default function SettingsScreen() {
             setIsDeletingAccount(true);
             try {
               await apiClient.delete('/api/v1/account');
-              await authService.signOut();
             } catch {
+              // Server-side deletion failed — keep the session fully intact
+              // so the user can retry.
               Alert.alert('Error', 'Failed to delete account. Please try again.');
               setIsDeletingAccount(false);
+              return;
             }
+            // The account no longer exists server-side. From here on, local
+            // cleanup is best-effort and must never surface as a "deletion
+            // failed" error (retrying would 401 against a deleted account).
+            // authService.signOut() clears the SecureStore token, onboarding
+            // flags, and resets all per-account stores (auth/group/location/
+            // socket/recent destinations) — the same path sign-out uses.
+            try {
+              await authService.signOut();
+            } catch {
+              // Fallback: guarantee the in-memory session is cleared so the
+              // root layout's auth guard can never see stale authenticated
+              // state even if SecureStore cleanup rejected mid-way.
+              useAuthStore.getState().signOut();
+            }
+            // Navigate explicitly instead of relying solely on the root
+            // layout's !isAuthenticated redirect effect — mirrors handleSignOut.
+            router.replace('/(auth)/welcome');
           },
         },
       ],
