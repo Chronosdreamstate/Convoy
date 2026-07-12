@@ -13,7 +13,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import MapView, { Marker, Callout, Polyline, LongPressEvent, PROVIDER_DEFAULT } from 'react-native-maps';
+import MapView, { Marker, Callout, LongPressEvent, Region, PROVIDER_DEFAULT } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { Socket } from 'socket.io-client';
@@ -42,7 +42,11 @@ import CoachMarkOverlay from '../../components/CoachMarkOverlay';
 import ScenicRouteSelector, { RouteOption } from '../../components/ScenicRouteSelector';
 import * as SecureStore from 'expo-secure-store';
 import { useGroupStore } from '../../stores/groupStore';
-import { SQLiteOfflineDB } from '../../services/OfflineCacheService';
+import { SQLiteOfflineDB, computeBoundsWithBuffer } from '../../services/OfflineCacheService';
+import { connectivityService } from '../../services/ConnectivityService';
+import { CongestionLevel, CongestionTier, congestionTierSegments } from '../../services/RouteService';
+import CongestionRoutePolyline from '../../components/map/CongestionRoutePolyline';
+import MapDataUnavailableBadge, { CachedTileBounds, regionHasCachedMapData } from '../../components/map/MapDataUnavailableBadge';
 import { MotionStateService, deriveMotionState } from '../../services/MotionStateService';
 import { PTTService } from '../../services/PTTService';
 import { agoraEngineAdapter, requestMicPermissionForPTT } from '../../services/AgoraEngineAdapter';
@@ -117,7 +121,31 @@ interface RouteAlternative {
   speedLimitKph?: number | null;
   /** Per-segment posted speed limit (kph), aligned to geometry.coordinates (Req 23.1, 23.2). */
   speedLimitSegmentsKph?: (number | null)[];
+  /** Per-segment traffic congestion, aligned the same way (Req 6.2). */
+  congestionSegments?: CongestionLevel[];
 }
+
+/**
+ * Per-segment congestion tiers for a route alternative (Req 6.2), aligned so
+ * entry i colors coordinates[i]→coordinates[i+1]. Thin adapter over
+ * RouteService's congestionTierSegments — RouteAlternative types its geometry
+ * as `{ type: string }` (backend shape) rather than the literal 'LineString'
+ * that helper expects. Exported for tests.
+ */
+export function tiersForAlternative(
+  alt: Pick<RouteAlternative, 'geometry' | 'congestionSegments'> | undefined,
+): (CongestionTier | null)[] {
+  if (!alt) return [];
+  return congestionTierSegments({
+    geometry: { type: 'LineString', coordinates: alt.geometry.coordinates },
+    congestionSegments: alt.congestionSegments,
+  });
+}
+
+// Must match OfflineCacheService's (non-exported) TILE_BUFFER_MILES: the map
+// data considered "cached" for the Req 4.4 indicator is exactly the corridor
+// Req 4.1's prefetch covers — the active route plus this buffer.
+const CACHED_TILE_BUFFER_MILES = 10;
 
 /** Index of the coordinate segment nearest (lat, lng) along a route polyline. */
 function nearestSegmentIndex(
@@ -477,6 +505,9 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
 
   // Route planning
   const [routeCoords, setRouteCoords]             = useState<Array<{ latitude: number; longitude: number }>>([]);
+  // Per-segment congestion tiers for the active route line (Req 6.2), aligned
+  // to routeCoords — set together with it at every route-change site.
+  const [routeCongestionTiers, setRouteCongestionTiers] = useState<(CongestionTier | null)[]>([]);
   const [routeAlternatives, setRouteAlternatives] = useState<RouteAlternative[]>([]);
   const [selectedRouteIdx, setSelectedRouteIdx]   = useState<number>(0);
   const [showRouteModal, setShowRouteModal]       = useState(false);
@@ -495,6 +526,16 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
 
   // Dropped pin (Req 5.1–5.4)
   const [droppedPin, setDroppedPin] = useState<{ lat: number; lng: number; address: string | null } | null>(null);
+
+  // Req 4.4 — "map data unavailable" indicator: true while the device is
+  // offline AND the viewed region isn't covered by the cached tile corridor.
+  // Inputs live in refs (updated by connectivity events / region-change events
+  // / route changes) so online panning never writes state — only the derived
+  // boolean does, and setState with an unchanged boolean doesn't re-render.
+  const [mapDataUnavailable, setMapDataUnavailable] = useState(false);
+  const viewedRegionRef = useRef<Region | null>(null);
+  const apiReachableRef = useRef(true);
+  const cachedTileBoundsRef = useRef<CachedTileBounds | null>(null);
 
   // Driving mode — auto-activated on CarPlay/Android Auto (and, once implemented, plain
   // Bluetooth) connect, with manual override support (Req 28.1, 28.4–28.6).
@@ -604,6 +645,45 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
       }
     })();
   }, []);
+
+  // Re-derive the Req 4.4 badge from the current refs. Stable identity (no
+  // deps) so the region-change handler and connectivity subscription below
+  // never re-subscribe.
+  const updateMapDataBadge = useCallback(() => {
+    setMapDataUnavailable(
+      apiReachableRef.current === false &&
+      !regionHasCachedMapData(viewedRegionRef.current, cachedTileBoundsRef.current),
+    );
+  }, []);
+
+  // Device connectivity for the Req 4.4 badge. connectivityService (NetInfo +
+  // /health probe), NOT the socket-derived isConnected/isOnline flags — those
+  // only exist while a group socket is up, and map tiles are needed (and go
+  // missing) regardless of convoy state.
+  useEffect(() => {
+    const unsubscribe = connectivityService.subscribe((online) => {
+      apiReachableRef.current = online;
+      updateMapDataBadge();
+    });
+    return unsubscribe;
+  }, [updateMapDataBadge]);
+
+  // Cached-tile corridor for the Req 4.4 badge: the active route plus the same
+  // 10-mile buffer Req 4.1's prefetch covers. No active route → nothing cached.
+  useEffect(() => {
+    cachedTileBoundsRef.current = routeCoords.length > 1
+      ? computeBoundsWithBuffer(
+          routeCoords.map((c) => [c.longitude, c.latitude] as [number, number]),
+          CACHED_TILE_BUFFER_MILES,
+        )
+      : null;
+    updateMapDataBadge();
+  }, [routeCoords, updateMapDataBadge]);
+
+  const handleRegionChangeComplete = useCallback((region: Region) => {
+    viewedRegionRef.current = region;
+    updateMapDataBadge();
+  }, [updateMapDataBadge]);
 
   // Incoming SOS alerts arrive over the socket (see `sos:alert` handler below) and are
   // completely independent of any locally-driven modal/sheet state. SosAlertModal is a
@@ -991,6 +1071,7 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
             const next = Math.min(prev, alts.length - 1);
             const coords = alts[next]?.geometry.coordinates.map(([lng, lat]) => ({ latitude: lat, longitude: lng })) ?? [];
             setRouteCoords(coords);
+            setRouteCongestionTiers(tiersForAlternative(alts[next]));
             setPostedSpeedLimitKph(alts[next]?.speedLimitKph ?? null);
             activeRouteSegmentsRef.current = { coords, segmentsKph: alts[next]?.speedLimitSegmentsKph ?? [] };
             return next;
@@ -1147,7 +1228,7 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
       setHazardAlerts((prev) => prev.filter((a) => a.id !== id));
     });
 
-    socket.on('route:pushed', (data: { route?: { geometry?: { coordinates?: [number, number][] }; speedLimitKph?: number | null; speedLimitSegmentsKph?: (number | null)[] } }) => {
+    socket.on('route:pushed', (data: { route?: { geometry?: { coordinates?: [number, number][] }; speedLimitKph?: number | null; speedLimitSegmentsKph?: (number | null)[]; congestionSegments?: CongestionLevel[] } }) => {
       // Unlike REST responses, socket payloads aren't runtime-validated on the
       // client, so this guards against a malformed/partial broadcast (e.g. a
       // future "clear route" push reusing this event) instead of assuming the
@@ -1155,6 +1236,13 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
       const rawCoords = data.route?.geometry?.coordinates ?? [];
       const coords = rawCoords.map(([lng, lat]) => ({ latitude: lat, longitude: lng }));
       setRouteCoords(coords);
+      // Pushed routes carry congestion through the broadcast (Req 6.2) —
+      // congestionTierSegments pads/truncates, so a short or missing array
+      // still yields tiers aligned to the geometry (unknown → no tint).
+      setRouteCongestionTiers(congestionTierSegments({
+        geometry: { type: 'LineString', coordinates: rawCoords },
+        congestionSegments: data.route?.congestionSegments,
+      }));
       setPostedSpeedLimitKph(data.route?.speedLimitKph ?? null);
       activeRouteSegmentsRef.current = { coords, segmentsKph: data.route?.speedLimitSegmentsKph ?? [] };
       setShowRouteModal(false);
@@ -1404,6 +1492,7 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
       setSelectedRouteIdx(0);
       const coords = alts[0].geometry.coordinates.map(([lng, lat]) => ({ latitude: lat, longitude: lng }));
       setRouteCoords(coords);
+      setRouteCongestionTiers(tiersForAlternative(alts[0]));
       setPostedSpeedLimitKph(alts[0]?.speedLimitKph ?? null);
       activeRouteSegmentsRef.current = { coords, segmentsKph: alts[0]?.speedLimitSegmentsKph ?? [] };
       activeDestRef.current = dest;
@@ -1511,6 +1600,7 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
     const alt = routeAlternatives[idx];
     const coords = alt?.geometry.coordinates.map(([lng, lat]) => ({ latitude: lat, longitude: lng })) ?? [];
     setRouteCoords(coords);
+    setRouteCongestionTiers(tiersForAlternative(alt));
     setPostedSpeedLimitKph(alt?.speedLimitKph ?? null);
     activeRouteSegmentsRef.current = { coords, segmentsKph: alt?.speedLimitSegmentsKph ?? [] };
   }, [routeAlternatives]);
@@ -1539,6 +1629,9 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
           geometry: alt.geometry,
           speedLimitKph: alt.speedLimitKph ?? null,
           speedLimitSegmentsKph: alt.speedLimitSegmentsKph ?? [],
+          // Members' maps color the pushed route line from this (Req 6.2) —
+          // the server broadcasts it through route:pushed unchanged.
+          congestionSegments: alt.congestionSegments ?? [],
         },
       });
       setShowRouteModal(false);
@@ -1753,6 +1846,7 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
         initialRegion={{ latitude: 37.7749, longitude: -122.4194, latitudeDelta: 0.1, longitudeDelta: 0.1 }}
         onLongPress={handleLongPress}
         onPress={() => { if (autoCenterAll) setAutoCenterAll(false); }}
+        onRegionChangeComplete={handleRegionChangeComplete}
       >
         {members.map((m: MemberLocation) => {
           const gapStatus = gapStatusById[m.userId] ?? ('ok' as const);
@@ -1851,12 +1945,13 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
             </Callout>
           </Marker>
         ))}
+        {/* Active route line with four-tier congestion color coding (Req 6.2);
+            untinted segments fall back to the classic accent route color. */}
         {routeCoords.length > 0 && (
-          <Polyline
+          <CongestionRoutePolyline
             coordinates={routeCoords}
-            strokeColor={colors.accent}
-            strokeWidth={4}
-            lineDashPattern={[1]}
+            tiers={routeCongestionTiers}
+            defaultColor={colors.accent}
           />
         )}
       </MapView>
@@ -1888,6 +1983,14 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
       <View style={[styles.badge, isConnected ? styles.badgeOnline : styles.badgeOffline, { top: topBase }]}>
         <Text style={[styles.badgeText, isConnected && styles.badgeOnlineText]}>{isConnected ? 'LIVE' : 'OFFLINE'}</Text>
       </View>
+
+      {/* Map data unavailable badge (Req 4.4) — offline and the viewed area is
+          outside the cached tile corridor (active route + 10-mile buffer). */}
+      {mapDataUnavailable && (
+        <View style={[styles.mapDataBadgeWrap, { top: topBase + 88 }]} pointerEvents="none">
+          <MapDataUnavailableBadge />
+        </View>
+      )}
 
       {/* Map style cycle button — top-right, below LIVE badge */}
       <TouchableOpacity
@@ -2554,7 +2657,7 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
             {routeCoords.length > 0 && routeAlternatives.length > 0 && (
               <TouchableOpacity
                 style={styles.routeClearBtn}
-                onPress={() => { setRouteCoords([]); setRouteAlternatives([]); setRouteDestInput(''); setPostedSpeedLimitKph(null); activeDestRef.current = null; activeRouteSegmentsRef.current = { coords: [], segmentsKph: [] }; }}
+                onPress={() => { setRouteCoords([]); setRouteCongestionTiers([]); setRouteAlternatives([]); setRouteDestInput(''); setPostedSpeedLimitKph(null); activeDestRef.current = null; activeRouteSegmentsRef.current = { coords: [], segmentsKph: [] }; }}
                 accessibilityRole="button"
                 accessibilityLabel="Clear current route"
               >
@@ -2691,6 +2794,14 @@ return StyleSheet.create({
     justifyContent: 'center',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.12)',
+    zIndex: 10,
+  },
+
+  // Map data unavailable badge — top-right, below the map-style button (Req 4.4)
+  mapDataBadgeWrap: {
+    position: 'absolute',
+    right: 12,
+    alignItems: 'flex-end',
     zIndex: 10,
   },
 

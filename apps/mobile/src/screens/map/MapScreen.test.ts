@@ -6,6 +6,8 @@
  *  - resolveDistanceOrigin — member-list distances are measured from the
  *    ADMIN's position, not the viewer's (Req 8.4), with a caller-relative
  *    fallback when the admin's position is unknown.
+ *  - tiersForAlternative — per-segment congestion tiers for the active route
+ *    line's four-tier color coding (Req 6.2), aligned to the route geometry.
  */
 
 // react-native-maps registers native view components at import time, which the
@@ -24,8 +26,9 @@ jest.mock('react-native-maps', () => {
   };
 });
 
-import { broadcastSosPin, cancelSosPin, resolveDistanceOrigin } from './MapScreen';
+import { broadcastSosPin, cancelSosPin, resolveDistanceOrigin, tiersForAlternative } from './MapScreen';
 import type { SosPin } from '../../services/RallyService';
+import type { CongestionLevel } from '../../services/RouteService';
 
 const pin = (overrides: Partial<SosPin> = {}): SosPin => ({
   id: 'sos-1',
@@ -143,5 +146,35 @@ describe('resolveDistanceOrigin (Req 8.4)', () => {
     // Self is never present in the members list (own location updates are
     // filtered out), so there is nothing to measure from.
     expect(resolveDistanceOrigin('me', 'me', null, [other])).toBeNull();
+  });
+});
+
+describe('tiersForAlternative (Req 6.2)', () => {
+  // 4 coordinates → 3 segments; congestionSegments[i] covers coords[i]→[i+1].
+  const geometry = {
+    type: 'LineString',
+    coordinates: [[-122.4, 37.7], [-122.3, 37.7], [-122.2, 37.7], [-122.1, 37.7]] as [number, number][],
+  };
+
+  it('maps Mapbox levels to the four-tier color coding, aligned per segment', () => {
+    const congestionSegments: CongestionLevel[] = ['low', 'heavy', 'severe'];
+    expect(tiersForAlternative({ geometry, congestionSegments }))
+      .toEqual(['green', 'red', 'dark-red']);
+  });
+
+  it('renders unknown congestion as null (no tint — default route color)', () => {
+    const congestionSegments: CongestionLevel[] = ['moderate', 'unknown', 'moderate'];
+    expect(tiersForAlternative({ geometry, congestionSegments }))
+      .toEqual(['yellow', null, 'yellow']);
+  });
+
+  it('pads a missing or short congestionSegments with null, one entry per segment', () => {
+    expect(tiersForAlternative({ geometry })).toEqual([null, null, null]);
+    expect(tiersForAlternative({ geometry, congestionSegments: ['severe'] }))
+      .toEqual(['dark-red', null, null]);
+  });
+
+  it('returns an empty array for a missing alternative', () => {
+    expect(tiersForAlternative(undefined)).toEqual([]);
   });
 });
