@@ -44,7 +44,7 @@ import * as SecureStore from 'expo-secure-store';
 import { useGroupStore } from '../../stores/groupStore';
 import { SQLiteOfflineDB, computeBoundsWithBuffer } from '../../services/OfflineCacheService';
 import { connectivityService } from '../../services/ConnectivityService';
-import { CongestionLevel, CongestionTier, congestionTierSegments } from '../../services/RouteService';
+import { CongestionLevel, CongestionTier, congestionTierSegments, applyFuelStopWaypoint } from '../../services/RouteService';
 import CongestionRoutePolyline from '../../components/map/CongestionRoutePolyline';
 import MapDataUnavailableBadge, { CachedTileBounds, regionHasCachedMapData } from '../../components/map/MapDataUnavailableBadge';
 import { MotionStateService, deriveMotionState } from '../../services/MotionStateService';
@@ -1659,11 +1659,26 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
 
   const handleFuelStationSelect = useCallback(async (station: { id: string; name: string; distanceM: number; lat: number; lng: number; address: string }) => {
     if (!groupId) return;
+    // Req 21.3: the accepted station becomes a ROUTE waypoint (recalculated
+    // through it and pushed to the group), never a rally point. Our own map
+    // applies the result via the route:pushed socket handler like everyone
+    // else's, so no local route state is written here.
+    const origin = myLocationRef.current;
+    if (!origin) return;
     try {
-      await rallyService.broadcastRally(groupId, station.lat, station.lng);
+      const applied = await applyFuelStopWaypoint({
+        groupId,
+        origin,
+        station: { lat: station.lat, lng: station.lng },
+        destination: activeDestRef.current,
+      });
+      if (!applied) {
+        Alert.alert('No Route', 'No route found through that station.');
+        return;
+      }
       setShowFuelBanner(false);
     } catch {
-      Alert.alert('Error', 'Could not broadcast fuel stop waypoint.');
+      Alert.alert('Error', 'Could not add the fuel stop to the route.');
     }
   }, [groupId]);
 
@@ -2082,7 +2097,7 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
                 <Ionicons name="car" size={22} color={drivingModeActive ? '#FFFFFF' : colors.text} />
               </TouchableOpacity>
               {/* Group-only: FuelSuggestionBanner queries the group's fuel status and
-                  broadcasts the chosen station as a rally point. */}
+                  pushes the chosen station as a route waypoint (Req 21.3). */}
               {groupId ? (
                 <TouchableOpacity
                   style={styles.fabItem}

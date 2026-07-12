@@ -20,6 +20,7 @@ import { apiClient } from '../services/apiClient';
 import { pttAnalytics, PttStat } from '../services/PTTAnalyticsService';
 import { ThemeColors, useTheme, withAlpha } from '../theme';
 import { useReduceMotion } from '../hooks/useReduceMotion';
+import { MotionCapNotice, MOTION_LIST_CAP } from './MotionAwareList';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -54,7 +55,8 @@ interface Props {
 }
 
 /** Driver Distraction — Scrollable List Limit (Req 33): cap to ~4 rows while in motion. */
-const IN_MOTION_LIST_CAP = 4;
+// Req 33 in-motion cap — single source of truth in MotionAwareList.
+const IN_MOTION_LIST_CAP = MOTION_LIST_CAP;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -468,6 +470,10 @@ function PTTLogPanel({ socket, initialEntries = [], groupId, isInMotion = false 
                 <Text style={styles.replayLastBtnText}>Replay Last</Text>
               </TouchableOpacity>
               <ScrollView style={styles.list} showsVerticalScrollIndicator={false}>
+                {/* Req 33: same 4-item in-motion cap as every other list, with the
+                    shared "pull over" affordance. Capping keeps the LATEST entries
+                    (unlike top-of-list screens) — recency is what matters here. */}
+                <MotionCapNotice hiddenCount={isInMotion ? Math.max(0, entries.length - IN_MOTION_LIST_CAP) : 0} />
                 {(isInMotion ? entries.slice(-IN_MOTION_LIST_CAP) : entries).map((entry) => (
                   <LogRow
                     key={entry.id}
