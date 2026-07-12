@@ -11,6 +11,7 @@ import {
   Text,
 } from 'react-native';
 import { ThemeColors, useTheme } from '../theme';
+import { useReduceMotion } from '../hooks/useReduceMotion';
 
 const MPH_TO_KMH = 1.60934;
 const AUTO_HIDE_DELAY_MS = 5_000;
@@ -80,10 +81,13 @@ function SpeedLimitHUD({
   const significantlyOver = resolvedSpeedMph > resolvedLimitMph * 1.1;
 
   // ── Border opacity pulse (1.0 ↔ 0.7, 600 ms) when significantly over ─────
+  // Held static under OS reduce-motion — the over-limit warning is still
+  // conveyed by the border color change itself.
   const borderOpacityAnim = useRef(new Animated.Value(1)).current;
+  const reduceMotion = useReduceMotion();
 
   useEffect(() => {
-    if (significantlyOver) {
+    if (significantlyOver && !reduceMotion) {
       const pulse = Animated.loop(
         Animated.sequence([
           Animated.timing(borderOpacityAnim, {
@@ -103,7 +107,7 @@ function SpeedLimitHUD({
     }
     borderOpacityAnim.setValue(1);
     return undefined;
-  }, [significantlyOver, borderOpacityAnim]);
+  }, [significantlyOver, borderOpacityAnim, reduceMotion]);
 
   // ── Auto-hide when stationary for > AUTO_HIDE_DELAY_MS ───────────────────
   const [visible, setVisible] = useState(true);

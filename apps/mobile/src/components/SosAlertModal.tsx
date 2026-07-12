@@ -11,6 +11,7 @@ import {
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { HapticService } from '../services/HapticService';
 import { ThemeColors, useTheme } from '../theme';
+import { useReduceMotion } from '../hooks/useReduceMotion';
 
 const COUNTDOWN_START = 5;
 
@@ -60,11 +61,23 @@ function SosAlertModal({
     setCountdown(COUNTDOWN_START);
   }, [visible]);
 
-  // Pulse animation — scale 1.0 → 1.2 → 1.0 over 800ms total
+  const reduceMotion = useReduceMotion();
+
+  // Alert haptic — fires once per open, independent of the motion setting.
+  useEffect(() => {
+    if (visible) HapticService.trigger('error');
+  }, [visible]);
+
+  // Pulse animation — scale 1.0 → 1.2 → 1.0 over 800ms total.
+  // With OS reduce-motion on, the icon holds still — urgency is still conveyed
+  // by the haptic, the red styling, and the live countdown.
   useEffect(() => {
     if (!visible) return;
 
-    HapticService.trigger('error');
+    if (reduceMotion) {
+      pulse.setValue(1);
+      return;
+    }
 
     const anim = Animated.loop(
       Animated.sequence([
@@ -74,7 +87,7 @@ function SosAlertModal({
     );
     anim.start();
     return () => { anim.stop(); pulse.setValue(1); };
-  }, [visible, pulse]);
+  }, [visible, pulse, reduceMotion]);
 
   // Countdown timer — auto-triggers group alert when it reaches 0
   useEffect(() => {

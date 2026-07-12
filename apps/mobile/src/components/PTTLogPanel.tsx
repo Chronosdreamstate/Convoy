@@ -19,6 +19,7 @@ import { Socket } from 'socket.io-client';
 import { apiClient } from '../services/apiClient';
 import { pttAnalytics, PttStat } from '../services/PTTAnalyticsService';
 import { ThemeColors, useTheme, withAlpha } from '../theme';
+import { useReduceMotion } from '../hooks/useReduceMotion';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -102,7 +103,13 @@ function mergeEntries(live: PttLogEntry[], backlog: PttLogEntry[]): PttLogEntry[
 
 function PulsingDot({ colors }: { colors: ThemeColors }) {
   const opacity = useRef(new Animated.Value(1)).current;
+  const reduceMotion = useReduceMotion();
   useEffect(() => {
+    if (reduceMotion) {
+      // Static "live" dot — full opacity, no blink (OS reduce-motion on).
+      opacity.setValue(1);
+      return;
+    }
     const loop = Animated.loop(
       Animated.sequence([
         Animated.timing(opacity, { toValue: 0.15, duration: 550, useNativeDriver: true }),
@@ -111,7 +118,7 @@ function PulsingDot({ colors }: { colors: ThemeColors }) {
     );
     loop.start();
     return () => loop.stop();
-  }, [opacity]);
+  }, [opacity, reduceMotion]);
   return <Animated.View style={[{ width: 6, height: 6, borderRadius: 3, backgroundColor: colors.accent, marginRight: 5 }, { opacity }]} />;
 }
 

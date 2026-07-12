@@ -1,11 +1,19 @@
 import React, { useEffect, useMemo, useRef } from 'react';
 import { Animated, DimensionValue, StyleSheet, View } from 'react-native';
 import { ThemeColors, useTheme } from '../theme';
+import { useReduceMotion } from '../hooks/useReduceMotion';
 
 function useShimmer() {
   const opacity = useRef(new Animated.Value(0.3)).current;
+  const reduceMotion = useReduceMotion();
 
   useEffect(() => {
+    if (reduceMotion) {
+      // Static placeholder — hold a fixed mid-opacity instead of shimmering.
+      opacity.setValue(0.5);
+      return;
+    }
+    opacity.setValue(0.3);
     const anim = Animated.loop(
       Animated.sequence([
         Animated.timing(opacity, { toValue: 0.7, duration: 800, useNativeDriver: true }),
@@ -14,7 +22,7 @@ function useShimmer() {
     );
     anim.start();
     return () => anim.stop();
-  }, [opacity]);
+  }, [opacity, reduceMotion]);
 
   return opacity;
 }

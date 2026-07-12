@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../theme';
+import { useReduceMotion } from '../hooks/useReduceMotion';
 
 interface Props {
   visible: boolean;
@@ -28,14 +29,21 @@ export default function LocationPermissionPrescreen({ visible, onAllow, onSkip }
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const scaleAnim = useRef(new Animated.Value(0.9)).current;
   const pinPulse = useRef(new Animated.Value(1)).current;
+  const reduceMotion = useReduceMotion();
 
   useEffect(() => {
     if (visible) {
+      // One-shot entrance transition — fine to keep under reduce-motion.
       Animated.parallel([
         Animated.timing(fadeAnim, { toValue: 1, duration: 300, useNativeDriver: true }),
         Animated.spring(scaleAnim, { toValue: 1, useNativeDriver: true, damping: 18, stiffness: 200 }),
       ]).start();
 
+      // Looping pin pulse — held static when OS reduce-motion is on.
+      if (reduceMotion) {
+        pinPulse.setValue(1);
+        return;
+      }
       const pulse = Animated.loop(
         Animated.sequence([
           Animated.timing(pinPulse, { toValue: 1.12, duration: 900, useNativeDriver: true }),
@@ -48,7 +56,7 @@ export default function LocationPermissionPrescreen({ visible, onAllow, onSkip }
       fadeAnim.setValue(0);
       scaleAnim.setValue(0.9);
     }
-  }, [visible, fadeAnim, scaleAnim, pinPulse]);
+  }, [visible, fadeAnim, scaleAnim, pinPulse, reduceMotion]);
 
   return (
     <Modal

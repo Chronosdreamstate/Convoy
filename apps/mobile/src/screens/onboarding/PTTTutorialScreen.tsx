@@ -1,59 +1,22 @@
-import React, { useEffect, useMemo, useRef } from 'react';
+import React, { useMemo } from 'react';
 import {
   View,
   Text,
   TouchableOpacity,
   StyleSheet,
   SafeAreaView,
-  Animated,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../theme';
+import PTTTutorialPulse from '../../components/PTTTutorialPulse';
 
-// Text/icons that always sit on the crimson accent fill — stays light in both themes.
+// Text that always sits on the crimson accent fill — stays light in both themes.
 const ON_ACCENT = '#FFFFFF';
 
 export default function PTTTutorialScreen() {
   const router = useRouter();
   const theme = useTheme();
   const styles = useMemo(() => createStyles(theme), [theme]);
-
-  const scaleAnim = useRef(new Animated.Value(1)).current;
-  const opacityAnim = useRef(new Animated.Value(1)).current;
-
-  useEffect(() => {
-    const pulse = Animated.loop(
-      Animated.parallel([
-        Animated.sequence([
-          Animated.timing(scaleAnim, {
-            toValue: 1.3,
-            duration: 1200,
-            useNativeDriver: true,
-          }),
-          Animated.timing(scaleAnim, {
-            toValue: 1,
-            duration: 0,
-            useNativeDriver: true,
-          }),
-        ]),
-        Animated.sequence([
-          Animated.timing(opacityAnim, {
-            toValue: 0,
-            duration: 1200,
-            useNativeDriver: true,
-          }),
-          Animated.timing(opacityAnim, {
-            toValue: 1,
-            duration: 0,
-            useNativeDriver: true,
-          }),
-        ]),
-      ])
-    );
-    pulse.start();
-    return () => pulse.stop();
-  }, [scaleAnim, opacityAnim]);
 
   const goToFindGroup = () => {
     router.replace('/(onboarding)/find-group' as never);
@@ -63,23 +26,8 @@ export default function PTTTutorialScreen() {
     <SafeAreaView style={styles.safe}>
       <View style={styles.container}>
         <View style={styles.topSection}>
-          <View style={styles.buttonWrapper}>
-            {/* Animated pulsing ring */}
-            <Animated.View
-              style={[
-                styles.pulseRing,
-                {
-                  transform: [{ scale: scaleAnim }],
-                  opacity: opacityAnim,
-                },
-              ]}
-            />
-
-            {/* Mock PTT button — non-functional UI demo */}
-            <View style={styles.pttButton}>
-              <Ionicons name="mic" size={36} color={ON_ACCENT} />
-            </View>
-          </View>
+          {/* Mock PTT button with pulse ring (static under OS reduce-motion) */}
+          <PTTTutorialPulse />
 
           <Text style={styles.holdToTalk}>Hold to Talk</Text>
           <Text style={styles.subText}>
@@ -128,28 +76,6 @@ function createStyles(theme: ReturnType<typeof useTheme>) {
       alignItems: 'center',
       justifyContent: 'center',
       gap: 24,
-    },
-    buttonWrapper: {
-      width: 160,
-      height: 160,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    pulseRing: {
-      position: 'absolute',
-      width: 80,
-      height: 80,
-      borderRadius: 40,
-      borderWidth: 3,
-      borderColor: theme.colors.accent,
-    },
-    pttButton: {
-      width: 80,
-      height: 80,
-      borderRadius: 40,
-      backgroundColor: theme.colors.accent,
-      alignItems: 'center',
-      justifyContent: 'center',
     },
     holdToTalk: {
       fontSize: 22,

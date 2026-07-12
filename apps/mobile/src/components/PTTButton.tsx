@@ -3,6 +3,7 @@ import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { HapticService } from '../services/HapticService';
 import { ThemeColors, useTheme, withAlpha } from '../theme';
+import { useReduceMotion } from '../hooks/useReduceMotion';
 
 export const PTT_BUTTON_SIZE = 80;
 
@@ -40,7 +41,21 @@ function PTTButton({
   ).current;
   const waveLoop = useRef<Animated.CompositeAnimation | null>(null);
 
+  const reduceMotion = useReduceMotion();
+
   useEffect(() => {
+    if (isTransmitting && !disabled && !isMuted && reduceMotion) {
+      // OS reduce-motion: static transmit feedback instead of the looping
+      // ring/glow/waveform — steady ring at rest, raised glow, mid-height bars.
+      pulseAnim.current?.stop();
+      glowLoop.current?.stop();
+      waveLoop.current?.stop();
+      ringOpacity.setValue(0.5);
+      ringScale.setValue(1.25);
+      shadowAnim.setValue(1);
+      waveAnims.forEach(a => a.setValue(0.6));
+      return;
+    }
     if (isTransmitting && !disabled && !isMuted) {
       pulseAnim.current = Animated.loop(
         Animated.sequence([
@@ -93,7 +108,7 @@ function PTTButton({
       glowLoop.current?.stop();
       waveLoop.current?.stop();
     };
-  }, [isTransmitting, disabled, isMuted]);
+  }, [isTransmitting, disabled, isMuted, reduceMotion]);
 
   const handlePressIn = () => {
     if (disabled || isMuted) return;
