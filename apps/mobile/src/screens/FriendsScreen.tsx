@@ -16,6 +16,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { apiClient } from '../services/apiClient';
+import { MotionCapNotice, useMotionCappedData } from '../components/MotionAwareList';
 import { SkeletonRow } from '../components/SkeletonLoader';
 import { useGroupStore } from '../stores/groupStore';
 import { useTheme, ThemeColors } from '../theme';
@@ -339,6 +340,15 @@ function FriendsTab({ query }: { query: string }) {
         f.callsign?.toLowerCase().includes(q))
     : friends;
 
+  // Req 33 — cap the roster to 4 rows while the vehicle is in motion. Applied
+  // to the display-ordered list (online first, offline alphabetical) so the
+  // cap always keeps the rows the user would see at the top of the list.
+  const ordered = [
+    ...filtered.filter(f => f.isOnline),
+    ...filtered.filter(f => !f.isOnline).sort((a, b) => a.displayName.localeCompare(b.displayName)),
+  ];
+  const { data: visibleFriends, hiddenCount } = useMotionCappedData(ordered);
+
   if (loading) {
     return <View style={styles.skeletonWrap}>{[0, 1, 2, 3].map(i => <SkeletonRow key={i} />)}</View>;
   }
@@ -354,8 +364,8 @@ function FriendsTab({ query }: { query: string }) {
       : <Empty icon="people-outline" title="No friends yet" sub="Use the + button to invite your crew." />;
   }
 
-  const online = filtered.filter(f => f.isOnline);
-  const offline = filtered.filter(f => !f.isOnline).sort((a, b) => a.displayName.localeCompare(b.displayName));
+  const online = visibleFriends.filter(f => f.isOnline);
+  const offline = visibleFriends.filter(f => !f.isOnline);
 
   const sections: Section[] = [];
   if (online.length > 0) sections.push({ title: 'Online Now', data: online });
@@ -381,6 +391,7 @@ function FriendsTab({ query }: { query: string }) {
           <Text style={styles.onlineEmpty}>None of your other friends are driving right now</Text>
         ) : null
       }
+      ListFooterComponent={<MotionCapNotice hiddenCount={hiddenCount} />}
     />
   );
 }
@@ -590,12 +601,22 @@ function RequestsTab({ onCount }: { onCount: (n: number) => void }) {
     })();
   }, []);
 
+  // Req 33 — cap the whole requests list (incoming + sent combined, in display
+  // order) to 4 rows while the vehicle is in motion. Capping per-section would
+  // let the screen show up to 8 rows, defeating the limit.
+  const combined = useMemo<(FriendRequest | SentRequest)[]>(() => [...reqs, ...sent], [reqs, sent]);
+  const { data: visibleRequests, hiddenCount } = useMotionCappedData(combined);
+
   const sections = useMemo<RequestsSection[]>(() => {
+    // `visibleRequests` preserves `combined`'s order (incoming first), so the
+    // first min(reqs.length, visible) rows are incoming and the rest are sent.
+    const incoming = visibleRequests.slice(0, Math.min(reqs.length, visibleRequests.length)) as FriendRequest[];
+    const outgoing = visibleRequests.slice(incoming.length) as SentRequest[];
     const s: RequestsSection[] = [];
-    if (reqs.length > 0) s.push({ title: 'Incoming', key: 'incoming', data: reqs });
-    if (sent.length > 0) s.push({ title: 'Sent', key: 'sent', data: sent });
+    if (incoming.length > 0) s.push({ title: 'Incoming', key: 'incoming', data: incoming });
+    if (outgoing.length > 0) s.push({ title: 'Sent', key: 'sent', data: outgoing });
     return s;
-  }, [reqs, sent]);
+  }, [visibleRequests, reqs.length]);
 
   const renderRequestItem = useCallback(({ item, section }: { item: FriendRequest | SentRequest; section: RequestsSection }) => (
     section.key === 'sent'
@@ -630,6 +651,7 @@ function RequestsTab({ onCount }: { onCount: (n: number) => void }) {
         <Text style={styles.sectionHeader}>{section.title} ({section.data.length})</Text>
       )}
       renderItem={renderRequestItem}
+      ListFooterComponent={<MotionCapNotice hiddenCount={hiddenCount} />}
     />
   );
 }

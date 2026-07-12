@@ -26,6 +26,7 @@ import { useRouter } from 'expo-router';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import SkeletonCard from '../components/SkeletonLoader';
+import { MotionCapNotice, useMotionCappedData } from '../components/MotionAwareList';
 import { NetworkError } from '../components/NetworkError';
 import { apiClient } from '../services/apiClient';
 import { useSettingsStore, type DistanceUnit } from '../stores/settingsStore';
@@ -810,7 +811,16 @@ export default function DriveHistoryScreen() {
   }, [drives, distanceUnit]);
 
   const filteredDrives = useMemo(() => applyFilter(drives, activeFilter), [drives, activeFilter]);
-  const listData = useMemo(() => buildListData(filteredDrives), [filteredDrives]);
+
+  // Req 33 — while the vehicle is in motion, cap the history to 4 drives with
+  // a "pull over to see more" notice. Applied to the drives (not the built
+  // list rows) so month headers never eat into the 4 visible items' budget.
+  const {
+    data: visibleDrives,
+    isCapped: drivesCapped,
+    hiddenCount: hiddenDriveCount,
+  } = useMotionCappedData(filteredDrives);
+  const listData = useMemo(() => buildListData(visibleDrives), [visibleDrives]);
 
   const longestDriveId = useMemo(() => {
     if (filteredDrives.length < 2) return null;
@@ -1049,7 +1059,10 @@ export default function DriveHistoryScreen() {
           item.type === 'header' ? `header-${item.key}` : item.drive.id
         }
         contentContainerStyle={listData.length === 0 ? styles.listEmpty : styles.list}
-        onEndReached={loadMore}
+        // No pagination while the in-motion cap is active — extra pages could
+        // never become visible, and the short list would fire onEndReached
+        // immediately on every render.
+        onEndReached={drivesCapped ? undefined : loadMore}
         onEndReachedThreshold={0.3}
         refreshControl={
           <RefreshControl
@@ -1078,7 +1091,12 @@ export default function DriveHistoryScreen() {
             </View>
           ) : null
         }
-        ListFooterComponent={loadingMore ? <ActivityIndicator color={colors.accent} style={styles.footerSpinner} /> : null}
+        ListFooterComponent={
+          <>
+            <MotionCapNotice hiddenCount={hiddenDriveCount} />
+            {loadingMore ? <ActivityIndicator color={colors.accent} style={styles.footerSpinner} /> : null}
+          </>
+        }
         ListEmptyComponent={
           drives.length > 0 ? (
             <View style={styles.emptyState}>

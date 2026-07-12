@@ -25,6 +25,7 @@ import * as ExpoLocation from 'expo-location';
 import { router } from 'expo-router';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import ConvoyInviteCard from '../components/ConvoyInviteCard';
+import { MotionCapNotice, useMotionCappedData } from '../components/MotionAwareList';
 import SOSButton from '../components/SOSButton';
 import MemberDetailModal from '../components/MemberDetailModal';
 import ConvoyStatusPanel from '../components/ConvoyStatusPanel';
@@ -693,6 +694,12 @@ export default function ConvoyScreen({ userId }: Props) {
     });
   }, [members, group?.adminId, memberLocations]);
 
+  // Req 33 — while the vehicle is in motion, cap the roster (and the discover
+  // list below) to 4 rows with a "pull over to see more" notice. Reacts live
+  // via the shared motion store; full lists return the moment the car parks.
+  const { data: visibleMembers, hiddenCount: hiddenMemberCount } = useMotionCappedData(sortedMembers);
+  const { data: visiblePublicGroups, hiddenCount: hiddenPublicGroupCount } = useMotionCappedData(publicGroups);
+
   // Count of members currently reporting a live location — feeds ConvoyStatusPanel
   const onlineMemberCount = useMemo(
     () => members.filter((m) => !!memberLocations[m.userId]).length,
@@ -980,9 +987,10 @@ export default function ConvoyScreen({ userId }: Props) {
               : <Text style={styles.secondaryBtnText}>Refresh</Text>}
           </TouchableOpacity>
           <FlatList
-            data={publicGroups}
+            data={visiblePublicGroups}
             keyExtractor={(g) => g.id}
             renderItem={renderPublicGroupItem}
+            ListFooterComponent={<MotionCapNotice hiddenCount={hiddenPublicGroupCount} />}
             ListEmptyComponent={
               <View style={styles.emptyMembers}>
                 <Text style={styles.emptyMembersText}>
@@ -1365,10 +1373,11 @@ export default function ConvoyScreen({ userId }: Props) {
 
       <FlatList
         ref={memberListRef}
-        data={sortedMembers}
+        data={visibleMembers}
         keyExtractor={(m) => m.userId}
         style={styles.memberList}
         renderItem={renderMemberItem}
+        ListFooterComponent={<MotionCapNotice hiddenCount={hiddenMemberCount} />}
         ListEmptyComponent={
           <View style={styles.emptyMembers}>
             <Text style={styles.emptyMembersText}>Waiting for members to join…</Text>

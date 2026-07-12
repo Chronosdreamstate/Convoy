@@ -20,6 +20,7 @@ import {
 } from 'react-native';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { MotionCapNotice, useMotionCappedData } from '../components/MotionAwareList';
 import { SkeletonRow } from '../components/SkeletonLoader';
 import { NetworkError } from '../components/NetworkError';
 import { apiClient } from '../services/apiClient';
@@ -274,6 +275,11 @@ export default function GroupEventsScreen() {
     [openEvent, styles, colors],
   );
 
+  // Req 33 — while the vehicle is in motion, cap the list to 4 events with a
+  // "pull over to see more" notice. The sub-header count keeps reporting the
+  // full total so the driver knows nothing was lost.
+  const { data: visibleEvents, hiddenCount: hiddenEventCount } = useMotionCappedData(events);
+
   const countLabel =
     total !== null && total > events.length
       ? `Showing ${events.length} of ${total} upcoming`
@@ -339,7 +345,7 @@ export default function GroupEventsScreen() {
       ) : null}
 
       <FlatList
-        data={events}
+        data={visibleEvents}
         keyExtractor={(item) => item.id}
         contentContainerStyle={events.length === 0 ? styles.listEmpty : styles.list}
         refreshControl={
@@ -370,6 +376,7 @@ export default function GroupEventsScreen() {
           </View>
         }
         renderItem={renderItem}
+        ListFooterComponent={<MotionCapNotice hiddenCount={hiddenEventCount} />}
         showsVerticalScrollIndicator={false}
       />
     </SafeAreaView>
