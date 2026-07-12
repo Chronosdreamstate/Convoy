@@ -143,6 +143,57 @@ interface Props {
   pttChannelId?: string;
 }
 
+/**
+ * Reference point for member-list distances (Req 8.4): the spec measures each
+ * Member's "estimated distance" from the ADMIN's position, not from the viewing
+ * user. Resolution order:
+ *   1. the caller IS the admin → their own live GPS fix,
+ *   2. the admin is another member with a known position → that position,
+ *   3. admin position unknown (adminId not loaded yet, or the admin hasn't
+ *      reported a location) → fall back to the caller's own position. A
+ *      caller-relative distance is still meaningful for gap scanning (and is
+ *      exactly the pre-fix behavior), unlike a dash which drops information.
+ * Returns null only when no reference point exists at all. Exported for tests.
+ */
+export function resolveDistanceOrigin(
+  adminId: string | null,
+  myUserId: string | null | undefined,
+  myLocation: { lat: number; lng: number } | null,
+  members: ReadonlyArray<{ userId: string; lat: number; lng: number }>,
+): { lat: number; lng: number } | null {
+  if (adminId) {
+    if (adminId === myUserId && myLocation) return myLocation;
+    const admin = members.find((m) => m.userId === adminId);
+    if (admin) return { lat: admin.lat, lng: admin.lng };
+  }
+  return myLocation;
+}
+
+/**
+ * Broadcasts an SOS via the channel that matches the user's convoy state:
+ * the group endpoint when a convoy is active (Req 25.3), otherwise the
+ * standalone endpoint that alerts friends with location sharing (Req 25.7).
+ * Exported for tests.
+ */
+export function broadcastSosPin(
+  svc: Pick<typeof rallyService, 'broadcastGroupSos' | 'broadcastStandaloneSos'>,
+  groupId: string | null | undefined,
+  coord: { lat: number; lng: number },
+): Promise<SosPin> {
+  return groupId
+    ? svc.broadcastGroupSos(groupId, coord.lat, coord.lng)
+    : svc.broadcastStandaloneSos(coord.lat, coord.lng);
+}
+
+/** Cancels an SOS via the matching channel (group Req 25.6 / standalone Req 25.7). */
+export function cancelSosPin(
+  svc: Pick<typeof rallyService, 'cancelSos' | 'cancelStandaloneSos'>,
+  groupId: string | null | undefined,
+  sosId: string,
+): Promise<void> {
+  return groupId ? svc.cancelSos(groupId, sosId) : svc.cancelStandaloneSos(sosId);
+}
+
 function formatElapsed(receivedAt: number): string {
   const s = Math.floor((Date.now() - receivedAt) / 1000);
   return s < 60 ? `${s}s ago` : `${Math.floor(s / 60)}m ago`;
@@ -385,6 +436,7 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
   const clearStalePositions = useLocationStore((s) => s.clearStalePositions);
   const setIsInMotion = useMotionStore((s) => s.setIsInMotion);
   const groupName = useGroupStore((s) => s.name);
+  const groupAdminId = useGroupStore((s) => s.adminId);
   const groupMemberCount = useGroupStore((s) => s.memberCount);
   const gapThresholdM = useGroupStore((s) => s.gapThresholdM);
   const groupPttMaxSeconds = useGroupStore((s) => s.pttMaxSeconds);
@@ -1237,7 +1289,8 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
     ]);
   }, [groupId]);
 
-  // Open person picker — only available inside an active convoy
+  // Open person picker — inside a convoy it lists members; outside one it still
+  // offers "Yourself" so a standalone SOS can reach friends (Req 25.1, 25.7).
   const handleSosPress = useCallback(() => {
     setShowSosPicker(true);
   }, []);
@@ -1252,10 +1305,20 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
 
   const confirmSos = useCallback(async () => {
     setShowSosConfirm(false);
-    if (!pendingSosCoord || !groupId) return;
+    if (!pendingSosCoord) return;
     try {
-      const pin = await rallyService.broadcastGroupSos(groupId, pendingSosCoord.lat, pendingSosCoord.lng);
+      // With an active group this broadcasts to the convoy (Req 25.3);
+      // without one it goes to friends with location sharing (Req 25.7) —
+      // previously the no-group case returned early and silently did nothing.
+      const pin = await broadcastSosPin(rallyService, groupId, pendingSosCoord);
       setMySosId(pin.id);
+      if (!groupId) {
+        // The grouped path gets its own pin + "You" alert echoed back through
+        // the group socket's `sos:alert`; there is no socket without a group,
+        // so surface the pin and a sent-confirmation locally instead.
+        setSosPins((p) => new Map(p).set(pin.id, pin));
+        showQuickAlert('🆘 SOS sent to friends sharing location with you');
+      }
       // Distinct, strong pattern (same one SosAlertModal uses on the *receiving*
       // side) so the sender gets unmistakable confirmation the emergency
       // broadcast actually went out — previously this safety-critical action
@@ -1266,15 +1329,28 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
       // A bare "Could not send SOS." leaves the user with no next step during
       // an actual emergency — point them at the one channel that doesn't
       // depend on this app's connectivity.
-      Alert.alert('SOS Not Sent', "Your emergency alert didn't reach the convoy. If this is a real emergency, call 911 directly.");
+      Alert.alert(
+        'SOS Not Sent',
+        `Your emergency alert didn't reach ${groupId ? 'the convoy' : 'your friends'}. If this is a real emergency, call 911 directly.`,
+      );
     }
     setPendingSosCoord(null);
     setPendingSosName('');
-  }, [groupId, pendingSosCoord]);
+  }, [groupId, pendingSosCoord, showQuickAlert]);
 
   const cancelMySos = useCallback(async () => {
-    if (!mySosId || !groupId) return;
-    try { await rallyService.cancelSos(groupId, mySosId); } catch { Alert.alert('Error', 'Could not cancel SOS.'); }
+    if (!mySosId) return;
+    const cancelledId = mySosId;
+    try {
+      await cancelSosPin(rallyService, groupId, cancelledId);
+      if (!groupId) {
+        // The grouped path clears mySosId/sosPins when the server echoes
+        // `sos:cancelled` back over the group socket; a standalone SOS has no
+        // socket, so mirror that cleanup locally.
+        setSosPins((p) => { const n = new Map(p); n.delete(cancelledId); return n; });
+        setMySosId(null);
+      }
+    } catch { Alert.alert('Error', 'Could not cancel SOS.'); }
   }, [groupId, mySosId]);
 
   // Shared "calculate + render a route to this point" logic used by every entry point
@@ -1509,13 +1585,30 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
     return byId;
   }, [gapAlerts, gapThresholdM]);
 
+  // When disconnected, merge stale (cached) positions for members not in live data.
+  // (Hoisted above renderMemberRow: the distance origin below needs the merged list.)
+  const members = useMemo(() => {
+    const liveMemberIds = new Set(Object.keys(memberLocations));
+    const staleFallback = Object.values(stalePositions).filter((p) => !liveMemberIds.has(p.userId));
+    return [...Object.values(memberLocations), ...staleFallback];
+  }, [memberLocations, stalePositions]);
+
+  // Req 8.4: member-list distances are measured from the ADMIN's position (or
+  // the caller's own fix when the admin's is unknown — see resolveDistanceOrigin).
+  const distanceOrigin = useMemo(
+    () => resolveDistanceOrigin(groupAdminId, user?.id, myLocation, members),
+    [groupAdminId, user?.id, myLocation, members],
+  );
+
   const renderMemberRow = useCallback(({ item: m }: { item: MemberLocation }) => {
     const isStale = Date.now() - m.receivedAt > 30_000;
     const memberName = m.displayName ?? `Member ${m.userId.slice(0, 6)}`;
     const callsign = memberCallsignsRef.current[m.userId];
     const gapStatus = gapStatusById[m.userId];
     const dotColor = isStale ? colors.textSubtle : gapStatus === 'alert' ? colors.accent : gapStatus === 'warning' ? colors.warning : colors.success;
-    const distM = myLocation ? haversineDistanceM(myLocation.lat, myLocation.lng, m.lat, m.lng) : null;
+    // Distance from the Admin's position, not from the viewer (Req 8.4) —
+    // distanceOrigin already falls back to the viewer's own fix when unknown.
+    const distM = distanceOrigin ? haversineDistanceM(distanceOrigin.lat, distanceOrigin.lng, m.lat, m.lng) : null;
     const distLabel = distM != null ? (distM >= 1000 ? `📍 ${(distM / 1000).toFixed(1)} km` : `📍 ${Math.round(distM)} m`) : null;
     const battery = (m as any).batteryPercent as number | undefined;
     return (
@@ -1548,28 +1641,23 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
         )}
       </View>
     );
-  // myLocation stays a dep on purpose: rows display live distance-from-me, so
-  // they must re-render per GPS tick while the member list is open.
-  }, [groupId, handlePickSosTarget, gapStatusById, myLocation, styles, colors]);
+  // distanceOrigin stays a dep on purpose: rows display live distances, so they
+  // must re-render per GPS tick (caller-origin) / member update (admin-origin)
+  // while the member list is open.
+  }, [groupId, handlePickSosTarget, gapStatusById, distanceOrigin, styles, colors]);
 
   const staleMs = 30_000;
 
-  // When disconnected, merge stale (cached) positions for members not in live data
-  const members = useMemo(() => {
-    const liveMemberIds = new Set(Object.keys(memberLocations));
-    const staleFallback = Object.values(stalePositions).filter((p) => !liveMemberIds.has(p.userId));
-    return [...Object.values(memberLocations), ...staleFallback];
-  }, [memberLocations, stalePositions]);
-
-  // Sort members by distance from my location (closest first) for easy gap scanning
+  // Sort members closest-first from the same origin the rows display (Req 8.4:
+  // the Admin's position when known) so the list order matches the distances shown.
   const sortedMembers = useMemo(() => {
-    if (!myLocation) return members;
+    if (!distanceOrigin) return members;
     return [...members].sort((a, b) => {
-      const da = haversineDistanceM(myLocation.lat, myLocation.lng, a.lat, a.lng);
-      const db = haversineDistanceM(myLocation.lat, myLocation.lng, b.lat, b.lng);
+      const da = haversineDistanceM(distanceOrigin.lat, distanceOrigin.lng, a.lat, a.lng);
+      const db = haversineDistanceM(distanceOrigin.lat, distanceOrigin.lng, b.lat, b.lng);
       return da - db;
     });
-  }, [members, myLocation]);
+  }, [members, distanceOrigin]);
 
   const rallies = useMemo(() => Array.from(rallyPoints.values()), [rallyPoints]);
   const sosPinList = useMemo(() => Array.from(sosPins.values()), [sosPins]);
@@ -1859,8 +1947,11 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
         />
       </View>
 
-      {/* Floating action button — hidden in driving mode (Req 28) */}
-      {!drivingModeActive && user && groupId && (
+      {/* Floating action button — hidden in driving mode (Req 28). Deliberately NOT
+          gated on groupId: the SOS entry point must stay reachable with no active
+          convoy so a standalone SOS can reach friends (Req 25.1, 25.7); group-only
+          items inside the menu gate themselves individually. */}
+      {!drivingModeActive && user && (
         <View style={[styles.fabContainer, { bottom: insets.bottom + 88 }]}>
           {fabOpen && (
             <>
@@ -1887,14 +1978,18 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
               >
                 <Ionicons name="car" size={22} color={drivingModeActive ? '#FFFFFF' : colors.text} />
               </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.fabItem}
-                onPress={() => { setFabOpen(false); setShowFuelBanner((v) => !v); }}
-                accessibilityLabel="Find fuel nearby"
-                accessibilityRole="button"
-              >
-                <MaterialCommunityIcons name="gas-station" size={22} color={colors.text} />
-              </TouchableOpacity>
+              {/* Group-only: FuelSuggestionBanner queries the group's fuel status and
+                  broadcasts the chosen station as a rally point. */}
+              {groupId ? (
+                <TouchableOpacity
+                  style={styles.fabItem}
+                  onPress={() => { setFabOpen(false); setShowFuelBanner((v) => !v); }}
+                  accessibilityLabel="Find fuel nearby"
+                  accessibilityRole="button"
+                >
+                  <MaterialCommunityIcons name="gas-station" size={22} color={colors.text} />
+                </TouchableOpacity>
+              ) : null}
               <TouchableOpacity
                 style={styles.fabItem}
                 onPress={() => { setFabOpen(false); setHazardModalCoords(myLocation); setShowHazardModal(true); }}
@@ -1918,7 +2013,7 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
                   style={[styles.fabItem, styles.fabSosItem]}
                   onPress={() => { setFabOpen(false); handleSosPress(); }}
                   accessibilityLabel="Send SOS alert"
-                  accessibilityHint="Alerts your convoy of an emergency"
+                  accessibilityHint={groupId ? 'Alerts your convoy of an emergency' : 'Alerts your friends of an emergency'}
                   accessibilityRole="button"
                 >
                   <MaterialIcons name="sos" size={22} color={colors.accent} />
@@ -2257,7 +2352,11 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
               <MaterialIcons name="sos" size={20} color={colors.accent} />
               <Text style={[styles.modalTitle, { marginBottom: 0 }]}>SOS — Who needs help?</Text>
             </View>
-            <Text style={styles.pickerSubtitle}>Their current location will be broadcast to all convoy members.</Text>
+            <Text style={styles.pickerSubtitle}>
+              {groupId
+                ? 'Their current location will be broadcast to all convoy members.'
+                : 'Your location will be broadcast to friends who share location with you.'}
+            </Text>
 
             {/* Yourself row */}
             <TouchableOpacity
@@ -2326,7 +2425,7 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
               <Text style={[styles.modalTitle, { marginBottom: 0 }]}>Send SOS Alert?</Text>
             </View>
             <Text style={styles.modalBody}>
-              {pendingSosName ? `This will broadcast ${pendingSosName}'s location` : "This will broadcast your location"} to all convoy members as an emergency alert.
+              {pendingSosName ? `This will broadcast ${pendingSosName}'s location` : "This will broadcast your location"} to {groupId ? 'all convoy members' : 'your friends with location sharing'} as an emergency alert.
             </Text>
             <View style={styles.modalActions}>
               <TouchableOpacity
