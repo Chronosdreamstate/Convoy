@@ -94,6 +94,45 @@ async function vehiclesRoutes(
   });
 
   // -------------------------------------------------------------------------
+  // GET /vehicles/active/:userId — another member's active (garage-primary)
+  // vehicle (Req 29.4/29.5). Fetched on demand by MemberDetailModal when a
+  // member's pin/row is tapped — the vehicle is static data, so it is NOT
+  // carried in the 3-second location ticks or presence events.
+  //
+  // Authorization: the requester must share at least one active group
+  // membership with the target user (or be the target). Anything else is 403.
+  // Returns { vehicle: null } when the member has no active vehicle
+  // (Req 29.6 — "No vehicle set" is a valid state).
+  // -------------------------------------------------------------------------
+  fastify.get('/vehicles/active/:userId', { preHandler: [authenticate, generalLimiter(fastify.redis)] }, async (request, reply) => {
+    const requesterId = (request.user as { sub: string }).sub;
+    const { userId: targetId } = request.params as { userId: string };
+
+    if (targetId !== requesterId) {
+      const shared = await fastify.db.query(
+        `SELECT 1 FROM convoy_members m1
+         JOIN convoy_members m2 ON m2.group_id = m1.group_id
+         WHERE m1.user_id = $1 AND m1.left_at IS NULL
+           AND m2.user_id = $2 AND m2.left_at IS NULL
+         LIMIT 1`,
+        [requesterId, targetId],
+      );
+      if ((shared.rowCount ?? 0) === 0) {
+        return reply.forbidden('You can only view vehicles of members in your groups');
+      }
+    }
+
+    const result = await fastify.db.query<VehicleRow>(
+      `SELECT id, user_id, name, vehicle_type, year, make, model, color, photo_url, is_active, created_at
+       FROM vehicles WHERE user_id = $1 AND is_active = true LIMIT 1`,
+      [targetId],
+    );
+    const vehicle = result.rows[0];
+
+    return reply.send({ vehicle: vehicle ? toResponse(vehicle) : null });
+  });
+
+  // -------------------------------------------------------------------------
   // POST /vehicles — create a new vehicle
   // -------------------------------------------------------------------------
   fastify.post('/vehicles', { preHandler: [authenticate, generalLimiter(fastify.redis)] }, async (request, reply) => {

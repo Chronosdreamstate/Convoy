@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Modal,
   View,
@@ -8,6 +8,7 @@ import {
   Share,
   Alert,
   ActivityIndicator,
+  Image,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -24,6 +25,18 @@ interface MemberInfo {
   speedKph?: number;
   distanceM?: number;
   isMuted?: boolean;
+}
+
+/** Active-vehicle summary returned by GET /api/v1/vehicles/active/:userId (Req 29.4/29.5). */
+interface MemberVehicle {
+  id: string;
+  name: string | null;
+  type: string | null;
+  year: number | null;
+  make: string | null;
+  model: string | null;
+  color: string | null;
+  photoUrl: string | null;
 }
 
 interface Props {
@@ -49,6 +62,28 @@ function formatDistance(m: number): string {
   return m >= 1000 ? `${(m / 1000).toFixed(1)}km` : `${Math.round(m)}m`;
 }
 
+// Vehicle colour is free text ("Midnight Blue", "red", ...). Resolve common
+// colour words to a renderable swatch hex; unknown colours render text-only.
+const SWATCH_COLORS: Record<string, string> = {
+  black: '#1A1A1A', white: '#F5F5F5', silver: '#C0C0C0', grey: '#808080',
+  gray: '#808080', red: '#C62828', blue: '#1565C0', green: '#2E7D32',
+  yellow: '#F9A825', orange: '#EF6C00', purple: '#6A1B9A', brown: '#5D4037',
+  gold: '#C9A227', beige: '#D7C4A3', tan: '#D2B48C', maroon: '#800000',
+};
+function swatchColor(color: string): string | null {
+  const key = color.trim().toLowerCase();
+  if (SWATCH_COLORS[key]) return SWATCH_COLORS[key];
+  // "Midnight Blue" -> "blue"
+  const lastWord = key.split(/\s+/).pop() ?? '';
+  return SWATCH_COLORS[lastWord] ?? null;
+}
+
+/** "2021 Subaru WRX", falling back to the vehicle's nickname when unlabelled. */
+function vehicleTitle(v: MemberVehicle): string {
+  const parts = [v.year, v.make, v.model].filter(Boolean).join(' ');
+  return parts || v.name || 'Vehicle';
+}
+
 export default function MemberDetailModal({
   visible,
   member,
@@ -67,6 +102,29 @@ export default function MemberDetailModal({
   const [inviting, setInviting] = useState(false);
   const [kicking, setKicking] = useState(false);
   const [muting, setMuting] = useState(false);
+  const [vehicle, setVehicle] = useState<MemberVehicle | null>(null);
+  const [vehicleLoading, setVehicleLoading] = useState(false);
+
+  // Fetch the member's active vehicle when the sheet opens (Req 29.4/29.5).
+  // The vehicle is static garage data, so it's pulled on demand rather than
+  // carried in the live location/presence stream. Any failure (including
+  // 403 for non-groupmates) degrades to the "No vehicle set" state (Req 29.6).
+  const memberUserId = member?.userId;
+  useEffect(() => {
+    if (!visible || !memberUserId) {
+      setVehicle(null);
+      setVehicleLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setVehicleLoading(true);
+    apiClient
+      .get<{ vehicle: MemberVehicle | null }>(`/api/v1/vehicles/active/${memberUserId}`)
+      .then((res) => { if (!cancelled) setVehicle(res.data.vehicle); })
+      .catch(() => { if (!cancelled) setVehicle(null); })
+      .finally(() => { if (!cancelled) setVehicleLoading(false); });
+    return () => { cancelled = true; };
+  }, [visible, memberUserId]);
 
   if (!member) return null;
 
@@ -166,6 +224,42 @@ export default function MemberDetailModal({
               <Ionicons name="volume-mute-outline" size={13} color={colors.text} />
               <Text style={styles.statText}>Muted</Text>
             </View>
+          )}
+        </View>
+
+        {/* Active vehicle (Req 29.4, 29.5, 29.6) */}
+        <View style={styles.vehicleCard} testID="member-vehicle-card">
+          {vehicleLoading ? (
+            <ActivityIndicator color={colors.textMuted} size="small" testID="member-vehicle-loading" />
+          ) : vehicle ? (
+            <>
+              {vehicle.photoUrl && (
+                <Image
+                  source={{ uri: vehicle.photoUrl }}
+                  style={styles.vehiclePhoto}
+                  resizeMode="cover"
+                  accessibilityLabel={`Photo of ${vehicleTitle(vehicle)}`}
+                  testID="member-vehicle-photo"
+                />
+              )}
+              <View style={styles.vehicleTitleRow}>
+                <Ionicons name="car-sport-outline" size={15} color={colors.text} />
+                <Text style={styles.vehicleTitle} numberOfLines={1}>{vehicleTitle(vehicle)}</Text>
+              </View>
+              {vehicle.color != null && vehicle.color !== '' && (
+                <View style={styles.vehicleColorRow}>
+                  {swatchColor(vehicle.color) && (
+                    <View
+                      style={[styles.colorSwatch, { backgroundColor: swatchColor(vehicle.color)! }]}
+                      testID="member-vehicle-swatch"
+                    />
+                  )}
+                  <Text style={styles.vehicleColorText}>{vehicle.color}</Text>
+                </View>
+              )}
+            </>
+          ) : (
+            <Text style={styles.noVehicleText}>No vehicle set</Text>
           )}
         </View>
 
@@ -435,6 +529,56 @@ function makeStyles(colors: ThemeColors) {
   statText: {
     color: colors.text,
     fontSize: 13,
+  },
+  vehicleCard: {
+    width: '100%',
+    backgroundColor: colors.bg,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: 12,
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 16,
+  },
+  vehiclePhoto: {
+    width: '100%',
+    height: 120,
+    borderRadius: 8,
+    backgroundColor: colors.card,
+  },
+  vehicleTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    maxWidth: '100%',
+  },
+  vehicleTitle: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: '700',
+    flexShrink: 1,
+  },
+  vehicleColorRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  colorSwatch: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  vehicleColorText: {
+    color: colors.textMuted,
+    fontSize: 13,
+  },
+  noVehicleText: {
+    color: colors.textSubtle,
+    fontSize: 13,
+    fontWeight: '600',
   },
   adminSection: {
     width: '100%',
