@@ -31,7 +31,12 @@ interface Props {
   myLat: number;
   myLng: number;
   isAdmin: boolean;
-  /** Called when admin selects a station to broadcast as a waypoint. */
+  /**
+   * Called when the Admin accepts a station. Req 21.3: the handler must add
+   * the station as a ROUTE WAYPOINT — recalculate the active route through it
+   * and push the result to the group (see RouteService.applyFuelStopWaypoint)
+   * — not drop a rally point.
+   */
   onSelectStation: (station: FuelStation) => void;
   onDismiss: () => void;
 }

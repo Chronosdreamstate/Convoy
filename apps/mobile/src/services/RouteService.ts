@@ -1,5 +1,7 @@
 /** Manages active route state, waypoints, and traffic refresh scheduling. */
 
+import { apiClient } from './apiClient';
+
 export interface LatLng { lat: number; lng: number }
 
 /** Per-segment congestion level as delivered by the backend (Mapbox Directions levels). */
@@ -64,6 +66,91 @@ export function congestionTierSegments(
 
 export const MAX_WAYPOINTS = 10;
 export const TRAFFIC_REFRESH_INTERVAL_MS = 60_000; // 60 seconds (Property 7)
+
+// ---------------------------------------------------------------------------
+// Fuel stop → route waypoint (Req 21.3)
+// ---------------------------------------------------------------------------
+
+/**
+ * One route alternative as returned by POST /api/v1/routes/calculate — the
+ * base Route shape plus the speed-limit fields the push endpoint forwards to
+ * the group (Req 23.1) so a recalculated route loses nothing in transit.
+ */
+export interface CalculatedRoute extends Route {
+  speedLimitKph?: number | null;
+  speedLimitSegmentsKph?: (number | null)[];
+}
+
+/**
+ * Build the /routes/calculate request body that threads a fuel station into
+ * the active route as a ROUTE WAYPOINT (Req 21.3):
+ *  - with an active destination, the station is appended to the existing
+ *    waypoints and the destination is unchanged (origin → …waypoints →
+ *    station → destination);
+ *  - with no active destination there is no route to recalculate through, so
+ *    the station itself becomes the destination (origin → …waypoints → station).
+ * Throws RangeError when appending would exceed MAX_WAYPOINTS, matching
+ * addWaypoint. Pure function — exported for property testing.
+ */
+export function buildFuelStopRouteRequest(params: {
+  origin: LatLng;
+  station: LatLng;
+  destination?: LatLng | null;
+  existingWaypoints?: readonly LatLng[];
+}): { origin: LatLng; destination: LatLng; waypoints: LatLng[] } {
+  const existing = [...(params.existingWaypoints ?? [])];
+  const waypoints = params.destination ? [...existing, params.station] : existing;
+  if (waypoints.length > MAX_WAYPOINTS) {
+    throw new RangeError(`Cannot add more than ${MAX_WAYPOINTS} waypoints`);
+  }
+  return {
+    origin: params.origin,
+    destination: params.destination ?? params.station,
+    waypoints,
+  };
+}
+
+/**
+ * Req 21.3 accept path: recalculate the active route THROUGH the selected
+ * fuel station (as a route waypoint — not a rally point) and push the result
+ * to the group. The push endpoint broadcasts the standard `route:pushed`
+ * socket event to every member — including the Admin — so all maps (the
+ * pusher's own included) apply the recalculated route through the same
+ * handler as any other route push.
+ *
+ * Returns the applied route (fastest alternative through the station), or
+ * null when Mapbox finds no route through it — nothing is pushed in that case.
+ */
+export async function applyFuelStopWaypoint(params: {
+  groupId: string;
+  origin: LatLng;
+  station: LatLng;
+  /** The active route's destination; omit when no route is active. */
+  destination?: LatLng | null;
+  existingWaypoints?: readonly LatLng[];
+}): Promise<CalculatedRoute | null> {
+  const body = buildFuelStopRouteRequest(params);
+  const res = await apiClient.post<{ routes: CalculatedRoute[] }>('/api/v1/routes/calculate', body);
+  const route = res.data.routes?.[0];
+  if (!route) return null;
+
+  // Mirrors MapScreen's handlePushRoute payload so a fuel-stop push is
+  // indistinguishable from a manual one (speed limit HUD and congestion
+  // coloring survive per Req 23.1 / 6.2).
+  await apiClient.post(`/api/v1/groups/${params.groupId}/route`, {
+    route: {
+      distance: route.distance,
+      duration: route.duration,
+      distanceText: route.distanceText,
+      durationText: route.durationText,
+      geometry: route.geometry,
+      speedLimitKph: route.speedLimitKph ?? null,
+      speedLimitSegmentsKph: route.speedLimitSegmentsKph ?? [],
+      ...(route.congestionSegments ? { congestionSegments: route.congestionSegments } : {}),
+    },
+  });
+  return route;
+}
 
 export class RouteService {
   private _waypoints: LatLng[] = [];

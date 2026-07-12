@@ -24,6 +24,12 @@
  */
 
 import fc from 'fast-check';
+
+// RouteService imports apiClient for the fuel-stop accept path (Req 21.3);
+// these properties never touch the network, so mock it out to keep the module
+// graph free of axios/expo-notifications side effects.
+jest.mock('./apiClient');
+
 import { RouteService, MAX_WAYPOINTS, LatLng, Route } from './RouteService';
 
 // ---------------------------------------------------------------------------
