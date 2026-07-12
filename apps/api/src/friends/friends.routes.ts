@@ -2,10 +2,7 @@
 import { Pool } from 'pg';
 import { z } from 'zod';
 import { authenticate } from '../middleware/authenticate';
-import { generalLimiter } from '../middleware/rateLimiter';
-
-const RATE_LIMIT_MAX = 20;
-const RATE_LIMIT_WINDOW = 3600; // 1 hour in seconds
+import { generalLimiter, friendRequestLimiter } from '../middleware/rateLimiter';
 
 const requestBodySchema = z.object({
   addresseeId: z.string().uuid(),
@@ -111,8 +108,11 @@ async function friendsRoutes(
 
   // -------------------------------------------------------------------------
   // POST /friends/requests — send a friend request (Req 17.3–17.7)
+  // Rate limited to 20 requests per user per hour (Req 37.3) via the shared
+  // friendRequestLimiter preHandler — same rl:friends:<userId> Redis key the
+  // previous inline limiter used, so live counters carry over.
   // -------------------------------------------------------------------------
-  fastify.post('/friends/requests', { preHandler: [authenticate, generalLimiter(fastify.redis)] }, async (request, reply) => {
+  fastify.post('/friends/requests', { preHandler: [authenticate, generalLimiter(fastify.redis), friendRequestLimiter(fastify.redis)] }, async (request, reply) => {
     const requesterId = (request.user as { sub: string }).sub;
 
     const parsed = requestBodySchema.safeParse(request.body);
@@ -123,16 +123,6 @@ async function friendsRoutes(
 
     if (requesterId === addresseeId) {
       return reply.badRequest('You cannot send a friend request to yourself');
-    }
-
-    // Rate limit: 20 requests per user per hour
-    const rlKey = `rl:friends:${requesterId}`;
-    const current = await fastify.redis.incr(rlKey);
-    if (current === 1) {
-      await fastify.redis.expire(rlKey, RATE_LIMIT_WINDOW);
-    }
-    if (current > RATE_LIMIT_MAX) {
-      return reply.tooManyRequests('Too many friend requests. Please try again later.');
     }
 
     // Block enforcement (Req 17.11)

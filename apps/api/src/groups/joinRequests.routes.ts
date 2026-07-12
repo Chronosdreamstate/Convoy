@@ -1,6 +1,6 @@
 import { FastifyInstance, FastifyPluginOptions } from 'fastify';
 import { authenticate } from '../middleware/authenticate';
-import { generalLimiter } from '../middleware/rateLimiter';
+import { generalLimiter, joinRequestLimiter } from '../middleware/rateLimiter';
 
 // ---------------------------------------------------------------------------
 // Join Requests — admin-approval flow for invite-only groups.
@@ -36,10 +36,11 @@ async function joinRequestsRoutes(
 ): Promise<void> {
   // -------------------------------------------------------------------------
   // POST /groups/:id/join-request — request to join an invite-only group
+  // Rate limited to 10 join requests per user per hour (Req 37.4).
   // -------------------------------------------------------------------------
   fastify.post(
     '/groups/:id/join-request',
-    { preHandler: [authenticate, generalLimiter(fastify.redis)] },
+    { preHandler: [authenticate, generalLimiter(fastify.redis), joinRequestLimiter(fastify.redis)] },
     async (request, reply) => {
       const userId = (request.user as { sub: string }).sub;
       const { id } = request.params as { id: string };

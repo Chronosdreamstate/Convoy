@@ -14,7 +14,19 @@
 import { FastifyReply, FastifyRequest } from 'fastify';
 import { Redis } from 'ioredis';
 import fc from 'fast-check';
-import { rateLimiter, getUserId, generalLimiter, RateLimitConfig } from './rateLimiter';
+import {
+  rateLimiter,
+  rateLimitKey,
+  getUserId,
+  generalLimiter,
+  hazardReportLimiter,
+  friendRequestLimiter,
+  joinRequestLimiter,
+  hazardReportLimit,
+  friendRequestLimit,
+  joinRequestLimit,
+  RateLimitConfig,
+} from './rateLimiter';
 
 // ---------------------------------------------------------------------------
 // Test doubles
@@ -232,5 +244,73 @@ describe('generalLimiter', () => {
       expect(fake.statusCode).toBeNull();
     }
     expect(redis.incr).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Named per-user limiters (Req 37.1, 37.3, 37.4)
+// ---------------------------------------------------------------------------
+
+describe.each([
+  ['hazardReportLimiter (Req 37.1)', hazardReportLimiter, hazardReportLimit, 10, 'hazard'],
+  ['friendRequestLimiter (Req 37.3)', friendRequestLimiter, friendRequestLimit, 20, 'friends'],
+  ['joinRequestLimiter (Req 37.4)', joinRequestLimiter, joinRequestLimit, 10, 'joinreq'],
+] as const)('%s', (_name, factory, config, expectedMax, expectedPrefix) => {
+  it(`caps at exactly ${expectedMax} per hour with the '${expectedPrefix}' prefix`, () => {
+    expect(config.max).toBe(expectedMax);
+    expect(config.windowS).toBe(3600);
+    expect(config.prefix).toBe(expectedPrefix);
+    expect(config.getKey).toBe(getUserId);
+  });
+
+  it(`allows ${expectedMax} requests then rejects the ${expectedMax + 1}th with 429 + Retry-After`, async () => {
+    const { redis, ttlValue } = makeFakeRedis(99);
+    const limiter = factory(redis);
+
+    for (let i = 0; i < expectedMax; i++) {
+      const fake = makeFakeReply();
+      await limiter(makeRequest('u1'), fake.reply);
+      expect(fake.statusCode).toBeNull();
+    }
+
+    const rejected = makeFakeReply();
+    await limiter(makeRequest('u1'), rejected.reply);
+    expect(rejected.statusCode).toBe(429);
+    expect(rejected.headers['Retry-After']).toBe(String(ttlValue));
+    // Same error shape as every other limiter 429 in this module
+    expect(rejected.sentBody).toEqual({ error: expect.stringContaining('Rate limit exceeded') });
+  });
+
+  it('keys per user: a different user is unaffected after u1 is throttled', async () => {
+    const { redis } = makeFakeRedis();
+    const limiter = factory(redis);
+
+    for (let i = 0; i < expectedMax + 1; i++) {
+      await limiter(makeRequest('u1'), makeFakeReply().reply);
+    }
+
+    const other = makeFakeReply();
+    await limiter(makeRequest('u2'), other.reply);
+    expect(other.statusCode).toBeNull();
+  });
+
+  it('opens a 1-hour window on the first request (EXPIRE set once, correct key)', async () => {
+    const { redis, expireCalls } = makeFakeRedis();
+    const limiter = factory(redis);
+
+    for (let i = 0; i < 3; i++) {
+      await limiter(makeRequest('u1'), makeFakeReply().reply);
+    }
+
+    expect(expireCalls).toHaveLength(1);
+    expect(expireCalls[0]).toEqual({ key: rateLimitKey(expectedPrefix, 'u1'), ttl: 3600 });
+  });
+
+  it('stays active under NODE_ENV=test (unlike generalLimiter)', async () => {
+    expect(process.env.NODE_ENV).toBe('test');
+    const { redis } = makeFakeRedis();
+    const limiter = factory(redis);
+    await limiter(makeRequest('u1'), makeFakeReply().reply);
+    expect(redis.incr).toHaveBeenCalledTimes(1);
   });
 });

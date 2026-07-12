@@ -369,6 +369,8 @@ function buildMockRedis(): Redis {
       return entry.count;
     },
     expire: async () => {},
+    // Read by the shared rateLimiter middleware on the 429 path (Retry-After).
+    ttl: async () => 3600,
     ping: async () => 'PONG',
     quit: async () => {},
     // Task #69: GET /friends/locations reads loc:friend:<userId> hashes.
@@ -905,6 +907,61 @@ describe('Task #69: GET /friends/locations', () => {
 
     const res = await app.inject({ method: 'GET', url: '/api/v1/friends/locations' });
     expect(res.statusCode).toBe(401);
+
+    await app.close();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Req 37.3: friend requests are rate limited to 20 per user per hour
+// ---------------------------------------------------------------------------
+describe('Req 37.3: POST /friends/requests rate limiting', () => {
+  const sendRequest = (app: FastifyInstance, requesterId: string, addresseeId: string) =>
+    app.inject({
+      method: 'POST',
+      url: '/api/v1/friends/requests',
+      headers: bearerFor(app, requesterId),
+      payload: { addresseeId },
+    });
+
+  it('allows 20 attempts then returns 429, keyed per user', async () => {
+    resetStore([REQUESTER, OPEN_USER, INVITE_USER]);
+    const app = buildTestApp();
+    await app.ready();
+
+    // First 20 attempts pass the limiter (the first succeeds, repeats fail
+    // further down as duplicates — the point is they are NOT 429).
+    for (let i = 0; i < 20; i++) {
+      const res = await sendRequest(app, REQUESTER.id, OPEN_USER.id);
+      expect(res.statusCode).not.toBe(429);
+    }
+
+    // 21st attempt from the same user is throttled with the shared limiter
+    // error shape and a Retry-After header.
+    const throttled = await sendRequest(app, REQUESTER.id, OPEN_USER.id);
+    expect(throttled.statusCode).toBe(429);
+    expect(throttled.headers['retry-after']).toBeDefined();
+    expect((JSON.parse(throttled.body) as { error: string }).error).toContain('Rate limit exceeded');
+
+    // A different requester is unaffected (limit is keyed per user).
+    const other = await sendRequest(app, INVITE_USER.id, OPEN_USER.id);
+    expect(other.statusCode).not.toBe(429);
+
+    await app.close();
+  });
+
+  it('unauthenticated requests are rejected 401 before the limiter counts anything', async () => {
+    resetStore([REQUESTER, OPEN_USER]);
+    const app = buildTestApp();
+    await app.ready();
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/friends/requests',
+      payload: { addresseeId: OPEN_USER.id },
+    });
+    expect(res.statusCode).toBe(401);
+    expect(rateLimitStore.size).toBe(0);
 
     await app.close();
   });

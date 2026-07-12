@@ -236,6 +236,8 @@ function buildMockRedis(): Redis {
       return entry.count;
     },
     expire: async () => {},
+    // Read by the shared rateLimiter middleware on the 429 path (Retry-After).
+    ttl: async () => 3600,
     ping: async () => 'PONG',
     quit: async () => {},
   } as unknown as Redis;
@@ -478,5 +480,58 @@ describe('Join requests: invite-only groups get a working join path', () => {
       }),
       { numRuns: 5 },
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Req 37.4: join requests are rate limited to 10 per user per hour
+// ---------------------------------------------------------------------------
+describe('Req 37.4: POST /groups/:id/join-request rate limiting', () => {
+  const sendJoinRequest = (app: FastifyInstance, userId: string) =>
+    app.inject({
+      method: 'POST',
+      url: `/api/v1/groups/${INVITE_GROUP.id}/join-request`,
+      headers: bearerFor(app, userId),
+    });
+
+  it('allows 10 attempts then returns 429, keyed per user', async () => {
+    resetStore([INVITE_GROUP], TEST_USERS);
+    const app = buildTestApp();
+    await app.ready();
+
+    // First 10 attempts pass the limiter (the first is 201, repeats 409 as
+    // duplicate pending requests — the point is they are NOT 429).
+    for (let i = 0; i < 10; i++) {
+      const res = await sendJoinRequest(app, REQUESTER_ID);
+      expect(res.statusCode).not.toBe(429);
+    }
+
+    // 11th attempt from the same user is throttled with the shared limiter
+    // error shape and a Retry-After header.
+    const throttled = await sendJoinRequest(app, REQUESTER_ID);
+    expect(throttled.statusCode).toBe(429);
+    expect(throttled.headers['retry-after']).toBeDefined();
+    expect((JSON.parse(throttled.body) as { error: string }).error).toContain('Rate limit exceeded');
+
+    // A different user is unaffected (limit is keyed per user).
+    const other = await sendJoinRequest(app, REQUESTER2_ID);
+    expect(other.statusCode).toBe(201);
+
+    await app.close();
+  });
+
+  it('unauthenticated requests are rejected 401 before the limiter counts anything', async () => {
+    resetStore([INVITE_GROUP], TEST_USERS);
+    const app = buildTestApp();
+    await app.ready();
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/v1/groups/${INVITE_GROUP.id}/join-request`,
+    });
+    expect(res.statusCode).toBe(401);
+    expect(rateLimitStore.size).toBe(0);
+
+    await app.close();
   });
 });

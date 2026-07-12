@@ -8,15 +8,22 @@ import { Pool } from 'pg';
 import { Redis } from 'ioredis';
 import { z } from 'zod';
 import { authenticate } from '../middleware/authenticate';
-import { generalLimiter } from '../middleware/rateLimiter';
+import {
+  generalLimiter,
+  hazardReportLimiter,
+  hazardReportLimit,
+  rateLimitKey,
+} from '../middleware/rateLimiter';
 
 // ---------------------------------------------------------------------------
 // Constants and types
 // ---------------------------------------------------------------------------
 
 export const HAZARD_EXPIRY_MS = 30 * 60 * 1000; // 30 minutes (Req 11.3)
-export const HAZARD_RATE_LIMIT = 10;
-export const HAZARD_RATE_WINDOW_S = 3600;
+// Sourced from the shared limiter config (Req 37.1) so the bulk endpoint's
+// batch accounting can never drift from the per-request limiter.
+export const HAZARD_RATE_LIMIT = hazardReportLimit.max;
+export const HAZARD_RATE_WINDOW_S = hazardReportLimit.windowS;
 
 export const HAZARD_TYPES = [
   'pothole', 'accident', 'roadwork', 'debris',
@@ -111,17 +118,6 @@ const bulkHazardsSchema = z.object({
 });
 
 // ---------------------------------------------------------------------------
-// Internal rate-limit helper
-// ---------------------------------------------------------------------------
-
-async function checkRateLimit(redis: Redis, userId: string): Promise<boolean> {
-  const key = `rate:hazard:${userId}`;
-  const count = await redis.incr(key);
-  if (count === 1) await redis.expire(key, HAZARD_RATE_WINDOW_S);
-  return count <= HAZARD_RATE_LIMIT;
-}
-
-// ---------------------------------------------------------------------------
 // Routes
 // ---------------------------------------------------------------------------
 
@@ -130,18 +126,14 @@ export default async function hazardsRoutes(fastify: FastifyInstance): Promise<v
   const redis: Redis = fastify.redis;
 
   // POST /hazards — create hazard report (Req 11.1)
-  fastify.post('/hazards', { preHandler: [authenticate, generalLimiter(fastify.redis)] }, async (request, reply) => {
+  // Rate limited to 10 reports per user per hour (Req 37.1).
+  fastify.post('/hazards', { preHandler: [authenticate, generalLimiter(fastify.redis), hazardReportLimiter(fastify.redis)] }, async (request, reply) => {
     const userId = (request.user as { sub: string }).sub;
     const parsed = createHazardSchema.safeParse(request.body);
     if (!parsed.success) {
       return reply.badRequest(parsed.error.errors[0].message);
     }
     const { type, lat, lng, severity, note } = parsed.data;
-
-    const allowed = await checkRateLimit(redis, userId);
-    if (!allowed) {
-      return reply.tooManyRequests('Hazard submission rate limit exceeded (10 per hour)');
-    }
 
     const expiresAt = computeExpiresAt(Date.now());
 
@@ -217,8 +209,9 @@ export default async function hazardsRoutes(fastify: FastifyInstance): Promise<v
     }
     const { hazards } = bulkParsed.data;
 
-    // Apply rate limit for the entire batch atomically
-    const rateKey = `rate:hazard:${userId}`;
+    // Apply rate limit for the entire batch atomically — same bucket as the
+    // per-request hazardReportLimiter on POST /hazards (Req 37.1).
+    const rateKey = rateLimitKey(hazardReportLimit.prefix, userId);
     const afterBulk = await redis.incrby(rateKey, hazards.length);
     if (afterBulk === hazards.length) await redis.expire(rateKey, HAZARD_RATE_WINDOW_S);
     if (afterBulk > HAZARD_RATE_LIMIT) {

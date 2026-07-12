@@ -86,12 +86,18 @@ export function serializeRallyRow(row: RawRallyRow): RallyResponse {
 const SOS_COOLDOWN_S = 60;
 const SOS_TTL_S = 7_200; // 2 hours
 
-async function reverseGeocode(lng: number, lat: number): Promise<string | null> {
+// Reverse geocoding is best-effort decoration on rally creation; a hung Mapbox
+// connection must never stall the rally response, so cap the fetch (matches
+// the 5s reverse-geocode timeout in places.routes.ts) and fail soft to null.
+export const REVERSE_GEOCODE_TIMEOUT_MS = 5_000;
+
+/** Exported for tests. Fails soft to null on any error, including timeout/abort. */
+export async function reverseGeocode(lng: number, lat: number): Promise<string | null> {
   try {
     const url =
       `https://api.mapbox.com/geocoding/v5/mapbox.places/${lng},${lat}.json` +
       `?access_token=${env.MAPBOX_API_TOKEN}&limit=1`;
-    const res = await fetch(url);
+    const res = await fetch(url, { signal: AbortSignal.timeout(REVERSE_GEOCODE_TIMEOUT_MS) });
     const data = (await res.json()) as { features: Array<{ place_name: string }> };
     return data.features[0]?.place_name ?? null;
   } catch {
