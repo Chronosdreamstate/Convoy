@@ -25,6 +25,7 @@ import { SiriShortcutsService } from '../../services/SiriShortcutsService';
 import { SkeletonBox } from '../../components/SkeletonLoader';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useAuthStore } from '../../stores/authStore';
+import { useReduceMotion } from '../../hooks/useReduceMotion';
 import { useTheme } from '../../theme';
 
 type Theme = ReturnType<typeof useTheme>;
@@ -210,6 +211,7 @@ export default function SettingsScreen() {
   const [isSigningOut, setIsSigningOut] = useState(false);
   const saveSuccessTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const saveSuccessAnim = useRef(new Animated.Value(0)).current;
+  const reduceMotion = useReduceMotion();
 
   useEffect(() => {
     return () => {
@@ -218,12 +220,18 @@ export default function SettingsScreen() {
   }, []);
 
   useEffect(() => {
+    // With OS reduce-motion on, the "Settings saved." banner appears and
+    // disappears in place instead of fading.
+    if (reduceMotion) {
+      saveSuccessAnim.setValue(saveSuccess ? 1 : 0);
+      return;
+    }
     if (saveSuccess) {
       Animated.timing(saveSuccessAnim, { toValue: 1, duration: 200, useNativeDriver: true }).start();
     } else {
       Animated.timing(saveSuccessAnim, { toValue: 0, duration: 250, useNativeDriver: true }).start();
     }
-  }, [saveSuccess, saveSuccessAnim]);
+  }, [saveSuccess, saveSuccessAnim, reduceMotion]);
 
   // Local editable copies
   const [mapStyle, setMapStyle] = useState<Settings['mapStyle']>('standard');

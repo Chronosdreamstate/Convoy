@@ -28,6 +28,12 @@ import { authService } from '../../services/AuthService';
 import { useAuthStore } from '../../stores/authStore';
 import { useTheme, ThemeColors } from '../../theme';
 
+// Text/icons that always sit on the crimson accent fill (avatar initials,
+// camera badge, save button, active privacy chip) — stays light in both
+// themes. `colors.text` is near-black in light mode, which would be
+// unreadable on the accent background.
+const ON_ACCENT = '#FFFFFF';
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -86,7 +92,7 @@ function AvatarCircle({
         </View>
       )}
       <View style={styles.avatarCameraOverlay}>
-        <Ionicons name="camera" size={14} color={colors.text} />
+        <Ionicons name="camera" size={14} color={ON_ACCENT} />
       </View>
       {loading && (
         <View style={styles.avatarLoadingOverlay}>
@@ -389,7 +395,10 @@ export default function ProfileScreen() {
         <View style={styles.avatarSection}>
           <AvatarCircle
             name={displayName || profile?.displayName || '?'}
-            avatarUrl={localAvatarUri ?? profile?.avatarUrl}
+            // Once the user has staged an avatar change, the draft value wins
+            // even when it's null — "Remove Photo" must immediately show the
+            // initials fallback, not silently fall back to the old photo.
+            avatarUrl={avatarDirty ? localAvatarUri : profile?.avatarUrl}
             onPress={uploadingAvatar ? undefined : handleAvatarPress}
             loading={uploadingAvatar}
             colors={colors}
@@ -500,7 +509,7 @@ export default function ProfileScreen() {
             accessibilityState={{ disabled: !isDirty || isSaving }}
           >
             {isSaving ? (
-              <ActivityIndicator color={colors.text} size="small" />
+              <ActivityIndicator color={ON_ACCENT} size="small" />
             ) : (
               <Text style={styles.saveNameBtnText}>Save Profile</Text>
             )}
@@ -700,7 +709,7 @@ function createStyles(colors: ThemeColors) {
   avatarInitials: {
     fontSize: 34,
     fontWeight: '700',
-    color: colors.text,
+    color: ON_ACCENT,
   },
   avatarCameraOverlay: {
     position: 'absolute',
@@ -832,7 +841,7 @@ function createStyles(colors: ThemeColors) {
     opacity: 0.4,
   },
   saveNameBtnText: {
-    color: colors.text,
+    color: ON_ACCENT,
     fontSize: 15,
     fontWeight: '600',
   },
@@ -860,7 +869,7 @@ function createStyles(colors: ThemeColors) {
     fontWeight: '600',
   },
   privacyBtnTextActive: {
-    color: colors.text,
+    color: ON_ACCENT,
   },
 
   // Friends button
@@ -989,7 +998,7 @@ function createStyles(colors: ThemeColors) {
     fontWeight: '600',
   },
   modalBtnConfirmText: {
-    color: colors.text,
+    color: ON_ACCENT,
     fontSize: 15,
     fontWeight: '600',
   },

@@ -16,7 +16,7 @@
 
 import React from 'react';
 import TestRenderer, { act, ReactTestInstance } from 'react-test-renderer';
-import { Alert } from 'react-native';
+import { Alert, Animated } from 'react-native';
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -62,6 +62,13 @@ jest.mock('expo-file-system/legacy', () => ({
 jest.mock('expo-sharing', () => ({
   isAvailableAsync: jest.fn().mockResolvedValue(false),
   shareAsync: jest.fn().mockResolvedValue(undefined),
+}));
+
+// Controllable OS reduce-motion flag — default (false) matches the real
+// hook's pre-probe state, so the delete-account tests are unaffected.
+let mockReduceMotion = false;
+jest.mock('../../hooks/useReduceMotion', () => ({
+  useReduceMotion: () => mockReduceMotion,
 }));
 
 import SettingsScreen from './SettingsScreen';
@@ -242,5 +249,91 @@ describe('SettingsScreen — delete account', () => {
     expect(mockApiDelete).not.toHaveBeenCalled();
     expect(mockAuthSignOut).not.toHaveBeenCalled();
     expect(useAuthStore.getState().isAuthenticated).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Reduce motion (Requirements 39–41)
+// ---------------------------------------------------------------------------
+
+describe('SettingsScreen — save-success banner respects reduce motion', () => {
+  let alertSpy: jest.SpyInstance;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockReduceMotion = false;
+    alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockApiGet.mockResolvedValue(SETTINGS_RESPONSE);
+    mockApiPatch.mockResolvedValue(SETTINGS_RESPONSE);
+    signInTestUser();
+  });
+
+  afterEach(() => {
+    mockReduceMotion = false;
+    alertSpy.mockRestore();
+  });
+
+  /** Marks the form dirty via a toggle, then presses Save Settings. */
+  async function toggleAndSave(root: ReactTestInstance) {
+    const scenicSwitch = root.findAll(
+      (n) => n.props?.accessibilityLabel === 'Scenic routing toggle' && typeof n.props?.onValueChange === 'function',
+    )[0];
+    expect(scenicSwitch).toBeDefined();
+    await act(async () => {
+      scenicSwitch.props.onValueChange(true);
+    });
+    const saveBtn = root.findAll(
+      (n) => n.props?.accessibilityLabel === 'Save settings' && typeof n.props?.onPress === 'function',
+    )[0];
+    expect(saveBtn).toBeDefined();
+    await act(async () => {
+      saveBtn.props.onPress();
+    });
+  }
+
+  function successBanner(root: ReactTestInstance) {
+    return root.findAll((n) => {
+      const children = n.props?.children;
+      const text = Array.isArray(children) ? children.join('') : children;
+      return typeof text === 'string' && text.trim() === 'Settings saved.';
+    });
+  }
+
+  it('with reduce motion ON: the banner appears in place, with no fade animation', async () => {
+    mockReduceMotion = true;
+    const timingSpy = jest.spyOn(Animated, 'timing');
+
+    const root = await renderSettings();
+    timingSpy.mockClear();
+    await toggleAndSave(root);
+
+    expect(successBanner(root).length).toBeGreaterThan(0);
+    // No fade-in tween for the banner — it must appear statically. The banner
+    // tween is the only 200/250ms timing WITHOUT an easing (TouchableOpacity's
+    // internal press animations always pass one).
+    const bannerTweens = timingSpy.mock.calls.filter((c) => {
+      const config = c[1] as { duration?: number; easing?: unknown };
+      return config.easing === undefined && (config.duration === 200 || config.duration === 250);
+    });
+    expect(bannerTweens).toHaveLength(0);
+
+    timingSpy.mockRestore();
+  });
+
+  it('with reduce motion OFF: the banner fades in (guards the spy approach above)', async () => {
+    const timingSpy = jest.spyOn(Animated, 'timing');
+
+    const root = await renderSettings();
+    timingSpy.mockClear();
+    await toggleAndSave(root);
+
+    expect(successBanner(root).length).toBeGreaterThan(0);
+    const fadeIn = timingSpy.mock.calls.filter((c) => {
+      const config = c[1] as { toValue?: number; duration?: number; easing?: unknown };
+      return config.easing === undefined && config.toValue === 1 && config.duration === 200;
+    });
+    expect(fadeIn.length).toBeGreaterThan(0);
+
+    timingSpy.mockRestore();
   });
 });

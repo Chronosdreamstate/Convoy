@@ -33,6 +33,7 @@ import { useGroupStore } from '../stores/groupStore';
 import { apiClient } from '../services/apiClient';
 import { SkeletonRow } from '../components/SkeletonLoader';
 import { NetworkError } from '../components/NetworkError';
+import { useReduceMotion } from '../hooks/useReduceMotion';
 import { theme, useTheme, ThemeColors, withAlpha } from '../theme';
 
 // ---------------------------------------------------------------------------
@@ -130,16 +131,23 @@ interface ReactionPickerProps {
 function ReactionPicker({ visible, onSelect, onDismiss }: ReactionPickerProps) {
   const { colors } = useTheme();
   const pickerStyles = useMemo(() => createPickerStyles(colors), [colors]);
+  const reduceMotion = useReduceMotion();
   const scale = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
+    // With OS reduce-motion on, the picker appears in place instead of
+    // springing in — same affordance, no scale animation.
+    if (reduceMotion) {
+      scale.setValue(visible ? 1 : 0);
+      return;
+    }
     Animated.spring(scale, {
       toValue: visible ? 1 : 0,
       useNativeDriver: true,
       tension: 120,
       friction: 8,
     }).start();
-  }, [visible, scale]);
+  }, [visible, scale, reduceMotion]);
 
   if (!visible) return null;
 
@@ -568,7 +576,11 @@ export default function GroupChatScreen() {
     const handleMessage = (msg: Message & { groupId?: string }) => {
       // Only accept messages for THIS thread — the socket room is scoped to
       // the active convoy, which may not be the thread on screen (see above).
-      if (msg.groupId && msg.groupId !== groupId) return;
+      // Legacy events without a groupId can only be attributed here when the
+      // thread on screen IS the active convoy: this socket is in the convoy
+      // room *and* every DM room at once, so while a DM is open an unstamped
+      // convoy broadcast would otherwise bleed into the DM transcript.
+      if (msg.groupId ? msg.groupId !== groupId : groupId !== activeGroupId) return;
       // De-duped by id: the sender's own message is already added optimistically
       // by `sendMessage` (and reconciled with the real id from the POST
       // response) before this broadcast round-trips back, so without this
@@ -587,8 +599,10 @@ export default function GroupChatScreen() {
       if (payload.userId === currentUserId) return;
       // The server stamps the thread's groupId on typing relays — accept only
       // events for THIS thread. Legacy events without a groupId can only be
-      // attributed here when the socket's convoy room IS this thread's room.
-      if (payload.groupId ? payload.groupId !== groupId : !socketCoversThread) return;
+      // attributed here when the thread on screen IS the active convoy (see
+      // handleMessage above — `socketCoversThread` is also true for DMs, so
+      // it cannot distinguish which covered room an unstamped event came from).
+      if (payload.groupId ? payload.groupId !== groupId : groupId !== activeGroupId) return;
       setTypingUser(payload.displayName);
       if (typingClearTimerRef.current) clearTimeout(typingClearTimerRef.current);
       typingClearTimerRef.current = setTimeout(() => setTypingUser(null), 3000);
@@ -603,7 +617,7 @@ export default function GroupChatScreen() {
       socket.off('group:reaction', handleReaction);
       socket.off('chat:typing', handleTyping);
     };
-  }, [socket, currentUserId, groupId, socketCoversThread]);
+  }, [socket, currentUserId, groupId, activeGroupId]);
 
   // Degraded-mode fallback ONLY: DM threads (and the active convoy's chat)
   // are pushed live over the socket, so polling runs solely while the socket
@@ -643,11 +657,14 @@ export default function GroupChatScreen() {
   // Send
   // ---------------------------------------------------------------------------
 
-  const sendMessage = useCallback(async (text: string) => {
+  // `fromComposer` — true only when sending the text currently in the input
+  // box. Quick replies and failed-bubble retries send their own text, so they
+  // must NOT clear the input: a half-typed draft would silently vanish.
+  const sendMessage = useCallback(async (text: string, opts?: { fromComposer?: boolean }) => {
     const trimmed = text.trim();
     if (!trimmed || trimmed.length > 500 || sending || !groupId || !accessToken) return;
     setSending(true);
-    setInputText('');
+    if (opts?.fromComposer) setInputText('');
 
     // Optimistic bubble — appears instantly instead of waiting on the POST
     // round-trip (and the socket echo after that). Reconciled with the real
@@ -679,7 +696,7 @@ export default function GroupChatScreen() {
     }
   }, [sending, groupId, accessToken, currentUserId, user]);
 
-  const handleSend = useCallback(() => sendMessage(inputText), [inputText, sendMessage]);
+  const handleSend = useCallback(() => sendMessage(inputText, { fromComposer: true }), [inputText, sendMessage]);
 
   const handleQuickReply = useCallback((text: string) => sendMessage(text), [sendMessage]);
 

@@ -1,13 +1,17 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  View, Text, TouchableOpacity, StyleSheet, SafeAreaView, Platform,
+  View, Text, TouchableOpacity, StyleSheet, SafeAreaView, Platform, Image,
   ScrollView, ActivityIndicator, TextInput, Modal, Alert, RefreshControl, Switch, KeyboardAvoidingView,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
+import * as FileSystem from 'expo-file-system/legacy';
+import { FileSystemUploadType } from 'expo-file-system/legacy';
 import { apiClient } from '../../services/apiClient';
 import SkeletonCard from '../../components/SkeletonLoader';
 import { useMotionGuard } from '../../hooks/useMotionGuard';
+import { useAuthStore } from '../../stores/authStore';
 import { useTheme, withAlpha, ThemeColors } from '../../theme';
 
 // ---------- type helpers ----------
@@ -76,9 +80,10 @@ interface VehicleForm {
   model: string;
   year: string;
   color: string;
+  photoUrl: string | null;
   setAsPrimary: boolean;
 }
-const EMPTY_FORM: VehicleForm = { name: '', type: 'Car', make: '', model: '', year: '', color: '', setAsPrimary: false };
+const EMPTY_FORM: VehicleForm = { name: '', type: 'Car', make: '', model: '', year: '', color: '', photoUrl: null, setAsPrimary: false };
 
 function vehicleDisplayName(v: Vehicle): string {
   if (v.name) return v.name;
@@ -95,6 +100,8 @@ export default function GarageScreen() {
   const router = useRouter();
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
+  const accessToken = useAuthStore((s) => s.accessToken);
+  const apiUrl = process.env.EXPO_PUBLIC_API_URL ?? '';
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [mods, setMods] = useState<string[]>([]);
   const [newMod, setNewMod] = useState('');
@@ -107,6 +114,7 @@ export default function GarageScreen() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<VehicleForm>(EMPTY_FORM);
   const [isSaving, setIsSaving] = useState(false);
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
   // Return-key focus chain across the add/edit form: Make → Model → Nickname → Year
@@ -147,6 +155,7 @@ export default function GarageScreen() {
       model: v.model ?? '',
       year: v.year != null ? String(v.year) : '',
       color: v.color ?? '',
+      photoUrl: v.photoUrl,
       setAsPrimary: isPrimary(v),
     });
     setFormError(null);
@@ -170,6 +179,9 @@ export default function GarageScreen() {
       make: form.make.trim() || undefined,
       model: form.model.trim() || undefined,
       color: form.color || undefined,
+      // Always sent (null included) so removing a photo while editing
+      // actually clears it server-side — `undefined` would skip the column.
+      photoUrl: form.photoUrl,
       ...(yearNum != null ? { year: yearNum } : {}),
       ...(form.setAsPrimary ? { primary: true } : {}),
     };
@@ -178,8 +190,12 @@ export default function GarageScreen() {
       if (editingId) {
         const res = await apiClient.patch<Vehicle>(`/api/v1/vehicles/${editingId}`, payload);
         setVehicles((prev) => prev.map((v) => {
-          if (form.setAsPrimary) return { ...v, isActive: v.id === editingId, primary: v.id === editingId };
-          return v.id === editingId ? res.data : v;
+          // The edited row always takes the server's copy — the previous
+          // set-as-primary branch spread the stale `v`, silently dropping the
+          // just-saved name/year/color edits until the next refresh.
+          const base = v.id === editingId ? res.data : v;
+          if (form.setAsPrimary) return { ...base, isActive: v.id === editingId, primary: v.id === editingId };
+          return base;
         }));
       } else {
         const res = await apiClient.post<Vehicle>('/api/v1/vehicles', payload);
@@ -194,6 +210,47 @@ export default function GarageScreen() {
     finally { setIsSaving(false); }
   };
 
+  // Req 29.1/29.5 — each vehicle profile may carry an optional photo, shown on
+  // the pin info card. Mirrors ProfileScreen.handlePickAvatar: pick from the
+  // library, upload to /uploads/photo, stage the returned URL on the form
+  // (persisted by Save, so a cancelled edit never touches the vehicle).
+  const handlePickPhoto = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission Required', 'Please allow photo library access to add a vehicle photo.');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.8,
+      allowsEditing: true,
+      aspect: [4, 3],
+    });
+    if (result.canceled) return;
+    setIsUploadingPhoto(true);
+    setFormError(null);
+    try {
+      const asset = result.assets[0];
+      const uploadResult = await FileSystem.uploadAsync(
+        `${apiUrl}/api/v1/uploads/photo`,
+        asset.uri,
+        {
+          httpMethod: 'POST',
+          uploadType: FileSystemUploadType.MULTIPART,
+          fieldName: 'file',
+          mimeType: asset.mimeType ?? 'image/jpeg',
+          headers: { Authorization: `Bearer ${accessToken ?? ''}` },
+        },
+      );
+      const { url } = JSON.parse(uploadResult.body) as { url: string };
+      setForm((p) => ({ ...p, photoUrl: url }));
+    } catch {
+      setFormError('Failed to upload photo. Please try again.');
+    } finally {
+      setIsUploadingPhoto(false);
+    }
+  };
+
   const handleDelete = (v: Vehicle) => {
     Alert.alert('Delete Vehicle', `Remove "${vehicleDisplayName(v)}" from your Garage?`, [
       { text: 'Cancel', style: 'cancel' },
@@ -201,7 +258,21 @@ export default function GarageScreen() {
         setDeletingId(v.id);
         try {
           await apiClient.delete(`/api/v1/vehicles/${v.id}`);
-          setVehicles((prev) => prev.filter((veh) => veh.id !== v.id));
+          setVehicles((prev) => {
+            const remaining = prev.filter((veh) => veh.id !== v.id);
+            // Deleting the active vehicle reassigns "active" to the oldest
+            // remaining vehicle server-side (see DELETE /vehicles/:id) —
+            // mirror that locally so the MAIN RIDE badge doesn't vanish until
+            // the next refresh.
+            if (isPrimary(v) && remaining.length > 0) {
+              const oldest = remaining.reduce((a, b) =>
+                new Date(a.createdAt).getTime() <= new Date(b.createdAt).getTime() ? a : b);
+              return remaining.map((veh) => ({
+                ...veh, isActive: veh.id === oldest.id, primary: veh.id === oldest.id,
+              }));
+            }
+            return remaining;
+          });
         } catch { Alert.alert('Error', 'Failed to delete vehicle.'); }
         finally { setDeletingId(null); }
       }},
@@ -344,9 +415,17 @@ export default function GarageScreen() {
                   </View>
                 )}
 
-                <View style={styles.vehicleIconBox}>
-                  <MaterialCommunityIcons name={vehicleIconName(v)} size={26} color={colors.text} />
-                </View>
+                {v.photoUrl ? (
+                  <Image
+                    source={{ uri: v.photoUrl }}
+                    style={styles.vehicleIconBox}
+                    accessibilityLabel={`Photo of ${vehicleDisplayName(v)}`}
+                  />
+                ) : (
+                  <View style={styles.vehicleIconBox}>
+                    <MaterialCommunityIcons name={vehicleIconName(v)} size={26} color={colors.text} />
+                  </View>
+                )}
 
                 <View style={styles.vehicleInfo}>
                   <View style={styles.nameRow}>
@@ -556,6 +635,59 @@ export default function GarageScreen() {
                 />
               </View>
 
+              {/* Photo (optional, Req 29.1) */}
+              <View style={styles.formField}>
+                <Text style={styles.formLabel}>Photo (optional)</Text>
+                {form.photoUrl ? (
+                  <View style={styles.photoPreviewRow}>
+                    <Image
+                      source={{ uri: form.photoUrl }}
+                      style={styles.photoPreview}
+                      accessibilityLabel="Vehicle photo preview"
+                    />
+                    <View style={styles.photoActions}>
+                      <TouchableOpacity
+                        style={styles.photoActionBtn}
+                        onPress={() => void handlePickPhoto()}
+                        disabled={isUploadingPhoto}
+                        accessibilityRole="button"
+                        accessibilityLabel="Change vehicle photo"
+                      >
+                        {isUploadingPhoto
+                          ? <ActivityIndicator color={colors.accent} size="small" />
+                          : <Text style={styles.photoActionText}>Change</Text>}
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={styles.photoActionBtn}
+                        onPress={() => setForm((p) => ({ ...p, photoUrl: null }))}
+                        disabled={isUploadingPhoto}
+                        accessibilityRole="button"
+                        accessibilityLabel="Remove vehicle photo"
+                      >
+                        <Text style={[styles.photoActionText, { color: colors.error }]}>Remove</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                ) : (
+                  <TouchableOpacity
+                    style={styles.photoAddTile}
+                    onPress={() => void handlePickPhoto()}
+                    disabled={isUploadingPhoto}
+                    accessibilityRole="button"
+                    accessibilityLabel="Add vehicle photo"
+                  >
+                    {isUploadingPhoto ? (
+                      <ActivityIndicator color={colors.accent} size="small" />
+                    ) : (
+                      <>
+                        <MaterialCommunityIcons name="camera-plus-outline" size={20} color={colors.textMuted} />
+                        <Text style={styles.photoAddText}>Add Photo</Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+                )}
+              </View>
+
               {/* Color picker */}
               <View style={styles.formField}>
                 <Text style={styles.formLabel}>Color</Text>
@@ -596,12 +728,15 @@ export default function GarageScreen() {
               {formError ? <Text style={styles.errorText}>{formError}</Text> : null}
 
               <TouchableOpacity
-                style={[styles.saveButton, isSaving && styles.saveButtonDisabled]}
+                // Also disabled while a photo upload is in flight — saving at
+                // that moment would silently persist the vehicle without the
+                // photo the user just picked.
+                style={[styles.saveButton, (isSaving || isUploadingPhoto) && styles.saveButtonDisabled]}
                 onPress={handleSave}
-                disabled={isSaving}
+                disabled={isSaving || isUploadingPhoto}
                 accessibilityRole="button"
                 accessibilityLabel={editingId ? 'Save changes' : 'Add vehicle'}
-                accessibilityState={{ disabled: isSaving }}
+                accessibilityState={{ disabled: isSaving || isUploadingPhoto }}
               >
                 {isSaving
                   ? <ActivityIndicator color={ON_ACCENT} />
@@ -715,6 +850,22 @@ function createStyles(colors: ThemeColors) {
     typePillActive: { backgroundColor: withAlpha(colors.accent, 0.15), borderColor: colors.accent },
     typePillText: { fontSize: 13, color: colors.textMuted, fontWeight: '500' },
     typePillTextActive: { color: colors.accent, fontWeight: '700' },
+
+    // Vehicle photo (add/edit modal)
+    photoPreviewRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+    photoPreview: { width: 96, height: 72, borderRadius: 10, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.bg },
+    photoActions: { gap: 8 },
+    photoActionBtn: {
+      paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10, borderWidth: 1, borderColor: colors.border,
+      backgroundColor: colors.bg, alignItems: 'center', minWidth: 88,
+    },
+    photoActionText: { fontSize: 13, fontWeight: '600', color: colors.text },
+    photoAddTile: {
+      flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+      backgroundColor: colors.bg, borderRadius: 12, borderWidth: 1, borderColor: colors.border,
+      borderStyle: 'dashed', paddingVertical: 16, minHeight: 52,
+    },
+    photoAddText: { fontSize: 14, fontWeight: '600', color: colors.textMuted },
 
     colorGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 4 },
     colorOption: { width: 32, height: 32, borderRadius: 16, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
