@@ -22,6 +22,7 @@ import { SosPin, SOS_EMOJI } from '../../services/RallyService';
 import { openMapsDirections } from '../../utils/openMapsDirections';
 import { useAuthStore } from '../../stores/authStore';
 import { useSettingsStore } from '../../stores/settingsStore';
+import { useReduceMotion } from '../../hooks/useReduceMotion';
 import { ThemeColors, useTheme } from '../../theme';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
@@ -145,8 +146,19 @@ export default function IdleMapScreen() {
   const selectedCardAnim = useRef(new Animated.Value(0)).current;
 
   // GPS locating pulse
+  const reduceMotion = useReduceMotion();
   useEffect(() => {
     if (!locating) return;
+    if (reduceMotion) {
+      // OS reduce-motion: static locating indicator — slightly enlarged and
+      // fully opaque so "acquiring GPS" is still visible without the pulse.
+      pulseOpacity.setValue(1);
+      pulseScale.setValue(1.2);
+      return () => {
+        pulseOpacity.setValue(1);
+        pulseScale.setValue(1);
+      };
+    }
     const loop = Animated.loop(
       Animated.parallel([
         Animated.sequence([
@@ -161,7 +173,7 @@ export default function IdleMapScreen() {
     );
     loop.start();
     return () => loop.stop();
-  }, [locating, pulseOpacity, pulseScale]);
+  }, [locating, pulseOpacity, pulseScale, reduceMotion]);
 
   // Welcome toast
   useEffect(() => {

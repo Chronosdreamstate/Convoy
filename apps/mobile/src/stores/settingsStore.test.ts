@@ -154,3 +154,51 @@ describe('persistence', () => {
     warnSpy.mockRestore();
   });
 });
+
+describe('resetForSignOut', () => {
+  it('resets every account-level setting to its fresh-install default', () => {
+    useSettingsStore.setState({
+      mapStyle: 'hybrid',
+      hazardAlertDistanceM: 5000,
+      scenicRouting: true,
+      pttMaxSeconds: 60,
+      pttVolumePercent: 20,
+      distanceUnit: 'km',
+      shareLocationWithFriends: true,
+    });
+
+    useSettingsStore.getState().resetForSignOut();
+
+    const s = useSettingsStore.getState();
+    expect(s.mapStyle).toBe('standard');
+    expect(s.hazardAlertDistanceM).toBe(805);
+    expect(s.scenicRouting).toBe(false);
+    expect(s.pttMaxSeconds).toBe(30);
+    expect(s.pttVolumePercent).toBe(100);
+    expect(s.distanceUnit).toBe('miles');
+    expect(s.shareLocationWithFriends).toBe(false);
+  });
+
+  it('keeps device-level themeMode across sign-out', () => {
+    useSettingsStore.setState({ themeMode: 'dark', mapStyle: 'satellite' });
+
+    useSettingsStore.getState().resetForSignOut();
+
+    expect(useSettingsStore.getState().themeMode).toBe('dark');
+    expect(useSettingsStore.getState().mapStyle).toBe('standard');
+  });
+
+  it('rewrites the persisted SecureStore copy with the defaults, not just memory', async () => {
+    useSettingsStore.setState({ shareLocationWithFriends: true, distanceUnit: 'km' });
+
+    useSettingsStore.getState().resetForSignOut();
+    await flushPersist();
+
+    expect(mockSetItemAsync).toHaveBeenCalled();
+    const [key, value] = mockSetItemAsync.mock.calls[mockSetItemAsync.mock.calls.length - 1] as [string, string];
+    expect(key).toBe('convoy.settings');
+    const parsed = JSON.parse(value) as { state: Record<string, unknown> };
+    expect(parsed.state.shareLocationWithFriends).toBe(false);
+    expect(parsed.state.distanceUnit).toBe('miles');
+  });
+});

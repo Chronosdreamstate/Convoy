@@ -16,7 +16,27 @@ interface SettingsState {
   themeMode: ThemeMode;
   shareLocationWithFriends: boolean;
   setSettings: (s: Partial<Pick<SettingsState, 'mapStyle' | 'hazardAlertDistanceM' | 'scenicRouting' | 'pttMaxSeconds' | 'pttVolumePercent' | 'distanceUnit' | 'themeMode' | 'shareLocationWithFriends'>>) => void;
+  resetForSignOut: () => void;
 }
+
+// Account-level preference defaults — exactly what a fresh install starts with.
+// These are reset on sign-out so the next account on this device doesn't
+// inherit the previous account's preferences (shareLocationWithFriends in
+// particular is a privacy setting that must never leak across accounts).
+//
+// Device-vs-account split: `themeMode` is deliberately NOT in this list. It is
+// a device-level display preference (it tracks the OS appearance of the phone,
+// not the identity of the account) and resetting it would flash the UI from
+// dark to light mid sign-out. Everything else is per-account.
+const ACCOUNT_DEFAULTS = {
+  mapStyle: 'standard' as MapStyle,
+  hazardAlertDistanceM: 805,
+  scenicRouting: false,
+  pttMaxSeconds: 30,
+  pttVolumePercent: 100,
+  distanceUnit: 'miles' as DistanceUnit,
+  shareLocationWithFriends: false,
+};
 
 // SecureStore adapter for zustand/persist (non-sensitive app preferences).
 // Failures degrade to in-memory defaults instead of surfacing as unhandled
@@ -49,15 +69,15 @@ const secureStorage = createJSONStorage(() => ({
 export const useSettingsStore = create<SettingsState>()(
   persist(
     (set) => ({
-      mapStyle: 'standard',
-      hazardAlertDistanceM: 805,
-      scenicRouting: false,
-      pttMaxSeconds: 30,
-      pttVolumePercent: 100,
-      distanceUnit: 'miles',
+      ...ACCOUNT_DEFAULTS,
       themeMode: 'system',
-      shareLocationWithFriends: false,
       setSettings: (s) => set(s),
+      // Resets every account-level preference to its fresh-install default,
+      // keeping device-level ones (themeMode). Because this goes through
+      // zustand's persist middleware, the persisted SecureStore copy is
+      // rewritten with the defaults too — not just the in-memory state — so
+      // the old account's preferences can't rehydrate for the next account.
+      resetForSignOut: () => set({ ...ACCOUNT_DEFAULTS }),
     }),
     {
       // NOTE: SecureStore keys may only contain alphanumerics, ".", "-", "_".

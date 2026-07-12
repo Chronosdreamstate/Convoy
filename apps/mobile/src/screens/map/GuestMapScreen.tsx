@@ -15,6 +15,7 @@ import * as ExpoLocation from 'expo-location';
 import { useRouter } from 'expo-router';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSettingsStore } from '../../stores/settingsStore';
+import { useReduceMotion } from '../../hooks/useReduceMotion';
 import { ThemeColors, useTheme, withAlpha } from '../../theme';
 
 const DEFAULT_REGION = {
@@ -107,7 +108,14 @@ export default function GuestMapScreen() {
   const pillScale = useRef(new Animated.Value(0.8)).current;
 
   // Pulse preview pill opacity
+  const reduceMotion = useReduceMotion();
   useEffect(() => {
+    if (reduceMotion) {
+      // OS reduce-motion: hold the preview pill at full opacity — its label
+      // already communicates preview mode without the attention pulse.
+      pulseAnim.setValue(1);
+      return;
+    }
     const loop = Animated.loop(
       Animated.sequence([
         Animated.timing(pulseAnim, { toValue: 0.5, duration: 1100, useNativeDriver: true }),
@@ -116,7 +124,7 @@ export default function GuestMapScreen() {
     );
     loop.start();
     return () => loop.stop();
-  }, [pulseAnim]);
+  }, [pulseAnim, reduceMotion]);
 
   // Slide-up card + pill pop-in on mount
   useEffect(() => {

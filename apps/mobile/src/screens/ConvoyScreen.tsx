@@ -34,6 +34,7 @@ import { useGroupStore } from '../stores/groupStore';
 import { useSocketStore } from '../stores/socketStore';
 import { useLocationStore } from '../stores/locationStore';
 import { useMotionGuard } from '../hooks/useMotionGuard';
+import { useReduceMotion } from '../hooks/useReduceMotion';
 import { useTheme, ThemeColors, withAlpha } from '../theme';
 
 // ---------------------------------------------------------------------------
@@ -108,8 +109,11 @@ function formatEventDate(scheduledFor: string): string {
 function PulsingDot({ online }: { online: boolean }) {
   const { colors } = useTheme();
   const anim = useRef(new Animated.Value(1)).current;
+  const reduceMotion = useReduceMotion();
   useEffect(() => {
-    if (!online) { anim.setValue(1); return; }
+    // Static full-opacity dot when offline (grey) or when OS reduce-motion is
+    // on — the green/grey color alone conveys the online state, no blink.
+    if (!online || reduceMotion) { anim.setValue(1); return; }
     const loop = Animated.loop(
       Animated.sequence([
         Animated.timing(anim, { toValue: 0.2, duration: 900, useNativeDriver: true }),
@@ -118,7 +122,7 @@ function PulsingDot({ online }: { online: boolean }) {
     );
     loop.start();
     return () => loop.stop();
-  }, [online, anim]);
+  }, [online, anim, reduceMotion]);
   return (
     <Animated.View
       style={[

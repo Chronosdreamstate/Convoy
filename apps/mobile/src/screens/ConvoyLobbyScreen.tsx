@@ -23,6 +23,7 @@ import { useAuthStore } from '../stores/authStore';
 import { useGroupStore } from '../stores/groupStore';
 import { useSocketStore } from '../stores/socketStore';
 import { useTheme, ThemeColors } from '../theme';
+import { useReduceMotion } from '../hooks/useReduceMotion';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
 const SOCKET_URL = API_URL.replace(/^http/, 'ws');
@@ -73,8 +74,17 @@ function RadarRing({ delay }: { delay: number }) {
   const { colors } = useTheme();
   const anim = useRef(new Animated.Value(0)).current;
   const loopRef = useRef<Animated.CompositeAnimation | null>(null);
+  const reduceMotion = useReduceMotion();
 
   useEffect(() => {
+    if (reduceMotion) {
+      // OS reduce-motion: static concentric rings instead of the radar pulse.
+      // Each ring holds the phase its stagger delay would put it at, so the
+      // three rings still read as an outward "searching" radar — just frozen.
+      loopRef.current?.stop();
+      anim.setValue(0.25 + (delay / 400) * 0.25);
+      return;
+    }
     anim.setValue(0);
     // Use setTimeout for the initial stagger so the loop itself
     // runs at a consistent 1600 ms period without embedding the delay.
@@ -100,7 +110,7 @@ function RadarRing({ delay }: { delay: number }) {
       clearTimeout(timer);
       loopRef.current?.stop();
     };
-  }, [anim, delay]);
+  }, [anim, delay, reduceMotion]);
 
   const scale = anim.interpolate({ inputRange: [0, 1], outputRange: [1, 2] });
   const opacity = anim.interpolate({ inputRange: [0, 1], outputRange: [1, 0] });
@@ -186,8 +196,15 @@ export default function ConvoyLobbyScreen({ groupId, groupName, onConvoyStart }:
   }, [token, groupId]);
 
   // -- "Waiting for everyone to join..." pulsing label ----------------------
+  const reduceMotion = useReduceMotion();
   const waitingOpacity = useRef(new Animated.Value(1)).current;
   useEffect(() => {
+    if (reduceMotion) {
+      // OS reduce-motion: hold the label at full opacity — the text itself
+      // already says we're waiting, no blink needed.
+      waitingOpacity.setValue(1);
+      return;
+    }
     const loop = Animated.loop(
       Animated.sequence([
         Animated.timing(waitingOpacity, {
@@ -204,7 +221,7 @@ export default function ConvoyLobbyScreen({ groupId, groupName, onConvoyStart }:
     );
     loop.start();
     return () => loop.stop();
-  }, [waitingOpacity]);
+  }, [waitingOpacity, reduceMotion]);
 
   // -- Fetch member list ----------------------------------------------------
   const fetchMembers = useCallback(() => {

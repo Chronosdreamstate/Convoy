@@ -7,6 +7,7 @@ import { useGroupStore } from '../stores/groupStore';
 import { useLocationStore } from '../stores/locationStore';
 import { useSocketStore } from '../stores/socketStore';
 import { useRecentDestinationsStore } from '../stores/recentDestinationsStore';
+import { useSettingsStore } from '../stores/settingsStore';
 import { onboardingState } from '../utils/onboardingState';
 
 const SECURE_STORE_KEY = 'convoy_access_token';
@@ -141,28 +142,59 @@ export class AuthService {
       console.warn('[AuthService] Failed to deregister push token on sign-out:', err);
     });
 
+    // Best-effort server-side logout — always clear local state regardless of
+    // the server response (offline sign-out must still work).
     try {
       await rawPost<void>('/api/v1/auth/logout', {});
     } catch {
-      // Best-effort logout — always clear local state regardless of server response
-    } finally {
-      await SecureStore.deleteItemAsync(SECURE_STORE_KEY);
-      // Clear the local onboarding flags too — they aren't scoped to a user id,
-      // so leaving them set would cause the *next* account signed into this
-      // device (a different person, or a fresh signup) to have onboarding
-      // silently skipped because a previous account had already completed it.
-      await SecureStore.deleteItemAsync('onboarding_complete').catch(() => {});
-      await onboardingState.reset().catch(() => {});
-      useAuthStore.getState().signOut();
-      // Reset all per-account in-memory state so the next sign-in (possibly a
-      // different person on this device) doesn't see the previous account's
-      // group, member positions, presence, or recent destinations. Without
-      // this, e.g. groupStore.activeGroupId survives sign-out and the next
-      // account briefly renders the old account's convoy.
-      useGroupStore.getState().leaveGroup();
-      useLocationStore.getState().clearGroup();
-      useSocketStore.getState().reset();
-      useRecentDestinationsStore.getState().clearDestinations();
+      // ignored
+    }
+
+    // Local cleanup. Every step below is individually guarded so that no
+    // single failure (a flaky keychain, a store reset throwing) can prevent
+    // the remaining resets from running. In particular, if the SecureStore
+    // token delete rejected here it used to skip ALL per-account store resets
+    // and rethrow to every caller (401 interceptor, delete-account flow) —
+    // leaving the previous account's group/location/presence state live for
+    // the next sign-in.
+    //
+    // Error contract: signOut() NEVER rejects. There is nothing a caller can
+    // usefully do about a local-cleanup failure — every caller treats
+    // signOut() as "end the session now", so failures are logged and
+    // swallowed instead of propagated.
+    await SecureStore.deleteItemAsync(SECURE_STORE_KEY).catch((err) => {
+      console.warn('[AuthService] Failed to delete access token from SecureStore:', err);
+    });
+    // Clear the local onboarding flags too — they aren't scoped to a user id,
+    // so leaving them set would cause the *next* account signed into this
+    // device (a different person, or a fresh signup) to have onboarding
+    // silently skipped because a previous account had already completed it.
+    await SecureStore.deleteItemAsync('onboarding_complete').catch(() => {});
+    await onboardingState.reset().catch(() => {});
+
+    // Reset all per-account state so the next sign-in (possibly a different
+    // person on this device) doesn't see the previous account's group, member
+    // positions, presence, recent destinations, or app preferences. Without
+    // this, e.g. groupStore.activeGroupId survives sign-out and the next
+    // account briefly renders the old account's convoy — and
+    // settingsStore.shareLocationWithFriends (a privacy toggle) would carry
+    // over to a stranger's account.
+    const resets: Array<[string, () => void]> = [
+      ['authStore', () => useAuthStore.getState().signOut()],
+      ['groupStore', () => useGroupStore.getState().leaveGroup()],
+      ['locationStore', () => useLocationStore.getState().clearGroup()],
+      ['socketStore', () => useSocketStore.getState().reset()],
+      ['recentDestinationsStore', () => useRecentDestinationsStore.getState().clearDestinations()],
+      // Also rewrites the persisted copy via zustand/persist; device-level
+      // settings (themeMode) are intentionally kept — see settingsStore.
+      ['settingsStore', () => useSettingsStore.getState().resetForSignOut()],
+    ];
+    for (const [name, reset] of resets) {
+      try {
+        reset();
+      } catch (err) {
+        console.warn(`[AuthService] Failed to reset ${name} on sign-out:`, err);
+      }
     }
   }
 

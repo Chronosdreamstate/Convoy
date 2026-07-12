@@ -186,6 +186,80 @@ describe('AuthService — secure token storage', () => {
 
       expect(mockStoreSignOut).toHaveBeenCalledTimes(1);
     });
+
+    it('does not reject and still resets stores when the SecureStore token delete fails', async () => {
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({}),
+      });
+      // Every keychain delete (token AND onboarding flag) rejects.
+      mockDeleteItemAsync.mockRejectedValue(new Error('keychain unavailable'));
+
+      const service = await getAuthService();
+      // Error contract: signOut() never rejects — local-cleanup failures are
+      // logged and swallowed because no caller can act on them.
+      await expect(service.signOut()).resolves.toBeUndefined();
+
+      // The per-account store resets must still have run.
+      expect(mockStoreSignOut).toHaveBeenCalledTimes(1);
+      // Restore the default resolved behavior for subsequent tests.
+      mockDeleteItemAsync.mockResolvedValue(undefined);
+      warnSpy.mockRestore();
+    });
+
+    it('resets account-level settings (but keeps device-level themeMode) on sign-out', async () => {
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({}),
+      });
+
+      const service = await getAuthService();
+      // Grab the same (post-resetModules) settingsStore instance AuthService uses.
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { useSettingsStore } = require('../stores/settingsStore') as typeof import('../stores/settingsStore');
+      useSettingsStore.setState({
+        mapStyle: 'satellite',
+        hazardAlertDistanceM: 1609,
+        scenicRouting: true,
+        shareLocationWithFriends: true, // privacy toggle — must never leak across accounts
+        distanceUnit: 'km',
+        themeMode: 'dark', // device-level — must survive sign-out
+      });
+
+      await service.signOut();
+
+      const s = useSettingsStore.getState();
+      expect(s.mapStyle).toBe('standard');
+      expect(s.hazardAlertDistanceM).toBe(805);
+      expect(s.scenicRouting).toBe(false);
+      expect(s.shareLocationWithFriends).toBe(false);
+      expect(s.distanceUnit).toBe('miles');
+      expect(s.themeMode).toBe('dark');
+    });
+
+    it('runs the remaining store resets even if one reset throws', async () => {
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({}),
+      });
+      // authStore reset (first in the list) blows up…
+      mockStoreSignOut.mockImplementationOnce(() => {
+        throw new Error('authStore reset failed');
+      });
+
+      const service = await getAuthService();
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { useSettingsStore } = require('../stores/settingsStore') as typeof import('../stores/settingsStore');
+      useSettingsStore.setState({ shareLocationWithFriends: true });
+
+      // …but signOut still resolves and the later resets (settingsStore is
+      // last in the list) still run.
+      await expect(service.signOut()).resolves.toBeUndefined();
+      expect(useSettingsStore.getState().shareLocationWithFriends).toBe(false);
+      warnSpy.mockRestore();
+    });
   });
 
   describe('signInEmail', () => {
