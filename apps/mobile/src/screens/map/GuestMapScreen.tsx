@@ -137,12 +137,20 @@ export default function GuestMapScreen() {
 
   // Advance demo markers along routes
   useEffect(() => {
+    if (reduceMotion) {
+      // OS reduce-motion: no ticking interval — hold each demo car at a fixed
+      // mid-route position instead. The staggered spread (with the dashed
+      // route lines) still reads as a convoy in progress, just without the
+      // continuous motion.
+      setMarkerProgress(DEMO_ROUTES.map((_, i) => 0.2 + i * 0.3));
+      return;
+    }
     const SPEED = 0.0025;
     const id = setInterval(() => {
       setMarkerProgress((prev) => prev.map((p) => (p + SPEED > 1 ? 0 : p + SPEED)));
     }, 80);
     return () => clearInterval(id);
-  }, []);
+  }, [reduceMotion]);
 
   // Request location and center map
   useEffect(() => {
@@ -346,9 +354,11 @@ export default function GuestMapScreen() {
           <Text style={styles.createBtnText}>Create Free Account</Text>
         </TouchableOpacity>
 
+        {/* Returning users go straight to email sign-in — routing them through
+            the welcome carousel would bury the Sign In link on its last slide. */}
         <TouchableOpacity
           style={styles.signInBtn}
-          onPress={() => router.push('/(auth)/welcome')}
+          onPress={() => router.push('/(auth)/email')}
           activeOpacity={0.7}
           accessibilityLabel="Sign in to Cortege"
           accessibilityRole="button"

@@ -17,6 +17,7 @@ import * as SecureStore from 'expo-secure-store';
 import { authService } from '../../services/AuthService';
 import { useAuthStore } from '../../stores/authStore';
 import { onboardingState } from '../../utils/onboardingState';
+import { useReduceMotion } from '../../hooks/useReduceMotion';
 import { useTheme } from '../../theme';
 
 const DIGIT_COUNT = 6;
@@ -63,7 +64,11 @@ export default function OtpScreen() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const reduceMotion = useReduceMotion();
   const triggerShake = () => {
+    // OS reduce-motion: skip the shake — the error text below the digit row
+    // already communicates the failure without the motion.
+    if (reduceMotion) return;
     shakeAnim.setValue(0);
     Animated.sequence([
       Animated.timing(shakeAnim, { toValue: 10, duration: 50, useNativeDriver: true }),

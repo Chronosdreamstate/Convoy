@@ -217,7 +217,7 @@ export default function EmailScreen() {
                   autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
                   textContentType={mode === 'signup' ? 'newPassword' : 'password'}
                   returnKeyType="done"
-                  onSubmitEditing={handleSubmit}
+                  onSubmitEditing={() => { void handleSubmit(); }}
                   accessibilityLabel="Password, required"
                   accessibilityHint={mode === 'signup' ? 'Minimum 8 characters' : undefined}
                 />
@@ -242,7 +242,7 @@ export default function EmailScreen() {
 
               <TouchableOpacity
                 style={[styles.button, isSubmitDisabled && styles.buttonDisabled]}
-                onPress={handleSubmit}
+                onPress={() => { void handleSubmit(); }}
                 disabled={isSubmitDisabled}
                 activeOpacity={0.8}
                 accessibilityRole="button"

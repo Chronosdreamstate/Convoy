@@ -69,16 +69,23 @@ export default function WelcomeScreen() {
     SLIDES.map((_, i) => new Animated.Value(i === 0 ? 24 : 8)),
   ).current;
 
-  // Animate dot widths whenever the active slide changes
+  // Animate dot widths whenever the active slide changes. Under OS
+  // reduce-motion the slide transition itself snaps (see goToSlide), so the
+  // dots snap to their target widths too instead of tweening.
   useEffect(() => {
     SLIDES.forEach((_, i) => {
+      const toValue = i === currentSlide ? 24 : 8;
+      if (reduceMotion) {
+        dotWidths[i].setValue(toValue);
+        return;
+      }
       Animated.timing(dotWidths[i], {
-        toValue: i === currentSlide ? 24 : 8,
+        toValue,
         duration: 220,
         useNativeDriver: false,
       }).start();
     });
-  }, [currentSlide, dotWidths]);
+  }, [currentSlide, dotWidths, reduceMotion]);
 
   const goToSlide = (nextIndex: number) => {
     if (reduceMotion) {
@@ -124,7 +131,13 @@ export default function WelcomeScreen() {
   };
 
   const handleGoogleSignIn = () => {
-    Alert.alert('Coming Soon', 'Google Sign-In will be available in a future update. Please use phone or Apple Sign-In.');
+    // Apple Sign-In only exists on iOS — don't suggest it on Android.
+    Alert.alert(
+      'Coming Soon',
+      Platform.OS === 'ios'
+        ? 'Google Sign-In will be available in a future update. Please use phone, email, or Apple Sign-In.'
+        : 'Google Sign-In will be available in a future update. Please use phone or email sign-in.',
+    );
   };
 
   const isLastSlide = currentSlide === SLIDES.length - 1;
