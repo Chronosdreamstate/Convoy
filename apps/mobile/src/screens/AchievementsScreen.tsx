@@ -15,7 +15,14 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { ThemeColors, useTheme } from '../theme';
 import { apiClient } from '../services/apiClient';
+import { MotionCapNotice, useMotionCappedData } from '../components/MotionAwareList';
 import { SkeletonBox } from '../components/SkeletonLoader';
+import { useReduceMotion } from '../hooks/useReduceMotion';
+
+// Fixed white for text sitting on the accent fill — the accent color is the
+// same in both themes, while colors.text flips to near-black in light mode
+// and would be unreadable on this fill (ON_ACCENT convention).
+const ON_ACCENT = '#FFFFFF';
 
 // ---------------------------------------------------------------------------
 // Achievement definitions
@@ -138,9 +145,17 @@ function DetailModal({ item, onClose, styles, colors }: DetailModalProps) {
   // flat detail view. Locked achievements just settle in at full scale.
   const iconScale = useRef(new Animated.Value(1)).current;
   const insets = useSafeAreaInsets();
+  const reduceMotion = useReduceMotion();
 
   React.useEffect(() => {
     if (item) {
+      if (reduceMotion) {
+        // Static equivalent (Req 39–41): the sheet and badge appear in place —
+        // no slide-up spring, no celebratory bounce.
+        slideAnim.setValue(0);
+        iconScale.setValue(1);
+        return;
+      }
       Animated.spring(slideAnim, {
         toValue: 0,
         useNativeDriver: true,
@@ -161,7 +176,7 @@ function DetailModal({ item, onClose, styles, colors }: DetailModalProps) {
     } else {
       slideAnim.setValue(300);
     }
-  }, [item]);
+  }, [item, reduceMotion]);
 
   if (!item) return null;
 
@@ -312,6 +327,11 @@ export default function AchievementsScreen() {
 
   const unlockedCount = achievements.filter((a) => a.unlocked).length;
 
+  // Req 33 — the achievements grid is still a scrollable list on the phone
+  // screen, so cap it to 4 badges while the vehicle is in motion (see
+  // MotionAwareList). The unlocked count above still reflects the full set.
+  const { data: visibleAchievements, hiddenCount } = useMotionCappedData(achievements);
+
   const renderItem = useCallback(({ item }: { item: Achievement }) => (
     <AchievementCard item={item} onPress={setSelected} styles={styles} colors={colors} />
   ), [styles, colors]);
@@ -352,12 +372,13 @@ export default function AchievementsScreen() {
         </View>
       ) : (
         <FlatList
-          data={achievements}
+          data={visibleAchievements}
           keyExtractor={(item) => item.id}
           renderItem={renderItem}
           numColumns={NUM_COLUMNS}
           columnWrapperStyle={styles.row}
           contentContainerStyle={styles.listContent}
+          ListFooterComponent={<MotionCapNotice hiddenCount={hiddenCount} />}
           showsVerticalScrollIndicator={false}
           refreshControl={
             <RefreshControl
@@ -427,7 +448,7 @@ function createStyles(colors: ThemeColors, spacing: { xs: number; sm: number; md
       paddingVertical: 5,
     },
     headerBadgeText: {
-      color: colors.text,
+      color: ON_ACCENT,
       fontSize: 12,
       fontWeight: '700',
     },

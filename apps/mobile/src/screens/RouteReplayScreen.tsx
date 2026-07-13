@@ -18,6 +18,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { apiClient } from '../services/apiClient';
 import { SkeletonBox } from '../components/SkeletonLoader';
 import { NetworkError } from '../components/NetworkError';
+import { useReduceMotion } from '../hooks/useReduceMotion';
 import { ThemeColors, useTheme } from '../theme';
 
 // ---------------------------------------------------------------------------
@@ -85,11 +86,20 @@ function boundingRegion(coords: Coordinate[]) {
 const SPEEDS = [1, 2, 5] as const;
 type Speed = (typeof SPEEDS)[number];
 
+/**
+ * Reduce-motion (Req 39–41): instead of the ~20 fps continuous marker sweep,
+ * playback advances the marker in this many discrete jumps across the route,
+ * one per second (scaled by the speed pill) — a stepped equivalent that still
+ * plays the drive end-to-end with pause/scrub/speed working identically.
+ */
+export const REDUCE_MOTION_STEPS = 20;
+
 export default function RouteReplayScreen() {
   const { driveId } = useLocalSearchParams<{ driveId: string }>();
   const router = useRouter();
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
+  const reduceMotion = useReduceMotion();
 
   const [drive, setDrive] = useState<DriveDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -129,11 +139,12 @@ export default function RouteReplayScreen() {
       setTimeout(() => {
         mapRef.current?.fitToCoordinates(coords, {
           edgePadding: { top: 60, right: 40, bottom: 60, left: 40 },
-          animated: true,
+          // Snap straight to the route (no camera fly-in) under OS reduce-motion.
+          animated: !reduceMotion,
         });
       }, 400);
     }
-  }, [coords]);
+  }, [coords, reduceMotion]);
 
   // ── Playback engine ────────────────────────────────────────────────────────
   const stopPlayback = useCallback(() => {
@@ -145,19 +156,25 @@ export default function RouteReplayScreen() {
   const startPlayback = useCallback(() => {
     if (coords.length === 0) return;
     setPlaying(true);
+    // Continuous mode advances one point every 50 ms; under reduce-motion the
+    // marker instead jumps between ~REDUCE_MOTION_STEPS discrete positions,
+    // once per second (see REDUCE_MOTION_STEPS). Both scale with the speed pill.
+    const stride = reduceMotion
+      ? Math.max(1, Math.ceil((coords.length - 1) / REDUCE_MOTION_STEPS))
+      : 1;
     intervalRef.current = setInterval(() => {
       setMarkerIndex((prev) => {
-        const next = prev + 1;
-        if (next >= coords.length) {
+        const next = Math.min(prev + stride, coords.length - 1);
+        if (next === prev) {
           stopPlayback();
           return prev;
         }
-        const progress = next / (coords.length - 1);
-        progressAnim.setValue(progress);
+        progressAnim.setValue(next / (coords.length - 1));
+        if (next === coords.length - 1) stopPlayback();
         return next;
       });
-    }, Math.round(50 / speed));
-  }, [coords, speed, progressAnim, stopPlayback]);
+    }, Math.round((reduceMotion ? 1000 : 50) / speed));
+  }, [coords, speed, reduceMotion, progressAnim, stopPlayback]);
 
   const togglePlay = useCallback(() => {
     if (playing) {
@@ -171,14 +188,14 @@ export default function RouteReplayScreen() {
     }
   }, [playing, markerIndex, coords.length, progressAnim, startPlayback, stopPlayback]);
 
-  // Restart when speed changes
+  // Restart when speed or the reduce-motion setting changes mid-playback
   useEffect(() => {
     if (playing) {
       stopPlayback();
       startPlayback();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [speed]);
+  }, [speed, reduceMotion]);
 
   useEffect(() => () => { stopPlayback(); }, [stopPlayback]);
 

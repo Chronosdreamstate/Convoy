@@ -12,6 +12,8 @@ import {
   isDrivesSortedDesc,
   serializeDriveRow,
   buildSummaryCardUrl,
+  downsampleCoordinates,
+  SUMMARY_CARD_MAX_POINTS,
   hydrateSummaryCardUrl,
   REQUIRED_DRIVE_FIELDS,
   parsePage,
@@ -212,6 +214,58 @@ describe('buildSummaryCardUrl', () => {
   test('URL contains LineString coordinates', () => {
     const url = buildSummaryCardUrl([[10, 20]]);
     expect(url).toContain('LineString');
+  });
+
+  test('URL stays under the Mapbox request-length limit for any trace up to the 50k cap', () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 1, max: 50_000 }),
+        (count) => {
+          // Worst case for encoded size: full-precision doubles on every point.
+          const coords: [number, number][] = Array.from({ length: count }, (_, i) => [
+            -122.123456789 + i * 0.000001,
+            37.987654321 + i * 0.000001,
+          ]);
+          const url = buildSummaryCardUrl(coords);
+          expect(url.length).toBeLessThan(8192);
+        },
+      ),
+      { numRuns: 25 },
+    );
+  });
+});
+
+describe('downsampleCoordinates', () => {
+  test('returns the input unchanged (same reference) when within budget', () => {
+    const coords: [number, number][] = [[0, 0], [1, 1], [2, 2]];
+    expect(downsampleCoordinates(coords)).toBe(coords);
+  });
+
+  test('never exceeds the budget and preserves endpoints + order', () => {
+    fc.assert(
+      fc.property(
+        fc.array(
+          fc.tuple(fc.double({ min: -180, max: 180, noNaN: true }), fc.double({ min: -90, max: 90, noNaN: true })),
+          { minLength: 2, maxLength: 2_000 },
+        ),
+        fc.integer({ min: 2, max: SUMMARY_CARD_MAX_POINTS }),
+        (coords, maxPoints) => {
+          const input = coords as [number, number][];
+          const out = downsampleCoordinates(input, maxPoints);
+          expect(out.length).toBeLessThanOrEqual(maxPoints);
+          expect(out[0]).toEqual(input[0]);
+          expect(out[out.length - 1]).toEqual(input[input.length - 1]);
+          // Every output point exists in the input, in the same relative order.
+          let cursor = 0;
+          for (const p of out) {
+            const idx = input.indexOf(p, cursor);
+            expect(idx).toBeGreaterThanOrEqual(0);
+            cursor = idx;
+          }
+        },
+      ),
+      { numRuns: 100 },
+    );
   });
 });
 

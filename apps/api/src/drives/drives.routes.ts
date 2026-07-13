@@ -114,13 +114,59 @@ export function serializeDriveRow(row: RawDriveRow): DriveResponse {
 // ---------------------------------------------------------------------------
 
 /**
+ * Max polyline points embedded in a summary-card URL. Mapbox's Static Images
+ * API rejects request URLs longer than ~8 KiB, and a full routeTrace can be
+ * up to 50k points (megabytes once URL-encoded) — so the overlay is thinned
+ * to a shape-preserving subset before encoding. 100 points at 5-decimal
+ * precision encodes to ~3.5 KB, safely under the limit while still tracing
+ * the route at card scale (600×338 px).
+ */
+export const SUMMARY_CARD_MAX_POINTS = 100;
+
+/**
+ * Uniformly downsample `coordinates` to at most `maxPoints`, preserving the
+ * first and last points and the original order (same index-selection scheme
+ * as the mobile client's downsampleTrace). Returns the input unchanged when
+ * already within budget.
+ */
+export function downsampleCoordinates(
+  coordinates: [number, number][],
+  maxPoints: number = SUMMARY_CARD_MAX_POINTS,
+): [number, number][] {
+  if (coordinates.length <= maxPoints || maxPoints < 2) return coordinates;
+
+  const lastIdx = coordinates.length - 1;
+  const out: [number, number][] = [];
+  let prevIdx = -1;
+  for (let i = 0; i < maxPoints; i++) {
+    const idx = Math.round((i * lastIdx) / (maxPoints - 1));
+    if (idx !== prevIdx) {
+      out.push(coordinates[idx]);
+      prevIdx = idx;
+    }
+  }
+  return out;
+}
+
+/**
  * Builds a token-free Mapbox Static Images URL for DB storage.
  * Callers must append `&access_token=<token>` before returning to clients.
+ *
+ * The trace is downsampled (see SUMMARY_CARD_MAX_POINTS) and rounded to
+ * 5 decimal places (~1 m precision) so the URL always fits Mapbox's request
+ * length limit — full-length traces previously produced megabyte-scale URLs
+ * that the Static API rejects, silently breaking the share card.
  */
 export function buildSummaryCardUrl(coordinates: [number, number][]): string {
   if (coordinates.length === 0) return '';
 
-  const lineString = { type: 'LineString', coordinates };
+  const thinned = downsampleCoordinates(coordinates).map(
+    ([lng, lat]): [number, number] => [
+      Math.round(lng * 1e5) / 1e5,
+      Math.round(lat * 1e5) / 1e5,
+    ],
+  );
+  const lineString = { type: 'LineString', coordinates: thinned };
   const encoded = encodeURIComponent(JSON.stringify(lineString));
   const overlay = `geojson(${encoded})`;
 

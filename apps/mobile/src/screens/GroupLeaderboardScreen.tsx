@@ -21,9 +21,15 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { SkeletonRow } from '../components/SkeletonLoader';
 import { NetworkError } from '../components/NetworkError';
+import { MotionCapNotice, useMotionCappedData } from '../components/MotionAwareList';
 import { apiClient } from '../services/apiClient';
 import { useAuthStore } from '../stores/authStore';
 import { ThemeColors, useTheme, withAlpha } from '../theme';
+
+// Fixed white for text/icons sitting on the accent fill — the accent color is
+// the same in both themes, while colors.text flips to near-black in light mode
+// and would be unreadable on this fill (ON_ACCENT convention).
+const ON_ACCENT = '#FFFFFF';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -333,6 +339,12 @@ export default function GroupLeaderboardScreen() {
     [activeMetric, currentUserId, styles],
   );
 
+  // Req 33 — group screens stay reachable mid-convoy, so cap the rankings to
+  // 4 rows while the vehicle is in motion (see MotionAwareList). Rows keep
+  // their rank because the cap preserves order from the top. (Called before
+  // the loading early-return so the hook order never changes.)
+  const { data: visibleMembers, hiddenCount } = useMotionCappedData(members);
+
   // ------------------------------------------------------------------
   // Loading skeleton
   // ------------------------------------------------------------------
@@ -375,7 +387,7 @@ export default function GroupLeaderboardScreen() {
         />
       ) : (
         <FlatList
-          data={members}
+          data={visibleMembers}
           keyExtractor={(item) => item.userId}
           contentContainerStyle={
             members.length === 0 ? styles.listEmpty : styles.list
@@ -391,6 +403,7 @@ export default function GroupLeaderboardScreen() {
           ListHeaderComponent={
             error ? <Text style={styles.errorBanner}>Couldn't refresh — showing last loaded data</Text> : null
           }
+          ListFooterComponent={<MotionCapNotice hiddenCount={hiddenCount} />}
           ListEmptyComponent={
             <View style={styles.emptyState}>
               <Text style={styles.emptyEmoji}>🏆</Text>
@@ -507,7 +520,7 @@ function createStyles(
       ...typography.label,
     },
     tabLabelActive: {
-      color: colors.text,
+      color: ON_ACCENT,
     },
 
     // List

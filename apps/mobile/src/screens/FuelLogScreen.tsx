@@ -10,9 +10,15 @@ import {
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { apiClient } from '../services/apiClient';
+import { MotionCapNotice, useMotionCappedData } from '../components/MotionAwareList';
 import { SkeletonBox } from '../components/SkeletonLoader';
 import { useSettingsStore } from '../stores/settingsStore';
 import { useTheme, withAlpha, ThemeColors } from '../theme';
+
+// Fixed white for text/icons sitting on the accent fill — the accent color is
+// the same in both themes, while colors.text flips to near-black in light mode
+// and would be unreadable on this fill (ON_ACCENT convention).
+const ON_ACCENT = '#FFFFFF';
 
 // --- Types ---
 
@@ -255,7 +261,7 @@ function AddModal({ visible, onClose, onSaved }: {
             accessibilityLabel="Save fill-up"
             accessibilityState={{ disabled: saving }}
           >
-            {saving ? <ActivityIndicator color={colors.text} /> : <Text style={s.saveBtnText}>Save Fill-Up</Text>}
+            {saving ? <ActivityIndicator color={ON_ACCENT} /> : <Text style={s.saveBtnText}>Save Fill-Up</Text>}
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
@@ -318,6 +324,10 @@ export default function FuelLogScreen() {
     [onDelete, deletingId],
   );
 
+  // Req 33 — cap the fill-up history to 4 rows while the vehicle is in motion
+  // (see MotionAwareList). Summary stats above still use every entry.
+  const { data: visibleEntries, hiddenCount } = useMotionCappedData(entries);
+
   const totalGal = entries.reduce((s, e) => s + e.gallons, 0);
   const totalSpent = entries.reduce((s, e) => s + e.gallons * e.pricePerGallon, 0);
   const avgPpg = totalGal > 0 ? entries.reduce((s, e) => s + e.pricePerGallon * e.gallons, 0) / totalGal : 0;
@@ -365,7 +375,7 @@ export default function FuelLogScreen() {
         <Text style={s.title}>Fuel Log</Text>
       </View>
       <FlatList
-        data={entries}
+        data={visibleEntries}
         keyExtractor={e => e.id}
         contentContainerStyle={entries.length === 0 ? s.listEmpty : s.list}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { void onRefresh(); }} tintColor={colors.accent} colors={[colors.accent]} />}
@@ -386,6 +396,7 @@ export default function FuelLogScreen() {
           </>
         ) : null}
         renderItem={renderEntryItem}
+        ListFooterComponent={<MotionCapNotice hiddenCount={hiddenCount} />}
         ListEmptyComponent={
           loadError ? (
             <View style={s.empty}>
@@ -413,7 +424,7 @@ export default function FuelLogScreen() {
 
       {/* FAB — bottom-right, 56 px crimson */}
       <TouchableOpacity style={s.fab} onPress={() => setShowModal(true)} accessibilityRole="button" accessibilityLabel="Add fuel log">
-        <Ionicons name="add" size={30} color={colors.text} />
+        <Ionicons name="add" size={30} color={ON_ACCENT} />
       </TouchableOpacity>
 
       <AddModal visible={showModal} onClose={() => setShowModal(false)} onSaved={e => setEntries(prev => [e, ...prev])} />
@@ -477,7 +488,7 @@ function createStyles(colors: ThemeColors) {
     input: { backgroundColor: colors.cardElevated, borderRadius: 10, borderWidth: 1, borderColor: colors.border, color: colors.text, paddingHorizontal: 12, paddingVertical: 10, fontSize: 15, marginBottom: 12 },
     formErrorTxt: { color: colors.accent, fontSize: 13, marginBottom: 12 },
     saveBtn: { backgroundColor: colors.accent, borderRadius: 12, paddingVertical: 15, alignItems: 'center', minHeight: 50 },
-    saveBtnText: { color: colors.text, fontSize: 16, fontWeight: '700' },
+    saveBtnText: { color: ON_ACCENT, fontSize: 16, fontWeight: '700' },
 
     fab: { position: 'absolute', bottom: 24, right: 20, width: 56, height: 56, borderRadius: 28, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center', elevation: 6, shadowColor: colors.accent, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.4, shadowRadius: 8 },
 
@@ -489,6 +500,6 @@ function createStyles(colors: ThemeColors) {
       alignItems: 'center', minHeight: 52, justifyContent: 'center',
       shadowColor: colors.accent, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.35, shadowRadius: 8, elevation: 6,
     },
-    emptyButtonText: { color: colors.text, fontSize: 16, fontWeight: '700' },
+    emptyButtonText: { color: ON_ACCENT, fontSize: 16, fontWeight: '700' },
   });
 }

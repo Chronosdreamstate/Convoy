@@ -12,6 +12,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { apiClient } from '../services/apiClient';
 import SkeletonCard from '../components/SkeletonLoader';
+import { MotionCapNotice, useMotionCappedData } from '../components/MotionAwareList';
 import { useTheme, ThemeColors } from '../theme';
 
 interface ConvoyDrive {
@@ -157,6 +158,10 @@ export default function ConvoyHistoryScreen() {
     [router],
   );
 
+  // Req 33 — this screen is reachable mid-convoy from group detail, so cap the
+  // history list to 4 rows while the vehicle is in motion (see MotionAwareList).
+  const { data: visibleDrives, hiddenCount } = useMotionCappedData(drives);
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
@@ -183,7 +188,7 @@ export default function ConvoyHistoryScreen() {
           <SkeletonCard />
           <SkeletonCard />
         </View>
-      ) : error ? (
+      ) : error && drives.length === 0 ? (
         <View style={styles.stateContainer} accessibilityRole="alert">
           <Ionicons name="cloud-offline-outline" size={52} color={colors.textMuted} style={styles.stateIcon} />
           <Text style={styles.stateTitle}>Couldn't load convoys</Text>
@@ -200,13 +205,19 @@ export default function ConvoyHistoryScreen() {
         </View>
       ) : (
         <FlatList
-          data={drives}
+          data={visibleDrives}
           keyExtractor={item => item.id}
           contentContainerStyle={drives.length === 0 ? styles.listEmpty : styles.list}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.accent} colors={[colors.accent]} />
           }
           renderItem={renderDriveItem}
+          ListHeaderComponent={
+            // A failed refresh must not blank out convoys the user already
+            // has on screen — keep the data and flag the staleness instead.
+            error ? <Text style={styles.errorBanner}>Couldn't refresh — showing last loaded data</Text> : null
+          }
+          ListFooterComponent={<MotionCapNotice hiddenCount={hiddenCount} />}
           ListEmptyComponent={
             <View style={styles.empty}>
               <MaterialCommunityIcons name="flag-checkered" size={56} color={colors.textMuted} style={styles.emptyIcon} />
@@ -243,6 +254,7 @@ function createStyles(colors: ThemeColors) {
   skeletonContainer: { padding: 16, gap: 12 },
   list: { padding: 16, gap: 12 },
   listEmpty: { flexGrow: 1, padding: 16 },
+  errorBanner: { color: colors.error, fontSize: 12, textAlign: 'center', marginBottom: 4 },
   card: {
     backgroundColor: colors.card, borderRadius: 12, padding: 14,
     borderWidth: 0.5, borderColor: colors.border,

@@ -24,6 +24,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { useReduceMotion } from '../hooks/useReduceMotion';
 import { useTheme, ThemeColors } from '../theme';
 
 // ---------------------------------------------------------------------------
@@ -191,6 +192,18 @@ function parseRouteCoords(routeTrace?: string): LatLng[] {
   } catch {
     return [];
   }
+}
+
+// expo-router params are `string | string[]` at runtime, and a drive that
+// failed to save can arrive with them missing or malformed — parse defensively
+// so the summary renders honest zeros instead of "NaN m" / "NaNm".
+function firstParam(v: string | string[] | undefined): string | undefined {
+  return Array.isArray(v) ? v[0] : v;
+}
+
+function parseFiniteInt(v: string | string[] | undefined, fallback: number): number {
+  const n = parseInt(firstParam(v) ?? '', 10);
+  return Number.isFinite(n) ? n : fallback;
 }
 
 function getWeekKey(): string {
@@ -611,6 +624,13 @@ export default function ConvoyEndScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
+  // Reduce-motion (Req 39–41): confetti, the trophy spring, and the
+  // achievement-unlock pop all get static equivalents. Mirrored into a ref so
+  // the delayed unlock timeout (below) reads the live value, not a stale one.
+  const reduceMotion = useReduceMotion();
+  const reduceMotionRef = useRef(reduceMotion);
+  useEffect(() => { reduceMotionRef.current = reduceMotion; }, [reduceMotion]);
+
   const {
     groupName,
     durationMinutes,
@@ -705,6 +725,12 @@ export default function ConvoyEndScreen() {
             await AsyncStorage.setItem('achievement:first_convoy', 'true');
             setTimeout(() => {
               setShowFirstConvoyAchievement(true);
+              if (reduceMotionRef.current) {
+                // Static equivalent — the unlock card appears in place.
+                achievementScale.setValue(1);
+                achievementOpacity.setValue(1);
+                return;
+              }
               Animated.spring(achievementScale, {
                 toValue: 1,
                 useNativeDriver: true,
@@ -727,6 +753,13 @@ export default function ConvoyEndScreen() {
   }, []);
 
   const dismissFirstConvoyAchievement = () => {
+    if (reduceMotionRef.current) {
+      // Static equivalent — dismiss immediately, no shrink-out.
+      setShowFirstConvoyAchievement(false);
+      achievementScale.setValue(0);
+      achievementOpacity.setValue(0);
+      return;
+    }
     Animated.parallel([
       Animated.timing(achievementScale, { toValue: 0.8, duration: 150, useNativeDriver: true }),
       Animated.timing(achievementOpacity, { toValue: 0, duration: 150, useNativeDriver: true }),
@@ -745,6 +778,14 @@ export default function ConvoyEndScreen() {
   }, [driveId]);
 
   useEffect(() => {
+    if (reduceMotion) {
+      // Static equivalent (Req 39–41): trophy and content land at full
+      // scale/opacity immediately — no spring, no staged fade-in.
+      scale.setValue(1);
+      iconOpacity.setValue(1);
+      contentOpacity.setValue(1);
+      return;
+    }
     Animated.parallel([
       Animated.spring(scale, {
         toValue: 1,
@@ -765,7 +806,8 @@ export default function ConvoyEndScreen() {
       delay: 280,
       useNativeDriver: true,
     }).start();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reduceMotion]);
 
   // Clean up copy timer on unmount
   useEffect(() => {
@@ -774,12 +816,13 @@ export default function ConvoyEndScreen() {
     };
   }, []);
 
-  const duration = parseInt(durationMinutes ?? '0', 10);
-  const distance = parseInt(distanceM ?? '0', 10);
-  const members = parseInt(memberCount ?? '1', 10);
-  const topSpeed = topSpeedKmh ? parseInt(topSpeedKmh, 10) : null;
+  const duration = Math.max(0, parseFiniteInt(durationMinutes, 0));
+  const distance = Math.max(0, parseFiniteInt(distanceM, 0));
+  const members = Math.max(1, parseFiniteInt(memberCount, 1));
+  const topSpeedParsed = parseFiniteInt(topSpeedKmh, -1);
+  const topSpeed = topSpeedParsed > 0 ? topSpeedParsed : null;
   const hasTrace = Boolean(routeTrace && routeTrace.length > 0);
-  const displayGroup = groupName ?? 'Your Crew';
+  const displayGroup = firstParam(groupName) ?? 'Your Crew';
 
   // Human-readable distance for the share card (always km if >= 1 km)
   const distanceKmText =
@@ -936,7 +979,9 @@ export default function ConvoyEndScreen() {
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
-      <Confetti />
+      {/* Static equivalent under OS reduce-motion: no falling confetti — the
+          trophy + "Convoy Complete" headline carry the celebration. */}
+      {!reduceMotion && <Confetti />}
 
       {/*
         Offscreen shareable summary card (Req 19.5/19.6) — rendered off the
