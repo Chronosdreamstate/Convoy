@@ -16,6 +16,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { MotionCapNotice, useMotionCappedData } from '../components/MotionAwareList';
 import { apiClient } from '../services/apiClient';
 import { useTheme, withAlpha, ThemeColors } from '../theme';
 import { useSocketStore } from '../stores/socketStore';
@@ -224,6 +225,15 @@ export default function WaypointManagementScreen() {
   // Req 6.4 — cap the number of waypoints per route.
   const atMaxWaypoints = waypoints.length >= MAX_WAYPOINTS;
 
+  // Req 33 — while the vehicle is in motion, cap the list to 4 waypoints with
+  // a "pull over to see more" notice (Req 34's useMotionGuard already blocks
+  // the *add* flow above; this limits scrolling the existing stops mid-drive).
+  // The cap keeps the first 4 rows of `waypoints`, so each visible row's
+  // `index` still addresses the same slot in the full array — moveUp/moveDown
+  // and the row's isLast check (driven by the full `waypoints.length` via
+  // `total`) stay correct while capped.
+  const { data: visibleWaypoints, hiddenCount: hiddenWaypointCount } = useMotionCappedData(waypoints);
+
   // ── Reorder / remove ────────────────────────────────────────────────────────
 
   const moveUp = useCallback((index: number) => {
@@ -427,11 +437,12 @@ export default function WaypointManagementScreen() {
         <>
           {/* ── Waypoint list ────────────────────────────────────────────────── */}
           <FlatList
-            data={waypoints}
+            data={visibleWaypoints}
             keyExtractor={(item) => item.id}
             contentContainerStyle={styles.list}
             renderItem={renderWaypointItem}
             ItemSeparatorComponent={() => <View style={styles.separator} />}
+            ListFooterComponent={<MotionCapNotice hiddenCount={hiddenWaypointCount} />}
             showsVerticalScrollIndicator={false}
           />
 

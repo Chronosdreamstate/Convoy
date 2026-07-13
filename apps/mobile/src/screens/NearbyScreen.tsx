@@ -31,6 +31,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useRouter } from 'expo-router';
 import * as ExpoLocation from 'expo-location';
 import { apiClient } from '../services/apiClient';
+import { MotionCapNotice, useMotionCappedData } from '../components/MotionAwareList';
 import { SkeletonRow } from '../components/SkeletonLoader';
 import { useSettingsStore } from '../stores/settingsStore';
 import { ThemeColors, useTheme } from '../theme';
@@ -214,6 +215,12 @@ export default function NearbyScreen() {
   const isOptedOut = state === 'opted-out';
   const needsLocation = state === 'needs-location';
 
+  // Req 33 — while the vehicle is in motion, cap the nearby-drivers list to 4
+  // rows with a "pull over to see more" notice. This screen is squarely
+  // reachable mid-drive (spotting other drivers around you is its whole
+  // point), so the cap must apply. Full list returns the moment the car parks.
+  const { data: visibleUsers, hiddenCount } = useMotionCappedData(users);
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
@@ -264,10 +271,11 @@ export default function NearbyScreen() {
         </View>
       ) : (
         <FlatList
-          data={users}
+          data={visibleUsers}
           keyExtractor={(u) => u.userId}
           renderItem={renderItem}
           contentContainerStyle={styles.list}
+          ListFooterComponent={<MotionCapNotice hiddenCount={hiddenCount} />}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={() => { void onRefresh(); }} tintColor={colors.accent} colors={[colors.accent]} />
           }

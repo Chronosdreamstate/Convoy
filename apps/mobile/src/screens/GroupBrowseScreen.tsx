@@ -17,6 +17,7 @@ import { useRouter } from 'expo-router';
 import * as ExpoLocation from 'expo-location';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { apiClient } from '../services/apiClient';
+import { MotionCapNotice, useMotionCappedData } from '../components/MotionAwareList';
 import SkeletonCard from '../components/SkeletonLoader';
 import { NetworkError } from '../components/NetworkError';
 import { useTheme, withAlpha, ThemeColors } from '../theme';
@@ -445,6 +446,17 @@ export default function GroupBrowseScreen() {
 
   const isNearby = activeFilter === 'Nearby';
 
+  // Req 33 — while the vehicle is in motion, cap every scrollable list on this
+  // screen to 4 rows/cards (a passenger browsing convoys to join mid-drive is
+  // a normal use of this screen). The main results list gets the standard
+  // "pull over to see more" footer; the horizontal Featured and Nearby
+  // carousels are capped the same way with the notice rendered under each
+  // carousel. Section render conditions (featured >= 3, nearby > 0) and the
+  // events fetch keep reading the full arrays so nothing is lost while capped.
+  const { data: visibleGroups, hiddenCount: hiddenGroupCount } = useMotionCappedData(filtered);
+  const { data: visibleFeatured, hiddenCount: hiddenFeaturedCount } = useMotionCappedData(featuredGroups);
+  const { data: visibleNearbyQuick, hiddenCount: hiddenNearbyCount } = useMotionCappedData(nearbyQuick);
+
   const renderGroupItem = useCallback(
     ({ item }: { item: PublicGroup }) => (
       <GroupCard
@@ -483,7 +495,7 @@ export default function GroupBrowseScreen() {
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={browseStyles.featuredContent}
           >
-            {featuredGroups.map((group) => (
+            {visibleFeatured.map((group) => (
               <FeaturedCard
                 key={group.id}
                 group={group}
@@ -494,6 +506,7 @@ export default function GroupBrowseScreen() {
               />
             ))}
           </ScrollView>
+          <MotionCapNotice hiddenCount={hiddenFeaturedCount} />
         </View>
       )}
 
@@ -610,10 +623,11 @@ export default function GroupBrowseScreen() {
         <NetworkError onRetry={() => fetchGroups()} message={fetchError} />
       ) : (
         <FlatList
-          data={filtered}
+          data={visibleGroups}
           keyExtractor={(item) => item.id}
           renderItem={renderGroupItem}
           contentContainerStyle={filtered.length === 0 ? styles.emptyContainer : styles.listContent}
+          ListFooterComponent={<MotionCapNotice hiddenCount={hiddenGroupCount} />}
           ListHeaderComponent={
             nearbyQuick.length > 0 && activeFilter !== 'Nearby' ? (
               <View style={browseStyles.nearbySection}>
@@ -625,7 +639,7 @@ export default function GroupBrowseScreen() {
                   showsHorizontalScrollIndicator={false}
                   contentContainerStyle={browseStyles.nearbyContent}
                 >
-                  {nearbyQuick.map((group) => (
+                  {visibleNearbyQuick.map((group) => (
                     <TouchableOpacity
                       key={group.id}
                       style={browseStyles.nearbyChip}
@@ -639,6 +653,7 @@ export default function GroupBrowseScreen() {
                     </TouchableOpacity>
                   ))}
                 </ScrollView>
+                <MotionCapNotice hiddenCount={hiddenNearbyCount} />
               </View>
             ) : null
           }

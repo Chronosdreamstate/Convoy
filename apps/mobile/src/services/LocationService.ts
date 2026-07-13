@@ -1,4 +1,5 @@
 import * as Location from 'expo-location';
+import { sharedMotionState } from './MotionStateService';
 
 export const LOCATION_TASK_NAME = 'convoy-background-location';
 
@@ -88,6 +89,20 @@ export class LocationService {
   static setCallback(cb: LocationCallback) { LocationService._onLocation = cb; }
   static clearCallback() { LocationService._onLocation = null; }
 
+  /**
+   * Delivers one GPS fix to the app: feeds the shared Motion_State machine
+   * first, then the screen callback (if any). Motion state (Req 33/34) must
+   * track GPS speed whenever location updates flow — not only while MapScreen
+   * is mounted — so the feed lives here in the shared pipeline rather than in
+   * any screen's callback. MapScreen's own MotionStateService feed sees the
+   * exact same samples via `_onLocation`, so its store write is a same-value
+   * no-op rather than a competing source.
+   */
+  private static _deliverFix(fix: Parameters<LocationCallback>[0]): void {
+    sharedMotionState.update(fix.speedKph);
+    LocationService._onLocation?.(fix);
+  }
+
   static async startTracking(): Promise<void> {
     const bg = await Location.requestBackgroundPermissionsAsync().catch(() => ({ status: 'denied' as const }));
     if (bg.status === 'granted') {
@@ -143,7 +158,7 @@ export class LocationService {
           ts: loc.timestamp,
         };
         LocationService._lastFix = fix;
-        LocationService._onLocation?.(fix);
+        LocationService._deliverFix(fix);
       },
     );
     LocationService._startHeartbeat();
@@ -153,8 +168,11 @@ export class LocationService {
   static _startHeartbeat(): void {
     if (LocationService._heartbeatTimer) return;
     LocationService._heartbeatTimer = setInterval(() => {
-      if (!LocationService._onLocation || !LocationService._lastFix) return;
-      LocationService._onLocation({ ...LocationService._lastFix, ts: Date.now() });
+      if (!LocationService._lastFix) return;
+      // Deliver even with no screen callback registered — the shared motion
+      // feed inside _deliverFix must keep sampling so the parked hysteresis
+      // (3 consecutive slow samples) can settle while tracking continues.
+      LocationService._deliverFix({ ...LocationService._lastFix, ts: Date.now() });
     }, LocationService.HEARTBEAT_MS);
   }
 

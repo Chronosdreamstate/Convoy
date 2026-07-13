@@ -16,6 +16,7 @@ import {
 } from 'react-native';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { MotionCapNotice, useMotionCappedData } from '../components/MotionAwareList';
 import { apiClient } from '../services/apiClient';
 import { authService } from '../services/AuthService';
 import { WebSocketService } from '../services/WebSocketService';
@@ -317,6 +318,14 @@ export default function ConvoyLobbyScreen({ groupId, groupName, onConvoyStart }:
     }, 8000);
   }, [socket, groupId, isStarting]);
 
+  // Req 33 — while the vehicle is in motion, cap the member list to 4 rows
+  // with a "pull over to see more" notice. The lobby is nominally pre-drive,
+  // but Motion_State is device-level: a member riding/driving to the meetup
+  // point sits on this screen while their car is moving, so the cap applies.
+  // The MEMBERS (N) header keeps reporting the full count, and the empty
+  // state keys off the full list, so nothing reads as lost while capped.
+  const { data: visibleMembers, hiddenCount: hiddenMemberCount } = useMotionCappedData(members);
+
   // -------------------------------------------------------------------------
   // Render
   // -------------------------------------------------------------------------
@@ -367,7 +376,7 @@ export default function ConvoyLobbyScreen({ groupId, groupName, onConvoyStart }:
         </View>
 
         {/* ── Member rows ── */}
-        {members.map((m) => (
+        {visibleMembers.map((m) => (
           <View
             key={m.userId}
             style={styles.memberRow}
@@ -407,6 +416,8 @@ export default function ConvoyLobbyScreen({ groupId, groupName, onConvoyStart }:
             </View>
           </View>
         ))}
+
+        <MotionCapNotice hiddenCount={hiddenMemberCount} />
 
         {members.length === 0 && (
           membersError ? (
