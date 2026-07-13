@@ -11,6 +11,10 @@
  *  - 29.3: editing a vehicle while also setting it as main ride must keep the
  *    just-saved edits in the list (previously the set-as-primary branch spread
  *    the stale row and silently dropped them).
+ *  - Mods & Specs are account-level (PATCH /users/me), so the section renders
+ *    even with zero vehicles — hidden only when the load itself failed.
+ *  - A never-set nickname prefills empty in the edit modal (derived
+ *    "Make Model" is the placeholder) and stays null through a save.
  */
 
 import React from 'react';
@@ -83,7 +87,7 @@ interface VehicleFixture {
   createdAt: string;
 }
 
-function vehicle(overrides: Partial<VehicleFixture> & { id: string; name: string }): VehicleFixture {
+function vehicle(overrides: Partial<VehicleFixture> & { id: string; name: string | null }): VehicleFixture {
   return {
     type: 'Car',
     year: 2020,
@@ -97,8 +101,8 @@ function vehicle(overrides: Partial<VehicleFixture> & { id: string; name: string
   };
 }
 
-async function renderGarage(vehicles: VehicleFixture[]): Promise<TestRenderer.ReactTestRenderer> {
-  mockApiGet.mockResolvedValue({ data: { vehicles, mods: [] } });
+async function renderGarage(vehicles: VehicleFixture[], mods: string[] = []): Promise<TestRenderer.ReactTestRenderer> {
+  mockApiGet.mockResolvedValue({ data: { vehicles, mods } });
   let renderer!: TestRenderer.ReactTestRenderer;
   await act(async () => {
     renderer = TestRenderer.create(<GarageScreen />);
@@ -275,5 +279,84 @@ describe('GarageScreen — vehicle CRUD flows', () => {
       'Permission Required',
       expect.stringContaining('photo library'),
     );
+  });
+
+  it('shows the account-level Mods & Specs section even with zero vehicles', async () => {
+    const renderer = await renderGarage([]);
+
+    // The "Add your first ride" empty state and the mods section coexist —
+    // mods live on the user, not on a vehicle.
+    expect(renderer.root.findAll((n) => n.props?.children === 'Add your first ride').length).toBeGreaterThan(0);
+    expect(renderer.root.findAll((n) => n.props?.children === 'Mods & Specs').length).toBeGreaterThan(0);
+    expect(renderer.root.findAll((n) => n.props?.children === 'No mods added yet. Show your build!').length).toBeGreaterThan(0);
+
+    // And it's fully usable: adding a mod persists to the account.
+    mockApiPatch.mockResolvedValue({ data: {} });
+    await act(async () => {
+      findByLabel(renderer.root, 'New modification').props.onChangeText('Coilovers');
+    });
+    await act(async () => {
+      findByLabel(renderer.root, 'Add mod').props.onPress();
+    });
+    expect(mockApiPatch).toHaveBeenCalledWith('/api/v1/users/me', { mods: ['Coilovers'] });
+    expect(renderer.root.findAll((n) => n.props?.children === 'Coilovers').length).toBeGreaterThan(0);
+  });
+
+  it('hides the mods section for the failed-load state (mods never loaded either)', async () => {
+    mockApiGet.mockRejectedValue(new Error('network down'));
+    let renderer!: TestRenderer.ReactTestRenderer;
+    await act(async () => {
+      renderer = TestRenderer.create(<GarageScreen />);
+    });
+    await act(async () => {});
+
+    expect(renderer.root.findAll((n) => n.props?.children === "Couldn't load your garage").length).toBeGreaterThan(0);
+    expect(renderer.root.findAll((n) => n.props?.children === 'Mods & Specs')).toHaveLength(0);
+  });
+
+  it('edit modal leaves an unset nickname empty, with the derived "Make Model" as placeholder', async () => {
+    const renderer = await renderGarage([
+      vehicle({ id: 'v-1', name: null, make: 'Ford', model: 'Mustang' }),
+    ]);
+
+    await act(async () => {
+      findByLabel(renderer.root, 'Options for Ford Mustang').props.onPress();
+    });
+    await act(async () => {
+      alertButton(alertSpy, 'Ford Mustang', /Edit/).onPress!();
+    });
+
+    const nickname = findByLabel(renderer.root, 'Vehicle nickname');
+    // Never-set nickname → empty value, derived display name as placeholder.
+    expect(nickname.props.value).toBe('');
+    expect(nickname.props.placeholder).toBe('Ford Mustang');
+
+    // Saving with the field untouched must NOT freeze "Ford Mustang" into a
+    // real nickname — the payload keeps name null so it stays derived.
+    mockApiPatch.mockResolvedValue({
+      data: vehicle({ id: 'v-1', name: null, make: 'Ford', model: 'Mustang' }),
+    });
+    await act(async () => {
+      findByLabel(renderer.root, 'Save changes').props.onPress();
+    });
+    expect(mockApiPatch).toHaveBeenCalledWith(
+      '/api/v1/vehicles/v-1',
+      expect.objectContaining({ name: null }),
+    );
+  });
+
+  it('edit modal still prefills a user-set nickname', async () => {
+    const renderer = await renderGarage([
+      vehicle({ id: 'v-2', name: 'My Stang', make: 'Ford', model: 'Mustang' }),
+    ]);
+
+    await act(async () => {
+      findByLabel(renderer.root, 'Options for My Stang').props.onPress();
+    });
+    await act(async () => {
+      alertButton(alertSpy, 'My Stang', /Edit/).onPress!();
+    });
+
+    expect(findByLabel(renderer.root, 'Vehicle nickname').props.value).toBe('My Stang');
   });
 });

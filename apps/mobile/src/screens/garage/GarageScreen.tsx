@@ -149,7 +149,10 @@ export default function GarageScreen() {
   const openEditModal = (v: Vehicle) => {
     setEditingId(v.id);
     setForm({
-      name: v.name ?? vehicleDisplayName(v),
+      // A never-set nickname prefills EMPTY — the derived "Make Model"
+      // fallback belongs in the field's placeholder, not its value, or every
+      // edit makes it look like a nickname the user typed.
+      name: v.name ?? '',
       type: v.type ?? 'Car',
       make: v.make ?? '',
       model: v.model ?? '',
@@ -174,7 +177,11 @@ export default function GarageScreen() {
       setFormError(`Enter a valid year between 1885 and ${new Date().getFullYear() + 1}.`); return;
     }
     const payload = {
-      name: displayName,
+      // Only a user-entered nickname is persisted — an empty field stores
+      // null (the API schema is nullable) so the card keeps deriving
+      // "Make Model" live and the next edit still reads as un-nicknamed,
+      // instead of freezing the derived name into a phantom nickname.
+      name: form.name.trim() || null,
       type: form.type,
       make: form.make.trim() || undefined,
       model: form.model.trim() || undefined,
@@ -468,8 +475,12 @@ export default function GarageScreen() {
           })
         )}
 
-        {/* Mods & Specs section */}
-        {vehicles.length > 0 && (
+        {/* Mods & Specs section — account-level (stored on the user via
+            PATCH /users/me, not on a vehicle), so it renders even with an
+            empty garage. Only the failed-load state above hides it: mods
+            arrive on the same GET that just failed, so an editable empty
+            list there would misrepresent data that never loaded. */}
+        {!(vehicles.length === 0 && error) && (
           <View style={styles.modsSection}>
             <Text style={styles.modsSectionTitle}>Mods & Specs</Text>
             <Text style={styles.modsSectionSubtitle}>Share your build with the convoy</Text>
@@ -609,7 +620,10 @@ export default function GarageScreen() {
                   style={styles.formInput}
                   value={form.name}
                   onChangeText={(val) => setForm((p) => ({ ...p, name: val }))}
-                  placeholder="My Stang"
+                  // The derived "Make Model" display name the card falls back
+                  // to when no nickname is set — shown as the placeholder so
+                  // an unset nickname reads as unset (see openEditModal).
+                  placeholder={[form.make.trim(), form.model.trim()].filter(Boolean).join(' ') || 'My Stang'}
                   placeholderTextColor={colors.textSubtle}
                   returnKeyType="next"
                   submitBehavior="submit"

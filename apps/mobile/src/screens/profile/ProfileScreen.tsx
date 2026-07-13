@@ -277,7 +277,11 @@ export default function ProfileScreen() {
       {
         text: 'Enter Photo URL',
         onPress: () => {
-          setAvatarUrlDraft(localAvatarUri ?? profile?.avatarUrl ?? '');
+          // Once an avatar change is staged, the draft value wins even when
+          // it's null — after "Remove Photo" the prompt must start empty, not
+          // resurrect the removed server URL. Mirrors AvatarCircle's
+          // avatarDirty display logic.
+          setAvatarUrlDraft((avatarDirty ? localAvatarUri : profile?.avatarUrl) ?? '');
           setShowAvatarModal(true);
         },
       },

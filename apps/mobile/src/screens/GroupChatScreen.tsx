@@ -33,6 +33,7 @@ import { useGroupStore } from '../stores/groupStore';
 import { apiClient } from '../services/apiClient';
 import { SkeletonRow } from '../components/SkeletonLoader';
 import { NetworkError } from '../components/NetworkError';
+import { MotionCapNotice, useMotionCappedData } from '../components/MotionAwareList';
 import { useReduceMotion } from '../hooks/useReduceMotion';
 import { theme, useTheme, ThemeColors, withAlpha } from '../theme';
 
@@ -926,6 +927,17 @@ export default function GroupChatScreen() {
   const keyExtractor = useCallback((item: Message) => item.id, []);
   const canSend = inputText.trim().length > 0 && inputText.length <= 500 && !sending;
 
+  // Req 33 — while in motion the transcript shows at most the LATEST 4
+  // messages. `messages` is newest-first (arrivals are prepended for the
+  // `inverted` list), so the shared hook's slice(0, CAP) keeps exactly the
+  // most recent rows — the same recency rule PTTLogPanel gets from
+  // `slice(-CAP)` over its oldest-first entries.
+  const {
+    data: visibleMessages,
+    isCapped: isMotionCapped,
+    hiddenCount: hiddenMessageCount,
+  } = useMotionCappedData(messages);
+
   return (
     <SafeAreaView style={styles.container}>
       {/* Header */}
@@ -999,13 +1011,28 @@ export default function GroupChatScreen() {
             ) : (
               <FlatList
                 ref={flatListRef}
-                data={messages}
+                data={visibleMessages}
                 keyExtractor={keyExtractor}
                 renderItem={renderMessage}
                 inverted
                 contentContainerStyle={styles.listContent}
-                onEndReached={loadMoreMessages}
+                // While capped there's no point paginating older history the
+                // driver can't see anyway — and a 4-row list hits its end
+                // immediately, which would otherwise fetch page after page
+                // into the hidden tail.
+                onEndReached={isMotionCapped ? undefined : loadMoreMessages}
                 onEndReachedThreshold={0.4}
+                ListHeaderComponent={
+                  // The list is `inverted`, so the header renders at the
+                  // visual BOTTOM — pinned next to the newest message, the one
+                  // spot guaranteed on-screen in a chat (a footer would sit at
+                  // the visual top, off-screen whenever the 4 remaining
+                  // bubbles overflow the viewport). Counter-flipped like the
+                  // footer/empty components below.
+                  <View style={styles.invertedFix}>
+                    <MotionCapNotice hiddenCount={hiddenMessageCount} />
+                  </View>
+                }
                 ListFooterComponent={
                   loadingMore ? (
                     // `inverted` scaleY(-1)-transforms the whole content wrapper,
@@ -1043,10 +1070,16 @@ export default function GroupChatScreen() {
           {QUICK_REPLIES.map((qr) => (
             <TouchableOpacity
               key={qr.label}
-              style={styles.quickReplyPill}
+              // Disabled while a send is in flight — sendMessage no-ops when
+              // `sending`, so an enabled-looking chip would silently swallow
+              // the tap. Dimming + disabling matches how the composer's Send
+              // button reports the same in-flight state.
+              style={[styles.quickReplyPill, sending && styles.quickReplyPillDisabled]}
               onPress={() => handleQuickReply(qr.text)}
+              disabled={sending}
               accessibilityRole="button"
               accessibilityLabel={qr.label}
+              accessibilityState={{ disabled: sending }}
             >
               <Text style={styles.quickReplyText}>{qr.label}</Text>
             </TouchableOpacity>
@@ -1357,7 +1390,7 @@ function createStyles(colors: ThemeColors) {
   },
   reactionPillOwn: {
     borderColor: colors.accent,
-    backgroundColor: 'rgba(220,20,60,0.12)',
+    backgroundColor: withAlpha(colors.accent, 0.12),
   },
   reactionEmoji: {
     fontSize: 13,
@@ -1416,6 +1449,9 @@ function createStyles(colors: ThemeColors) {
     borderRadius: 20,
     paddingHorizontal: 14,
     paddingVertical: 8,
+  },
+  quickReplyPillDisabled: {
+    opacity: 0.4,
   },
   quickReplyText: {
     color: colors.text,
@@ -1478,7 +1514,7 @@ function createStyles(colors: ThemeColors) {
     gap: 4,
   },
   voiceBtnActive: {
-    backgroundColor: 'rgba(220,20,60,0.15)',
+    backgroundColor: withAlpha(colors.accent, 0.15),
     borderColor: colors.accent,
   },
   voiceBtnIcon: {

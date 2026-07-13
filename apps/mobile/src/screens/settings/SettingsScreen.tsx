@@ -315,12 +315,13 @@ export default function SettingsScreen() {
         notifNavigation,
       });
       setSettings(response.data);
+      // Server-backed prefs only — the client-only prefs (distance unit, PTT
+      // volume, theme) are applied and persisted the moment their chip is
+      // tapped, so a failed PATCH here can never hold them hostage.
       setGlobalSettings({
         mapStyle: response.data.mapStyle,
         hazardAlertDistanceM: response.data.hazardAlertDistanceM,
         scenicRouting: response.data.scenicRouting,
-        pttVolumePercent,
-        distanceUnit,
         shareLocationWithFriends: response.data.shareLocationWithFriends ?? shareLocationWithFriends,
       });
       setIsDirty(false);
@@ -752,7 +753,12 @@ export default function SettingsScreen() {
             <ChipSelector
               options={DISTANCE_UNITS}
               selected={distanceUnit}
-              onSelect={(v) => { setDistanceUnit(v); mark(); }}
+              // Applied instantly (not gated behind Save) — a client-only
+              // preference with no server field (the PATCH payload never
+              // carried it), persisted by the settings store like Theme
+              // above. Keeping it out of the Save round-trip means a network
+              // failure can never block or roll back a purely local pref.
+              onSelect={(v) => { setDistanceUnit(v); setGlobalSettings({ distanceUnit: v }); }}
             />
           </View>
           <SettingRow
@@ -810,7 +816,9 @@ export default function SettingsScreen() {
             <ChipSelector
               options={PTT_VOLUME_LEVELS}
               selected={pttVolumePercent}
-              onSelect={(v) => { setPttVolumePercent(v); mark(); }}
+              // Applied instantly (not gated behind Save) — client-only
+              // playback preference, same rationale as Distance Units above.
+              onSelect={(v) => { setPttVolumePercent(v); setGlobalSettings({ pttVolumePercent: v }); }}
             />
           </View>
         </View>

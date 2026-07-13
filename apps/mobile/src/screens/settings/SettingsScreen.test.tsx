@@ -73,6 +73,7 @@ jest.mock('../../hooks/useReduceMotion', () => ({
 
 import SettingsScreen from './SettingsScreen';
 import { useAuthStore, User } from '../../stores/authStore';
+import { useSettingsStore } from '../../stores/settingsStore';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -335,5 +336,91 @@ describe('SettingsScreen — save-success banner respects reduce motion', () => 
     expect(fadeIn.length).toBeGreaterThan(0);
 
     timingSpy.mockRestore();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Client-only prefs (distance unit, PTT volume) — Requirement 16
+// ---------------------------------------------------------------------------
+
+describe('SettingsScreen — client-only prefs apply instantly, independent of the server save', () => {
+  let alertSpy: jest.SpyInstance;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockReduceMotion = false;
+    alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockApiGet.mockResolvedValue(SETTINGS_RESPONSE);
+    useSettingsStore.setState({ distanceUnit: 'miles', pttVolumePercent: 100 });
+    signInTestUser();
+  });
+
+  afterEach(() => {
+    alertSpy.mockRestore();
+    useSettingsStore.setState({ distanceUnit: 'miles', pttVolumePercent: 100 });
+  });
+
+  function pressChip(root: ReactTestInstance, label: string) {
+    const chip = root.findAll(
+      (n) => n.props?.accessibilityLabel === label && typeof n.props?.onPress === 'function',
+    )[0];
+    expect(chip).toBeDefined();
+    return act(async () => {
+      chip.props.onPress();
+    });
+  }
+
+  it('tapping a distance-unit or PTT-volume chip persists immediately with no PATCH and no dirty Save', async () => {
+    const root = await renderSettings();
+
+    await pressChip(root, 'Kilometres');
+    expect(useSettingsStore.getState().distanceUnit).toBe('km');
+
+    await pressChip(root, '50%');
+    expect(useSettingsStore.getState().pttVolumePercent).toBe(50);
+
+    // Purely local — nothing went to the server…
+    expect(mockApiPatch).not.toHaveBeenCalled();
+    // …and Save stays disabled: these prefs are already applied, so there is
+    // no half-saved state for a later failed Save to imply.
+    const saveBtn = root.findAll(
+      (n) => n.props?.accessibilityLabel === 'Save settings' && typeof n.props?.onPress === 'function',
+    )[0];
+    expect(saveBtn.props.disabled).toBe(true);
+  });
+
+  it('a failed server save neither rolls back nor blocks already-applied local prefs', async () => {
+    mockApiPatch.mockRejectedValue(new Error('network down'));
+    const root = await renderSettings();
+
+    // Local pref applied instantly…
+    await pressChip(root, 'Kilometres');
+    expect(useSettingsStore.getState().distanceUnit).toBe('km');
+
+    // …then a server-backed change is made and its Save fails.
+    const scenicSwitch = root.findAll(
+      (n) => n.props?.accessibilityLabel === 'Scenic routing toggle' && typeof n.props?.onValueChange === 'function',
+    )[0];
+    await act(async () => {
+      scenicSwitch.props.onValueChange(true);
+    });
+    const saveBtn = root.findAll(
+      (n) => n.props?.accessibilityLabel === 'Save settings' && typeof n.props?.onPress === 'function',
+    )[0];
+    await act(async () => {
+      saveBtn.props.onPress();
+    });
+
+    // Server prefs surface the failure (existing behavior)…
+    const errorText = root.findAll(
+      (n) => n.props?.children === 'Failed to save settings. Please try again.',
+    );
+    expect(errorText.length).toBeGreaterThan(0);
+    // …the payload never carried the client-only prefs…
+    const patchBody = mockApiPatch.mock.calls[0][1] as Record<string, unknown>;
+    expect(patchBody).not.toHaveProperty('distanceUnit');
+    expect(patchBody).not.toHaveProperty('pttVolumePercent');
+    // …and the local pref survives untouched.
+    expect(useSettingsStore.getState().distanceUnit).toBe('km');
   });
 });

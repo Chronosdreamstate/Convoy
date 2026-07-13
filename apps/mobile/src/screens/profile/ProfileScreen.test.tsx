@@ -161,6 +161,46 @@ describe('ProfileScreen — remove photo', () => {
       expect.objectContaining({ avatarUrl: null }),
     );
   });
+
+  it('the photo-URL prompt prefill respects a staged removal instead of resurrecting the old URL', async () => {
+    const renderer = await renderProfile();
+
+    /** Opens the avatar action sheet and presses the given button (from the latest sheet). */
+    async function pressSheetButton(text: string) {
+      await act(async () => {
+        renderer.root.findAll(
+          (n) => n.props?.accessibilityLabel === 'Change profile photo' && typeof n.props?.onPress === 'function',
+        )[0].props.onPress();
+      });
+      const call = [...alertSpy.mock.calls].reverse().find((c) => c[0] === 'Change Photo');
+      expect(call).toBeDefined();
+      const buttons = call![2] as Array<{ text: string; onPress?: () => void }>;
+      const btn = buttons.find((b) => b.text === text);
+      expect(btn?.onPress).toBeDefined();
+      await act(async () => {
+        btn!.onPress!();
+      });
+    }
+
+    function urlInput() {
+      return renderer.root.findAll((n) => n.props?.accessibilityLabel === 'Avatar photo URL')[0];
+    }
+
+    // No staged change yet → the prompt prefills the current server photo.
+    await pressSheetButton('Enter Photo URL');
+    expect(urlInput().props.value).toBe(PROFILE.avatarUrl);
+    await act(async () => {
+      renderer.root.findAll(
+        (n) => n.props?.accessibilityLabel === 'Cancel photo URL' && typeof n.props?.onPress === 'function',
+      )[0].props.onPress();
+    });
+
+    // Stage a removal, then reopen the prompt — it must start empty, not
+    // prefill the URL the user just removed.
+    await pressSheetButton('Remove Photo');
+    await pressSheetButton('Enter Photo URL');
+    expect(urlInput().props.value).toBe('');
+  });
 });
 
 describe('ProfileScreen — on-accent contrast (light theme)', () => {

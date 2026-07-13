@@ -10,8 +10,12 @@
  *    convoy events must be dropped (there is history of exactly this
  *    cross-contamination); stamped events for the DM must land.
  *  - Quick replies send their own text and must NOT wipe a half-typed draft
- *    out of the composer.
+ *    out of the composer, and are disabled (not silently dropped) while a
+ *    send is already in flight.
  *  - Reduce-motion: the reaction picker appears in place (no spring pop).
+ *  - Requirement 33 (in-motion list cap): while in motion the transcript is
+ *    capped to the LATEST 4 messages, with the shared MotionCapNotice
+ *    affordance for the hidden older ones.
  */
 
 import React from 'react';
@@ -74,6 +78,7 @@ import GroupChatScreen from './GroupChatScreen';
 import { useAuthStore, User } from '../stores/authStore';
 import { useGroupStore } from '../stores/groupStore';
 import { useSocketStore } from '../stores/socketStore';
+import { useMotionStore } from '../stores/motionStore';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -287,6 +292,41 @@ describe('GroupChatScreen — composer', () => {
     renderer.unmount();
   });
 
+  it('disables quick-reply chips while a send is in flight, and re-enables them after', async () => {
+    // Deferred POST — keeps `sending` true until we resolve it.
+    let resolvePost!: (value: { data: unknown }) => void;
+    mockApiPost.mockImplementation(() => new Promise((resolve) => { resolvePost = resolve; }));
+    const renderer = await renderChat();
+
+    const chipDisabled = () =>
+      renderer.root.findAll(
+        (n) => n.props?.accessibilityLabel === '👍 Got it' && typeof n.props?.onPress === 'function',
+      )[0].props;
+
+    // Idle: chips are live.
+    expect(chipDisabled().disabled).toBe(false);
+
+    // Kick off a composer send that stays in flight.
+    await act(async () => {
+      findByLabel(renderer.root, 'Message input').props.onChangeText('slow message');
+    });
+    await act(async () => {
+      findByLabel(renderer.root, 'Send message').props.onPress();
+    });
+
+    // In flight: the chip is honestly disabled instead of silently no-oping.
+    expect(chipDisabled().disabled).toBe(true);
+    expect(chipDisabled().accessibilityState).toEqual({ disabled: true });
+
+    // Send settles → chips come back.
+    await act(async () => {
+      resolvePost({ data: message({ id: 'm-server', userId: 'u-1', text: 'slow message' }) });
+    });
+    expect(chipDisabled().disabled).toBe(false);
+
+    renderer.unmount();
+  });
+
   it('opens the reaction picker without a spring animation when reduce-motion is on', async () => {
     mockReduceMotion = true;
     mockChatApi('dm-1', 'dm', [message({ id: 'm-1', text: 'react to me' })]);
@@ -307,6 +347,73 @@ describe('GroupChatScreen — composer', () => {
     expect(springSpy).not.toHaveBeenCalled();
 
     springSpy.mockRestore();
+    renderer.unmount();
+  });
+});
+
+describe('GroupChatScreen — Req 33 in-motion list cap', () => {
+  let socket: FakeSocket;
+
+  // Newest-first, matching the wire order the screen keeps for its `inverted`
+  // list (live arrivals are prepended).
+  const SIX_MESSAGES = [6, 5, 4, 3, 2, 1].map((i) =>
+    message({ id: `m-${i}`, text: `transcript message ${i}` }),
+  );
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockReduceMotion = false;
+    socket = makeFakeSocket();
+    useAuthStore.setState({ user: ME, accessToken: 'tok', token: 'tok', isAuthenticated: true });
+    useGroupStore.setState({ activeGroupId: 'convoy-9' });
+    useSocketStore.setState({ socket: socket as never, isConnected: true });
+    mockGroupIdParam = 'dm-1';
+    mockChatApi('dm-1', 'dm', SIX_MESSAGES);
+  });
+
+  afterEach(() => {
+    useMotionStore.setState({ isInMotion: false });
+    useSocketStore.setState({ socket: null, isConnected: false });
+    useGroupStore.setState({ activeGroupId: null });
+  });
+
+  it('while in motion: caps the transcript to the LATEST 4 messages and shows the cap notice', async () => {
+    useMotionStore.setState({ isInMotion: true });
+    const renderer = await renderChat();
+
+    const text = renderedText(renderer);
+    // Recency matters in a chat — the 4 NEWEST survive the cap…
+    for (const i of [6, 5, 4, 3]) {
+      expect(text).toContain(`transcript message ${i}`);
+    }
+    // …and the older tail is hidden.
+    for (const i of [2, 1]) {
+      expect(text).not.toContain(`transcript message ${i}`);
+    }
+    // Shared Req 33 affordance tells the driver more messages exist.
+    expect(
+      renderer.root.findAll(
+        (n) => n.props?.accessibilityLabel === 'List limited while driving. Pull over to see 2 more.',
+      ).length,
+    ).toBeGreaterThan(0);
+
+    renderer.unmount();
+  });
+
+  it('while parked: the full transcript renders with no cap notice', async () => {
+    const renderer = await renderChat();
+
+    const text = renderedText(renderer);
+    for (const i of [6, 5, 4, 3, 2, 1]) {
+      expect(text).toContain(`transcript message ${i}`);
+    }
+    expect(
+      renderer.root.findAll(
+        (n) => typeof n.props?.accessibilityLabel === 'string'
+          && n.props.accessibilityLabel.startsWith('List limited while driving'),
+      ),
+    ).toHaveLength(0);
+
     renderer.unmount();
   });
 });
