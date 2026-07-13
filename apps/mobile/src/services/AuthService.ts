@@ -122,6 +122,15 @@ export class AuthService {
     return { user: result.user, accessToken: result.accessToken };
   }
 
+  /**
+   * Exchange a Google ID token (obtained by GoogleSignInButton via
+   * expo-auth-session) for the app's own session. Shares the /auth/social
+   * exchange and SecureStore behaviour with Apple sign-in.
+   */
+  async signInWithGoogle(idToken: string): Promise<AuthResult> {
+    return this.signInSocial('google', idToken);
+  }
+
   async refreshToken(): Promise<string | null> {
     try {
       const result = await rawPost<{ accessToken: string }>('/api/v1/auth/refresh', {});

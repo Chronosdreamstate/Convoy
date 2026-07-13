@@ -1,7 +1,9 @@
 /**
- * WelcomeScreen tests — funnel entry points and the Google "Coming Soon"
- * fallback (Req 2). The fallback copy must only suggest Apple Sign-In on iOS;
- * Android has no Apple auth to fall back to.
+ * WelcomeScreen tests — funnel entry points and the Google button's
+ * unconfigured "Coming Soon" fallback (Req 2). With no Google client IDs in
+ * the test env, GoogleSignInButton degrades to the fallback alert, whose copy
+ * must only suggest Apple Sign-In on iOS; Android has no Apple auth to fall
+ * back to. The live Google flow is covered in GoogleSignInButton.test.tsx.
  */
 
 import React from 'react';
@@ -61,6 +63,10 @@ function goToLastSlide(screen: ReturnType<typeof render>) {
 beforeEach(() => {
   jest.clearAllMocks();
   setPlatformOS('ios');
+  // Force the Google button onto its unconfigured fallback path.
+  delete process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID;
+  delete process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID;
+  delete process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID;
 });
 
 afterEach(() => {

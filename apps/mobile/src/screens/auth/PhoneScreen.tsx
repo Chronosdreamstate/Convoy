@@ -17,6 +17,7 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { authService } from '../../services/AuthService';
 import AppleSignInButton from '../../components/AppleSignInButton';
+import GoogleSignInButton from '../../components/GoogleSignInButton';
 import { useTheme } from '../../theme';
 
 // Text that always sits on the crimson accent fill — stays light in both themes.
@@ -51,6 +52,7 @@ export default function PhoneScreen() {
   const [showPicker, setShowPicker] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isAppleSigningIn, setIsAppleSigningIn] = useState(false);
+  const [isGoogleSigningIn, setIsGoogleSigningIn] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const handleChangeText = (text: string) => {
@@ -153,35 +155,37 @@ export default function PhoneScreen() {
             {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
             <TouchableOpacity
-              style={[styles.button, (isLoading || isAppleSigningIn || digits.length < country.digits) && styles.buttonDisabled]}
+              style={[styles.button, (isLoading || isAppleSigningIn || isGoogleSigningIn || digits.length < country.digits) && styles.buttonDisabled]}
               onPress={() => { void handleSendOtp(); }}
-              disabled={isLoading || isAppleSigningIn || digits.length < country.digits}
+              disabled={isLoading || isAppleSigningIn || isGoogleSigningIn || digits.length < country.digits}
               activeOpacity={0.8}
               accessibilityRole="button"
               accessibilityLabel="Continue"
               accessibilityHint="Sends a one-time code to your phone"
-              accessibilityState={{ disabled: isLoading || isAppleSigningIn || digits.length < country.digits }}
+              accessibilityState={{ disabled: isLoading || isAppleSigningIn || isGoogleSigningIn || digits.length < country.digits }}
             >
               {isLoading
                 ? <ActivityIndicator color={ON_ACCENT} />
                 : <Text style={styles.buttonText}>Continue →</Text>}
             </TouchableOpacity>
 
-            {/* Sign in with Apple must be offered wherever alternative auth is
-                offered (Req 36.1 / App Store Guideline 4.8) — iOS only. */}
-            {Platform.OS === 'ios' && (
-              <>
-                <View style={styles.dividerRow}>
-                  <View style={styles.dividerLine} />
-                  <Text style={styles.dividerText}>or</Text>
-                  <View style={styles.dividerLine} />
-                </View>
-                <AppleSignInButton
-                  disabled={isLoading}
-                  onLoadingChange={setIsAppleSigningIn}
-                />
-              </>
-            )}
+            {/* Social auth must be offered wherever alternative auth is
+                offered (Req 36.1 / Req 2.4 / App Store Guideline 4.8) —
+                Apple renders itself on iOS only; Google on both platforms.
+                The buttons mutually disable while a sibling request runs. */}
+            <View style={styles.dividerRow}>
+              <View style={styles.dividerLine} />
+              <Text style={styles.dividerText}>or</Text>
+              <View style={styles.dividerLine} />
+            </View>
+            <AppleSignInButton
+              disabled={isLoading || isGoogleSigningIn}
+              onLoadingChange={setIsAppleSigningIn}
+            />
+            <GoogleSignInButton
+              disabled={isLoading || isAppleSigningIn}
+              onLoadingChange={setIsGoogleSigningIn}
+            />
           </View>
         </ScrollView>
       </KeyboardAvoidingView>

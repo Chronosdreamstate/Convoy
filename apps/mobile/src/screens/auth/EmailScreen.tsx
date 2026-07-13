@@ -17,6 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { authService } from '../../services/AuthService';
 import { useAuthStore } from '../../stores/authStore';
 import AppleSignInButton from '../../components/AppleSignInButton';
+import GoogleSignInButton from '../../components/GoogleSignInButton';
 import { useTheme } from '../../theme';
 
 type Mode = 'signin' | 'signup';
@@ -43,6 +44,7 @@ export default function EmailScreen() {
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [isAppleSigningIn, setIsAppleSigningIn] = useState(false);
+  const [isGoogleSigningIn, setIsGoogleSigningIn] = useState(false);
 
   const passwordRef = useRef<TextInput>(null);
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -133,7 +135,8 @@ export default function EmailScreen() {
     setPassword('');
   };
 
-  const isSubmitDisabled = isLoading || isAppleSigningIn || !email.trim() || !password;
+  const isSubmitDisabled =
+    isLoading || isAppleSigningIn || isGoogleSigningIn || !email.trim() || !password;
   const emailValid = isValidEmail(email.trim());
 
   return (
@@ -272,21 +275,23 @@ export default function EmailScreen() {
                 </TouchableOpacity>
               </View>
 
-              {/* Sign in with Apple must be offered wherever alternative auth is
-                  offered (Req 36.1 / App Store Guideline 4.8) — iOS only. */}
-              {Platform.OS === 'ios' && (
-                <>
-                  <View style={styles.dividerRow}>
-                    <View style={styles.dividerLine} />
-                    <Text style={styles.dividerText}>or</Text>
-                    <View style={styles.dividerLine} />
-                  </View>
-                  <AppleSignInButton
-                    disabled={isLoading}
-                    onLoadingChange={setIsAppleSigningIn}
-                  />
-                </>
-              )}
+              {/* Social auth must be offered wherever alternative auth is
+                  offered (Req 36.1 / Req 2.4 / App Store Guideline 4.8) —
+                  Apple renders itself on iOS only; Google on both platforms.
+                  The buttons mutually disable while a sibling request runs. */}
+              <View style={styles.dividerRow}>
+                <View style={styles.dividerLine} />
+                <Text style={styles.dividerText}>or</Text>
+                <View style={styles.dividerLine} />
+              </View>
+              <AppleSignInButton
+                disabled={isLoading || isGoogleSigningIn}
+                onLoadingChange={setIsAppleSigningIn}
+              />
+              <GoogleSignInButton
+                disabled={isLoading || isAppleSigningIn}
+                onLoadingChange={setIsGoogleSigningIn}
+              />
             </View>
           </Animated.View>
         </ScrollView>

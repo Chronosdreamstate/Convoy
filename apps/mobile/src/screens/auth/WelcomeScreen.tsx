@@ -7,13 +7,11 @@ import {
   StyleSheet,
   SafeAreaView,
   Linking,
-  Platform,
-  Alert,
   Dimensions,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
 import AppleSignInButton from '../../components/AppleSignInButton';
+import GoogleSignInButton from '../../components/GoogleSignInButton';
 import { useTheme } from '../../theme';
 import { useAccessibilitySettings } from '../../hooks/useAccessibilitySettings';
 
@@ -58,6 +56,7 @@ export default function WelcomeScreen() {
 
   const [currentSlide, setCurrentSlide] = useState(0);
   const [isAppleSigningIn, setIsAppleSigningIn] = useState(false);
+  const [isGoogleSigningIn, setIsGoogleSigningIn] = useState(false);
 
   // Per-slide translateX: slide 0 starts visible (0), rest start off-screen right (SCREEN_WIDTH)
   const slideAnims = useRef(
@@ -128,16 +127,6 @@ export default function WelcomeScreen() {
 
   const handleOpenUrl = (url: string) => {
     Linking.openURL(url).catch(() => {});
-  };
-
-  const handleGoogleSignIn = () => {
-    // Apple Sign-In only exists on iOS — don't suggest it on Android.
-    Alert.alert(
-      'Coming Soon',
-      Platform.OS === 'ios'
-        ? 'Google Sign-In will be available in a future update. Please use phone, email, or Apple Sign-In.'
-        : 'Google Sign-In will be available in a future update. Please use phone or email sign-in.',
-    );
   };
 
   const isLastSlide = currentSlide === SLIDES.length - 1;
@@ -256,25 +245,16 @@ export default function WelcomeScreen() {
               <View style={styles.dividerLine} />
             </View>
 
-            <AppleSignInButton onLoadingChange={setIsAppleSigningIn} />
-
-            <TouchableOpacity
-              style={[
-                styles.googleButton,
-                Platform.OS === 'ios' && styles.googleButtonAfterApple,
-                isAppleSigningIn && styles.socialButtonDisabled,
-              ]}
-              onPress={() => { void handleGoogleSignIn(); }}
+            {/* Social auth — the two buttons mutually disable while the
+                sibling's request is in flight. */}
+            <AppleSignInButton
+              disabled={isGoogleSigningIn}
+              onLoadingChange={setIsAppleSigningIn}
+            />
+            <GoogleSignInButton
               disabled={isAppleSigningIn}
-              activeOpacity={0.8}
-              accessibilityRole="button"
-              accessibilityLabel="Sign in with Google"
-              accessibilityHint="Signs you in with your Google account"
-              accessibilityState={{ disabled: isAppleSigningIn }}
-            >
-              <Ionicons name="logo-google" size={18} color="#4285F4" />
-              <Text style={styles.googleButtonText}>Sign in with Google</Text>
-            </TouchableOpacity>
+              onLoadingChange={setIsGoogleSigningIn}
+            />
 
             <View style={styles.legalSection}>
               <Text style={styles.legalText}>By continuing, you agree to our </Text>
@@ -480,33 +460,6 @@ function createStyles(theme: ReturnType<typeof useTheme>) {
       color: theme.colors.textSubtle,
       fontSize: 13,
       marginHorizontal: 12,
-    },
-    // Dims a social button (and blocks re-entry) while an auth request is pending.
-    socialButtonDisabled: {
-      opacity: 0.5,
-    },
-    googleButton: {
-      flexDirection: 'row',
-      backgroundColor: theme.colors.card,
-      borderRadius: 14,
-      paddingVertical: 18,
-      paddingHorizontal: theme.spacing.lg,
-      alignItems: 'center',
-      justifyContent: 'center',
-      gap: 8,
-      minHeight: 56,
-      borderWidth: 1,
-      // Google's brand blue border — intentionally not themed, see appleButton.
-      borderColor: '#4285F4',
-    },
-    googleButtonAfterApple: {
-      // appleButton already has marginBottom: 10 — no extra needed
-    },
-    googleButtonText: {
-      color: '#4285F4',
-      fontSize: 16,
-      fontWeight: '600',
-      letterSpacing: 0.3,
     },
     legalSection: {
       alignItems: 'center',

@@ -1,7 +1,8 @@
 /**
- * PhoneScreen tests — Requirement 36.1 / App Store Guideline 4.8: the phone
- * auth entry screen must also offer Sign in with Apple on iOS (with the "or"
- * divider), and must not show it on Android.
+ * PhoneScreen tests — Requirement 36.1 / Requirement 2.4 / App Store
+ * Guideline 4.8: the phone auth entry screen must also offer Sign in with
+ * Apple on iOS (with the "or" divider) and Sign in with Google on both
+ * platforms; Apple must not show on Android.
  */
 
 import React from 'react';
@@ -56,7 +57,7 @@ afterEach(() => {
 });
 
 describe('PhoneScreen', () => {
-  it('offers Sign in with Apple below the phone form on iOS (Req 36.1)', () => {
+  it('offers Sign in with Apple and Google below the phone form on iOS (Req 36.1, Req 2.4)', () => {
     const screen = render(<PhoneScreen />);
 
     // Primary phone form is intact…
@@ -67,14 +68,18 @@ describe('PhoneScreen', () => {
     expect(screen.getByText('or')).toBeTruthy();
     expect(screen.getByTestId('apple-sign-in-button')).toBeTruthy();
     expect(screen.getByText('Sign in with Apple')).toBeTruthy();
+    expect(screen.getByTestId('google-sign-in-button')).toBeTruthy();
+    expect(screen.getByText('Sign in with Google')).toBeTruthy();
   });
 
-  it('does not offer Sign in with Apple on Android', () => {
+  it('offers Google but not Apple on Android', () => {
     setPlatformOS('android');
     const screen = render(<PhoneScreen />);
 
     expect(screen.getByLabelText('Phone number, required')).toBeTruthy();
     expect(screen.queryByTestId('apple-sign-in-button')).toBeNull();
-    expect(screen.queryByText('or')).toBeNull();
+    // Google is cross-platform, so the "or" divider stays on Android.
+    expect(screen.getByText('or')).toBeTruthy();
+    expect(screen.getByTestId('google-sign-in-button')).toBeTruthy();
   });
 });

@@ -29,6 +29,28 @@ const PROVIDER_JWKS_URLS: Record<'google' | 'apple', string> = {
   apple: 'https://appleid.apple.com/auth/keys',
 };
 
+/** Issuer values each provider may legitimately place in the `iss` claim.
+ * Google historically mints tokens both with and without the scheme prefix. */
+const PROVIDER_ISSUERS: Record<'google' | 'apple', string[]> = {
+  google: ['https://accounts.google.com', 'accounts.google.com'],
+  apple: ['https://appleid.apple.com'],
+};
+
+/**
+ * OAuth client IDs we accept as the `aud` claim of a Google ID token — the
+ * app's iOS / Android / web client IDs, comma-separated (same convention as
+ * CORS_ORIGINS). Read from process.env on each call rather than config/env so
+ * the feature stays optional: when unset, Google sign-in is not configured and
+ * POST /auth/social returns 503 for provider=google instead of accepting
+ * tokens minted for arbitrary apps.
+ */
+function getGoogleClientIds(): string[] {
+  return (process.env.GOOGLE_CLIENT_IDS ?? '')
+    .split(',')
+    .map((id) => id.trim())
+    .filter((id) => id.length > 0);
+}
+
 /** In-memory JWKS cache entry */
 interface JwksCache {
   keySet: ReturnType<typeof createRemoteJWKSet>;
@@ -59,7 +81,15 @@ async function verifyProviderToken(
   idToken: string,
 ): Promise<{ sub: string; email?: string }> {
   const JWKS = getJwks(provider);
-  const { payload } = await jwtVerify<JWTPayload>(idToken, JWKS);
+  // jose enforces signature + `exp` itself; we additionally pin the issuer,
+  // and for Google the audience must be one of our own OAuth client IDs —
+  // otherwise a valid Google token minted for ANY app would sign users in.
+  // (Apple audience = bundle ID is not yet provisioned in the env layer, so
+  // Apple keeps signature/expiry/issuer checks only, as before.)
+  const { payload } = await jwtVerify<JWTPayload>(idToken, JWKS, {
+    issuer: PROVIDER_ISSUERS[provider],
+    ...(provider === 'google' ? { audience: getGoogleClientIds() } : {}),
+  });
 
   if (typeof payload.sub !== 'string' || !payload.sub) {
     throw new Error('Token missing sub claim');
@@ -90,6 +120,14 @@ const OTP_VERIFY_WINDOW_SECONDS = 600;
  * Keyed by IP (not email) because rotating the email is free for an attacker. */
 const SIGNUP_LIMIT = 5;
 const SIGNUP_WINDOW_SECONDS = 900;
+
+/** Social auth rate-limit: 10 attempts per IP per 15 minutes.
+ * Mirrors rl:signup — each attempt costs a JWKS fetch/signature check and a
+ * user upsert, and an unlimited endpoint would let an attacker spray stolen
+ * or forged ID tokens. Keyed by IP because the provider account is free to
+ * rotate for an attacker. */
+const SOCIAL_LIMIT = 10;
+const SOCIAL_WINDOW_SECONDS = 900;
 
 async function authRoutes(fastify: FastifyInstance, _opts: FastifyPluginOptions): Promise<void> {
   // -------------------------------------------------------------------------
@@ -310,6 +348,30 @@ async function authRoutes(fastify: FastifyInstance, _opts: FastifyPluginOptions)
     }
 
     const { provider, idToken } = result.data;
+
+    // Brute-force protection (mirrors rl:signup): counted before any JWKS or
+    // DB work so failed attempts burn quota too.
+    const socialKey = `rl:social:${request.ip}`;
+    const socialAttempts = await fastify.redis.incr(socialKey);
+    if (socialAttempts === 1) {
+      await fastify.redis.expire(socialKey, SOCIAL_WINDOW_SECONDS);
+    }
+    if (socialAttempts > SOCIAL_LIMIT) {
+      return reply.tooManyRequests('Too many sign-in attempts. Please try again later.');
+    }
+
+    // Config gate: without at least one allowed audience we cannot check who
+    // a Google ID token was minted for, so the provider is unavailable rather
+    // than insecurely permissive. The mobile client hides the live Google
+    // button unless its own client IDs are configured, so this is a backstop.
+    if (provider === 'google' && getGoogleClientIds().length === 0) {
+      return reply.status(503).send({
+        error: {
+          code: 'PROVIDER_NOT_CONFIGURED',
+          message: 'Google sign-in is not available on this server.',
+        },
+      });
+    }
 
     let providerId: string;
     let email: string | null = null;

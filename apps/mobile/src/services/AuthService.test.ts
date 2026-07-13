@@ -331,6 +331,25 @@ describe('AuthService — secure token storage', () => {
     });
   });
 
+  describe('signInWithGoogle', () => {
+    it('exchanges the ID token via /auth/social and stores the token in SecureStore', async () => {
+      const globalFetch = createFetchMock();
+      global.fetch = globalFetch;
+
+      const service = await getAuthService();
+      const result = await service.signInWithGoogle('google_id_token_xyz');
+
+      // Same exchange endpoint and provider tag as the rest of social auth.
+      const [url, init] = globalFetch.mock.calls[0] as [string, { body: string }];
+      expect(url).toContain('/api/v1/auth/social');
+      expect(JSON.parse(init.body)).toEqual({ provider: 'google', idToken: 'google_id_token_xyz' });
+
+      expect(mockSetItemAsync).toHaveBeenCalledWith('convoy_access_token', MOCK_ACCESS_TOKEN);
+      expect(result.accessToken).toBe(MOCK_ACCESS_TOKEN);
+      expect(result.user).toEqual(MOCK_USER);
+    });
+  });
+
   describe('loadStoredToken', () => {
     it('reads the token from SecureStore', async () => {
       storedAccessToken = 'stored_token_abc';
