@@ -89,6 +89,7 @@ const baseConfig = {
     'expo-secure-store',
     'expo-apple-authentication',
     'expo-camera',
+    'expo-web-browser',
     [
       'expo-location',
       {
@@ -120,5 +121,14 @@ const baseConfig = {
   },
   owner: 'chronoss',
 };
+
+// Google sign-in (expo-auth-session) redirects back into the app via the
+// reversed iOS OAuth client ID; register it as a URL scheme only when the
+// client ID is configured so unconfigured builds stay unchanged.
+const googleIosClientId = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID;
+if (googleIosClientId) {
+  const reversed = `com.googleusercontent.apps.${googleIosClientId.replace('.apps.googleusercontent.com', '')}`;
+  baseConfig.ios.infoPlist.CFBundleURLTypes = [{ CFBundleURLSchemes: [reversed] }];
+}
 
 module.exports = { expo: baseConfig };
