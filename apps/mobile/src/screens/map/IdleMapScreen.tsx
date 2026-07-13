@@ -25,6 +25,7 @@ import { openMapsDirections } from '../../utils/openMapsDirections';
 import { useAuthStore } from '../../stores/authStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useReduceMotion } from '../../hooks/useReduceMotion';
+import { sharedMotionState } from '../../services/MotionStateService';
 import { ThemeColors, useTheme } from '../../theme';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
@@ -503,6 +504,9 @@ export default function IdleMapScreen() {
           const spd = loc.coords.speed;
           const speedKphVal = spd !== null && spd >= 0 ? Math.round(spd * 3.6) : null;
           if (speedKphVal !== null) setSpeedKph(speedKphVal);
+          // This watch bypasses LocationService, so feed motion state directly —
+          // otherwise Req 33/34 gating is inert on the no-group surface.
+          sharedMotionState.update(speedKphVal ?? 0);
           if (loc.coords.heading !== null && loc.coords.heading >= 0) {
             setHeadingDeg(loc.coords.heading);
           }
