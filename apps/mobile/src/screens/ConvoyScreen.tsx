@@ -1319,7 +1319,7 @@ export default function ConvoyScreen({ userId }: Props) {
       {isAdmin && (
         <TouchableOpacity
           style={styles.scheduleBtn}
-          onPress={() => router.push({ pathname: '/create-event' as never, params: { groupId: group.id } })}
+          onPress={() => { if (!guardInMotion()) router.push({ pathname: '/create-event' as never, params: { groupId: group.id } }); }}
           accessibilityRole="button"
           accessibilityLabel="Schedule a convoy event"
         >
