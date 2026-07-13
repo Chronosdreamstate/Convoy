@@ -28,6 +28,11 @@ import { apiClient } from '../services/apiClient';
 import { useGroupStore } from '../stores/groupStore';
 import { useTheme, ThemeColors, withAlpha } from '../theme';
 
+// Text/icons that always sit on the crimson accent fill (bottom action
+// button) — stays light in both themes. `colors.text` is near-black in light
+// mode, which would be unreadable on the accent background.
+const ON_ACCENT = '#FFFFFF';
+
 const VEHICLE_TYPES: Array<{ type: string; label: string; icon: keyof typeof MaterialCommunityIcons.glyphMap }> = [
   { type: 'all', label: 'All types', icon: 'car-multiple' },
   { type: 'sports_car', label: 'Sports cars', icon: 'car-sports' },
@@ -338,7 +343,7 @@ export default function CreateGroupScreen() {
             accessibilityLabel="Create convoy"
           >
             {loading
-              ? <ActivityIndicator color={colors.text} />
+              ? <ActivityIndicator color={ON_ACCENT} />
               : <Text style={styles.nextBtnText}>Create Convoy</Text>
             }
           </TouchableOpacity>
@@ -351,7 +356,7 @@ export default function CreateGroupScreen() {
             accessibilityLabel="Start driving"
           >
             <Text style={styles.nextBtnText}>
-              <MaterialCommunityIcons name="car" size={16} color={colors.text} /> Start Driving
+              <MaterialCommunityIcons name="car" size={16} color={ON_ACCENT} /> Start Driving
             </Text>
           </TouchableOpacity>
         )}
@@ -467,6 +472,6 @@ function createStyles(colors: ThemeColors) {
     justifyContent: 'center',
   },
   nextBtnDisabled: { opacity: 0.4 },
-  nextBtnText: { color: colors.text, fontSize: 17, fontWeight: '700' },
+  nextBtnText: { color: ON_ACCENT, fontSize: 17, fontWeight: '700' },
   });
 }

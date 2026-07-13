@@ -16,6 +16,7 @@ import { ThemeColors, useTheme } from '../theme';
 import { apiClient } from '../services/apiClient';
 import SkeletonCard from '../components/SkeletonLoader';
 import { NetworkError } from '../components/NetworkError';
+import { MotionCapNotice, useMotionCappedData } from '../components/MotionAwareList';
 import { useSocketStore } from '../stores/socketStore';
 
 // ---------------------------------------------------------------------------
@@ -328,6 +329,7 @@ export default function NotificationCenterScreen() {
     void apiClient.patch(`/api/v1/notifications/${item.id}/read`).catch(() => {});
 
     const gid = item.data?.groupId;
+    const eventId = item.data?.eventId;
     switch (item.type) {
       case 'sos_alert':
       case 'hazard_alert':
@@ -347,6 +349,17 @@ export default function NotificationCenterScreen() {
         break;
       case 'group_event':
       case 'event_reminder':
+        // Server pushes stamp data with { groupId, eventId } (see
+        // groups.routes.ts event create/remind) — land on the event itself so
+        // the rider can RSVP in one tap instead of hunting through the group.
+        if (eventId) {
+          router.push({ pathname: '/event/[id]', params: { id: eventId, groupId: gid ?? '' } } as never);
+        } else if (gid) {
+          router.push(`/group/${gid}` as never);
+        } else {
+          router.push('/(tabs)/convoy' as never);
+        }
+        break;
       case 'rally_point':
         if (gid) router.push(`/group/${gid}` as never);
         else router.push('/(tabs)/convoy' as never);
@@ -365,7 +378,12 @@ export default function NotificationCenterScreen() {
   }, []);
 
   const unreadCount = notifications.filter((n) => n.readAt === null).length;
-  const sections = buildSections(notifications);
+  // Req 33 — while the vehicle is in motion, cap the list to 4 rows with a
+  // "pull over to see more" notice (notifications are plausibly checked while
+  // driving). Sections are built from the capped rows so the 4-row limit holds
+  // across section boundaries; the full list returns the moment the car parks.
+  const { data: visibleNotifications, hiddenCount } = useMotionCappedData(notifications);
+  const sections = buildSections(visibleNotifications);
 
   const renderNotificationItem = useCallback(
     ({ item }: { item: NotificationItem }) => (
@@ -437,6 +455,11 @@ export default function NotificationCenterScreen() {
               <Ionicons name="notifications-outline" size={48} color={colors.textMuted} />
               <Text style={styles.emptyTitle}>No notifications yet</Text>
               <Text style={styles.emptySubtitle}>You'll see convoy alerts here</Text>
+            </View>
+          }
+          ListFooterComponent={
+            <View style={styles.capNoticeWrap}>
+              <MotionCapNotice hiddenCount={hiddenCount} />
             </View>
           }
           contentContainerStyle={sections.length === 0 ? styles.emptyContainer : styles.listContent}
@@ -521,6 +544,9 @@ function createStyles(colors: ThemeColors, spacing: { xs: number; sm: number; md
     },
     listContent: {
       paddingBottom: 40,
+    },
+    capNoticeWrap: {
+      paddingHorizontal: spacing.md,
     },
     emptyContainer: {
       flex: 1,

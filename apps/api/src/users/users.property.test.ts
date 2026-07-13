@@ -41,7 +41,7 @@ interface InMemoryUser {
 interface InMemoryFriendship {
   requester_id: string;
   addressee_id: string;
-  status: 'accepted';
+  status: 'pending' | 'accepted' | 'blocked';
 }
 
 let usersDb: Map<string, InMemoryUser>;
@@ -101,6 +101,52 @@ function buildMockPool(): Pool {
           (u) => u.id !== callerId && u.privacy === 'open' && u.display_name.toLowerCase().includes(pattern),
         );
         return { rows: matches, rowCount: matches.length };
+      }
+
+      // GET /users/:id — public profile with vehicle/stats laterals
+      if (norm.includes('FROM USERS U') && norm.includes('U.BIO')) {
+        const userId = params![0] as string;
+        const u = usersDb.get(userId);
+        if (!u) return { rows: [], rowCount: 0 };
+        return {
+          rows: [{
+            id: u.id,
+            display_name: u.display_name,
+            avatar_url: u.avatar_url,
+            ptt_callsign: u.ptt_callsign,
+            bio: null,
+            created_at: u.created_at,
+            vehicle_type: null,
+            vehicle_make: null,
+            vehicle_model: null,
+            vehicle_year: null,
+            vehicle_color: null,
+            mods: [],
+            total_drives: '0',
+            total_distance_km: '0',
+          }],
+          rowCount: 1,
+        };
+      }
+
+      // GET /users/:id — mutual friend count (INTERSECT of both friend sets)
+      if (norm.includes('INTERSECT')) {
+        return { rows: [{ count: '0' }], rowCount: 1 };
+      }
+
+      // GET /users/:id — relationship lookup (status + requester, both
+      // directions, blocks included)
+      if (norm.includes('SELECT STATUS, REQUESTER_ID FROM FRIENDSHIPS')) {
+        const [a, b] = params as [string, string];
+        const rows = friendships
+          .filter(
+            (f) =>
+              (f.requester_id === a && f.addressee_id === b) ||
+              (f.requester_id === b && f.addressee_id === a),
+          )
+          .slice(0, 2)
+          .map((f) => ({ status: f.status, requester_id: f.requester_id }));
+        return { rows, rowCount: rows.length };
       }
 
       // Friendship check for phone search privacy
@@ -499,5 +545,60 @@ describe('Property 58: Display-name search only returns open-privacy users', () 
     expect(res.statusCode).toBe(401);
 
     await app.close();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GET /users/:id friendStatus — block visibility is directional (Req 17.11)
+// A block the viewer placed reads 'blocked' (so UserProfileScreen can show an
+// honest Blocked/Unblock state); a block placed AGAINST the viewer is never
+// revealed and reads as no relationship.
+// ---------------------------------------------------------------------------
+describe('GET /users/:id friendStatus block visibility', () => {
+  async function fetchProfile(viewerId: string, targetId: string): Promise<{ friendStatus: string | null }> {
+    const app = buildTestApp();
+    const token = await makeToken(app, viewerId);
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/v1/users/${targetId}`,
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body) as { friendStatus: string | null };
+    await app.close();
+    return body;
+  }
+
+  it("a block the viewer placed is surfaced as 'blocked'", async () => {
+    resetStore([makeUser('u-viewer'), makeUser('u-target')]);
+    friendships.push({ requester_id: 'u-viewer', addressee_id: 'u-target', status: 'blocked' });
+
+    const body = await fetchProfile('u-viewer', 'u-target');
+    expect(body.friendStatus).toBe('blocked');
+  });
+
+  it('a block placed against the viewer is never revealed (reads null)', async () => {
+    resetStore([makeUser('u-viewer'), makeUser('u-target')]);
+    friendships.push({ requester_id: 'u-target', addressee_id: 'u-viewer', status: 'blocked' });
+
+    const body = await fetchProfile('u-viewer', 'u-target');
+    expect(body.friendStatus).toBeNull();
+  });
+
+  it("a mutual block still reads 'blocked' for the viewer", async () => {
+    resetStore([makeUser('u-viewer'), makeUser('u-target')]);
+    friendships.push({ requester_id: 'u-target', addressee_id: 'u-viewer', status: 'blocked' });
+    friendships.push({ requester_id: 'u-viewer', addressee_id: 'u-target', status: 'blocked' });
+
+    const body = await fetchProfile('u-viewer', 'u-target');
+    expect(body.friendStatus).toBe('blocked');
+  });
+
+  it('an accepted friendship still reads accepted, and strangers read null', async () => {
+    resetStore([makeUser('u-viewer'), makeUser('u-friend'), makeUser('u-stranger')]);
+    friendships.push({ requester_id: 'u-friend', addressee_id: 'u-viewer', status: 'accepted' });
+
+    expect((await fetchProfile('u-viewer', 'u-friend')).friendStatus).toBe('accepted');
+    expect((await fetchProfile('u-viewer', 'u-stranger')).friendStatus).toBeNull();
   });
 });

@@ -94,6 +94,10 @@ export default function EventDetailScreen() {
   const [counts, setCounts] = useState<RsvpCounts>({ going: 0, maybe: 0, not_going: 0 });
   const [myStatus, setMyStatus] = useState<RsvpStatus | null>(null);
   const [loading, setLoading] = useState(true);
+  // Distinguishes "the fetch failed" (network/server — retry makes sense)
+  // from "the fetch worked but the event is gone" (it passed or was
+  // cancelled — retrying will never bring it back).
+  const [loadError, setLoadError] = useState(false);
   const [rsvpLoadingStatus, setRsvpLoadingStatus] = useState<RsvpStatus | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [sharingEvent, setSharingEvent] = useState(false);
@@ -114,13 +118,19 @@ export default function EventDetailScreen() {
           `/api/v1/groups/${resolvedGroupId}/events/${eventId}/rsvps`,
         ),
       ]);
+      // The events list only carries upcoming events — a fetch that succeeds
+      // but doesn't contain this id means the event passed or was cancelled,
+      // which is a real answer, not an error.
       const found = eventsRes.data.events.find((e) => e.id === eventId);
       if (found) setEvent(found);
       setRsvps(rsvpRes.data.rsvps);
       setCounts(rsvpRes.data.counts);
       setMyStatus(rsvpRes.data.myStatus);
+      setLoadError(false);
     } catch {
-      // keep showing whatever we have
+      // keep showing whatever we have; only flag a hard error when there's
+      // nothing on screen to fall back to
+      setLoadError(true);
     } finally {
       setLoading(false);
     }
@@ -273,7 +283,26 @@ export default function EventDetailScreen() {
           <Ionicons name="chevron-back" size={14} color={colors.accent} />
           <Text style={styles.backLink}> Back</Text>
         </TouchableOpacity>
-        <NetworkError onRetry={() => void load()} message="Event not found." />
+        {loadError ? (
+          // The fetch itself failed — retrying can genuinely help.
+          <NetworkError onRetry={() => void load()} message="Could not load this event. Check your connection." />
+        ) : (
+          // The fetch worked but the event is gone (passed or cancelled) —
+          // a retry button here would be a lie, offer the way back instead.
+          <View style={styles.goneWrap}>
+            <Ionicons name="calendar-outline" size={44} color={colors.textMuted} />
+            <Text style={styles.goneTitle}>Event unavailable</Text>
+            <Text style={styles.goneText}>This event has already happened or was cancelled.</Text>
+            <TouchableOpacity
+              style={styles.goneBackBtn}
+              onPress={() => router.back()}
+              accessibilityRole="button"
+              accessibilityLabel="Go back to previous screen"
+            >
+              <Text style={styles.goneBackText}>Go Back</Text>
+            </TouchableOpacity>
+          </View>
+        )}
       </View>
     );
   }
@@ -600,5 +629,14 @@ function createStyles(colors: ThemeColors) {
 
   emptyText: { fontSize: 16, color: colors.textMuted },
   backLink: { fontSize: 14, color: colors.accent },
+
+  goneWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32, gap: 8 },
+  goneTitle: { color: colors.text, fontSize: 18, fontWeight: '700', marginTop: 4 },
+  goneText: { color: colors.textMuted, fontSize: 14, textAlign: 'center', lineHeight: 20 },
+  goneBackBtn: {
+    marginTop: 12, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border,
+    borderRadius: 12, paddingHorizontal: 24, paddingVertical: 12, minHeight: 44, justifyContent: 'center',
+  },
+  goneBackText: { color: colors.text, fontSize: 15, fontWeight: '600' },
   });
 }

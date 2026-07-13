@@ -21,6 +21,11 @@ import { ThemeColors, useTheme } from '../theme';
 const STORAGE_KEY = 'convoy:recent_searches';
 const MAX_RECENT = 5;
 
+// Text that always sits on the crimson accent fill (retry button) — stays
+// light in both themes. `colors.text` is near-black in light mode, which
+// would be unreadable on the accent background.
+const ON_ACCENT = '#FFFFFF';
+
 interface Group {
   id: string;
   name: string;
@@ -148,8 +153,21 @@ export default function SearchScreen() {
     try {
       await apiClient.post(`/api/v1/groups/${groupId}/members`, {});
       router.push(`/group/${groupId}` as never);
-    } catch {
-      router.push(`/group/${groupId}` as never);
+    } catch (e: unknown) {
+      const status = (e as { status?: number }).status;
+      if (status === 409) {
+        // Already a member — the join is effectively done, go to the group.
+        router.push(`/group/${groupId}` as never);
+      } else {
+        // A real failure (offline, group ended/expired) must not silently
+        // dump the user on the group screen as if the join worked.
+        Alert.alert(
+          'Could not join',
+          status === 410
+            ? 'This group is no longer accepting new members.'
+            : 'Please check your connection and try again.',
+        );
+      }
     } finally {
       setSubmittingIds((prev) => { const next = new Set(prev); next.delete(groupId); return next; });
     }
@@ -434,6 +452,6 @@ function createStyles(colors: ThemeColors) {
       paddingHorizontal: 20, paddingVertical: 10, minHeight: 44,
       alignItems: 'center', justifyContent: 'center',
     },
-    retryBtnText: { color: colors.text, fontSize: 14, fontWeight: '700' },
+    retryBtnText: { color: ON_ACCENT, fontSize: 14, fontWeight: '700' },
   });
 }

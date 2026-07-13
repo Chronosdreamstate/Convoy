@@ -22,6 +22,11 @@ import { useTheme, ThemeColors } from '../theme';
 
 const CODE_LENGTH = 6;
 
+// Text that always sits on the crimson accent fill (Join button) — stays
+// light in both themes. `colors.text` is near-black in light mode, which
+// would be unreadable on the accent background.
+const ON_ACCENT = '#FFFFFF';
+
 export default function JoinByCodeScreen() {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
@@ -197,7 +202,7 @@ export default function JoinByCodeScreen() {
               accessibilityLabel="Join convoy"
             >
               {loading ? (
-                <ActivityIndicator color={colors.text} size="small" />
+                <ActivityIndicator color={ON_ACCENT} size="small" />
               ) : (
                 <Text style={styles.joinBtnText}>Join Convoy</Text>
               )}
@@ -337,7 +342,7 @@ function createStyles(colors: ThemeColors) {
     opacity: 0.4,
   },
   joinBtnText: {
-    color: colors.text,
+    color: ON_ACCENT,
     fontSize: 17,
     fontWeight: '700',
   },

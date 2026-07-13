@@ -197,17 +197,32 @@ async function usersRoutes(
       [viewerId, id],
     ).catch(() => ({ rows: [{ count: '0' }] }));
 
-    // Check if viewer is friends with / has pending request to this user
-    const friendRes = await fastify.db.query<{ status: string }>(
-      `SELECT status FROM friendships
-       WHERE status != 'blocked'
-         AND (
-           (requester_id = $1 AND addressee_id = $2)
-           OR (requester_id = $2 AND addressee_id = $1)
-         )
-       LIMIT 1`,
+    // Check the viewer's relationship to this user — friends, pending request,
+    // or a block. Blocks are directional (requester = blocker): a block the
+    // viewer placed is surfaced as 'blocked' so the profile screen can show an
+    // honest Blocked/Unblock state instead of a dead "Add Friend" button;
+    // being blocked BY this user is never revealed (reads as no relationship).
+    const friendRes = await fastify.db.query<{ status: string; requester_id: string }>(
+      `SELECT status, requester_id FROM friendships
+       WHERE (requester_id = $1 AND addressee_id = $2)
+          OR (requester_id = $2 AND addressee_id = $1)
+       LIMIT 2`,
       [viewerId, id],
-    ).catch(() => ({ rows: [] }));
+    ).catch(() => ({ rows: [] as Array<{ status: string; requester_id: string }> }));
+
+    let friendStatus: string | null = null;
+    for (const row of friendRes.rows) {
+      if (row.status === 'blocked') {
+        // Only the viewer's own block is visible; a block against the viewer
+        // stays hidden. A mutual block still reads 'blocked' via the viewer row.
+        if (row.requester_id === viewerId) {
+          friendStatus = 'blocked';
+          break;
+        }
+      } else if (friendStatus === null) {
+        friendStatus = row.status;
+      }
+    }
 
     return reply.send({
       id: u.id,
@@ -225,7 +240,7 @@ async function usersRoutes(
       totalDrives: parseInt(u.total_drives, 10),
       totalDistanceKm: parseInt(u.total_distance_km, 10),
       mutualFriends: parseInt(mutualRes.rows[0]?.count ?? '0', 10),
-      friendStatus: friendRes.rows[0]?.status ?? null,
+      friendStatus,
     });
   });
 

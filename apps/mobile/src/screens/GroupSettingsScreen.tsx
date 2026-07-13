@@ -19,6 +19,12 @@ import { SkeletonBox } from '../components/SkeletonLoader';
 import { NetworkError } from '../components/NetworkError';
 import { useTheme, ThemeColors } from '../theme';
 import { useSocketStore } from '../stores/socketStore';
+import { useMotionGuard } from '../hooks/useMotionGuard';
+
+// Text/icons that always sit on the crimson accent (or success) fill — stays
+// light in both themes. `colors.text` is near-black in light mode, which
+// would be unreadable on those backgrounds.
+const ON_ACCENT = '#FFFFFF';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -84,7 +90,7 @@ function PillSelector<T extends string | number>({
             accessibilityRole="button"
             accessibilityState={{ selected: active }}
           >
-            <Text style={[pillSelectorStyles.pillText, { color: active ? colors.text : colors.textMuted }]}>
+            <Text style={[pillSelectorStyles.pillText, { color: active ? ON_ACCENT : colors.textMuted }]}>
               {opt.label}
             </Text>
           </TouchableOpacity>
@@ -135,6 +141,11 @@ export default function GroupSettingsScreen() {
   const isAdmin = isAdminParam === 'true';
   const router = useRouter();
   const { socket } = useSocketStore();
+  // Req 34.1 — editing group settings is an explicitly-blocked multi-step flow
+  // while in motion. Entry into this screen is guarded in ConvoyScreen, but
+  // motion can begin while the screen is already open, so the mutating actions
+  // re-check at the moment of the tap.
+  const guardInMotion = useMotionGuard();
 
   const [settings, setSettings] = useState<GroupSettings | null>(null);
   const [loading, setLoading] = useState(true);
@@ -246,6 +257,7 @@ export default function GroupSettingsScreen() {
 
   const handleSave = async () => {
     if (!groupId || !isAdmin) return;
+    if (guardInMotion()) return;
     setSaving(true);
     try {
       await apiClient.patch(`/api/v1/groups/${groupId}/settings`, {
@@ -436,7 +448,7 @@ export default function GroupSettingsScreen() {
             accessibilityLabel="Save group settings"
           >
             {saving
-              ? <ActivityIndicator color={colors.text} size="small" />
+              ? <ActivityIndicator color={ON_ACCENT} size="small" />
               : <Text style={styles.saveBtnText}>Save Changes</Text>}
           </TouchableOpacity>
         )}
@@ -480,8 +492,8 @@ export default function GroupSettingsScreen() {
                         accessibilityState={{ disabled: isActing }}
                       >
                         {isActing && actingRequest?.action === 'approve'
-                          ? <ActivityIndicator color={colors.text} size="small" />
-                          : <Ionicons name="checkmark" size={18} color={colors.text} />}
+                          ? <ActivityIndicator color={ON_ACCENT} size="small" />
+                          : <Ionicons name="checkmark" size={18} color={ON_ACCENT} />}
                       </TouchableOpacity>
                       <TouchableOpacity
                         style={styles.declineBtn}
@@ -511,7 +523,7 @@ export default function GroupSettingsScreen() {
             <View style={styles.card}>
               <TouchableOpacity
                 style={styles.scheduleBtn}
-                onPress={() => router.push({ pathname: '/create-event' as never, params: { groupId } })}
+                onPress={() => { if (!guardInMotion()) router.push({ pathname: '/create-event' as never, params: { groupId } }); }}
                 accessibilityRole="button"
                 accessibilityLabel="Schedule convoy event"
               >
@@ -633,10 +645,10 @@ export default function GroupSettingsScreen() {
                 accessibilityState={{ disabled: sendingAnnouncement || announcement.trim().length === 0 }}
               >
                 {sendingAnnouncement ? (
-                  <ActivityIndicator color={colors.text} size="small" />
+                  <ActivityIndicator color={ON_ACCENT} size="small" />
                 ) : (
                   <Text style={styles.announceBtnText}>
-                    <Ionicons name="megaphone-outline" size={14} color={colors.text} /> Send Announcement
+                    <Ionicons name="megaphone-outline" size={14} color={ON_ACCENT} /> Send Announcement
                   </Text>
                 )}
               </TouchableOpacity>
@@ -760,7 +772,7 @@ function createStyles(colors: ThemeColors) {
     minHeight: 56,
   },
   saveBtnDisabled: { opacity: 0.6 },
-  saveBtnText: { color: colors.text, fontSize: 16, fontWeight: '700' },
+  saveBtnText: { color: ON_ACCENT, fontSize: 16, fontWeight: '700' },
 
   scheduleBtn: {
     backgroundColor: colors.card,
@@ -804,7 +816,7 @@ function createStyles(colors: ThemeColors) {
     justifyContent: 'center',
     alignItems: 'center',
   },
-  retryBtnText: { color: colors.text, fontSize: 15, fontWeight: '700' },
+  retryBtnText: { color: ON_ACCENT, fontSize: 15, fontWeight: '700' },
 
   memberRow: {
     flexDirection: 'row',
@@ -862,6 +874,6 @@ function createStyles(colors: ThemeColors) {
     justifyContent: 'center',
   },
   announceBtnDisabled: { opacity: 0.4 },
-  announceBtnText: { color: colors.text, fontSize: 15, fontWeight: '700' },
+  announceBtnText: { color: ON_ACCENT, fontSize: 15, fontWeight: '700' },
   });
 }

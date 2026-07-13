@@ -458,29 +458,87 @@ async function groupsRoutes(
 
   // -------------------------------------------------------------------------
   // GET /groups/:id — get group details
+  // Members always have access. Non-members may view open+active groups —
+  // this is the browse → detail → join flow (Req 7.3): GroupDetailScreen
+  // renders a "Join Convoy" button for non-members and POST /groups/:id/members
+  // exists precisely for that screen, so gating this GET on membership made
+  // the flow a dead end. Invite-only groups stay member-only.
   // -------------------------------------------------------------------------
   fastify.get('/groups/:id', { preHandler: [authenticate, generalLimiter(fastify.redis)] }, async (request, reply) => {
     const userId = (request.user as { sub: string }).sub;
     const { id } = request.params as { id: string };
 
     const member = await getActiveMember(id, userId, fastify.db);
-    if (!member) return reply.forbidden('You are not a member of this group');
 
-    const result = await fastify.db.query<GroupRow & { member_count: string }>(
+    const result = await fastify.db.query<GroupRow & { member_count: string; admin_display_name: string | null }>(
       `SELECT g.id, g.name, g.join_code, g.admin_id, g.access_type, g.status,
-              g.gap_threshold_m, g.ptt_max_seconds, g.created_at, g.ended_at, g.join_code_active, g.type,
-              COUNT(m.id) FILTER (WHERE m.left_at IS NULL) AS member_count
+              g.gap_threshold_m, g.ptt_max_seconds, g.vehicle_focus, g.created_at, g.ended_at, g.join_code_active, g.type,
+              COUNT(m.id) FILTER (WHERE m.left_at IS NULL) AS member_count,
+              u.display_name AS admin_display_name
        FROM convoy_groups g
        LEFT JOIN convoy_members m ON m.group_id = g.id
+       LEFT JOIN users u ON u.id = g.admin_id
        WHERE g.id = $1
-       GROUP BY g.id`,
+       GROUP BY g.id, u.display_name`,
       [id],
     );
 
     const g = result.rows[0];
     if (!g) return reply.notFound('Group not found');
 
-    return reply.send(groupToResponse(g, parseInt(g.member_count, 10)));
+    if (!member && !(g.access_type === 'open' && g.status === 'active')) {
+      return reply.forbidden('You are not a member of this group');
+    }
+
+    // Member preview roster (GroupDetailScreen shows the first few avatars) —
+    // ordered by tenure so the admin/earliest members surface first.
+    const rosterResult = await fastify.db.query<{
+      user_id: string; display_name: string; vehicle_type: string | null;
+    }>(
+      `SELECT cm.user_id, u.display_name, v.vehicle_type
+       FROM convoy_members cm
+       JOIN users u ON u.id = cm.user_id
+       LEFT JOIN LATERAL (
+         SELECT vehicle_type FROM vehicles
+         WHERE user_id = cm.user_id AND is_active = true LIMIT 1
+       ) v ON true
+       WHERE cm.group_id = $1 AND cm.left_at IS NULL
+       ORDER BY cm.joined_at ASC
+       LIMIT 12`,
+      [id],
+    );
+
+    // Next upcoming event, if any (the detail screen's "Next drive" card).
+    const eventResult = await fastify.db.query<{
+      id: string; title: string; scheduled_for: string;
+    }>(
+      `SELECT id, title, scheduled_for
+       FROM group_events
+       WHERE group_id = $1 AND status = 'upcoming' AND scheduled_for > NOW()
+       ORDER BY scheduled_for ASC
+       LIMIT 1`,
+      [id],
+    );
+    const nextEvent = eventResult.rows[0];
+
+    const base = groupToResponse(g, parseInt(g.member_count, 10));
+    return reply.send({
+      ...base,
+      // The join code is for members to share — never hand it to a browsing
+      // non-member (they join open groups through POST /groups/:id/members).
+      joinCode: member ? base.joinCode : null,
+      isMember: !!member,
+      adminDisplayName: g.admin_display_name ?? null,
+      members: rosterResult.rows.map((r) => ({
+        userId: r.user_id,
+        displayName: r.display_name,
+        isAdmin: r.user_id === g.admin_id,
+        vehicleType: r.vehicle_type ?? undefined,
+      })),
+      upcomingEvent: nextEvent
+        ? { id: nextEvent.id, title: nextEvent.title, scheduledFor: nextEvent.scheduled_for }
+        : null,
+    });
   });
 
   // -------------------------------------------------------------------------

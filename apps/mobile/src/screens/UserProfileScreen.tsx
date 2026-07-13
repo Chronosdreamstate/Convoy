@@ -17,6 +17,11 @@ import { SkeletonBox } from '../components/SkeletonLoader';
 import { NetworkError } from '../components/NetworkError';
 import { ThemeColors, useTheme } from '../theme';
 
+// Text/icons that always sit on the crimson accent fill (Add Friend button) —
+// stays light in both themes. `colors.text` is near-black in light mode, which
+// would be unreadable on the accent background.
+const ON_ACCENT = '#FFFFFF';
+
 interface UserProfile {
   id: string;
   displayName: string;
@@ -115,6 +120,10 @@ export default function UserProfileScreen() {
               setBlocking(true);
               try {
                 await apiClient.post('/api/v1/friends/block', { userId: profile.id });
+                // Blocking wipes any friendship/pending request server-side —
+                // reflect the new relationship locally so the screen shows the
+                // Blocked state (with Unblock) if the user stays on it.
+                setFriendStatus('blocked');
                 Alert.alert('User Blocked', `${profile.displayName} has been blocked.`, [
                   { text: 'OK', onPress: () => router.back() },
                 ]);
@@ -128,6 +137,19 @@ export default function UserProfileScreen() {
         },
       ],
     );
+  };
+
+  const handleUnblock = async () => {
+    if (!profile || blocking) return;
+    setBlocking(true);
+    try {
+      await apiClient.post('/api/v1/friends/unblock', { userId: profile.id });
+      setFriendStatus(null);
+    } catch {
+      Alert.alert('Error', 'Could not unblock this user. Please try again.');
+    } finally {
+      setBlocking(false);
+    }
   };
 
   if (loading) {
@@ -251,7 +273,33 @@ export default function UserProfileScreen() {
 
           <Text style={styles.memberSince}>Member since {memberYear(profile.memberSince)}</Text>
 
-          {/* Action buttons */}
+          {/* Action buttons — a user the viewer has blocked gets an honest
+              Blocked state with Unblock, never a dead "Add Friend" button
+              (the server rejects friend requests across a block, Req 17.11). */}
+          {friendStatus === 'blocked' ? (
+            <View style={styles.actionRow}>
+              <Text style={styles.blockedNotice}>
+                You've blocked this user. They can't send you friend requests or see your location.
+              </Text>
+              <TouchableOpacity
+                style={styles.blockBtn}
+                onPress={() => void handleUnblock()}
+                disabled={blocking}
+                accessibilityRole="button"
+                accessibilityLabel={`Unblock ${profile.displayName}`}
+                accessibilityState={{ disabled: blocking }}
+              >
+                {blocking ? (
+                  <ActivityIndicator color={colors.accent} size="small" />
+                ) : (
+                  <>
+                    <Ionicons name="ban-outline" size={16} color={colors.accent} style={styles.friendBtnIcon} />
+                    <Text style={styles.blockBtnText}>Unblock</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+          ) : (
           <View style={styles.actionRow}>
             <TouchableOpacity
               style={[styles.friendBtn, friendBtnDisabled && styles.friendBtnDone]}
@@ -262,13 +310,13 @@ export default function UserProfileScreen() {
               accessibilityState={{ disabled: friendBtnDisabled }}
             >
               {friendLoading ? (
-                <ActivityIndicator color={colors.text} size="small" />
+                <ActivityIndicator color={ON_ACCENT} size="small" />
               ) : (
                 <>
                   <Ionicons
                     name={friendBtnIcon as never}
                     size={16}
-                    color={friendBtnDisabled ? colors.textMuted : colors.text}
+                    color={friendBtnDisabled ? colors.textMuted : ON_ACCENT}
                     style={styles.friendBtnIcon}
                   />
                   <Text style={[styles.friendBtnText, friendBtnDisabled && styles.friendBtnTextDone]}>
@@ -296,6 +344,7 @@ export default function UserProfileScreen() {
               )}
             </TouchableOpacity>
           </View>
+          )}
         </View>
 
         {/* Stats row */}
@@ -421,8 +470,9 @@ function createStyles(colors: ThemeColors) {
     },
     friendBtnDone: { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border },
     friendBtnIcon: { marginRight: 8 },
-    friendBtnText: { color: colors.text, fontSize: 15, fontWeight: '700' },
+    friendBtnText: { color: ON_ACCENT, fontSize: 15, fontWeight: '700' },
     friendBtnTextDone: { color: colors.textMuted },
+    blockedNotice: { color: colors.textMuted, fontSize: 13, textAlign: 'center', lineHeight: 18 },
     blockBtn: {
       flexDirection: 'row',
       width: '100%',

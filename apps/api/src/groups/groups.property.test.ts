@@ -89,6 +89,9 @@ let channels: InMemoryChannel[] = [];
 let channelMembers: InMemoryChannelMember[] = [];
 let events: InMemoryEvent[] = [];
 let rsvps: InMemoryRsvp[] = [];
+// Display names by user id — feeds the admin_display_name / roster joins in
+// the GET /groups/:id detail query. Users absent from the map resolve to null.
+let userNames: Record<string, string> = {};
 let seqId = 0;
 
 function nextId(): string {
@@ -102,6 +105,7 @@ function resetStore(): void {
   channelMembers = [];
   events = [];
   rsvps = [];
+  userNames = {};
   seqId = 0;
 }
 
@@ -130,6 +134,56 @@ async function poolQuery(sql: string, values?: unknown[]): Promise<{ rows: unkno
     const code = (values![0] as string).toUpperCase();
     const g = groups.find((g) => g.join_code === code);
     return { rows: g ? [g] : [], rowCount: g ? 1 : 0 };
+  }
+
+  // GET /groups/:id — detail query (admin_display_name join, WHERE g.id = $1)
+  if (norm.includes('ADMIN_DISPLAY_NAME') && norm.includes('WHERE G.ID = $1')) {
+    const id = values![0] as string;
+    const g = groups.find((g) => g.id === id);
+    if (!g) return { rows: [], rowCount: 0 };
+    const memberCount = members.filter((m) => m.group_id === g.id && m.left_at === null).length;
+    return {
+      rows: [{
+        ...g,
+        member_count: String(memberCount),
+        admin_display_name: userNames[g.admin_id] ?? null,
+      }],
+      rowCount: 1,
+    };
+  }
+
+  // GET /groups/:id — member roster preview (convoy_members ⋈ users)
+  if (norm.includes('FROM CONVOY_MEMBERS CM') && norm.includes('JOIN USERS U ON U.ID = CM.USER_ID')) {
+    const groupId = values![0] as string;
+    const roster = members
+      .filter((m) => m.group_id === groupId && m.left_at === null)
+      .sort((a, b) => a.joined_at.getTime() - b.joined_at.getTime())
+      .slice(0, 12);
+    return {
+      rows: roster.map((m) => ({
+        user_id: m.user_id,
+        display_name: userNames[m.user_id] ?? 'Member',
+        vehicle_type: null,
+      })),
+      rowCount: roster.length,
+    };
+  }
+
+  // GET /groups/:id — next upcoming event (single-row lookup; distinguished
+  // from the events-list query by its unaliased SELECT list — and note
+  // "LIMIT 10" contains "LIMIT 1" as a substring, so LIMIT is no discriminator)
+  if (norm.startsWith('SELECT ID, TITLE, SCHEDULED_FOR FROM GROUP_EVENTS')) {
+    const groupId = values![0] as string;
+    const now = new Date();
+    const next = events
+      .filter((e) => e.group_id === groupId && e.status === 'upcoming' && e.scheduled_for > now)
+      .sort((a, b) => a.scheduled_for.getTime() - b.scheduled_for.getTime())[0];
+    return {
+      rows: next
+        ? [{ id: next.id, title: next.title, scheduled_for: next.scheduled_for.toISOString() }]
+        : [],
+      rowCount: next ? 1 : 0,
+    };
   }
 
   // Get group by id (leave endpoint, various)
@@ -2875,5 +2929,151 @@ describe('Property 124: POST /groups/:id/events/:eventId/rsvp upserts correctly'
       ),
       { numRuns: 9 },
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GET /groups/:id — detail access + fields (browse → detail → join flow)
+// Members always see the detail; non-members may view open+active groups
+// (Req 7.3) but never the join code; invite-only stays member-only. The
+// response carries the fields GroupDetailScreen renders: isMember,
+// adminDisplayName, members roster (with isAdmin), upcomingEvent.
+// ---------------------------------------------------------------------------
+describe('GET /groups/:id detail access and fields', () => {
+  beforeEach(() => { resetStore(); });
+
+  interface DetailBody {
+    id: string;
+    joinCode: string | null;
+    isMember: boolean;
+    adminDisplayName: string | null;
+    members: Array<{ userId: string; displayName: string; isAdmin: boolean }>;
+    upcomingEvent: { id: string; title: string; scheduledFor: string } | null;
+  }
+
+  const ADMIN = '00000000-0000-0000-0002-000000000001';
+  const STRANGER = '00000000-0000-0000-0002-000000000002';
+
+  async function createGroup(app: FastifyInstance, accessType: 'open' | 'invite_only') {
+    const token = signToken(app, ADMIN);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/groups',
+      headers: authHeader(token),
+      payload: { name: 'Sunday Rally', accessType },
+    });
+    expect(res.statusCode).toBe(201);
+    return JSON.parse(res.body) as { id: string; joinCode: string };
+  }
+
+  it('member sees isMember=true, the join code, adminDisplayName, and their roster row flagged isAdmin', async () => {
+    const app = buildTestApp();
+    await app.ready();
+    userNames[ADMIN] = 'Ada Admin';
+
+    const created = await createGroup(app, 'open');
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/v1/groups/${created.id}`,
+      headers: authHeader(signToken(app, ADMIN)),
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body) as DetailBody;
+    expect(body.isMember).toBe(true);
+    expect(body.joinCode).toBe(created.joinCode);
+    expect(body.adminDisplayName).toBe('Ada Admin');
+    expect(body.members).toHaveLength(1);
+    expect(body.members[0]).toMatchObject({ userId: ADMIN, isAdmin: true });
+    expect(body.upcomingEvent).toBeNull();
+
+    await app.close();
+  });
+
+  it('non-member can view an open+active group but never receives the join code', async () => {
+    const app = buildTestApp();
+    await app.ready();
+
+    const created = await createGroup(app, 'open');
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/v1/groups/${created.id}`,
+      headers: authHeader(signToken(app, STRANGER)),
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body) as DetailBody;
+    expect(body.isMember).toBe(false);
+    expect(body.joinCode).toBeNull();
+
+    await app.close();
+  });
+
+  it('non-member is still rejected with 403 for invite-only groups', async () => {
+    const app = buildTestApp();
+    await app.ready();
+
+    const created = await createGroup(app, 'invite_only');
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/v1/groups/${created.id}`,
+      headers: authHeader(signToken(app, STRANGER)),
+    });
+
+    expect(res.statusCode).toBe(403);
+
+    await app.close();
+  });
+
+  it('non-member is rejected with 403 once an open group has ended', async () => {
+    const app = buildTestApp();
+    await app.ready();
+
+    const created = await createGroup(app, 'open');
+    const g = groups.find((g) => g.id === created.id)!;
+    g.status = 'ended';
+    g.ended_at = new Date();
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/v1/groups/${created.id}`,
+      headers: authHeader(signToken(app, STRANGER)),
+    });
+
+    expect(res.statusCode).toBe(403);
+
+    await app.close();
+  });
+
+  it('upcomingEvent is the earliest future upcoming event', async () => {
+    const app = buildTestApp();
+    await app.ready();
+
+    const created = await createGroup(app, 'open');
+    const token = signToken(app, ADMIN);
+    const later = new Date(Date.now() + 72 * 3600 * 1000).toISOString();
+    const sooner = new Date(Date.now() + 24 * 3600 * 1000).toISOString();
+    for (const scheduledFor of [later, sooner]) {
+      const evRes = await app.inject({
+        method: 'POST',
+        url: `/api/v1/groups/${created.id}/events`,
+        headers: authHeader(token),
+        payload: { title: `Drive at ${scheduledFor}`, scheduledFor },
+      });
+      expect(evRes.statusCode).toBe(201);
+    }
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/v1/groups/${created.id}`,
+      headers: authHeader(token),
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body) as DetailBody;
+    expect(body.upcomingEvent).not.toBeNull();
+    expect(new Date(body.upcomingEvent!.scheduledFor).toISOString()).toBe(sooner);
+
+    await app.close();
   });
 });
