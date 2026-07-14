@@ -162,6 +162,46 @@ export default function ConvoyHistoryScreen() {
   // history list to 4 rows while the vehicle is in motion (see MotionAwareList).
   const { data: visibleDrives, hiddenCount } = useMotionCappedData(drives);
 
+  // Opened without a group id (broken link/stale navigation) — no fetch can
+  // ever succeed, so show an explicit dead-end with a way back instead of the
+  // misleading "No convoys yet" empty state (same pattern as
+  // EventDetailScreen's "gone" state).
+  if (!groupId) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.header}>
+          <TouchableOpacity
+            style={styles.backBtn}
+            onPress={() => router.back()}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityRole="button"
+            accessibilityLabel="Go back"
+          >
+            <Ionicons name="chevron-back" size={20} color={colors.accent} />
+            <Text style={styles.backText}>Back</Text>
+          </TouchableOpacity>
+          <View style={styles.headerTitleWrap}>
+            <Text style={styles.title} numberOfLines={1}>Past Convoys</Text>
+          </View>
+          <View style={styles.backBtn} />
+        </View>
+        <View style={styles.stateContainer}>
+          <Ionicons name="flag-outline" size={52} color={colors.textMuted} style={styles.stateIcon} />
+          <Text style={styles.stateTitle}>History unavailable</Text>
+          <Text style={styles.stateBody}>This link is missing its group. Go back and open past convoys from the group screen.</Text>
+          <TouchableOpacity
+            style={styles.retryBtn}
+            onPress={() => router.back()}
+            accessibilityRole="button"
+            accessibilityLabel="Go back to previous screen"
+          >
+            <Text style={styles.retryText}>Go Back</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>

@@ -106,12 +106,49 @@ export default function GroupStatsScreen() {
     void load();
   }, [load]);
 
-  const handleShare = () => {
+  // Share a formatted text brag — mirrors how sharing is invoked elsewhere
+  // (RN Share API, e.g. Achievements/RouteReplay screens). Share.share rejects
+  // when the sheet can't open, so it must be awaited and swallowed or a failed
+  // tap becomes an unhandled promise rejection.
+  const handleShare = async () => {
     if (!stats) return;
-    Share.share({
-      message: `Our crew has driven ${stats.totalDriveKm.toFixed(0)} km together in ${stats.totalDrives} convoys! 🏁 convoy.app`,
-    });
+    try {
+      await Share.share({
+        message: `Our crew has driven ${stats.totalDriveKm.toFixed(0)} km together in ${stats.totalDrives} convoys! 🏁 convoy.app`,
+      });
+    } catch { /* user cancelled or share sheet unavailable */ }
   };
+
+  // Opened without a group id (broken link/stale navigation) — no fetch can
+  // ever succeed, so show an explicit dead-end with a way back instead of the
+  // skeleton forever or a retry button that would be a lie (same pattern as
+  // EventDetailScreen's "gone" state).
+  if (!id) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.header}>
+          <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} accessibilityRole="button" accessibilityLabel="Go back">
+            <Ionicons name="chevron-back" size={22} color={colors.accent} />
+          </TouchableOpacity>
+          <Text style={styles.title}>Group Stats</Text>
+          <View style={styles.backBtn} />
+        </View>
+        <View style={styles.goneWrap}>
+          <Ionicons name="stats-chart-outline" size={44} color={colors.textMuted} />
+          <Text style={styles.goneTitle}>Stats unavailable</Text>
+          <Text style={styles.goneText}>This link is missing its group. Go back and open stats from the group screen.</Text>
+          <TouchableOpacity
+            style={styles.goneBackBtn}
+            onPress={() => router.back()}
+            accessibilityRole="button"
+            accessibilityLabel="Go back to previous screen"
+          >
+            <Text style={styles.goneBackText}>Go Back</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   if (loading) {
     return (
@@ -138,7 +175,9 @@ export default function GroupStatsScreen() {
     );
   }
 
-  if (error || !stats) {
+  // Full-screen error only when there's nothing to show — a failed refresh
+  // with stats already on screen keeps the data and flags staleness instead.
+  if (!stats) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.header}>
@@ -162,7 +201,7 @@ export default function GroupStatsScreen() {
         <Text style={styles.title}>{stats.groupName}</Text>
         <TouchableOpacity
           style={styles.backBtn}
-          onPress={handleShare}
+          onPress={() => { void handleShare(); }}
           accessibilityRole="button"
           accessibilityLabel="Share group stats"
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
@@ -178,6 +217,10 @@ export default function GroupStatsScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={colors.accent} colors={[colors.accent]} />
         }
       >
+        {/* A failed refresh must not blank out stats the user already has on
+            screen — keep the data and flag the staleness instead. */}
+        {error ? <Text style={styles.errorBanner}>Couldn't refresh — showing last loaded data</Text> : null}
+
         {/* Big 3 stats */}
         <View style={styles.bigRow}>
           <View style={styles.bigCard}>
@@ -257,6 +300,7 @@ function createStyles(colors: ThemeColors) {
     shareIcon: { textAlign: 'right' },
     title: { flex: 1, color: colors.text, fontSize: 18, fontWeight: '700', textAlign: 'center' },
     content: { paddingHorizontal: 16, paddingTop: 8 },
+    errorBanner: { color: colors.error, fontSize: 12, textAlign: 'center', marginBottom: 8 },
     skeletonPad: { paddingHorizontal: 16, paddingTop: 8 },
     skeletonRow: { flexDirection: 'row', gap: 8, marginBottom: 12 },
     skeletonBigCard: {
@@ -306,6 +350,14 @@ function createStyles(colors: ThemeColors) {
     bar: { width: 16, backgroundColor: colors.accent, borderRadius: 3, marginBottom: 6 },
     barLabel: { color: colors.textMuted, fontSize: 10 },
 
+    goneWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32, gap: 8 },
+    goneTitle: { color: colors.text, fontSize: 18, fontWeight: '700', marginTop: 4 },
+    goneText: { color: colors.textMuted, fontSize: 14, textAlign: 'center', lineHeight: 20 },
+    goneBackBtn: {
+      marginTop: 12, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border,
+      borderRadius: 12, paddingHorizontal: 24, paddingVertical: 12, minHeight: 44, justifyContent: 'center',
+    },
+    goneBackText: { color: colors.text, fontSize: 15, fontWeight: '600' },
   });
 }
 

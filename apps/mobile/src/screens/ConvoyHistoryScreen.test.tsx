@@ -6,6 +6,8 @@
  *    full-screen error state — data stays with a stale-data banner instead.
  *  - While the vehicle is in motion, the list caps to 4 rows with the shared
  *    "pull over" notice.
+ *  - Opening the screen without a groupId param is a dead-end (broken link),
+ *    not the misleading "No convoys yet" empty state.
  */
 
 import React from 'react';
@@ -24,8 +26,9 @@ jest.mock('../services/apiClient', () => ({
 }));
 
 const mockRouterPush = jest.fn();
+let mockParams: Record<string, string> = { groupId: 'g-1', groupName: 'Canyon Crew' };
 jest.mock('expo-router', () => ({
-  useLocalSearchParams: () => ({ groupId: 'g-1', groupName: 'Canyon Crew' }),
+  useLocalSearchParams: () => mockParams,
   useRouter: () => ({ back: jest.fn(), push: mockRouterPush, replace: jest.fn() }),
 }));
 
@@ -88,6 +91,7 @@ function hasText(root: ReactTestInstance, text: string): boolean {
 beforeEach(() => {
   useMotionStore.setState({ isInMotion: false });
   mockApiGet.mockReset();
+  mockParams = { groupId: 'g-1', groupName: 'Canyon Crew' };
 });
 
 describe('ConvoyHistoryScreen', () => {
@@ -130,5 +134,21 @@ describe('ConvoyHistoryScreen', () => {
 
     expect(hasText(root, "Couldn't load convoys")).toBe(true);
     expect(replayButtons(root)).toHaveLength(0);
+  });
+
+  it('a missing groupId param is an explicit dead-end, not "No convoys yet"', async () => {
+    mockParams = {};
+    const root = await renderScreen();
+
+    // No fetch can ever succeed without an id — nothing should be requested.
+    expect(mockApiGet).not.toHaveBeenCalled();
+    expect(hasText(root, 'History unavailable')).toBe(true);
+    expect(hasText(root, 'No convoys yet')).toBe(false);
+    // The way back is offered instead of a retry that would be a lie.
+    const goBack = root.findAll(
+      (n) => n.props?.accessibilityLabel === 'Go back to previous screen'
+        && typeof n.props?.onPress === 'function',
+    );
+    expect(goBack.length).toBeGreaterThan(0);
   });
 });

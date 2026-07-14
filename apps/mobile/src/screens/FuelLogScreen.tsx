@@ -381,6 +381,10 @@ export default function FuelLogScreen() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { void onRefresh(); }} tintColor={colors.accent} colors={[colors.accent]} />}
         ListHeaderComponent={entries.length > 0 ? (
           <>
+            {/* A failed refresh must not blank out entries the user already
+                has on screen — keep the data and flag the staleness instead
+                (same banner as ConvoyHistory/GroupLeaderboard). */}
+            {loadError ? <Text style={s.errorBanner}>Couldn't refresh — showing last loaded data</Text> : null}
             <View style={s.summaryRow}>
               {stats.map((c, i) => (
                 <View key={i} style={[s.statCard, i === 0 && s.statCardPrimary]}>
@@ -441,6 +445,7 @@ function createStyles(colors: ThemeColors) {
     back: { color: colors.accent, fontSize: 16, fontWeight: '600' },
     title: { color: colors.text, fontSize: 24, fontWeight: '700' },
     list: { paddingHorizontal: 16, paddingBottom: 100 },
+    errorBanner: { color: colors.error, fontSize: 12, textAlign: 'center', marginBottom: 8 },
     listEmpty: { flex: 1, paddingHorizontal: 16 },
 
     summaryRow: { flexDirection: 'row', gap: 10, marginBottom: 16 },

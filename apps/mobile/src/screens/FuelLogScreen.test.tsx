@@ -4,6 +4,8 @@
  * Req 21 (fuel tracking) + Req 33 (in-motion list cap):
  *  - While the vehicle is in motion, the fill-up history caps to 4 rows with
  *    the shared "pull over" notice; the summary stats still use every entry.
+ *  - A failed pull-to-refresh must NOT be silent when entries are already on
+ *    screen — data stays with a stale-data banner instead.
  *  - The add-fill-up FAB sits on the accent fill, so its icon must use the
  *    fixed ON_ACCENT white, not colors.text.
  */
@@ -113,6 +115,23 @@ describe('FuelLogScreen', () => {
     // Summary stats still reflect ALL entries, not just the visible rows:
     // total gallons = 10+11+12+13+14+15 = 75.0.
     expect(hasText(root, '75.0')).toBe(true);
+  });
+
+  it('keeps loaded entries and shows a stale-data banner when a refresh fails', async () => {
+    mockApiGet.mockResolvedValue({ data: { logs: makeLogs(3) } });
+    const root = await renderScreen();
+    expect(entryRows(root)).toHaveLength(3);
+
+    // The next fetch (pull-to-refresh) fails.
+    mockApiGet.mockRejectedValue(new Error('network down'));
+    const refreshControl = root.find((n) => typeof n.props?.onRefresh === 'function');
+    await act(async () => { await refreshControl.props.onRefresh(); });
+
+    // Data survives — the failure is flagged, never silent, and the
+    // empty-state error card must not appear over existing entries.
+    expect(entryRows(root)).toHaveLength(3);
+    expect(hasText(root, "Couldn't refresh — showing last loaded data")).toBe(true);
+    expect(hasText(root, "Couldn't load fuel logs")).toBe(false);
   });
 
   it('renders the FAB icon in fixed ON_ACCENT white on the accent fill', async () => {
