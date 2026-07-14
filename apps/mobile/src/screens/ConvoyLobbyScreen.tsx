@@ -6,9 +6,12 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
+  Alert,
   Animated,
   SafeAreaView,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -145,6 +148,7 @@ export default function ConvoyLobbyScreen({ groupId, groupName, onConvoyStart }:
   const [selfReady, setSelfReady] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
+  const [sharing, setSharing] = useState(false);
   const startTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -318,6 +322,30 @@ export default function ConvoyLobbyScreen({ groupId, groupName, onConvoyStart }:
     }, 8000);
   }, [socket, groupId, isStarting]);
 
+  // The lobby is where the leader notices someone's missing, so sharing the
+  // join code can't require backing out to the convoy tab. The code isn't in
+  // props or the group store — fetch it on demand (GET /groups/:id always
+  // returns joinCode to members).
+  const handleInvite = useCallback(async () => {
+    if (sharing) return;
+    setSharing(true);
+    try {
+      const res = await apiClient.get<{ joinCode: string | null }>(`/api/v1/groups/${groupId}`);
+      const code = res.data.joinCode;
+      if (!code) {
+        Alert.alert('Error', "Couldn't get the invite code. Please try again.");
+        return;
+      }
+      await Share.share({
+        message: `Join my CORTEGE group "${groupName}" with code: ${code}\nhttps://convoy.app/join/${code}`,
+      }).catch(() => { /* user cancelled or share sheet unavailable */ });
+    } catch {
+      Alert.alert('Error', "Couldn't get the invite code. Check your connection and try again.");
+    } finally {
+      setSharing(false);
+    }
+  }, [sharing, groupId, groupName]);
+
   // Req 33 — while the vehicle is in motion, cap the member list to 4 rows
   // with a "pull over to see more" notice. The lobby is nominally pre-drive,
   // but Motion_State is device-level: a member riding/driving to the meetup
@@ -343,8 +371,22 @@ export default function ConvoyLobbyScreen({ groupId, groupName, onConvoyStart }:
           <Ionicons name="chevron-back" size={22} color={colors.text} style={styles.backArrow} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Convoy Lobby</Text>
-        {/* Spacer so title stays centred */}
-        <View style={styles.headerSpacer} />
+        {/* Invite — same width as the back arrow so the title stays centred */}
+        <TouchableOpacity
+          style={styles.inviteBtn}
+          onPress={() => { void handleInvite(); }}
+          disabled={sharing}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          accessibilityRole="button"
+          accessibilityLabel="Invite friends with the group join code"
+          accessibilityState={{ disabled: sharing, busy: sharing }}
+        >
+          {sharing ? (
+            <ActivityIndicator size="small" color={colors.accent} />
+          ) : (
+            <Ionicons name="person-add-outline" size={20} color={colors.accent} />
+          )}
+        </TouchableOpacity>
       </View>
 
       {/* ── Group name ── */}
@@ -520,8 +562,9 @@ function createStyles(colors: ThemeColors) {
     fontSize: 20,
     fontWeight: '700',
   },
-  headerSpacer: {
+  inviteBtn: {
     width: 32,
+    alignItems: 'flex-end',
   },
 
   // Group name + waiting label
