@@ -152,6 +152,7 @@ let app: FastifyInstance;
 beforeEach(async () => {
   jest.clearAllMocks();
   delete process.env.GOOGLE_CLIENT_IDS;
+  delete process.env.APPLE_CLIENT_IDS;
   mockJwtVerify.mockResolvedValue({
     payload: { sub: 'provider-sub-123', email: 'driver@example.com' },
   });
@@ -161,6 +162,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   delete process.env.GOOGLE_CLIENT_IDS;
+  delete process.env.APPLE_CLIENT_IDS;
   await app.close();
 });
 
@@ -222,7 +224,7 @@ describe('POST /auth/social — Google token verification', () => {
     ]);
   });
 
-  it('pins the Apple issuer (and no audience) for apple tokens', async () => {
+  it('pins the Apple issuer (and no audience while APPLE_CLIENT_IDS is unset) for apple tokens', async () => {
     await injectSocial(app, 'apple');
 
     const options = mockJwtVerify.mock.calls[0][2] as { issuer: string[]; audience?: string[] };
@@ -249,6 +251,56 @@ describe('POST /auth/social — Google token verification', () => {
     expect(res.statusCode).toBe(401);
     const body = JSON.parse(res.body) as { error: { code: string } };
     expect(body.error.code).toBe('INVALID_CREDENTIALS');
+  });
+});
+
+describe('POST /auth/social — Apple audience pinning', () => {
+  const APPLE_CLIENT_IDS = 'app.convoy.mobile, app.convoy.web';
+
+  it('verifies apple tokens against APPLE_CLIENT_IDS (audience) when set', async () => {
+    process.env.APPLE_CLIENT_IDS = APPLE_CLIENT_IDS;
+
+    const res = await injectSocial(app, 'apple');
+
+    expect(res.statusCode).toBe(200);
+    expect(mockJwtVerify).toHaveBeenCalledTimes(1);
+    const options = mockJwtVerify.mock.calls[0][2] as { issuer: string[]; audience?: string[] };
+    expect(options.issuer).toEqual(['https://appleid.apple.com']);
+    // Comma-separated env value is split and trimmed, like GOOGLE_CLIENT_IDS.
+    expect(options.audience).toEqual(['app.convoy.mobile', 'app.convoy.web']);
+  });
+
+  it('returns the opaque INVALID_CREDENTIALS error when the audience check fails', async () => {
+    process.env.APPLE_CLIENT_IDS = APPLE_CLIENT_IDS;
+    // jose rejects with a JWTClaimValidationFailed for an `aud` mismatch —
+    // any verification failure maps to the same opaque envelope (Req 2.8).
+    mockJwtVerify.mockRejectedValue(new Error('unexpected "aud" claim value'));
+
+    const res = await injectSocial(app, 'apple');
+
+    expect(res.statusCode).toBe(401);
+    const body = JSON.parse(res.body) as { error: { code: string; message: string } };
+    expect(body.error.code).toBe('INVALID_CREDENTIALS');
+    expect(body.error.message).toBe('Invalid credentials');
+  });
+
+  it('keeps signing in apple users without an audience pin when APPLE_CLIENT_IDS is unset', async () => {
+    // No 503 gate for Apple (unlike Google) — unset must not break dev envs.
+    const res = await injectSocial(app, 'apple');
+
+    expect(res.statusCode).toBe(200);
+    const options = mockJwtVerify.mock.calls[0][2] as { audience?: string[] };
+    expect(options.audience).toBeUndefined();
+  });
+
+  it('ignores an APPLE_CLIENT_IDS value that is only whitespace/commas', async () => {
+    process.env.APPLE_CLIENT_IDS = ' ,  , ';
+
+    const res = await injectSocial(app, 'apple');
+
+    expect(res.statusCode).toBe(200);
+    const options = mockJwtVerify.mock.calls[0][2] as { audience?: string[] };
+    expect(options.audience).toBeUndefined();
   });
 });
 

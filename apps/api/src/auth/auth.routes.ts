@@ -51,6 +51,22 @@ function getGoogleClientIds(): string[] {
     .filter((id) => id.length > 0);
 }
 
+/**
+ * Client IDs we accept as the `aud` claim of an Apple identity token — the
+ * app's bundle ID (and Services ID for web flows), comma-separated, same
+ * convention as GOOGLE_CLIENT_IDS. Read from process.env on each call so the
+ * feature stays optional. Unlike Google there is no 503 gate when unset:
+ * Apple sign-in predates this env var, so unset keeps the historical
+ * behavior (signature/expiry/issuer checks, no audience pin) and the server
+ * logs a startup warning instead of breaking dev environments.
+ */
+function getAppleClientIds(): string[] {
+  return (process.env.APPLE_CLIENT_IDS ?? '')
+    .split(',')
+    .map((id) => id.trim())
+    .filter((id) => id.length > 0);
+}
+
 /** In-memory JWKS cache entry */
 interface JwksCache {
   keySet: ReturnType<typeof createRemoteJWKSet>;
@@ -82,13 +98,16 @@ async function verifyProviderToken(
 ): Promise<{ sub: string; email?: string }> {
   const JWKS = getJwks(provider);
   // jose enforces signature + `exp` itself; we additionally pin the issuer,
-  // and for Google the audience must be one of our own OAuth client IDs —
-  // otherwise a valid Google token minted for ANY app would sign users in.
-  // (Apple audience = bundle ID is not yet provisioned in the env layer, so
-  // Apple keeps signature/expiry/issuer checks only, as before.)
+  // and the audience must be one of our own client IDs — otherwise a valid
+  // token minted for ANY app would sign users in. Google is always pinned
+  // (a 503 config gate fires before we get here when GOOGLE_CLIENT_IDS is
+  // unset); Apple is pinned only when APPLE_CLIENT_IDS is set, preserving the
+  // historical unpinned behavior (with a startup warning) for dev setups.
+  const appleClientIds = provider === 'apple' ? getAppleClientIds() : [];
   const { payload } = await jwtVerify<JWTPayload>(idToken, JWKS, {
     issuer: PROVIDER_ISSUERS[provider],
     ...(provider === 'google' ? { audience: getGoogleClientIds() } : {}),
+    ...(provider === 'apple' && appleClientIds.length > 0 ? { audience: appleClientIds } : {}),
   });
 
   if (typeof payload.sub !== 'string' || !payload.sub) {
@@ -130,6 +149,17 @@ const SOCIAL_LIMIT = 10;
 const SOCIAL_WINDOW_SECONDS = 900;
 
 async function authRoutes(fastify: FastifyInstance, _opts: FastifyPluginOptions): Promise<void> {
+  // Startup warning: without APPLE_CLIENT_IDS, Apple identity tokens are
+  // accepted with signature/expiry/issuer checks but NO audience pin, so a
+  // valid Apple token minted for any other app would sign users in. Kept
+  // non-fatal so dev environments work out of the box.
+  if (getAppleClientIds().length === 0) {
+    fastify.log.warn(
+      'APPLE_CLIENT_IDS is not set — Apple sign-in tokens are verified without audience pinning. ' +
+        'Set it to your app bundle ID(s) (e.g. app.convoy.mobile) before production.',
+    );
+  }
+
   // -------------------------------------------------------------------------
   // POST /auth/otp/request
   // -------------------------------------------------------------------------
