@@ -94,9 +94,7 @@ export class LocationService {
    * first, then the screen callback (if any). Motion state (Req 33/34) must
    * track GPS speed whenever location updates flow — not only while MapScreen
    * is mounted — so the feed lives here in the shared pipeline rather than in
-   * any screen's callback. MapScreen's own MotionStateService feed sees the
-   * exact same samples via `_onLocation`, so its store write is a same-value
-   * no-op rather than a competing source.
+   * any screen's callback.
    */
   private static _deliverFix(fix: Parameters<LocationCallback>[0]): void {
     sharedMotionState.update(fix.speedKph);

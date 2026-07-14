@@ -30,7 +30,7 @@ import SOSButton from '../components/SOSButton';
 import MemberDetailModal from '../components/MemberDetailModal';
 import ConvoyStatusPanel from '../components/ConvoyStatusPanel';
 import { apiClient } from '../services/apiClient';
-import { haversineDistanceM } from '../services/DriveService';
+import { haversineDistanceM, driveService, buildConvoyEndParams } from '../services/DriveService';
 import { useGroupStore } from '../stores/groupStore';
 import { useSocketStore } from '../stores/socketStore';
 import { useLocationStore } from '../stores/locationStore';
@@ -579,18 +579,29 @@ export default function ConvoyScreen({ userId }: Props) {
             const res = await apiClient.post<{ message: string; durationS: number; distanceM: number; memberCount: number }>(
               `/api/v1/groups/${currentGroup.id}/end`,
             );
+            // The server broadcasts `group:ended` to the whole room — this
+            // Admin's socket included — while the POST above is still in
+            // flight, so MapScreen's handler races this flow to /convoy-end.
+            // claimEndNavigation() guarantees exactly one push; both paths
+            // build identically rich params via buildConvoyEndParams, so it
+            // doesn't matter which one wins (Req 7.9, 19.4).
+            const claimed = driveService.claimEndNavigation(currentGroup.id);
+            const localStats = claimed ? driveService.peekStats() : null;
             setGroup(null);
             setMembers([]);
             setView('home');
-            router.push({
-              pathname: '/convoy-end' as never,
-              params: {
-                groupName: currentGroup.name,
-                memberCount: String(res.data.memberCount ?? members.length),
-                durationMinutes: String(Math.round((res.data.durationS ?? 0) / 60)),
-                distanceM: String(res.data.distanceM ?? 0),
-              },
-            });
+            if (claimed) {
+              router.push({
+                pathname: '/convoy-end' as never,
+                params: buildConvoyEndParams({
+                  groupName: currentGroup.name,
+                  memberCount: res.data.memberCount ?? members.length,
+                  durationS: res.data.durationS,
+                  distanceM: res.data.distanceM,
+                  localStats,
+                }),
+              });
+            }
           } catch {
             Alert.alert('Error', 'Could not end convoy.');
           }

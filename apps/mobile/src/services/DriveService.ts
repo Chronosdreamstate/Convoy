@@ -139,11 +139,39 @@ export interface IDriveApiClient {
 export class DriveService {
   private points: TrackPoint[] = [];
   private sessionStartMs: number | null = null;
+  private claimedEndGroupId: string | null = null;
 
   /** Call when a group session begins. */
   startSession(nowMs: number = Date.now()): void {
     this.points = [];
     this.sessionStartMs = nowMs;
+    this.claimedEndGroupId = null;
+  }
+
+  /**
+   * Exactly-once guard for the end-of-drive navigation (Req 7.9, 19.4).
+   *
+   * Two independent paths can navigate to /convoy-end when a convoy ends:
+   *  - MapScreen's `group:ended` socket handler (every member — the server
+   *    broadcasts to the whole room, including the Admin's own socket), and
+   *  - ConvoyScreen's Admin end-convoy flow, when the POST /groups/:id/end
+   *    response resolves.
+   * The socket broadcast is emitted while the POST is still in flight, so for
+   * the Admin both paths fire in an arbitrary order and used to double-push
+   * the end screen. Both paths must call this before navigating: the first
+   * caller gets `true` and navigates; everyone else gets `false` and skips.
+   *
+   * The claim is keyed by groupId — a group ends exactly once, so a new group
+   * re-arms automatically (startSession() also clears it). Keying it, rather
+   * than a plain boolean re-armed only by startSession(), matters for an Admin
+   * who runs convoys entirely from the convoy tab: MapScreen may never mount,
+   * so startSession() may never run between two convoys, and a boolean would
+   * stay consumed and silently swallow the second convoy's end screen.
+   */
+  claimEndNavigation(groupId: string): boolean {
+    if (this.claimedEndGroupId === groupId) return false;
+    this.claimedEndGroupId = groupId;
+    return true;
   }
 
   /** Feed each GPS fix — call this from LocationService / MapScreen every ~3 s. */
@@ -232,3 +260,60 @@ export class DriveService {
     this.sessionStartMs = null;
   }
 }
+
+// ---------------------------------------------------------------------------
+// /convoy-end navigation params — shared by every path that opens the screen
+// ---------------------------------------------------------------------------
+
+/**
+ * Builds the expo-router params for the /convoy-end summary screen from the
+ * server-reported group stats plus the locally-recorded drive stats
+ * (peekStats()). Used by BOTH end-of-convoy navigation paths (MapScreen's
+ * `group:ended` handler and ConvoyScreen's Admin end flow) so whichever one
+ * wins the claimEndNavigation() race, the screen receives identically rich
+ * params: top speed and route trace only exist locally, while duration /
+ * distance / member count prefer the server's group-wide numbers with the
+ * local recording as a fallback (some `group:ended` emits — e.g. auto-end on
+ * account deletion — carry no stats at all).
+ */
+export function buildConvoyEndParams(input: {
+  groupName: string | null | undefined;
+  memberCount: number | null | undefined;
+  durationS: number | null | undefined;
+  distanceM: number | null | undefined;
+  localStats: DriveStats | null;
+}): Record<string, string> {
+  const { localStats } = input;
+  const durationS = input.durationS != null && input.durationS > 0
+    ? input.durationS
+    : localStats?.durationS ?? 0;
+  const distanceM = input.distanceM != null && input.distanceM > 0
+    ? input.distanceM
+    : localStats?.distanceM ?? 0;
+
+  return {
+    groupName: input.groupName || 'Convoy',
+    memberCount: String(input.memberCount ?? 1),
+    durationMinutes: String(Math.round(durationS / 60)),
+    distanceM: String(distanceM),
+    ...(localStats?.topSpeedKph != null
+      ? { topSpeedKmh: String(Math.round(localStats.topSpeedKph)) }
+      : {}),
+    ...(localStats && localStats.routeTrace.coordinates.length > 1
+      ? { routeTrace: JSON.stringify(localStats.routeTrace) }
+      : {}),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Shared app-wide instance
+// ---------------------------------------------------------------------------
+
+/**
+ * The app-wide drive session. MapScreen feeds it GPS fixes and starts/finishes
+ * the recording; ConvoyScreen's Admin end-convoy flow reads the same instance
+ * (peekStats / claimEndNavigation) so both end-of-drive navigation paths agree
+ * on one source of truth for "has the end screen already been shown?" and on
+ * the locally-recorded stats behind it.
+ */
+export const driveService = new DriveService();

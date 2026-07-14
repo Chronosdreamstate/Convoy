@@ -26,7 +26,6 @@ import { useSettingsStore } from '../../stores/settingsStore';
 import PTTLogPanel from '../../components/PTTLogPanel';
 import { authService } from '../../services/AuthService';
 import { useLocationStore, MemberLocation } from '../../stores/locationStore';
-import { useMotionStore } from '../../stores/motionStore';
 import { rallyService, RallyPoint, SosPin } from '../../services/RallyService';
 import { apiClient } from '../../services/apiClient';
 import { HazardService, HazardType, IHazardApiClient } from '../../services/HazardService';
@@ -47,11 +46,11 @@ import { connectivityService } from '../../services/ConnectivityService';
 import { CongestionLevel, CongestionTier, congestionTierSegments, applyFuelStopWaypoint } from '../../services/RouteService';
 import CongestionRoutePolyline from '../../components/map/CongestionRoutePolyline';
 import MapDataUnavailableBadge, { CachedTileBounds, regionHasCachedMapData } from '../../components/map/MapDataUnavailableBadge';
-import { MotionStateService, deriveMotionState } from '../../services/MotionStateService';
+import { deriveMotionState } from '../../services/MotionStateService';
 import { PTTService } from '../../services/PTTService';
 import { agoraEngineAdapter, requestMicPermissionForPTT } from '../../services/AgoraEngineAdapter';
 import { apiTokenFetcher } from '../../services/ApiTokenFetcher';
-import { DriveService } from '../../services/DriveService';
+import { driveService, buildConvoyEndParams } from '../../services/DriveService';
 import { haversineDistanceM } from '../../utils/geo';
 import { carPlayService } from '../../services/CarPlayService';
 import { androidAutoService } from '../../services/AndroidAutoService';
@@ -408,8 +407,6 @@ const MemberMarker = React.memo(
     prev.gapStatus === next.gapStatus,
 );
 
-const motionStateService = new MotionStateService();
-
 const hapticAdapter = {
   impact: () => HapticService.trigger('medium'),
 };
@@ -462,7 +459,6 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
   const evictStale = useLocationStore((s) => s.evictStale);
   const setStalePositions = useLocationStore((s) => s.setStalePositions);
   const clearStalePositions = useLocationStore((s) => s.clearStalePositions);
-  const setIsInMotion = useMotionStore((s) => s.setIsInMotion);
   const groupName = useGroupStore((s) => s.name);
   const groupAdminId = useGroupStore((s) => s.adminId);
   const groupMemberCount = useGroupStore((s) => s.memberCount);
@@ -583,7 +579,10 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
   const memberNamesRef  = useRef<Record<string, string>>({});
   const memberVehiclesRef = useRef<Record<string, string>>({});
   const memberCallsignsRef = useRef<Record<string, string>>({});
-  const driveServiceRef = useRef(new DriveService());
+  // Shared app-wide instance (not per-screen): ConvoyScreen's Admin end-convoy
+  // flow reads the same session (peekStats / claimEndNavigation), so exactly
+  // one of the two end-of-drive paths navigates to /convoy-end.
+  const driveServiceRef = useRef(driveService);
   const fuelSuggestionShownRef = useRef(false); // fires at most once per session (Req 21.1)
   const memberCountRef  = useRef(0);
   const wsServiceRef    = useRef<WebSocketService | null>(null);
@@ -858,8 +857,9 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
       myLocationRef.current = pos;
       setMyLocation(pos);
       setMySpeedKph(speedKph);
-      motionStateService.update(speedKph);
-      setIsInMotion(motionStateService.state === 'in_motion');
+      // Motion state (Req 33/34) is fed by LocationService._deliverFix — the
+      // shared pipeline updates sharedMotionState (→ useMotionStore) with this
+      // exact fix before invoking this callback, so no per-screen feed here.
       driveServiceRef.current.addPoint(lat, lng, speedKph);
       wsServiceRef.current?.emitLocation({ lat, lng, heading, speed_kph: speedKph, ts });
 
@@ -1276,10 +1276,16 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
     });
 
     socket.on('group:ended', (payload?: { durationS?: number; distanceM?: number; memberCount?: number }) => {
+      // Exactly-once navigation: for the Admin, ConvoyScreen's end-convoy flow
+      // also targets /convoy-end when its POST /end response lands, and the
+      // server emits this broadcast (to the whole room, Admin included) while
+      // that POST is still in flight. Whichever path claims first navigates;
+      // the loser skips its push entirely (Req 7.9).
+      const claimed = driveServiceRef.current.claimEndNavigation(groupId);
       // Snapshot locally-computed stats (top speed, route trace) before finishSession()
       // resets the point buffer — Req 19.1/19.4 require the summary to include these,
       // and reading them synchronously avoids waiting on the drive POST round-trip.
-      const localStats = driveServiceRef.current.peekStats();
+      const localStats = claimed ? driveServiceRef.current.peekStats() : null;
 
       void driveServiceRef.current.finishSession({
         groupId,
@@ -1288,20 +1294,18 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
         api: { postDrive: (body) => apiClient.post('/api/v1/drives', body).then((r) => r.data) },
         isOnline: () => socket.connected,
       });
-      // Navigate non-admin members to the end screen with server-supplied stats
-      router.push({
-        pathname: '/convoy-end' as never,
-        params: {
-          groupName: groupName ?? 'Convoy',
-          memberCount: String(payload?.memberCount ?? memberCountRef.current),
-          durationMinutes: String(Math.round((payload?.durationS ?? 0) / 60)),
-          distanceM: String(payload?.distanceM ?? 0),
-          ...(localStats?.topSpeedKph != null ? { topSpeedKmh: String(Math.round(localStats.topSpeedKph)) } : {}),
-          ...(localStats && localStats.routeTrace.coordinates.length > 1
-            ? { routeTrace: JSON.stringify(localStats.routeTrace) }
-            : {}),
-        },
-      });
+      if (claimed) {
+        router.push({
+          pathname: '/convoy-end' as never,
+          params: buildConvoyEndParams({
+            groupName,
+            memberCount: payload?.memberCount ?? memberCountRef.current,
+            durationS: payload?.durationS,
+            distanceM: payload?.distanceM,
+            localStats,
+          }),
+        });
+      }
     });
 
     return () => {

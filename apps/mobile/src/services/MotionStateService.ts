@@ -86,10 +86,6 @@ export class MotionStateService {
  * IdleMapScreen) should call `sharedMotionState.update(speedKph)` from their
  * watch callback rather than standing up another instance, so every consumer
  * agrees on one hysteresis-debounced state.
- *
- * MapScreen keeps its historical per-module MotionStateService + store write;
- * it receives the same GPS samples this instance does, so it derives the same
- * state and its store write is a same-value no-op — not a competing source.
  */
 export const sharedMotionState = new MotionStateService();
 sharedMotionState.subscribe((state) => {
