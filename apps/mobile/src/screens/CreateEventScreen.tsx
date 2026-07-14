@@ -51,6 +51,11 @@ export default function CreateEventScreen() {
       isNaN(min) || min < 0 || min > 59
     ) return null;
 
+    // Date() silently rolls invalid day/month combinations (e.g. Feb 31 →
+    // Mar 3) into the next month — reject any day the month doesn't have so
+    // the event can never be scheduled on a date the user didn't type.
+    if (d > new Date(y, m, 0).getDate()) return null;
+
     if (ampm === 'PM' && h !== 12) h += 12;
     if (ampm === 'AM' && h === 12) h = 0;
 
@@ -77,6 +82,10 @@ export default function CreateEventScreen() {
     if (!month || isNaN(m) || m < 1 || m > 12) return 'Enter a valid month (1-12)';
     if (!day || isNaN(d) || d < 1 || d > 31) return 'Enter a valid day (1-31)';
     if (!year || isNaN(y) || y < 2024) return 'Enter a valid 4-digit year';
+    // Day-of-month check needs a valid month + year first (for leap years) —
+    // catches combos like Feb 31 that pass the generic 1-31 range above.
+    const daysInMonth = new Date(y, m, 0).getDate();
+    if (d > daysInMonth) return `That month only has ${daysInMonth} days`;
     if (!hour || isNaN(h) || h < 1 || h > 12) return 'Enter a valid hour (1-12)';
     if (!minute || isNaN(min) || min < 0 || min > 59) return 'Enter a valid minute (0-59)';
     if (iso === null) return 'Choose a date and time in the future';
