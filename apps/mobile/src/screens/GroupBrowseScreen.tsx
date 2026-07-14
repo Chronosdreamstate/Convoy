@@ -35,12 +35,9 @@ interface PublicGroup {
   accessType: 'open' | 'invite_only';
   isActive: boolean;
   distanceM?: number; // populated in Nearby mode
-}
-
-interface GroupEvent {
-  id: string;
-  title: string;
-  scheduledAt: string; // ISO string
+  // Soonest upcoming event, joined in by GET /groups and /groups/featured —
+  // the canonical source for the countdown pill (no per-group events fetch).
+  nextEvent?: { title: string; scheduledFor: string } | null;
 }
 
 interface EventCountdown {
@@ -93,6 +90,11 @@ function formatCountdown(scheduledAt: string): EventCountdown | null {
   const dayName = date.toLocaleDateString('en-US', { weekday: 'short' });
   const time = date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
   return { label: `${dayName} ${time}`, urgent: false };
+}
+
+/** Countdown pill data from a group's server-joined next event (if any). */
+function countdownFor(group: PublicGroup): EventCountdown | null {
+  return group.nextEvent ? formatCountdown(group.nextEvent.scheduledFor) : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -262,7 +264,6 @@ export default function GroupBrowseScreen() {
   const [joiningId, setJoiningId] = useState<string | null>(null);
   const [locating, setLocating] = useState(false);
   const [locationError, setLocationError] = useState<string | null>(null);
-  const [eventCountdowns, setEventCountdowns] = useState<Record<string, EventCountdown | null>>({});
   const userCoordsRef = useRef<{ lat: number; lng: number } | null>(null);
 
   const FILTER_TABS: FilterTab[] = ['All', 'Nearby', 'Active'];
@@ -338,36 +339,6 @@ export default function GroupBrowseScreen() {
     })();
     return () => { cancelled = true; };
   }, []);
-
-  // Fetch upcoming events for the first 5 visible groups
-  useEffect(() => {
-    if (groups.length === 0) return;
-    let cancelled = false;
-    const first5 = groups.slice(0, 5).map((g) => g.id);
-
-    (async () => {
-      const results = await Promise.all(
-        first5.map(async (id) => {
-          try {
-            const res = await apiClient.get<{ events: GroupEvent[] }>(`/api/v1/groups/${id}/events`);
-            const events = res.data.events ?? [];
-            const upcoming = events
-              .map((e) => ({ id: e.id, countdown: formatCountdown(e.scheduledAt) }))
-              .find((e) => e.countdown !== null);
-            return { id, countdown: upcoming?.countdown ?? null };
-          } catch {
-            return { id, countdown: null };
-          }
-        }),
-      );
-      if (cancelled) return;
-      const map: Record<string, EventCountdown | null> = {};
-      results.forEach((r) => { map[r.id] = r.countdown; });
-      setEventCountdowns(map);
-    })();
-
-    return () => { cancelled = true; };
-  }, [groups]);
 
   // Handle Nearby filter activation
   useEffect(() => {
@@ -465,10 +436,10 @@ export default function GroupBrowseScreen() {
         onView={(id) => router.push(`/group/${id}` as never)}
         joining={joiningId === item.id}
         showDistance={isNearby}
-        eventCountdown={eventCountdowns[item.id]}
+        eventCountdown={countdownFor(item)}
       />
     ),
-    [handleJoin, router, joiningId, isNearby, eventCountdowns],
+    [handleJoin, router, joiningId, isNearby],
   );
 
   return (
@@ -502,7 +473,7 @@ export default function GroupBrowseScreen() {
                 onJoin={handleJoin}
                 onView={(id) => router.push(`/group/${id}` as never)}
                 joining={joiningId === group.id}
-                eventCountdown={eventCountdowns[group.id]}
+                eventCountdown={countdownFor(group)}
               />
             ))}
           </ScrollView>

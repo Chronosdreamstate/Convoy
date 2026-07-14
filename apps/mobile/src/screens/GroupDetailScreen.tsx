@@ -41,7 +41,7 @@ interface GroupDetail {
   createdAt: string;
   vehicleFocus?: string | null;
   members: Array<{ userId: string; displayName: string; isAdmin: boolean; vehicleType?: string }>;
-  upcomingEvent?: GroupEvent;
+  upcomingEvent?: GroupEvent | null; // API sends null when no upcoming event
   isMember?: boolean;
 }
 
