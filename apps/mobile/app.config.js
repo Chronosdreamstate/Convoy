@@ -115,6 +115,11 @@ const baseConfig = {
   },
   extra: {
     router: {},
+    // Numeric App Store id used by the post-drive review prompt and the
+    // Settings "rate" link (https://apps.apple.com/app/id<ID>). Set
+    // EXPO_PUBLIC_APP_STORE_ID once the app is published; the all-zero
+    // placeholder keeps unconfigured/dev builds working unchanged.
+    appStoreId: process.env.EXPO_PUBLIC_APP_STORE_ID || '0000000000',
     eas: {
       projectId: '10e02def-bbdc-482d-bbca-0486b648d655',
     },

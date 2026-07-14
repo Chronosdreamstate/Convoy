@@ -16,6 +16,7 @@ import {
   View,
 } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
+import Constants from 'expo-constants';
 import * as ImagePicker from 'expo-image-picker';
 import * as MediaLibrary from 'expo-media-library';
 import * as Sharing from 'expo-sharing';
@@ -33,6 +34,13 @@ import { useTheme, ThemeColors } from '../theme';
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 const PARTICLE_COUNT = 24;
+
+// App Store page for the review prompt. The numeric id comes from
+// app.config.js extra.appStoreId (EXPO_PUBLIC_APP_STORE_ID); shipping only
+// needs that config change — the all-zero placeholder is the dev fallback.
+const APP_STORE_ID =
+  (Constants.expoConfig?.extra?.appStoreId as string | undefined) || '0000000000';
+const APP_STORE_URL = `https://apps.apple.com/app/id${APP_STORE_ID}`;
 
 // Dimensions-only (no color) so the module-level Confetti component doesn't
 // need the themed `styles` sheet — color is applied per-particle inline.
@@ -692,8 +700,7 @@ export default function ConvoyEndScreen() {
                   text: '⭐ Rate 5 Stars',
                   onPress: async () => {
                     await AsyncStorage.setItem('convoy:has_reviewed', 'true');
-                    // Opens App Store page — replace with real app ID before launch
-                    Linking.openURL('https://apps.apple.com/app/id000000000');
+                    Linking.openURL(APP_STORE_URL);
                   },
                 },
                 { text: 'Maybe Later', style: 'cancel' },

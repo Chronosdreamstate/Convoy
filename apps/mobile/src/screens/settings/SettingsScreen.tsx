@@ -49,7 +49,11 @@ interface Settings {
 }
 
 const APP_VERSION = Constants.expoConfig?.version ?? '1.0.0';
-const APP_STORE_URL = 'https://apps.apple.com/app/convoy/id0000000000';
+// Numeric id comes from app.config.js extra.appStoreId
+// (EXPO_PUBLIC_APP_STORE_ID); the all-zero placeholder is the dev fallback.
+const APP_STORE_ID =
+  (Constants.expoConfig?.extra?.appStoreId as string | undefined) || '0000000000';
+const APP_STORE_URL = `https://apps.apple.com/app/id${APP_STORE_ID}`;
 
 const MILES_PER_METRE = 0.000621371;
 const MAP_STYLES: Array<{ label: string; value: Settings['mapStyle'] }> = [
