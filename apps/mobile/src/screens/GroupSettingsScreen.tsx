@@ -18,6 +18,7 @@ import { apiClient } from '../services/apiClient';
 import { SkeletonBox } from '../components/SkeletonLoader';
 import { NetworkError } from '../components/NetworkError';
 import { useTheme, ThemeColors } from '../theme';
+import { useGroupStore } from '../stores/groupStore';
 import { useSocketStore } from '../stores/socketStore';
 import { useMotionGuard } from '../hooks/useMotionGuard';
 
@@ -259,13 +260,30 @@ export default function GroupSettingsScreen() {
     if (!groupId || !isAdmin) return;
     if (guardInMotion()) return;
     setSaving(true);
+    const trimmedName = name.trim();
     try {
       await apiClient.patch(`/api/v1/groups/${groupId}/settings`, {
-        name: name.trim() || undefined,
+        name: trimmedName || undefined,
         gapThresholdM,
         pttMaxSeconds,
         accessType,
       });
+      // Propagate the saved values into the group store immediately — headers
+      // elsewhere (ConvoyScreen, lobby) read the name from there, and the
+      // group:settings_updated socket broadcast only reaches screens that have
+      // a live group socket, so without this the admin's own UI stays stale
+      // until the next refetch.
+      const groupStore = useGroupStore.getState();
+      if (groupStore.activeGroupId === groupId) {
+        groupStore.setGroupMeta({
+          ...(trimmedName ? { name: trimmedName } : {}),
+          gapThresholdM,
+          pttMaxSeconds,
+        });
+      }
+      setSettings((prev) =>
+        prev ? { ...prev, name: trimmedName || prev.name, gapThresholdM, pttMaxSeconds, accessType } : prev,
+      );
       Alert.alert('Saved', 'Group settings updated.');
     } catch {
       Alert.alert('Error', 'Failed to save settings. Please try again.');
