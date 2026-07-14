@@ -87,6 +87,72 @@ export interface INotificationHandler {
 }
 
 // ---------------------------------------------------------------------------
+// Notification tap routing
+// ---------------------------------------------------------------------------
+
+/** Minimal structural subset of expo-router's Router used for tap routing. */
+export interface INotificationRouter {
+  push(route: string | { pathname: string; params?: Record<string, string> }): void;
+}
+
+/**
+ * Navigate to the correct screen for a tapped push notification.
+ * The API worker stamps `type` into the push data (notification.worker.ts),
+ * so routing keys off `data.type`.
+ *
+ * Called from app/_layout.tsx for both warm taps
+ * (addNotificationResponseReceivedListener) and cold starts
+ * (getLastNotificationResponseAsync).
+ */
+export function routeNotificationTap(
+  router: INotificationRouter,
+  data: Record<string, string> | undefined,
+): void {
+  const type = data?.type;
+  switch (type) {
+    case 'sos_alert':
+      router.push('/(tabs)/map');
+      break;
+    case 'friend_request':
+      router.push({ pathname: '/friends', params: { tab: 'requests' } });
+      break;
+    case 'group_invite':
+      // Join-request lifecycle pushes ("New Join Request" → admin,
+      // approved/declined → requester; see api/src/groups/joinRequests.routes.ts)
+      // carry groupId — land on the group so the tap is actionable. A payload
+      // carrying a joinCode prefills the code-entry screen instead. Only with
+      // neither do we fall back to the bare join screen.
+      if (data?.joinCode) {
+        router.push({ pathname: '/join', params: { prefillCode: data.joinCode } });
+      } else if (data?.groupId) {
+        router.push(`/group/${encodeURIComponent(data.groupId)}`);
+      } else {
+        router.push('/join');
+      }
+      break;
+    case 'group_event':
+      if (data?.eventId && data?.groupId) {
+        router.push({ pathname: '/event/[id]', params: { id: data.eventId, groupId: data.groupId } });
+      } else {
+        router.push('/(tabs)/convoy');
+      }
+      break;
+    case 'rally_point':
+      // Rally point pins render on the map (MapScreen), not the convoy hub.
+      router.push('/(tabs)/map');
+      break;
+    case 'hazard_alert':
+    case 'gap_alert':
+    case 'fuel_suggest':
+    case 'arriving_destination':
+      router.push('/(tabs)/map');
+      break;
+    default:
+      break;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Standalone helper — canonical Expo push registration flow
 // ---------------------------------------------------------------------------
 

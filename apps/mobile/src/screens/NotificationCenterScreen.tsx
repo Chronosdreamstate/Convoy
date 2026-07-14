@@ -345,7 +345,16 @@ export default function NotificationCenterScreen() {
         router.push('/friends?tab=requests' as never);
         break;
       case 'group_invite':
-        router.push('/join' as never);
+        // Join-request lifecycle items carry groupId — land on the group so
+        // the tap is actionable; a joinCode prefills the code-entry screen.
+        // Only with neither do we fall back to the bare join screen.
+        if (item.data?.joinCode) {
+          router.push({ pathname: '/join', params: { prefillCode: item.data.joinCode } } as never);
+        } else if (gid) {
+          router.push(`/group/${gid}` as never);
+        } else {
+          router.push('/join' as never);
+        }
         break;
       case 'group_event':
       case 'event_reminder':

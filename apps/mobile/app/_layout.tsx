@@ -18,7 +18,9 @@ import { useSocketStore } from '../src/stores/socketStore';
 import OfflineIndicator from '../src/components/OfflineIndicator';
 import {
   registerForPushNotificationsAsync,
+  routeNotificationTap,
   setupNotificationHandler,
+  type INotificationRouter,
 } from '../src/services/NotificationService';
 import { onboardingState } from '../src/utils/onboardingState';
 import { SyncService } from '../src/services/SyncService';
@@ -73,42 +75,16 @@ const syncService = new SyncService(
   connectivityService,
 );
 
-/** Navigate to the correct screen based on notification data. */
+/** Navigate to the correct screen based on notification data.
+ * The switch lives in NotificationService.routeNotificationTap so it can be
+ * unit-tested without importing this module's side effects. */
 function handleNotificationNavigation(
   router: Router,
   data: Record<string, string> | undefined,
 ): void {
-  const type = data?.type;
-  switch (type) {
-    case 'sos_alert':
-      router.push('/(tabs)/map');
-      break;
-    case 'friend_request':
-      router.push({ pathname: '/friends', params: { tab: 'requests' } });
-      break;
-    case 'group_invite':
-      router.push('/join');
-      break;
-    case 'group_event':
-      if (data?.eventId && data?.groupId) {
-        router.push({ pathname: '/event/[id]' as never, params: { id: data.eventId, groupId: data.groupId } });
-      } else {
-        router.push('/(tabs)/convoy');
-      }
-      break;
-    case 'rally_point':
-      // Rally point pins render on the map (MapScreen), not the convoy hub.
-      router.push('/(tabs)/map');
-      break;
-    case 'hazard_alert':
-    case 'gap_alert':
-    case 'fuel_suggest':
-    case 'arriving_destination':
-      router.push('/(tabs)/map');
-      break;
-    default:
-      break;
-  }
+  // Router's push accepts the same string/object shapes; the structural
+  // interface only exists because typed routes make Href a closed union.
+  routeNotificationTap(router as unknown as INotificationRouter, data);
 }
 
 /** Route a convoy:// or https://convoy.app/ deep link to the appropriate screen. */

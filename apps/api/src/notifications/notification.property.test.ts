@@ -17,10 +17,12 @@
 import fc from 'fast-check';
 import {
   enqueueNotification,
+  processNotificationJob,
   NotificationJob,
   NotificationType,
   IPushGateway,
   IDeviceStore,
+  IPreferenceStore,
 } from './notification.worker';
 import { Queue } from 'bullmq';
 
@@ -229,5 +231,79 @@ describe('Property 70: SOS alerts are delivered with high priority', () => {
     for (const type of NON_SOS_TYPES) {
       expect(PREFERENCE_KEY[type]).toBeDefined();
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Push data carries the job type — the mobile tap handler routes on data.type
+// (app/_layout.tsx handleNotificationNavigation), so every delivered push must
+// stamp it or notification taps dead-end (Req 15.4; group_invite deep link).
+// ---------------------------------------------------------------------------
+describe('Push payload data.type stamp', () => {
+  function makePayloadGateway(): {
+    gateway: IPushGateway;
+    payloads: Array<{ data?: Record<string, string> }>;
+  } {
+    const payloads: Array<{ data?: Record<string, string> }> = [];
+    const gateway: IPushGateway = {
+      send: jest.fn(async (_token, _platform, payload) => {
+        payloads.push({ data: payload.data });
+      }),
+    };
+    return { gateway, payloads };
+  }
+
+  const allowAllPrefs: IPreferenceStore = {
+    getPreferences: jest.fn(async () => null), // no prefs row → send everything
+  };
+
+  it('worker stamps type into push data and preserves the job payload (group_invite carries groupId)', async () => {
+    const { gateway, payloads } = makePayloadGateway();
+    const deviceStore = makeMockDeviceStore([{ token: 'tok', platform: 'ios' }]);
+
+    await processNotificationJob(
+      makeJob({
+        type: 'group_invite',
+        title: 'New Join Request',
+        body: 'Someone wants to join your group',
+        data: { groupId: 'g-1', requestId: 'r-1' },
+      }),
+      deviceStore,
+      gateway,
+      allowAllPrefs,
+    );
+
+    expect(payloads).toHaveLength(1);
+    expect(payloads[0].data).toEqual({ groupId: 'g-1', requestId: 'r-1', type: 'group_invite' });
+  });
+
+  it('worker stamps type even when the job has no data', async () => {
+    const { gateway, payloads } = makePayloadGateway();
+    const deviceStore = makeMockDeviceStore([{ token: 'tok', platform: 'android' }]);
+
+    await processNotificationJob(
+      makeJob({ type: 'arriving_destination', data: undefined }),
+      deviceStore,
+      gateway,
+      allowAllPrefs,
+    );
+
+    expect(payloads[0].data).toEqual({ type: 'arriving_destination' });
+  });
+
+  it('inline SOS delivery stamps type into push data too', async () => {
+    const { gateway, payloads } = makePayloadGateway();
+    const deviceStore = makeMockDeviceStore([{ token: 'tok', platform: 'ios' }]);
+    const { queue } = makeMockQueue();
+
+    await enqueueNotification(
+      queue,
+      makeJob({ type: 'sos_alert', data: { sosId: 's-1', groupId: 'g-1' } }),
+      gateway,
+      deviceStore,
+    );
+
+    expect(payloads).toHaveLength(1);
+    expect(payloads[0].data).toEqual({ sosId: 's-1', groupId: 'g-1', type: 'sos_alert' });
   });
 });

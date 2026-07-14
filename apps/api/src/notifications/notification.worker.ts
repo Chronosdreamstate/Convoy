@@ -82,6 +82,58 @@ export function createNotificationQueue(connection: IORedis): Queue<Notification
 // Worker factory
 // ---------------------------------------------------------------------------
 
+/**
+ * Process one notification job: preference gate → push to all devices →
+ * persist to history. Exported so the delivery contract (in particular the
+ * data.type stamp the mobile tap router depends on) is unit-testable without
+ * a live BullMQ worker.
+ */
+export async function processNotificationJob(
+  jobData: NotificationJob,
+  deviceStore: IDeviceStore,
+  gateway: IPushGateway,
+  preferenceStore: IPreferenceStore,
+  db?: Pool,
+): Promise<void> {
+  const { userId, type, title, body, data } = jobData;
+
+  // SOS alerts always send regardless of user preferences (Req 15.5)
+  if (type !== 'sos_alert') {
+    const prefs = await preferenceStore.getPreferences(userId);
+    if (prefs !== null) {
+      const prefKey = PREFERENCE_KEY[type];
+      if (!prefs[prefKey]) return; // user opted out of this category
+    }
+  }
+
+  const devices = await deviceStore.getTokensForUser(userId);
+  const priority: 'normal' | 'high' = type === 'sos_alert' ? 'high' : 'normal';
+
+  // The mobile tap handler routes on data.type (see app/_layout.tsx
+  // handleNotificationNavigation) — stamp the job type into the push data
+  // so tapping a notification actually navigates somewhere.
+  const pushData = { ...(data ?? {}), type };
+
+  await Promise.all(
+    devices.map((d) =>
+      gateway.send(d.token, d.platform, { title, body, data: pushData, priority }),
+    ),
+  );
+
+  // Persist to notification_history for the in-app notification center
+  if (db) {
+    try {
+      await db.query(
+        `INSERT INTO notification_history (user_id, type, title, body, data)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [userId, type, title, body, data ? JSON.stringify(data) : '{}'],
+      );
+    } catch {
+      // non-fatal — don't fail the job if history insert fails
+    }
+  }
+}
+
 export function createNotificationWorker(
   connection: IORedis,
   deviceStore: IDeviceStore,
@@ -91,40 +143,8 @@ export function createNotificationWorker(
 ): Worker<NotificationJob> {
   return new Worker<NotificationJob>(
     'notifications',
-    async (job: Job<NotificationJob>) => {
-      const { userId, type, title, body, data } = job.data;
-
-      // SOS alerts always send regardless of user preferences (Req 15.5)
-      if (type !== 'sos_alert') {
-        const prefs = await preferenceStore.getPreferences(userId);
-        if (prefs !== null) {
-          const prefKey = PREFERENCE_KEY[type];
-          if (!prefs[prefKey]) return; // user opted out of this category
-        }
-      }
-
-      const devices = await deviceStore.getTokensForUser(userId);
-      const priority: 'normal' | 'high' = type === 'sos_alert' ? 'high' : 'normal';
-
-      await Promise.all(
-        devices.map((d) =>
-          gateway.send(d.token, d.platform, { title, body, data, priority }),
-        ),
-      );
-
-      // Persist to notification_history for the in-app notification center
-      if (db) {
-        try {
-          await db.query(
-            `INSERT INTO notification_history (user_id, type, title, body, data)
-             VALUES ($1, $2, $3, $4, $5)`,
-            [userId, type, title, body, data ? JSON.stringify(data) : '{}'],
-          );
-        } catch {
-          // non-fatal — don't fail the job if history insert fails
-        }
-      }
-    },
+    (job: Job<NotificationJob>) =>
+      processNotificationJob(job.data, deviceStore, gateway, preferenceStore, db),
     { connection, concurrency: 20 },
   );
 }
@@ -147,7 +167,8 @@ export async function enqueueNotification(
         gateway.send(d.token, d.platform, {
           title: job.title,
           body: job.body,
-          data: job.data,
+          // Same contract as the queued path: mobile routes taps on data.type.
+          data: { ...(job.data ?? {}), type: job.type },
           priority: 'high',
         }),
       ),
