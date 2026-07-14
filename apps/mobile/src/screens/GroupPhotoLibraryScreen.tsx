@@ -20,6 +20,7 @@ import { apiClient } from '../services/apiClient';
 import { useAuthStore } from '../stores/authStore';
 import { useSocketStore } from '../stores/socketStore';
 import { pickAndUploadPhoto } from '../services/PhotoUploadService';
+import { MotionCapNotice, useMotionCappedData } from '../components/MotionAwareList';
 import { SkeletonBox } from '../components/SkeletonLoader';
 import { NetworkError } from '../components/NetworkError';
 import { useTheme, ThemeColors } from '../theme';
@@ -220,6 +221,11 @@ export default function GroupPhotoLibraryScreen() {
     ]);
   }, [groupId]);
 
+  // Req 33 — cap the grid to 4 tiles while the vehicle is in motion (see
+  // MotionAwareList): at 2 columns that's 2 rows, visible without scrolling,
+  // with the shared "pull over" notice below the last row.
+  const { data: visiblePhotos, hiddenCount } = useMotionCappedData(photos);
+
   const renderPhotoItem = useCallback(
     ({ item }: { item: Photo }) => (
       <PhotoCell
@@ -286,11 +292,12 @@ export default function GroupPhotoLibraryScreen() {
         </View>
       ) : (
         <FlatList
-          data={photos}
+          data={visiblePhotos}
           keyExtractor={(p) => p.id}
           numColumns={2}
           columnWrapperStyle={styles.row}
           renderItem={renderPhotoItem}
+          ListFooterComponent={<MotionCapNotice hiddenCount={hiddenCount} />}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.accent} colors={[colors.accent]} />
           }

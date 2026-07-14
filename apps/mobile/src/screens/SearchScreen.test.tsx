@@ -8,11 +8,14 @@
  *    user on the group screen as if the join worked; it alerts and stays put.
  *  - The search-error retry label sits on the accent fill, so it must use the
  *    fixed ON_ACCENT white, not colors.text (near-black in light mode).
+ *  - Req 33: while the vehicle is in motion, the visible result list caps to
+ *    4 rows with the shared "pull over" notice.
  */
 
 import React from 'react';
 import TestRenderer, { act, ReactTestInstance } from 'react-test-renderer';
 import { Alert, StyleSheet } from 'react-native';
+import { useMotionStore } from '../stores/motionStore';
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -80,12 +83,48 @@ function byLabel(root: ReactTestInstance, label: string): ReactTestInstance {
   return node;
 }
 
+/**
+ * Distinct rendered group-result rows, identified by their Join buttons.
+ * Composite touchables render their props on both the component node and its
+ * host view, so nodes are deduped by label.
+ */
+function joinButtons(root: ReactTestInstance): string[] {
+  const labels = root
+    .findAll(
+      (n) => typeof n.props?.accessibilityLabel === 'string'
+        && n.props.accessibilityLabel.startsWith('Join ')
+        && typeof n.props?.onPress === 'function',
+    )
+    .map((n) => n.props.accessibilityLabel as string);
+  return [...new Set(labels)];
+}
+
+/** True if any Text node's flattened children join to exactly this string. */
+function hasText(root: ReactTestInstance, text: string): boolean {
+  return root.findAll((n) => {
+    const children = n.props?.children;
+    const joined = Array.isArray(children) ? children.join('') : children;
+    return joined === text;
+  }).length > 0;
+}
+
+function makeGroups(count: number) {
+  return Array.from({ length: count }, (_, i) => ({
+    id: `g-${i}`,
+    name: `Rally ${i}`,
+    memberCount: 4 + i,
+    accessType: 'open' as const,
+    nextEvent: null,
+  }));
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
 beforeEach(async () => {
   jest.useFakeTimers();
+  useMotionStore.setState({ isInMotion: false });
   mockApiGet.mockReset();
   mockApiPost.mockReset();
   mockRouterPush.mockReset();
@@ -137,6 +176,23 @@ describe('SearchScreen — join flow honesty', () => {
 
     expect(alertSpy).toHaveBeenCalledWith('Could not join', 'This group is no longer accepting new members.');
     expect(mockRouterPush).not.toHaveBeenCalled();
+  });
+});
+
+describe('SearchScreen — in-motion list cap (Req 33)', () => {
+  it('renders every result while parked', async () => {
+    const renderer = await renderWithResults(makeGroups(6));
+
+    expect(joinButtons(renderer.root)).toHaveLength(6);
+    expect(hasText(renderer.root, 'Pull over to see 2 more')).toBe(false);
+  });
+
+  it('caps the visible results to 4 rows with the pull-over notice while in motion', async () => {
+    useMotionStore.setState({ isInMotion: true });
+    const renderer = await renderWithResults(makeGroups(6));
+
+    expect(joinButtons(renderer.root)).toHaveLength(4);
+    expect(hasText(renderer.root, 'Pull over to see 2 more')).toBe(true);
   });
 });
 

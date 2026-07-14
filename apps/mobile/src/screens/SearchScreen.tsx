@@ -16,6 +16,7 @@ import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import { apiClient } from '../services/apiClient';
+import { MotionCapNotice, useMotionCappedData } from '../components/MotionAwareList';
 import { ThemeColors, useTheme } from '../theme';
 
 const STORAGE_KEY = 'convoy:recent_searches';
@@ -272,6 +273,14 @@ export default function SearchScreen() {
     );
   }, [friendActions, handleAddFriend, submittingIds, colors, styles]);
 
+  // Req 33 — cap the visible results to 4 rows while the vehicle is in motion
+  // (see MotionAwareList). Groups and people live on separate tabs and never
+  // render together, so capping each list independently still shows at most 4
+  // rows on screen — unlike FriendsScreen's requests view, which combines its
+  // two sections before capping because both render at once.
+  const { data: visibleGroups, hiddenCount: hiddenGroupCount } = useMotionCappedData(groups);
+  const { data: visiblePeople, hiddenCount: hiddenPeopleCount } = useMotionCappedData(people);
+
   const showRecent = !query.trim() && recentSearches.length > 0;
 
   return (
@@ -363,20 +372,22 @@ export default function SearchScreen() {
           </View>
         ) : activeTab === 'groups' ? (
           <FlatList
-            data={groups}
+            data={visibleGroups}
             keyExtractor={(g) => g.id}
             renderItem={renderGroup}
             contentContainerStyle={styles.list}
+            ListFooterComponent={<MotionCapNotice hiddenCount={hiddenGroupCount} />}
             ListEmptyComponent={
               <Text style={styles.emptyText}>No groups found for "{query}"</Text>
             }
           />
         ) : (
           <FlatList
-            data={people}
+            data={visiblePeople}
             keyExtractor={(p) => p.id}
             renderItem={renderPerson}
             contentContainerStyle={styles.list}
+            ListFooterComponent={<MotionCapNotice hiddenCount={hiddenPeopleCount} />}
             ListEmptyComponent={
               <Text style={styles.emptyText}>No users found for "{query}"</Text>
             }
