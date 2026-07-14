@@ -354,6 +354,32 @@ describe('GET /groups/:id/leaderboard — me (caller rank)', () => {
     expect(body.me).toEqual({ rank: 2, value: 1 });
   });
 
+  it('breaks ties by user id ascending, consistently between the page and me', async () => {
+    // All three tie on distance; deterministic order is ALICE, BOB, CARA
+    // (user id ASC), matching the list query's `u.id ASC` tie-break and the
+    // ranking query's `cm.user_id ASC` tie-break.
+    addMember(GROUP_ID, ALICE);
+    addMember(GROUP_ID, BOB);
+    addMember(GROUP_ID, CARA);
+    addDrive(GROUP_ID, ALICE, { distance_m: 30_000 });
+    addDrive(GROUP_ID, BOB, { distance_m: 30_000 });
+    addDrive(GROUP_ID, CARA, { distance_m: 30_000 });
+
+    // CARA is squeezed out of a limit=2 page by the tie-break — her `me`
+    // rank must come from the full-population ranking query, not the page.
+    const asCara = await get(`/api/v1/groups/${GROUP_ID}/leaderboard?limit=2`, CARA);
+    const caraBody = JSON.parse(asCara.body) as LeaderboardBody;
+    expect(caraBody.leaderboard.map((r) => r.userId)).toEqual([ALICE, BOB]);
+    expect(caraBody.me).toEqual({ rank: 3, value: 30 });
+
+    // BOB ties on value but stays inside the page; `me` mirrors his list row
+    // so the client never renders both an in-list row and a pinned row.
+    const asBob = await get(`/api/v1/groups/${GROUP_ID}/leaderboard?limit=2`, BOB);
+    const bobBody = JSON.parse(asBob.body) as LeaderboardBody;
+    expect(bobBody.me).toEqual({ rank: 2, value: 30 });
+    expect(bobBody.leaderboard.find((r) => r.userId === BOB)!.rank).toBe(2);
+  });
+
   it('respects metric=time (value = total minutes)', async () => {
     addMember(GROUP_ID, ALICE);
     addMember(GROUP_ID, BOB);

@@ -52,9 +52,10 @@ interface LeaderboardMember {
 interface LeaderboardResponse {
   leaderboard: LeaderboardMember[];
   /**
-   * The current user's own rank/value when they fall outside the visible
-   * rows. Being added server-side — optional until that change lands, and
-   * null when the user has no ranked data for the metric.
+   * The current user's own rank/value across the FULL group population
+   * (server computes it with a ranking query when the caller falls outside
+   * the returned page). Null when the user has no ranked data for the
+   * metric; kept optional defensively for older API deployments.
    */
   me?: { rank: number; value: number } | null;
 }
@@ -368,12 +369,16 @@ export default function GroupLeaderboardScreen() {
   // Data / empty state
   // ------------------------------------------------------------------
 
-  // Pinned "your rank" row — only when the signed-in user exists in the
-  // response's `me` field but is NOT one of the visible rows (outside top-N).
+  // Pinned "your rank" row — shown when the server reported a rank for the
+  // signed-in user but their own row is not currently visible: either they
+  // fall outside the fetched top-N page, or the Req 33 in-motion cap hid
+  // their row. Checking the capped list (not the full fetched page) is what
+  // keeps the rank visible mid-drive. When the user's row IS visible it gets
+  // the in-list YOU highlight instead, so the pinned row never duplicates it.
   const showMyRank =
     myRank !== null &&
     members.length > 0 &&
-    !members.some((m) => m.userId === currentUserId);
+    !visibleMembers.some((m) => m.userId === currentUserId);
 
   return (
     <SafeAreaView style={styles.container}>

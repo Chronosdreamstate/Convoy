@@ -46,11 +46,15 @@ import GroupLeaderboardScreen from './GroupLeaderboardScreen';
 
 const ME: User = { id: 'u-1', displayName: 'Me', privacy: 'open' };
 
-function makeMembers(count: number) {
+/**
+ * Ranked members u-{startId} .. u-{startId+count-1}. Pass startId > 1 to build
+ * a top-N page that does NOT contain the signed-in user (ME is u-1).
+ */
+function makeMembers(count: number, startId = 1) {
   return Array.from({ length: count }, (_, i) => ({
     rank: i + 1,
-    userId: `u-${i + 1}`,
-    displayName: `Driver ${i + 1}`,
+    userId: `u-${startId + i}`,
+    displayName: `Driver ${startId + i}`,
     callsign: null,
     avatarUrl: null,
     totalDistanceKm: 100 - i,
@@ -89,6 +93,17 @@ function hasText(root: ReactTestInstance, text: string): boolean {
     const joined = Array.isArray(children) ? children.join('') : children;
     return joined === text;
   }).length > 0;
+}
+
+/** Deduped accessibility labels of pinned "Your rank" bars (0 or 1 expected). */
+function pinnedRankLabels(root: ReactTestInstance): string[] {
+  const labels = root
+    .findAll(
+      (n) => typeof n.props?.accessibilityLabel === 'string'
+        && n.props.accessibilityLabel.startsWith('Your rank:'),
+    )
+    .map((n) => n.props.accessibilityLabel as string);
+  return [...new Set(labels)];
 }
 
 // ---------------------------------------------------------------------------
@@ -132,5 +147,72 @@ describe('GroupLeaderboardScreen', () => {
     );
     const label = activeTab.find((n) => n.props?.children === 'Distance');
     expect(StyleSheet.flatten(label.props.style).color).toBe('#FFFFFF');
+  });
+});
+
+describe('GroupLeaderboardScreen — pinned "your rank" row', () => {
+  it('renders the pinned row when the user is outside the fetched top-N', async () => {
+    // Page contains u-2..u-21; the signed-in user (u-1) is ranked #47 overall.
+    mockApiGet.mockResolvedValue({
+      data: { leaderboard: makeMembers(20, 2), me: { rank: 47, value: 12 } },
+    });
+    const root = await renderScreen();
+
+    expect(pinnedRankLabels(root)).toEqual(['Your rank: 47, 12 km']);
+    expect(hasText(root, '#47')).toBe(true);
+  });
+
+  it('does not duplicate the pinned row when the user IS in the top-N', async () => {
+    // u-1 is rank 1 in the page; server still mirrors `me` for in-list users.
+    mockApiGet.mockResolvedValue({
+      data: { leaderboard: makeMembers(6), me: { rank: 1, value: 100 } },
+    });
+    const root = await renderScreen();
+
+    // In-list row is rendered with the YOU marker; no pinned bar underneath.
+    expect(memberRows(root).some((l) => l.includes(', you,'))).toBe(true);
+    expect(pinnedRankLabels(root)).toHaveLength(0);
+  });
+
+  it('renders no pinned row when me is null (user has no ranked data)', async () => {
+    mockApiGet.mockResolvedValue({
+      data: { leaderboard: makeMembers(6, 2), me: null },
+    });
+    const root = await renderScreen();
+
+    expect(pinnedRankLabels(root)).toHaveLength(0);
+  });
+
+  it('renders no pinned row when me is absent (older API)', async () => {
+    mockApiGet.mockResolvedValue({ data: { leaderboard: makeMembers(6, 2) } });
+    const root = await renderScreen();
+
+    expect(pinnedRankLabels(root)).toHaveLength(0);
+  });
+
+  it('pins the rank when the Req 33 motion cap hides the user\'s in-list row', async () => {
+    // u-6 is inside the fetched page (rank 6) but the in-motion cap only
+    // shows 4 rows — their own row disappears, so the pinned bar must appear.
+    useMotionStore.setState({ isInMotion: true });
+    useAuthStore.setState({ user: { ...ME, id: 'u-6' } });
+    mockApiGet.mockResolvedValue({
+      data: { leaderboard: makeMembers(6), me: { rank: 6, value: 95 } },
+    });
+    const root = await renderScreen();
+
+    expect(memberRows(root)).toHaveLength(4);
+    expect(pinnedRankLabels(root)).toEqual(['Your rank: 6, 95 km']);
+  });
+
+  it('keeps the pinned row hidden while in motion if the user survives the cap', async () => {
+    useMotionStore.setState({ isInMotion: true });
+    // u-1 is rank 1 — still visible among the 4 capped rows.
+    mockApiGet.mockResolvedValue({
+      data: { leaderboard: makeMembers(6), me: { rank: 1, value: 100 } },
+    });
+    const root = await renderScreen();
+
+    expect(memberRows(root)).toHaveLength(4);
+    expect(pinnedRankLabels(root)).toHaveLength(0);
   });
 });
