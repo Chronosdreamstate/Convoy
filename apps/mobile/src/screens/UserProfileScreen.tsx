@@ -39,6 +39,10 @@ interface UserProfile {
   totalDistanceKm: number;
   mutualFriends: number;
   friendStatus: string | null;
+  // Additive fields (may be absent on older API builds): direction of a
+  // pending request and the friendships row id the request endpoints key on.
+  friendRequestDirection?: 'outgoing' | 'incoming' | null;
+  friendRequestId?: string | null;
 }
 
 function initials(name: string): string {
@@ -64,6 +68,8 @@ export default function UserProfileScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [friendStatus, setFriendStatus] = useState<string | null>(null);
+  const [requestDirection, setRequestDirection] = useState<'outgoing' | 'incoming' | null>(null);
+  const [requestId, setRequestId] = useState<string | null>(null);
   const [friendLoading, setFriendLoading] = useState(false);
   const [blocking, setBlocking] = useState(false);
 
@@ -77,6 +83,8 @@ export default function UserProfileScreen() {
       const res = await apiClient.get<UserProfile>(`/api/v1/users/${userId}`);
       setProfile(res.data);
       setFriendStatus(res.data.friendStatus);
+      setRequestDirection(res.data.friendRequestDirection ?? null);
+      setRequestId(res.data.friendRequestId ?? null);
       Animated.timing(fadeAnim, { toValue: 1, duration: 340, useNativeDriver: true }).start();
     } catch {
       setError('Could not load profile.');
@@ -91,10 +99,74 @@ export default function UserProfileScreen() {
     if (!profile || friendLoading) return;
     setFriendLoading(true);
     try {
-      await apiClient.post('/api/v1/friends/requests', { addresseeId: profile.id });
-      setFriendStatus('pending');
+      const res = await apiClient.post<{ id?: string; status?: string; autoAccepted?: boolean }>(
+        '/api/v1/friends/requests',
+        { addresseeId: profile.id },
+      );
+      // Open-privacy accounts auto-accept (server returns status 'accepted').
+      if (res.data?.status === 'accepted' || res.data?.autoAccepted) {
+        setFriendStatus('accepted');
+        setRequestDirection(null);
+        setRequestId(null);
+      } else {
+        setFriendStatus('pending');
+        setRequestDirection('outgoing');
+        setRequestId(res.data?.id ?? null);
+      }
     } catch {
       Alert.alert('Error', 'Could not send friend request. Please try again.');
+    } finally {
+      setFriendLoading(false);
+    }
+  };
+
+  // Withdraw a pending request the viewer sent (DELETE /friends/requests/:id).
+  const handleWithdraw = () => {
+    if (!profile || !requestId || friendLoading) return;
+    Alert.alert(
+      'Withdraw Request',
+      `Withdraw your friend request to ${profile.displayName}?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Withdraw',
+          style: 'destructive',
+          onPress: () => {
+            void (async () => {
+              setFriendLoading(true);
+              try {
+                await apiClient.delete(`/api/v1/friends/requests/${requestId}`);
+                setFriendStatus(null);
+                setRequestDirection(null);
+                setRequestId(null);
+              } catch {
+                Alert.alert('Error', 'Could not withdraw the request. Please try again.');
+              } finally {
+                setFriendLoading(false);
+              }
+            })();
+          },
+        },
+      ],
+    );
+  };
+
+  // Accept / decline a pending request this user sent to the viewer.
+  const handleRespond = async (action: 'accept' | 'decline') => {
+    if (!requestId || friendLoading) return;
+    setFriendLoading(true);
+    try {
+      await apiClient.post(`/api/v1/friends/requests/${requestId}/${action}`);
+      setFriendStatus(action === 'accept' ? 'accepted' : null);
+      setRequestDirection(null);
+      setRequestId(null);
+    } catch {
+      Alert.alert(
+        'Error',
+        action === 'accept'
+          ? 'Could not accept the request. Please try again.'
+          : 'Could not decline the request. Please try again.',
+      );
     } finally {
       setFriendLoading(false);
     }
@@ -124,6 +196,8 @@ export default function UserProfileScreen() {
                 // reflect the new relationship locally so the screen shows the
                 // Blocked state (with Unblock) if the user stays on it.
                 setFriendStatus('blocked');
+                setRequestDirection(null);
+                setRequestId(null);
                 Alert.alert('User Blocked', `${profile.displayName} has been blocked.`, [
                   { text: 'OK', onPress: () => router.back() },
                 ]);
@@ -145,6 +219,8 @@ export default function UserProfileScreen() {
     try {
       await apiClient.post('/api/v1/friends/unblock', { userId: profile.id });
       setFriendStatus(null);
+      setRequestDirection(null);
+      setRequestId(null);
     } catch {
       Alert.alert('Error', 'Could not unblock this user. Please try again.');
     } finally {
@@ -210,17 +286,30 @@ export default function UserProfileScreen() {
     );
   }
 
-  const friendBtnLabel = friendStatus === 'pending'
+  const isPending = friendStatus === 'pending';
+  // Direction comes from the API's friendRequestDirection field; requestId is
+  // the friendships row id the accept/decline/withdraw endpoints key on. A
+  // pending status with no direction (older API build) falls back to the
+  // legacy disabled "Request Sent" state.
+  const isOutgoing = isPending && requestDirection === 'outgoing' && requestId !== null;
+  const isIncoming = isPending && requestDirection === 'incoming' && requestId !== null;
+
+  const friendBtnLabel = isOutgoing
+    ? 'Requested'
+    : isPending
     ? 'Request Sent'
     : friendStatus === 'accepted'
     ? 'Friends'
     : 'Add Friend';
-  const friendBtnIcon = friendStatus === 'pending'
+  const friendBtnIcon = isPending
     ? 'time-outline'
     : friendStatus === 'accepted'
     ? 'checkmark-circle'
     : 'person-add-outline';
-  const friendBtnDisabled = friendStatus === 'pending' || friendStatus === 'accepted' || friendLoading;
+  // Outgoing requests keep the muted "done" styling but stay tappable so the
+  // viewer can withdraw; accepted and direction-less pending stay disabled.
+  const friendBtnMuted = isPending || friendStatus === 'accepted';
+  const friendBtnDisabled = (isPending && !isOutgoing) || friendStatus === 'accepted' || friendLoading;
 
   return (
     <SafeAreaView style={styles.root} edges={['top']}>
@@ -301,30 +390,69 @@ export default function UserProfileScreen() {
             </View>
           ) : (
           <View style={styles.actionRow}>
+            {isIncoming ? (
+              <>
+                <Text style={styles.incomingNotice}>
+                  {profile.displayName} sent you a friend request.
+                </Text>
+                <View style={styles.respondRow}>
+                  <TouchableOpacity
+                    style={[styles.friendBtn, styles.respondHalf]}
+                    onPress={() => void handleRespond('accept')}
+                    disabled={friendLoading}
+                    accessibilityRole="button"
+                    accessibilityLabel="Accept friend request"
+                    accessibilityState={{ disabled: friendLoading }}
+                  >
+                    {friendLoading ? (
+                      <ActivityIndicator color={ON_ACCENT} size="small" />
+                    ) : (
+                      <>
+                        <Ionicons name="checkmark" size={16} color={ON_ACCENT} style={styles.friendBtnIcon} />
+                        <Text style={styles.friendBtnText}>Accept</Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.declineBtn, styles.respondHalf]}
+                    onPress={() => void handleRespond('decline')}
+                    disabled={friendLoading}
+                    accessibilityRole="button"
+                    accessibilityLabel="Decline friend request"
+                    accessibilityState={{ disabled: friendLoading }}
+                  >
+                    <Ionicons name="close" size={16} color={colors.textMuted} style={styles.friendBtnIcon} />
+                    <Text style={styles.declineBtnText}>Decline</Text>
+                  </TouchableOpacity>
+                </View>
+              </>
+            ) : (
             <TouchableOpacity
-              style={[styles.friendBtn, friendBtnDisabled && styles.friendBtnDone]}
-              onPress={() => void handleAddFriend()}
+              style={[styles.friendBtn, friendBtnMuted && styles.friendBtnDone]}
+              onPress={isOutgoing ? handleWithdraw : () => void handleAddFriend()}
               disabled={friendBtnDisabled}
               accessibilityRole="button"
               accessibilityLabel={friendLoading ? 'Sending friend request' : friendBtnLabel}
+              accessibilityHint={isOutgoing ? 'Withdraws your pending friend request' : undefined}
               accessibilityState={{ disabled: friendBtnDisabled }}
             >
               {friendLoading ? (
-                <ActivityIndicator color={ON_ACCENT} size="small" />
+                <ActivityIndicator color={friendBtnMuted ? colors.textMuted : ON_ACCENT} size="small" />
               ) : (
                 <>
                   <Ionicons
                     name={friendBtnIcon as never}
                     size={16}
-                    color={friendBtnDisabled ? colors.textMuted : ON_ACCENT}
+                    color={friendBtnMuted ? colors.textMuted : ON_ACCENT}
                     style={styles.friendBtnIcon}
                   />
-                  <Text style={[styles.friendBtnText, friendBtnDisabled && styles.friendBtnTextDone]}>
+                  <Text style={[styles.friendBtnText, friendBtnMuted && styles.friendBtnTextDone]}>
                     {friendBtnLabel}
                   </Text>
                 </>
               )}
             </TouchableOpacity>
+            )}
 
             <TouchableOpacity
               style={styles.blockBtn}
@@ -473,6 +601,21 @@ function createStyles(colors: ThemeColors) {
     friendBtnText: { color: ON_ACCENT, fontSize: 15, fontWeight: '700' },
     friendBtnTextDone: { color: colors.textMuted },
     blockedNotice: { color: colors.textMuted, fontSize: 13, textAlign: 'center', lineHeight: 18 },
+    incomingNotice: { color: colors.textMuted, fontSize: 13, textAlign: 'center', lineHeight: 18 },
+    respondRow: { flexDirection: 'row', width: '100%', gap: 10 },
+    respondHalf: { width: 'auto', flex: 1 },
+    declineBtn: {
+      flexDirection: 'row',
+      backgroundColor: 'transparent',
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: colors.border,
+      paddingVertical: 14,
+      alignItems: 'center',
+      justifyContent: 'center',
+      minHeight: 48,
+    },
+    declineBtnText: { color: colors.textMuted, fontSize: 15, fontWeight: '700' },
     blockBtn: {
       flexDirection: 'row',
       width: '100%',

@@ -39,6 +39,7 @@ interface InMemoryUser {
 }
 
 interface InMemoryFriendship {
+  id?: string;
   requester_id: string;
   addressee_id: string;
   status: 'pending' | 'accepted' | 'blocked';
@@ -134,9 +135,9 @@ function buildMockPool(): Pool {
         return { rows: [{ count: '0' }], rowCount: 1 };
       }
 
-      // GET /users/:id — relationship lookup (status + requester, both
-      // directions, blocks included)
-      if (norm.includes('SELECT STATUS, REQUESTER_ID FROM FRIENDSHIPS')) {
+      // GET /users/:id — relationship lookup (row id + status + requester,
+      // both directions, blocks included)
+      if (norm.includes('SELECT ID, STATUS, REQUESTER_ID FROM FRIENDSHIPS')) {
         const [a, b] = params as [string, string];
         const rows = friendships
           .filter(
@@ -145,7 +146,7 @@ function buildMockPool(): Pool {
               (f.requester_id === b && f.addressee_id === a),
           )
           .slice(0, 2)
-          .map((f) => ({ status: f.status, requester_id: f.requester_id }));
+          .map((f) => ({ id: f.id ?? 'friendship-row-id', status: f.status, requester_id: f.requester_id }));
         return { rows, rowCount: rows.length };
       }
 
@@ -554,20 +555,27 @@ describe('Property 58: Display-name search only returns open-privacy users', () 
 // honest Blocked/Unblock state); a block placed AGAINST the viewer is never
 // revealed and reads as no relationship.
 // ---------------------------------------------------------------------------
+interface RelationshipBody {
+  friendStatus: string | null;
+  friendRequestDirection: 'outgoing' | 'incoming' | null;
+  friendRequestId: string | null;
+}
+
+async function fetchProfile(viewerId: string, targetId: string): Promise<RelationshipBody> {
+  const app = buildTestApp();
+  const token = await makeToken(app, viewerId);
+  const res = await app.inject({
+    method: 'GET',
+    url: `/api/v1/users/${targetId}`,
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  expect(res.statusCode).toBe(200);
+  const body = JSON.parse(res.body) as RelationshipBody;
+  await app.close();
+  return body;
+}
+
 describe('GET /users/:id friendStatus block visibility', () => {
-  async function fetchProfile(viewerId: string, targetId: string): Promise<{ friendStatus: string | null }> {
-    const app = buildTestApp();
-    const token = await makeToken(app, viewerId);
-    const res = await app.inject({
-      method: 'GET',
-      url: `/api/v1/users/${targetId}`,
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    expect(res.statusCode).toBe(200);
-    const body = JSON.parse(res.body) as { friendStatus: string | null };
-    await app.close();
-    return body;
-  }
 
   it("a block the viewer placed is surfaced as 'blocked'", async () => {
     resetStore([makeUser('u-viewer'), makeUser('u-target')]);
@@ -600,5 +608,63 @@ describe('GET /users/:id friendStatus block visibility', () => {
 
     expect((await fetchProfile('u-viewer', 'u-friend')).friendStatus).toBe('accepted');
     expect((await fetchProfile('u-viewer', 'u-stranger')).friendStatus).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GET /users/:id — pending-request direction (Req 17.7/17.8)
+// friendStatus keeps its legacy raw values; the additive
+// friendRequestDirection/friendRequestId fields tell the profile UI whether
+// to render Requested/withdraw (outgoing) or Accept/Decline (incoming), and
+// which friendships row id to call the request endpoints with.
+// ---------------------------------------------------------------------------
+describe('GET /users/:id friend request direction', () => {
+  it("a request the viewer sent reads pending + 'outgoing' with the row id", async () => {
+    resetStore([makeUser('u-viewer'), makeUser('u-target')]);
+    friendships.push({ id: 'fr-1', requester_id: 'u-viewer', addressee_id: 'u-target', status: 'pending' });
+
+    const body = await fetchProfile('u-viewer', 'u-target');
+    expect(body.friendStatus).toBe('pending');
+    expect(body.friendRequestDirection).toBe('outgoing');
+    expect(body.friendRequestId).toBe('fr-1');
+  });
+
+  it("a request sent TO the viewer reads pending + 'incoming' with the row id", async () => {
+    resetStore([makeUser('u-viewer'), makeUser('u-target')]);
+    friendships.push({ id: 'fr-2', requester_id: 'u-target', addressee_id: 'u-viewer', status: 'pending' });
+
+    const body = await fetchProfile('u-viewer', 'u-target');
+    expect(body.friendStatus).toBe('pending');
+    expect(body.friendRequestDirection).toBe('incoming');
+    expect(body.friendRequestId).toBe('fr-2');
+  });
+
+  it('an accepted friendship carries no direction or request id', async () => {
+    resetStore([makeUser('u-viewer'), makeUser('u-friend')]);
+    friendships.push({ id: 'fr-3', requester_id: 'u-friend', addressee_id: 'u-viewer', status: 'accepted' });
+
+    const body = await fetchProfile('u-viewer', 'u-friend');
+    expect(body.friendStatus).toBe('accepted');
+    expect(body.friendRequestDirection).toBeNull();
+    expect(body.friendRequestId).toBeNull();
+  });
+
+  it('a blocked relationship carries no direction or request id', async () => {
+    resetStore([makeUser('u-viewer'), makeUser('u-target')]);
+    friendships.push({ id: 'fr-4', requester_id: 'u-viewer', addressee_id: 'u-target', status: 'blocked' });
+
+    const body = await fetchProfile('u-viewer', 'u-target');
+    expect(body.friendStatus).toBe('blocked');
+    expect(body.friendRequestDirection).toBeNull();
+    expect(body.friendRequestId).toBeNull();
+  });
+
+  it('strangers carry no direction or request id', async () => {
+    resetStore([makeUser('u-viewer'), makeUser('u-stranger')]);
+
+    const body = await fetchProfile('u-viewer', 'u-stranger');
+    expect(body.friendStatus).toBeNull();
+    expect(body.friendRequestDirection).toBeNull();
+    expect(body.friendRequestId).toBeNull();
   });
 });

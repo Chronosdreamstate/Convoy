@@ -202,25 +202,40 @@ async function usersRoutes(
     // viewer placed is surfaced as 'blocked' so the profile screen can show an
     // honest Blocked/Unblock state instead of a dead "Add Friend" button;
     // being blocked BY this user is never revealed (reads as no relationship).
-    const friendRes = await fastify.db.query<{ status: string; requester_id: string }>(
-      `SELECT status, requester_id FROM friendships
+    const friendRes = await fastify.db.query<{ id: string; status: string; requester_id: string }>(
+      `SELECT id, status, requester_id FROM friendships
        WHERE (requester_id = $1 AND addressee_id = $2)
           OR (requester_id = $2 AND addressee_id = $1)
        LIMIT 2`,
       [viewerId, id],
-    ).catch(() => ({ rows: [] as Array<{ status: string; requester_id: string }> }));
+    ).catch(() => ({ rows: [] as Array<{ id: string; status: string; requester_id: string }> }));
 
+    // friendStatus keeps its original raw values ('pending'|'accepted'|
+    // 'blocked'|null) so deployed clients that check them keep working; the
+    // direction of a pending request — which the old shape couldn't express —
+    // is exposed via the additive friendRequestDirection/friendRequestId
+    // fields so the profile UI can render Requested/withdraw (outgoing) vs
+    // Accept/Decline (incoming). friendRequestId is the friendships row id
+    // that the accept/decline/withdraw endpoints key on.
     let friendStatus: string | null = null;
+    let friendRequestDirection: 'outgoing' | 'incoming' | null = null;
+    let friendRequestId: string | null = null;
     for (const row of friendRes.rows) {
       if (row.status === 'blocked') {
         // Only the viewer's own block is visible; a block against the viewer
         // stays hidden. A mutual block still reads 'blocked' via the viewer row.
         if (row.requester_id === viewerId) {
           friendStatus = 'blocked';
+          friendRequestDirection = null;
+          friendRequestId = null;
           break;
         }
       } else if (friendStatus === null) {
         friendStatus = row.status;
+        if (row.status === 'pending') {
+          friendRequestDirection = row.requester_id === viewerId ? 'outgoing' : 'incoming';
+          friendRequestId = row.id;
+        }
       }
     }
 
@@ -241,6 +256,8 @@ async function usersRoutes(
       totalDistanceKm: parseInt(u.total_distance_km, 10),
       mutualFriends: parseInt(mutualRes.rows[0]?.count ?? '0', 10),
       friendStatus,
+      friendRequestDirection,
+      friendRequestId,
     });
   });
 
