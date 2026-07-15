@@ -56,7 +56,7 @@ export default function Button({
       {loading ? (
         <ActivityIndicator
           size="small"
-          color={variant === 'secondary' || variant === 'ghost' ? colors.accent : colors.text}
+          color={variant === 'secondary' || variant === 'ghost' ? colors.accent : '#FFFFFF'}
         />
       ) : (
         <Text style={[styles.label, styles[`label_${variant}`], styles[`labelSize_${size}`]]}>
@@ -111,10 +111,13 @@ function makeStyles(colors: ThemeColors, spacing: { md: number; lg: number; xl: 
     label: {
       fontWeight: '700',
     },
-    label_primary: { color: colors.text },
+    // primary/danger sit on saturated accent/error fills — white stays legible
+    // in both themes (colors.text is near-black in light mode). secondary is on
+    // the card surface, so it correctly uses the theme text color.
+    label_primary: { color: '#FFFFFF' },
     label_secondary: { color: colors.text },
     label_ghost: { color: colors.accent },
-    label_danger: { color: colors.text },
+    label_danger: { color: '#FFFFFF' },
 
     labelSize_sm: { fontSize: 13 },
     labelSize_md: { fontSize: 15, letterSpacing: 0.2 },

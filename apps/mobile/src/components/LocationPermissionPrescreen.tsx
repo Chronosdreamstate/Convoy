@@ -211,7 +211,7 @@ function createStyles(theme: ReturnType<typeof useTheme>) {
     elevation: 6,
   },
   allowBtnText: {
-    color: theme.colors.text,
+    color: '#FFFFFF',
     fontSize: 17,
     fontWeight: '700',
     letterSpacing: 0.3,

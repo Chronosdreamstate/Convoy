@@ -14,8 +14,12 @@ const BACK_ONLINE_MSG = 'Back online';
 const BANNER_H = 40;
 
 export default function OfflineIndicator({ isOffline, message = DEFAULT_MSG }: Props) {
-  const { colors } = useTheme();
+  const { colors, isDark } = useTheme();
   const insets = useSafeAreaInsets();
+  // On-fill color for the banner text/icon. The success/warning fills are BRIGHT
+  // in dark mode (black reads well) but DARK in light mode (#11813B / #B45309,
+  // where black fails contrast) — so flip to white in light mode.
+  const onFill = isDark ? '#000000' : '#FFFFFF';
   // Total on-screen height including the safe-area inset — previously this banner
   // used a hardcoded `top: 0` with no inset padding, so on notched / Dynamic-Island
   // devices its text rendered partly underneath the status bar / sensor housing
@@ -82,9 +86,9 @@ export default function OfflineIndicator({ isOffline, message = DEFAULT_MSG }: P
         <MaterialCommunityIcons
           name={showingOnline ? 'wifi' : 'wifi-off'}
           size={16}
-          color="#000000"
+          color={onFill}
         />
-        <Text style={styles.text} numberOfLines={1}>
+        <Text style={[styles.text, { color: onFill }]} numberOfLines={1}>
           {showingOnline ? BACK_ONLINE_MSG : message}
         </Text>
       </View>
