@@ -1420,8 +1420,11 @@ export default function ConvoyScreen({ userId }: Props) {
         onClose={() => setShowInvite(false)}
       />
 
-      {/* Emergency entry point — floating so it stays reachable from anywhere on this screen */}
-      <View style={styles.sosFloating} pointerEvents="box-none">
+      {/* Emergency entry point — floating so it stays reachable from anywhere on
+          this screen. Lifted above the bottom action buttons so its 64px circle
+          doesn't cover the right edge of "Leave Convoy" (taller offset when the
+          admin's "End Convoy" button is also present). */}
+      <View style={[styles.sosFloating, { bottom: isAdmin ? 150 : 88 }]} pointerEvents="box-none">
         <SOSButton groupId={group.id} />
       </View>
 
@@ -1648,7 +1651,8 @@ function createStyles(colors: ThemeColors) {
   sosFloating: {
     position: 'absolute',
     right: 16,
-    bottom: 24,
+    // bottom is set inline (depends on whether the admin End-Convoy button is
+    // present) so the SOS circle floats above the action buttons.
     zIndex: 20,
   },
 
