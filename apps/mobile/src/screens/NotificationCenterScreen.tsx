@@ -14,6 +14,7 @@ import { useRouter } from 'expo-router';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { ThemeColors, useTheme } from '../theme';
 import { apiClient } from '../services/apiClient';
+import { offlineQueue, isOfflineError } from '../services/OfflineQueueService';
 import SkeletonCard from '../components/SkeletonLoader';
 import { NetworkError } from '../components/NetworkError';
 import { MotionCapNotice, useMotionCappedData } from '../components/MotionAwareList';
@@ -36,7 +37,7 @@ type NotificationType =
   | 'fuel_suggest'
   | 'arriving_destination';
 
-interface NotificationItem {
+export interface NotificationItem {
   id: string;
   type: NotificationType;
   title: string;
@@ -102,6 +103,26 @@ function timeAgo(iso: string): string {
     return new Date(iso).toLocaleDateString('en-US', { weekday: 'short' });
   }
   return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+/**
+ * Reconcile a fresh server page with local state. The server is the source of
+ * truth for WHICH notifications exist, but local read-state is monotonic: a
+ * notification the user already read on this device stays read even when the
+ * server copy still says unread (the mark-read PATCH may be sitting in the
+ * offline queue after a dead-zone tap). Without this, pull-to-refresh right
+ * after reconnecting resurrected already-read rows as unread.
+ * Exported for tests.
+ */
+export function mergeServerNotifications(
+  local: NotificationItem[],
+  fresh: NotificationItem[],
+): NotificationItem[] {
+  const localById = new Map(local.map((n) => [n.id, n]));
+  return fresh.map((n) => {
+    const prev = localById.get(n.id);
+    return prev?.readAt && !n.readAt ? { ...n, readAt: prev.readAt } : n;
+  });
 }
 
 function buildSections(items: NotificationItem[]): NotificationSection[] {
@@ -236,8 +257,11 @@ export default function NotificationCenterScreen() {
         '/api/v1/notifications?limit=50',
       );
       const fresh = res.data.notifications ?? [];
-      setNotifications(fresh);
-      void saveToCache(fresh);
+      setNotifications((prev) => {
+        const merged = mergeServerNotifications(prev.length > 0 ? prev : cached, fresh);
+        void saveToCache(merged);
+        return merged;
+      });
       setLoadError(false);
     } catch {
       // Degrade gracefully to cached data when there is any — but with no
@@ -323,10 +347,29 @@ export default function NotificationCenterScreen() {
   }, [fetchNotifications]);
 
   const handlePress = useCallback((item: NotificationItem) => {
-    setNotifications((prev) =>
-      prev.map((n) => (n.id === item.id ? { ...n, readAt: new Date().toISOString() } : n)),
-    );
-    void apiClient.patch(`/api/v1/notifications/${item.id}/read`).catch(() => {});
+    setNotifications((prev) => {
+      const updated = prev.map((n) =>
+        n.id === item.id ? { ...n, readAt: new Date().toISOString() } : n,
+      );
+      // Persist read-state so it survives an app restart while offline.
+      void saveToCache(updated);
+      return updated;
+    });
+    // Mark read on the server; in a dead zone, queue the PATCH for replay so
+    // the read-state isn't silently lost (dedupeKey — re-taps replace, not
+    // stack). Socket-synthesized ids 404 server-side; a 404 has a response so
+    // isOfflineError is false and nothing is queued for them.
+    void apiClient.patch(`/api/v1/notifications/${item.id}/read`).catch(async (err) => {
+      if (isOfflineError(err)) {
+        await offlineQueue.enqueue({
+          method: 'PATCH',
+          url: `/api/v1/notifications/${item.id}/read`,
+          body: undefined,
+          headers: {},
+          dedupeKey: `notif-read:${item.id}`,
+        }).catch(() => {});
+      }
+    });
 
     const gid = item.data?.groupId;
     const eventId = item.data?.eventId;
@@ -381,7 +424,18 @@ export default function NotificationCenterScreen() {
     setNotifications((prev) => {
       const updated = prev.map((n) => ({ ...n, readAt: n.readAt ?? now }));
       void saveToCache(updated);
-      void apiClient.patch('/api/v1/notifications/read-all').catch(() => {});
+      void apiClient.patch('/api/v1/notifications/read-all').catch(async (err) => {
+        // Same dead-zone handling as single mark-read: queue for replay.
+        if (isOfflineError(err)) {
+          await offlineQueue.enqueue({
+            method: 'PATCH',
+            url: '/api/v1/notifications/read-all',
+            body: undefined,
+            headers: {},
+            dedupeKey: 'notif-read-all',
+          }).catch(() => {});
+        }
+      });
       return updated;
     });
   }, []);

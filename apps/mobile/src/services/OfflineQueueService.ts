@@ -135,9 +135,17 @@ class OfflineQueueService {
           } else if (status != null && status >= 400 && status < 500) {
             // Non-retriable client error — drop
             this.queue = this.queue.filter((q) => q.id !== item.id);
-          } else {
-            // Network error or 5xx — keep, backoff handled by apiClient retry interceptor
+          } else if (status != null) {
+            // 5xx — the server is reachable but rejecting this item; count it
+            // against the item's retry budget (backoff handled by apiClient).
             item.attempts++;
+          } else {
+            // No HTTP response — the device is offline / API unreachable.
+            // That is not this item's fault: don't burn its MAX_ATTEMPTS
+            // budget (a drive with several foreground/connectivity flaps in a
+            // dead zone used to silently drop queued writes this way), and
+            // stop the drain — every later item would fail identically.
+            break;
           }
         }
       }

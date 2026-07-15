@@ -7,8 +7,11 @@
  *  - enqueue: dedupeKey replaces older entries, queue caps at 100 (oldest dropped)
  *  - cancel removes a specific queued item
  *  - processQueue: success removes item; 409 treated as already-applied;
- *    other 4xx dropped as non-retriable; 5xx/network kept with attempts++
- *  - items expire after 24 h or MAX_ATTEMPTS (5) failed attempts
+ *    other 4xx dropped as non-retriable; 5xx kept with attempts++
+ *  - offline (no-response) failures keep the item WITHOUT burning its retry
+ *    budget and halt the drain (the device is offline — later items would
+ *    fail identically)
+ *  - items expire after 24 h or MAX_ATTEMPTS (5) failed 5xx attempts
  *  - stored full URLs are replayed as path+query so a fresh token is attached
  *  - relative URLs (the common case for apiClient calls) are replayed as-is
  *    instead of throwing in `new URL()` and burning retry attempts
@@ -235,6 +238,51 @@ describe('processQueue', () => {
     mockRequest.mockRejectedValue(new Error('Network Error'));
     await queue.processQueue();
     expect(queue.size).toBe(1);
+  });
+
+  it('offline (no-response) failures never burn the retry budget — the item survives any number of offline drains', async () => {
+    const queue = freshQueue();
+    await queue.enqueue(makeRequestInput());
+
+    // A dead-zone drive with many foreground/connectivity flaps: 10 drains
+    // while offline. Previously 5 of these exhausted MAX_ATTEMPTS and the
+    // write was silently dropped without ever reaching the server.
+    mockRequest.mockRejectedValue(new Error('Network Error'));
+    for (let i = 0; i < 10; i++) {
+      await queue.processQueue();
+    }
+    expect(queue.size).toBe(1);
+
+    // Connectivity restored — the item still replays successfully.
+    mockRequest.mockResolvedValue({});
+    await queue.processQueue();
+    expect(queue.size).toBe(0);
+  });
+
+  it('an offline failure halts the drain — later items are not attempted on a dead link', async () => {
+    const queue = freshQueue();
+    await queue.enqueue(makeRequestInput({ url: '/api/v1/first' }));
+    await queue.enqueue(makeRequestInput({ url: '/api/v1/second' }));
+
+    mockRequest.mockRejectedValue(new Error('Network Error'));
+    await queue.processQueue();
+
+    // Only the first item was attempted; both remain queued.
+    expect(mockRequest).toHaveBeenCalledTimes(1);
+    expect(mockRequest.mock.calls[0][0].url).toBe('/api/v1/first');
+    expect(queue.size).toBe(2);
+  });
+
+  it('a 5xx does NOT halt the drain (server reachable, item-specific failure)', async () => {
+    const queue = freshQueue();
+    await queue.enqueue(makeRequestInput({ url: '/api/v1/first' }));
+    await queue.enqueue(makeRequestInput({ url: '/api/v1/second' }));
+
+    mockRequest.mockRejectedValue({ response: { status: 500 } });
+    await queue.processQueue();
+
+    expect(mockRequest).toHaveBeenCalledTimes(2);
+    expect(queue.size).toBe(2);
   });
 
   it('drops an item after MAX_ATTEMPTS (5) failed attempts without retrying it again', async () => {
