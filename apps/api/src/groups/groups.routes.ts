@@ -911,6 +911,13 @@ async function groupsRoutes(
       fastify.io.to(`group:${id}`).emit('group:ended', { endedBy: userId, groupId: id });
     }
 
+    // Tell the remaining members this was a real departure (Req 7.7) — the
+    // disconnect handler no longer emits member:left (it can't tell a real
+    // leave from a transient network blip), so the explicit emit lives here.
+    if (!groupEnded) {
+      fastify.io.to(`group:${id}`).emit('member:left', { userId });
+    }
+
     // Force-disconnect the leaving member's own socket so their location stops
     // broadcasting immediately, regardless of whether/when their client notices
     // they left and tears down its own connection (privacy — see helper above).
@@ -1046,6 +1053,12 @@ async function groupsRoutes(
       fastify.io
         .to(`user:${targetUserId}`)
         .emit('member:kicked', { groupId: id });
+
+      // Tell the remaining members the kicked rider is gone (Req 7.7). This used
+      // to arrive implicitly via the disconnect handler's member:left when the
+      // force-disconnect below fired, but that handler no longer emits it (it
+      // couldn't distinguish a kick from a transient blip), so emit explicitly.
+      fastify.io.to(`group:${id}`).emit('member:left', { userId: targetUserId });
 
       // Force-disconnect the kicked member's socket so their location stops
       // broadcasting immediately rather than depending on their client to

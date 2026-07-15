@@ -141,15 +141,23 @@ export async function handleLocationUpdate(params: {
     });
 
     // Also push a background notification so a backgrounded/killed admin app
-    // still surfaces the gap (Req 15.1 pattern, Req 24.1–24.6).
+    // still surfaces the gap (Req 15.1 pattern, Req 24.1–24.6). SETNX cooldown
+    // gate (mirrors the arrival path below): a member sitting beyond the
+    // threshold emits a location fix every ~3s, so without this the admin got
+    // a background push every tick. The live gap:alert socket emit above is
+    // unthrottled on purpose — it just refreshes an in-app indicator.
     if (enqueueNotification) {
-      await enqueueNotification({
-        userId: group.admin_id,
-        type: 'gap_alert',
-        title: 'Member Falling Behind',
-        body: `A member is ${distanceM}m behind the group`,
-        data: { groupId, memberId: userId, distanceM: String(distanceM) },
-      }).catch(() => { /* non-fatal — in-app alert already delivered */ });
+      const gapAlertedKey = `gap_alerted:${groupId}:${userId}`;
+      const isFirst = await redis.set(gapAlertedKey, '1', 'EX', 60, 'NX');
+      if (isFirst === 'OK') {
+        await enqueueNotification({
+          userId: group.admin_id,
+          type: 'gap_alert',
+          title: 'Member Falling Behind',
+          body: `A member is ${distanceM}m behind the group`,
+          data: { groupId, memberId: userId, distanceM: String(distanceM) },
+        }).catch(() => { /* non-fatal — in-app alert already delivered */ });
+      }
     }
   }
 
@@ -1132,10 +1140,17 @@ export function registerSocketHandlers(
             `UPDATE hazard_reports SET status = 'dismissed', expires_at = now(), updated_at = now() WHERE id = $1`,
             [hazardId],
           );
-          io.to(`group:${groupId}`).emit('hazard:expired', { id: hazardId });
+          // Global emit (not the voter's group room): hazards are broadcast
+          // app-wide on create (hazards.routes hazard:new) and on REST dismiss,
+          // so an auto-dismissal must reach every client showing the pin —
+          // other convoys and groupless users on IdleMapScreen — or it lingers
+          // on their map until it naturally expires (Req 11.6).
+          io.emit('hazard:expired', { id: hazardId });
         }
 
-        io.to(`group:${groupId}`).emit('hazard:vote_updated', {
+        // Global for the same reason: a vote count that only reached the
+        // voter's group left everyone else's pin showing a stale tally (Req 11.5).
+        io.emit('hazard:vote_updated', {
           hazardId,
           thumbsUp: updated.rows[0]?.confirmation_count ?? 0,
           thumbsDown: updated.rows[0]?.dismissal_count ?? 0,
@@ -1238,7 +1253,12 @@ export function registerSocketHandlers(
             });
           })
           .catch((err: unknown) => fastify.log.error({ err }, 'presence offline error'));
-        io.to(`group:${groupId}`).emit('member:left', { userId });
+        // NOTE: do NOT emit member:left here. A socket disconnect happens on
+        // every transient network drop / app backgrounding, but member:left is
+        // rendered as a "X left the convoy" toast — firing it on a blip showed
+        // a false departure to the whole group (Req 7.7). member:left is now
+        // emitted only from the actual leave/kick REST paths; a disconnect
+        // conveys presence via member:offline / presence:update below.
         io.to(`group:${groupId}`).emit('member:offline', { userId, ts: Date.now() });
         fastify.redis.del(`loc:${groupId}:${userId}`).catch((err: unknown) => fastify.log.error({ err }, 'redis del error'));
       });

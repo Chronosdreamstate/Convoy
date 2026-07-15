@@ -159,6 +159,40 @@ describe('Property 39: Gap alerts are delivered only to the Admin', () => {
     );
   });
 
+  it('gap-alert PUSH is deduplicated — repeated over-threshold ticks enqueue at most one push per cooldown', async () => {
+    const groupId = '44444444-4444-4444-4444-444444444444';
+    const adminId = '55555555-5555-5555-5555-555555555555';
+    const memberId = '66666666-6666-6666-6666-666666666666';
+    const store: Record<string, Record<string, string>> = {};
+    const stringStore: Record<string, string> = {};
+    const redis = buildMockRedis(store, stringStore);
+    const NOW = 1_700_000_000_000;
+    setAdminLocation(store, groupId, adminId, 0, 0, NOW - 1_000);
+
+    const enqueueNotification = jest.fn().mockResolvedValue(undefined);
+    const farNorth = { lat: 0.05, lng: 0, heading: 0, speed_kph: 60 };
+
+    // Member sits beyond the gap threshold across three consecutive ~3s ticks.
+    for (let i = 0; i < 3; i++) {
+      const t = NOW + i * 3_000;
+      await handleLocationUpdate({
+        groupId,
+        userId: memberId,
+        location: { ...farNorth, ts: t },
+        redis,
+        db: buildMockDB(adminId, 1_000),
+        io: buildMockIO([]),
+        now: t,
+        enqueueNotification,
+      });
+    }
+
+    // The live gap:alert socket emit fires every tick (an in-app indicator),
+    // but the background push is gated to once per cooldown window.
+    expect(enqueueNotification).toHaveBeenCalledTimes(1);
+    expect(enqueueNotification.mock.calls[0][0]).toMatchObject({ type: 'gap_alert', userId: adminId });
+  });
+
   it('admin sending their own location update never triggers a gap:alert', async () => {
     const groupId = '11111111-1111-1111-1111-111111111111';
     const adminId = '22222222-2222-2222-2222-222222222222';
