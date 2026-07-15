@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { Animated, Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useReduceMotion } from '../hooks/useReduceMotion';
 import { ThemeColors, useTheme } from '../theme';
 
 interface Props {
@@ -13,9 +14,15 @@ export default function PushPermissionModal({ visible, onEnable, onSkip }: Props
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const scaleAnim = useRef(new Animated.Value(0.85)).current;
   const opacityAnim = useRef(new Animated.Value(0)).current;
+  const reduceMotion = useReduceMotion();
 
   useEffect(() => {
     if (visible) {
+      if (reduceMotion) {
+        scaleAnim.setValue(1);
+        opacityAnim.setValue(1);
+        return;
+      }
       Animated.parallel([
         Animated.spring(scaleAnim, { toValue: 1, tension: 65, friction: 9, useNativeDriver: true }),
         Animated.timing(opacityAnim, { toValue: 1, duration: 200, useNativeDriver: true }),
@@ -24,7 +31,7 @@ export default function PushPermissionModal({ visible, onEnable, onSkip }: Props
       scaleAnim.setValue(0.85);
       opacityAnim.setValue(0);
     }
-  }, [visible]);
+  }, [visible, reduceMotion]);
 
   return (
     <Modal
@@ -108,7 +115,7 @@ function makeStyles(colors: ThemeColors) {
       justifyContent: 'center',
       marginBottom: 14,
     },
-    enableText: { fontSize: 16, fontWeight: '700', color: colors.text },
+    enableText: { fontSize: 16, fontWeight: '700', color: '#FFFFFF' },
     skipBtn: { paddingVertical: 4 },
     skipText: { fontSize: 14, color: colors.textMuted },
   });

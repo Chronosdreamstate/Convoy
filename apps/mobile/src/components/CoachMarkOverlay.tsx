@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 import { ThemeColors, useTheme, withAlpha } from '../theme';
+import { useReduceMotion } from '../hooks/useReduceMotion';
 
 const STORAGE_KEY = 'coach_marks_shown';
 
@@ -58,19 +59,24 @@ function CoachMarkOverlay({ visible, onComplete }: Props) {
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [step, setStep] = useState(0);
   const fadeAnim = useRef(new Animated.Value(0)).current;
+  const reduceMotion = useReduceMotion();
 
   useEffect(() => {
     if (visible) {
       setStep(0);
+      // Reduce-motion: show instantly instead of fading in.
+      if (reduceMotion) { fadeAnim.setValue(1); return; }
       Animated.timing(fadeAnim, {
         toValue: 1,
         duration: 300,
         useNativeDriver: true,
       }).start();
     }
-  }, [visible]);
+  }, [visible, reduceMotion]);
 
   function fadeToNext(nextStep: number) {
+    // Reduce-motion: jump straight to the next step without the cross-fade.
+    if (reduceMotion) { setStep(nextStep); fadeAnim.setValue(1); return; }
     Animated.timing(fadeAnim, {
       toValue: 0,
       duration: 150,
@@ -85,19 +91,23 @@ function CoachMarkOverlay({ visible, onComplete }: Props) {
     });
   }
 
+  async function persistAndComplete() {
+    try {
+      await SecureStore.setItemAsync(STORAGE_KEY, '1');
+    } catch {
+      // intentionally empty — persisting the "seen" flag is best-effort only
+    }
+    onComplete();
+  }
+
   async function finishCoachMarks() {
+    // Reduce-motion: skip the fade-out but still persist + complete.
+    if (reduceMotion) { await persistAndComplete(); return; }
     Animated.timing(fadeAnim, {
       toValue: 0,
       duration: 250,
       useNativeDriver: true,
-    }).start(async () => {
-      try {
-        await SecureStore.setItemAsync(STORAGE_KEY, '1');
-      } catch {
-        // intentionally empty — persisting the "seen" flag is best-effort only
-      }
-      onComplete();
-    });
+    }).start(() => { void persistAndComplete(); });
   }
 
   async function handleGotIt() {

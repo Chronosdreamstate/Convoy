@@ -322,14 +322,15 @@ export default function IdleMapScreen() {
     return () => loop.stop();
   }, [locating, pulseOpacity, pulseScale, reduceMotion]);
 
-  // Welcome toast
+  // Welcome toast (reduce-motion: no fade — appear/disappear instantly, same timing)
   useEffect(() => {
+    const fade = reduceMotion ? 0 : 400;
     Animated.sequence([
-      Animated.timing(toastAnim, { toValue: 1, duration: 400, useNativeDriver: true }),
+      Animated.timing(toastAnim, { toValue: 1, duration: fade, useNativeDriver: true }),
       Animated.delay(2200),
-      Animated.timing(toastAnim, { toValue: 0, duration: 400, useNativeDriver: true }),
+      Animated.timing(toastAnim, { toValue: 0, duration: fade, useNativeDriver: true }),
     ]).start(() => setShowToast(false));
-  }, [toastAnim]);
+  }, [toastAnim, reduceMotion]);
 
   // Idle engagement after 30s
   useEffect(() => {
@@ -337,25 +338,30 @@ export default function IdleMapScreen() {
       if (!isSuggestionShown.current) {
         isSuggestionShown.current = true;
         setShowSuggestion(true);
+        const fade = reduceMotion ? 0 : 350;
         Animated.sequence([
-          Animated.timing(suggestionAnim, { toValue: 1, duration: 350, useNativeDriver: true }),
+          Animated.timing(suggestionAnim, { toValue: 1, duration: fade, useNativeDriver: true }),
           Animated.delay(5000),
-          Animated.timing(suggestionAnim, { toValue: 0, duration: 350, useNativeDriver: true }),
+          Animated.timing(suggestionAnim, { toValue: 0, duration: fade, useNativeDriver: true }),
         ]).start(() => setShowSuggestion(false));
       }
     }, 30000);
     return () => { if (idleTimerRef.current) clearTimeout(idleTimerRef.current); };
-  }, [suggestionAnim]);
+  }, [suggestionAnim, reduceMotion]);
 
-  // Animate selected group card
+  // Animate selected group card (snap to target under reduce-motion)
   useEffect(() => {
+    if (reduceMotion) {
+      selectedCardAnim.setValue(selectedGroup ? 1 : 0);
+      return;
+    }
     Animated.spring(selectedCardAnim, {
       toValue: selectedGroup ? 1 : 0,
       useNativeDriver: true,
       tension: 80,
       friction: 10,
     }).start();
-  }, [selectedGroup, selectedCardAnim]);
+  }, [selectedGroup, selectedCardAnim, reduceMotion]);
 
   // Fetch friend display names once so a friend's SOS pin can show "who" rather
   // than a raw userId (mirrors MapScreen's memberNamesRef fetch for group members).

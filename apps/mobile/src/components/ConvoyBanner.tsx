@@ -7,6 +7,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { useReduceMotion } from '../hooks/useReduceMotion';
 import { ThemeColors, useTheme } from '../theme';
 
 interface Props {
@@ -28,15 +29,21 @@ function ConvoyBanner({
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const slideAnim = useRef(new Animated.Value(-60)).current;
+  const reduceMotion = useReduceMotion();
 
   useEffect(() => {
+    // Shown over the map while driving — snap into place under OS reduce-motion.
+    if (reduceMotion) {
+      slideAnim.setValue(0);
+      return;
+    }
     Animated.spring(slideAnim, {
       toValue: 0,
       damping: 18,
       stiffness: 160,
       useNativeDriver: true,
     }).start();
-  }, [slideAnim]);
+  }, [slideAnim, reduceMotion]);
 
   return (
     <Animated.View
@@ -68,7 +75,7 @@ function ConvoyBanner({
           <TouchableOpacity
             style={styles.endBtn}
             onPress={onEndConvoy}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
             accessibilityRole="button"
             accessibilityLabel="End convoy"
           >
@@ -134,8 +141,8 @@ function makeStyles(colors: ThemeColors) {
     endBtn: {
       backgroundColor: colors.accent,
       borderRadius: 10,
-      paddingHorizontal: 10,
-      paddingVertical: 4,
+      paddingHorizontal: 12,
+      paddingVertical: 7,
     },
     endBtnText: {
       color: '#FFFFFF',

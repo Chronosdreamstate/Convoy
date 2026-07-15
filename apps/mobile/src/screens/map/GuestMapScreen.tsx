@@ -126,14 +126,21 @@ export default function GuestMapScreen() {
     return () => loop.stop();
   }, [pulseAnim, reduceMotion]);
 
-  // Slide-up card + pill pop-in on mount
+  // Slide-up card + pill pop-in on mount (snap to final under reduce-motion,
+  // consistent with the pulse/marker gating above)
   useEffect(() => {
+    if (reduceMotion) {
+      cardSlide.setValue(0);
+      cardOpacity.setValue(1);
+      pillScale.setValue(1);
+      return;
+    }
     Animated.parallel([
       Animated.spring(cardSlide, { toValue: 0, useNativeDriver: true, tension: 55, friction: 10 }),
       Animated.timing(cardOpacity, { toValue: 1, duration: 320, useNativeDriver: true }),
       Animated.spring(pillScale, { toValue: 1, useNativeDriver: true, tension: 80, friction: 8, delay: 180 }),
     ]).start();
-  }, [cardSlide, cardOpacity, pillScale]);
+  }, [cardSlide, cardOpacity, pillScale, reduceMotion]);
 
   // Advance demo markers along routes
   useEffect(() => {

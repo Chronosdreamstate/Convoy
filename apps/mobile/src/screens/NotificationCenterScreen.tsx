@@ -13,6 +13,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { ThemeColors, useTheme } from '../theme';
+import { useReduceMotion } from '../hooks/useReduceMotion';
 import { apiClient } from '../services/apiClient';
 import { offlineQueue, isOfflineError } from '../services/OfflineQueueService';
 import SkeletonCard from '../components/SkeletonLoader';
@@ -181,11 +182,14 @@ const NotificationRow = React.memo(function NotificationRow({ item, onPress, typ
   const meta = typeMeta[item.type] ?? { icon: { family: 'ion' as const, name: 'notifications' as const }, bg: colors.card };
   const isUnread = item.readAt === null;
   const scaleAnim = useRef(new Animated.Value(1)).current;
+  const reduceMotion = useReduceMotion();
 
   function handlePressIn() {
+    if (reduceMotion) return;
     Animated.spring(scaleAnim, { toValue: 0.97, useNativeDriver: true, speed: 20 }).start();
   }
   function handlePressOut() {
+    if (reduceMotion) return;
     Animated.spring(scaleAnim, { toValue: 1, useNativeDriver: true, speed: 20 }).start();
   }
 

@@ -16,6 +16,7 @@ import { apiClient } from '../services/apiClient';
 import { SkeletonBox } from '../components/SkeletonLoader';
 import { NetworkError } from '../components/NetworkError';
 import { ThemeColors, useTheme } from '../theme';
+import { useReduceMotion } from '../hooks/useReduceMotion';
 
 // Text/icons that always sit on the crimson accent fill (Add Friend button) —
 // stays light in both themes. `colors.text` is near-black in light mode, which
@@ -74,6 +75,7 @@ export default function UserProfileScreen() {
   const [blocking, setBlocking] = useState(false);
 
   const fadeAnim = React.useRef(new Animated.Value(0)).current;
+  const reduceMotion = useReduceMotion();
 
   const load = useCallback(async () => {
     if (!userId) return;
@@ -85,13 +87,15 @@ export default function UserProfileScreen() {
       setFriendStatus(res.data.friendStatus);
       setRequestDirection(res.data.friendRequestDirection ?? null);
       setRequestId(res.data.friendRequestId ?? null);
-      Animated.timing(fadeAnim, { toValue: 1, duration: 340, useNativeDriver: true }).start();
+      // Snap to visible under OS reduce-motion instead of the content fade-in.
+      if (reduceMotion) fadeAnim.setValue(1);
+      else Animated.timing(fadeAnim, { toValue: 1, duration: 340, useNativeDriver: true }).start();
     } catch {
       setError('Could not load profile.');
     } finally {
       setLoading(false);
     }
-  }, [userId, fadeAnim]);
+  }, [userId, fadeAnim, reduceMotion]);
 
   useEffect(() => { void load(); }, [load]);
 

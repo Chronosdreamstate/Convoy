@@ -13,6 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useAuthStore } from '../../stores/authStore';
 import { onboardingState } from '../../utils/onboardingState';
 import { useTheme } from '../../theme';
+import { useReduceMotion } from '../../hooks/useReduceMotion';
 
 export default function FindGroupPromptScreen() {
   const router = useRouter();
@@ -25,8 +26,16 @@ export default function FindGroupPromptScreen() {
   const card1Opacity = useRef(new Animated.Value(0)).current;
   const card2Opacity = useRef(new Animated.Value(0)).current;
   const headerOpacity = useRef(new Animated.Value(0)).current;
+  const reduceMotion = useReduceMotion();
 
   useEffect(() => {
+    if (reduceMotion) {
+      // Show the header and both cards at rest — no staggered entrance.
+      headerOpacity.setValue(1);
+      card1Translate.setValue(0); card1Opacity.setValue(1);
+      card2Translate.setValue(0); card2Opacity.setValue(1);
+      return;
+    }
     Animated.sequence([
       Animated.timing(headerOpacity, { toValue: 1, duration: 400, useNativeDriver: true }),
       Animated.stagger(120, [
@@ -40,9 +49,9 @@ export default function FindGroupPromptScreen() {
         ]),
       ]),
     ]).start();
-    // All deps are useRef(...).current Animated.Values — stable for the
+    // All Animated.Value deps are useRef(...).current — stable for the
     // component's lifetime, so this still runs exactly once.
-  }, [card1Opacity, card1Translate, card2Opacity, card2Translate, headerOpacity]);
+  }, [card1Opacity, card1Translate, card2Opacity, card2Translate, headerOpacity, reduceMotion]);
 
   const isCompletingRef = useRef(false);
 

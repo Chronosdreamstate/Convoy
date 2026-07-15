@@ -18,6 +18,7 @@ import type { ComponentProps } from 'react';
 import { apiClient } from '../../services/apiClient';
 import { onboardingState } from '../../utils/onboardingState';
 import { useTheme } from '../../theme';
+import { useReduceMotion } from '../../hooks/useReduceMotion';
 
 type VehicleIconName = ComponentProps<typeof MaterialCommunityIcons>['name'];
 
@@ -45,18 +46,26 @@ export default function AddVehiclePromptScreen() {
   const pillScales = useRef(VEHICLE_TYPES.map(() => new Animated.Value(1))).current;
   // Guards against a double-tap (submit or skip) firing two navigations.
   const isLeavingRef = useRef(false);
+  const reduceMotion = useReduceMotion();
 
   useEffect(() => {
+    if (reduceMotion) {
+      scaleAnim.setValue(1);
+      return;
+    }
     Animated.spring(scaleAnim, {
       toValue: 1,
       friction: 4,
       tension: 60,
       useNativeDriver: true,
     }).start();
-  }, [scaleAnim]);
+  }, [scaleAnim, reduceMotion]);
 
   const handleSelectType = (key: string, idx: number) => {
     setSelectedType(key);
+    // Skip the bounce under reduce-motion — selection is conveyed by the pill's
+    // selected styling, not the pop.
+    if (reduceMotion) return;
     Animated.sequence([
       Animated.spring(pillScales[idx], { toValue: 0.88, useNativeDriver: true, speed: 30, bounciness: 0 }),
       Animated.spring(pillScales[idx], { toValue: 1.1, useNativeDriver: true, speed: 20, bounciness: 12 }),

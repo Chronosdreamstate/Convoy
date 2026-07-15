@@ -27,6 +27,7 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { apiClient } from '../services/apiClient';
 import { useGroupStore } from '../stores/groupStore';
 import { useTheme, ThemeColors, withAlpha } from '../theme';
+import { useReduceMotion } from '../hooks/useReduceMotion';
 
 // Text/icons that always sit on the crimson accent fill (bottom action
 // button) — stays light in both themes. `colors.text` is near-black in light
@@ -60,6 +61,7 @@ export default function CreateGroupScreen() {
   const styles = useMemo(() => createStyles(colors), [colors]);
   const [step, setStep] = useState(1);
   const slideAnim = useRef(new Animated.Value(0)).current;
+  const reduceMotion = useReduceMotion();
 
   // Step 1 state
   const [groupName, setGroupName] = useState('');
@@ -75,6 +77,7 @@ export default function CreateGroupScreen() {
   const [loading, setLoading] = useState(false);
 
   function goToStep(next: number) {
+    if (reduceMotion) { setStep(next); return; }
     const direction = next > step ? -1 : 1;
     Animated.sequence([
       Animated.spring(slideAnim, {

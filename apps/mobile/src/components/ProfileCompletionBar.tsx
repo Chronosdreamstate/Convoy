@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { ThemeColors, useTheme } from '../theme';
+import { useReduceMotion } from '../hooks/useReduceMotion';
 
 interface Props {
   hasCallsign: boolean;
@@ -29,14 +30,20 @@ export default function ProfileCompletionBar({ hasCallsign, hasVehicle, hasAvata
 
   const barAnim = useRef(new Animated.Value(0)).current;
   const [infoVisible, setInfoVisible] = useState(false);
+  const reduceMotion = useReduceMotion();
 
   useEffect(() => {
+    const target = (pct / 100) * BAR_WIDTH;
+    if (reduceMotion) {
+      barAnim.setValue(target);
+      return;
+    }
     Animated.timing(barAnim, {
-      toValue: (pct / 100) * BAR_WIDTH,
+      toValue: target,
       duration: 600,
       useNativeDriver: false,
     }).start();
-  }, [pct, barAnim]);
+  }, [pct, barAnim, reduceMotion]);
 
   const stateMap: Record<'callsign' | 'vehicle' | 'avatar' | 'friend', boolean> = {
     callsign: hasCallsign,
@@ -72,6 +79,9 @@ export default function ProfileCompletionBar({ hasCallsign, hasVehicle, hasAvata
                   style={[styles.chip, done && styles.chipDone]}
                   onPress={() => !done && onItemPress(key)}
                   activeOpacity={done ? 1 : 0.7}
+                  // ~28px chip → extend the touch area to the 44px minimum for
+                  // the incomplete (tappable-to-navigate) chips.
+                  hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
                   accessibilityRole="button"
                   accessibilityLabel={`${label} ${done ? 'complete' : 'incomplete'}`}
                 >

@@ -15,6 +15,7 @@ import {
 } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { apiClient } from '../services/apiClient';
+import { useReduceMotion } from '../hooks/useReduceMotion';
 import { ThemeColors, useTheme } from '../theme';
 
 interface FuelStation {
@@ -56,9 +57,14 @@ function FuelSuggestionBanner({
   const [stationIndex, setStationIndex] = useState(0);
 
   const slideAnim = useRef(new Animated.Value(-100)).current;
+  const reduceMotion = useReduceMotion();
 
-  // Slide in on mount
+  // Slide in on mount (snap into place under OS reduce-motion — shown while driving)
   useEffect(() => {
+    if (reduceMotion) {
+      slideAnim.setValue(0);
+      return;
+    }
     Animated.spring(slideAnim, {
       toValue: 0,
       useNativeDriver: true,
@@ -66,16 +72,17 @@ function FuelSuggestionBanner({
       stiffness: 200,
       mass: 0.8,
     }).start();
-  }, [slideAnim]);
+  }, [slideAnim, reduceMotion]);
 
   // Animate out before calling parent dismiss
   const handleDismiss = useCallback(() => {
+    if (reduceMotion) { onDismiss(); return; }
     Animated.timing(slideAnim, {
       toValue: -100,
       duration: 200,
       useNativeDriver: true,
     }).start(() => onDismiss());
-  }, [slideAnim, onDismiss]);
+  }, [slideAnim, onDismiss, reduceMotion]);
 
   const fetchStations = useCallback(async () => {
     setLoading(true);
