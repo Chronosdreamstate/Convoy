@@ -77,8 +77,12 @@ function SpeedLimitHUD({
   const unitLabel = unit === 'mph' ? 'mph' : 'km/h';
 
   // ── Over-limit detection ──────────────────────────────────────────────────
-  const exceeded = resolvedSpeedMph > resolvedLimitMph;
-  const significantlyOver = resolvedSpeedMph > resolvedLimitMph * 1.1;
+  // Gated on hasExplicitLimit: with no posted-limit data the sign shows "–"
+  // (Req 23.4) and resolvedLimitMph is only the 65 mph placeholder — flashing
+  // the red over-limit treatment against a limit we invented would be a false
+  // alarm (Req 23.3 highlights exceeding the POSTED limit).
+  const exceeded = hasExplicitLimit && resolvedSpeedMph > resolvedLimitMph;
+  const significantlyOver = hasExplicitLimit && resolvedSpeedMph > resolvedLimitMph * 1.1;
 
   // ── Border opacity pulse (1.0 ↔ 0.7, 600 ms) when significantly over ─────
   // Held static under OS reduce-motion — the over-limit warning is still
