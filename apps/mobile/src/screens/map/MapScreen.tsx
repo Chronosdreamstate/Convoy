@@ -28,7 +28,7 @@ import { authService } from '../../services/AuthService';
 import { useLocationStore, MemberLocation } from '../../stores/locationStore';
 import { rallyService, RallyPoint, SosPin } from '../../services/RallyService';
 import { apiClient } from '../../services/apiClient';
-import { HazardService, HazardType, IHazardApiClient } from '../../services/HazardService';
+import { HazardService, HazardType, IHazardApiClient, isHazardActive } from '../../services/HazardService';
 import DestinationSearch, { SearchResult } from '../../components/DestinationSearch';
 import HazardPicker from '../../components/HazardPicker';
 import HazardReportModal from '../../components/HazardReportModal';
@@ -69,6 +69,8 @@ interface HazardPin {
   lng: number;
   reportedBy?: string;
   reportedAt?: number;
+  /** Server-supplied expiry (ms epoch) — moves forward on confirmations (Req 11.5). */
+  expiresAt?: number;
   thumbsUp: number;
   thumbsDown: number;
 }
@@ -93,11 +95,10 @@ function formatTimeAgo(ts: number): string {
 function formatDistance(distM: number): string {
   return distM >= 1000 ? `${(distM / 1000).toFixed(1)} km` : `${Math.round(distM)} m`;
 }
-// Must match the server's expiry window (hazards.routes.ts HAZARD_EXPIRY_MS, Req 11.3)
-// so pins disappear from the map around the same time the server stops treating
-// the report as active. This previously drifted to 2 hours, leaving expired
-// hazards visible on other members' maps for far longer than intended.
-const HAZARD_EXPIRY_MS = 30 * 60 * 1000; // 30 minutes
+// Hazard pin expiry now lives in HazardService (HAZARD_EXPIRY_MS /
+// isHazardActive), shared with IdleMapScreen — pins are filtered against the
+// server-supplied expiresAt when present (Req 11.5 confirmation extensions),
+// falling back to reportedAt + 30 min.
 
 // Stub IBluetoothProvider — no native plain-Bluetooth (non-CarPlay/Android Auto) vehicle
 // connection module exists in this codebase yet. Always reports "not connected" so
@@ -194,6 +195,25 @@ export function resolveDistanceOrigin(
     if (admin) return { lat: admin.lat, lng: admin.lng };
   }
   return myLocation;
+}
+
+/**
+ * Whether the current viewer is the group's Admin. The map tab's route file
+ * mounts MapScreen WITHOUT an isAdmin prop, so relying on the prop alone left
+ * every Admin-gated surface permanently hidden in the real app: the route
+ * modal's "Push to Group" button (Req 9.1), the automatic fuel-suggestion
+ * banner (Req 21.1), and FuelSuggestionBanner's "Add waypoint" accept path
+ * (Req 21.3). Falls back to comparing the group store's adminId (populated by
+ * Create/Join/Convoy screens) against the signed-in user. The prop remains an
+ * explicit override for callers that already know. Exported for tests.
+ */
+export function resolveIsAdmin(
+  propIsAdmin: boolean,
+  adminId: string | null,
+  userId: string | null | undefined,
+): boolean {
+  if (propIsAdmin) return true;
+  return !!userId && adminId === userId;
 }
 
 /**
@@ -446,7 +466,7 @@ async function flushOfflineHazards(): Promise<void> {
   }
 }
 
-export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChannelId }: Props) {
+export default function MapScreen({ groupId, socketUrl, isAdmin: isAdminProp = false, pttChannelId }: Props) {
   // Per-slice selectors — subscribing to the whole store re-rendered this
   // (very hot) screen on unrelated store changes, e.g. authStore.isLoading
   // flips or locationStore.myLocation writes from other screens.
@@ -468,6 +488,11 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const overlayStyles = useMemo(() => makeOverlayStyles(colors), [colors]);
+
+  // Derived, not just the prop — the map tab mounts this screen without an
+  // isAdmin prop, so every Admin-gated affordance (route push, fuel banner)
+  // depended on a value that was always false. See resolveIsAdmin.
+  const isAdmin = resolveIsAdmin(isAdminProp, groupAdminId, user?.id);
 
   const [gapAlerts, setGapAlerts]     = useState<GapAlert[]>([]);
   const [hazardPins, setHazardPins]   = useState<Map<string, HazardPin>>(new Map());
@@ -558,6 +583,11 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
   const setSettings = useSettingsStore((s) => s.setSettings);
   const scenicRouting = useSettingsStore((s) => s.scenicRouting);
   const distanceUnit = useSettingsStore((s) => s.distanceUnit);
+  // Ref mirror for the 60s traffic-refresh timer, whose effect deliberately
+  // keys on routeCoords.length only — the closure otherwise captured a stale
+  // scenicRouting value until the route itself changed shape.
+  const scenicRoutingRef = useRef(scenicRouting);
+  useEffect(() => { scenicRoutingRef.current = scenicRouting; }, [scenicRouting]);
   const pttVolumePercent = useSettingsStore((s) => s.pttVolumePercent);
 
   const socketRef       = useRef<Socket | null>(null);
@@ -573,6 +603,11 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
   const pttPressActiveRef = useRef(false);
   const myLocationRef = useRef<{ lat: number; lng: number } | null>(null); // shadow for callbacks
   const activeDestRef = useRef<{ lat: number; lng: number } | null>(null); // dest of active route
+  // Waypoints threaded into the active route (currently: accepted fuel stops,
+  // Req 21.3). The 60s traffic refresh must recalculate THROUGH these — it
+  // previously recalculated origin→destination only, so an accepted fuel-stop
+  // waypoint silently vanished from the route within a minute.
+  const activeWaypointsRef = useRef<Array<{ lat: number; lng: number }>>([]);
   // Active route's polyline + per-segment speed limits, used to look up the limit
   // for the segment nearest the driver's live position (Req 23.1, 23.2).
   const activeRouteSegmentsRef = useRef<{ coords: Array<{ latitude: number; longitude: number }>; segmentsKph: (number | null)[] }>({ coords: [], segmentsKph: [] });
@@ -1008,7 +1043,7 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
         const res = await apiClient.get<{
           hazards: Array<{
             id: string; type: string; lat: number; lng: number;
-            confirmationCount: number; dismissalCount: number; createdAt: string;
+            confirmationCount: number; dismissalCount: number; createdAt: string; expiresAt?: string;
           }>;
         }>('/api/v1/hazards', { params: { lat: loc.lat, lng: loc.lng, radius: 20_000 } });
         setHazardPins((prev) => {
@@ -1022,6 +1057,9 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
               thumbsUp: h.confirmationCount,
               thumbsDown: h.dismissalCount,
               reportedAt: new Date(h.createdAt).getTime(),
+              // Server expiry — honors confirmation-driven extensions (Req 11.5)
+              // instead of hard-hiding the pin at reportedAt + 30 min.
+              expiresAt: h.expiresAt ? new Date(h.expiresAt).getTime() : undefined,
             });
           }
           return m;
@@ -1061,7 +1099,15 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
       const dest = activeDestRef.current;
       if (!origin || !dest) return;
       try {
-        const routeBody = { origin, destination: dest, scenic: scenicRouting };
+        // waypoints: keep accepted fuel stops (Req 21.3) threaded through the
+        // refreshed route; scenic via ref so a mid-route preference change
+        // takes effect on the next refresh, not the next route.
+        const routeBody = {
+          origin,
+          destination: dest,
+          waypoints: activeWaypointsRef.current,
+          scenic: scenicRoutingRef.current,
+        };
         const routeRes = await apiClient.post<{ routes: RouteAlternative[] }>('/api/v1/routes/calculate', routeBody);
         const alts = routeRes.data.routes;
         if (alts.length > 0) {
@@ -1205,13 +1251,25 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
 
     socket.on('gap:alert', (a: GapAlert) => setGapAlerts((p) => [...p.filter((x) => x.memberId !== a.memberId), a]));
 
-    // Hazard pins: add new reports to the map, alert user on proximity, remove on expiry
-    socket.on('hazard:new', (h: Omit<HazardPin, 'thumbsUp' | 'thumbsDown'> & { thumbsUp?: number; thumbsDown?: number }) => {
-      const pin: HazardPin = { thumbsUp: 0, thumbsDown: 0, reportedAt: Date.now(), ...h };
+    // Hazard pins: add new reports to the map, alert user on proximity, remove on expiry.
+    // Wire payloads carry expiresAt as an ISO string (REST create broadcast) or omit it
+    // entirely (the slim hazard:nearby proximity payload) — normalize to ms epoch.
+    type HazardWire = Omit<HazardPin, 'thumbsUp' | 'thumbsDown' | 'expiresAt'> & {
+      thumbsUp?: number; thumbsDown?: number; expiresAt?: string | number;
+    };
+    const toHazardPin = (h: HazardWire): HazardPin => ({
+      thumbsUp: 0,
+      thumbsDown: 0,
+      reportedAt: Date.now(),
+      ...h,
+      expiresAt: h.expiresAt != null ? new Date(h.expiresAt).getTime() : undefined,
+    });
+    socket.on('hazard:new', (h: HazardWire) => {
+      const pin = toHazardPin(h);
       setHazardPins((p) => new Map(p).set(pin.id, pin));
     });
-    socket.on('hazard:nearby', (h: Omit<HazardPin, 'thumbsUp' | 'thumbsDown'> & { thumbsUp?: number; thumbsDown?: number }) => {
-      const pin: HazardPin = { thumbsUp: 0, thumbsDown: 0, reportedAt: Date.now(), ...h };
+    socket.on('hazard:nearby', (h: HazardWire) => {
+      const pin = toHazardPin(h);
       setHazardPins((p) => new Map(p).set(pin.id, pin));
       setHazardAlerts((prev) => prev.some((a) => a.id === pin.id) ? prev : [...prev, pin]);
     });
@@ -1228,7 +1286,7 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
       setHazardAlerts((prev) => prev.filter((a) => a.id !== id));
     });
 
-    socket.on('route:pushed', (data: { route?: { geometry?: { coordinates?: [number, number][] }; speedLimitKph?: number | null; speedLimitSegmentsKph?: (number | null)[]; congestionSegments?: CongestionLevel[] } }) => {
+    socket.on('route:pushed', (data: { pushedBy?: string; route?: { geometry?: { coordinates?: [number, number][] }; speedLimitKph?: number | null; speedLimitSegmentsKph?: (number | null)[]; congestionSegments?: CongestionLevel[] } }) => {
       // Unlike REST responses, socket payloads aren't runtime-validated on the
       // client, so this guards against a malformed/partial broadcast (e.g. a
       // future "clear route" push reusing this event) instead of assuming the
@@ -1245,12 +1303,34 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
       }));
       setPostedSpeedLimitKph(data.route?.speedLimitKph ?? null);
       activeRouteSegmentsRef.current = { coords, segmentsKph: data.route?.speedLimitSegmentsKph ?? [] };
+      // A route pushed by SOMEONE ELSE replaces whatever this member was
+      // navigating — but activeDestRef previously kept pointing at the
+      // member's own old destination, so the 60s traffic refresh silently
+      // recalculated a personal route to that stale destination and overwrote
+      // the Admin's shared route within a minute (Req 9.2). Members follow
+      // the shared geometry verbatim: disengage the local refresh by clearing
+      // the refs it reads. The pusher's own echo keeps their refs (their
+      // calc/fuel flow already set destination + waypoints correctly).
+      if (data.pushedBy !== user?.id) {
+        activeDestRef.current = null;
+        activeWaypointsRef.current = [];
+      }
       setShowRouteModal(false);
       Alert.alert('Route Updated', 'The group leader pushed a new route to the convoy.');
     });
     socket.on('navigation:arrived', () => {
       Alert.alert('Arrived!', 'You have reached the convoy destination.');
+      // Tear down the WHOLE route, not just the speed HUD — previously
+      // routeCoords/activeDestRef survived arrival, so the route line stayed
+      // on the map and the 60s traffic refresh immediately recalculated the
+      // finished route (restoring the HUD) forever after arrival.
+      setRouteCoords([]);
+      setRouteCongestionTiers([]);
+      setRouteAlternatives([]);
+      setSelectedRouteIdx(0);
       setPostedSpeedLimitKph(null);
+      activeDestRef.current = null;
+      activeWaypointsRef.current = [];
       activeRouteSegmentsRef.current = { coords: [], segmentsKph: [] };
     });
     socket.on('rally:set', (r: RallyPoint) => { setRallyPoints((p) => new Map(p).set(r.id, r)); setRallyAlert(r); });
@@ -1500,6 +1580,9 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
       setPostedSpeedLimitKph(alts[0]?.speedLimitKph ?? null);
       activeRouteSegmentsRef.current = { coords, segmentsKph: alts[0]?.speedLimitSegmentsKph ?? [] };
       activeDestRef.current = dest;
+      // Fresh destination = fresh route: waypoints from a previous route
+      // (accepted fuel stops) don't carry over.
+      activeWaypointsRef.current = [];
       showQuickAlert(`${alts[0].distanceText} · ${alts[0].durationText}`);
       // Route is already drawn using the default (first) alternative above — this
       // just offers a chance to switch to another alternative (e.g. fastest vs.
@@ -1675,10 +1758,20 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
         origin,
         station: { lat: station.lat, lng: station.lng },
         destination: activeDestRef.current,
+        existingWaypoints: activeWaypointsRef.current,
       });
       if (!applied) {
         Alert.alert('No Route', 'No route found through that station.');
         return;
+      }
+      // Remember the station so the 60s traffic refresh keeps routing THROUGH
+      // it instead of silently dropping the fuel stop: with an active
+      // destination the station rides along as a waypoint; with none,
+      // applyFuelStopWaypoint made the station itself the destination.
+      if (activeDestRef.current) {
+        activeWaypointsRef.current = [...activeWaypointsRef.current, { lat: station.lat, lng: station.lng }];
+      } else {
+        activeDestRef.current = { lat: station.lat, lng: station.lng };
       }
       setShowFuelBanner(false);
     } catch {
@@ -1914,7 +2007,7 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
           <Marker key={s.id} coordinate={{ latitude: s.lat, longitude: s.lng }} title="SOS" pinColor={colors.accent} />
         ))}
         {hazardPinList
-          .filter((h) => !h.reportedAt || Date.now() - h.reportedAt < HAZARD_EXPIRY_MS)
+          .filter((h) => isHazardActive(h, Date.now()))
           .map((h) => (
           <Marker
             key={h.id}
@@ -2676,7 +2769,7 @@ export default function MapScreen({ groupId, socketUrl, isAdmin = false, pttChan
             {routeCoords.length > 0 && routeAlternatives.length > 0 && (
               <TouchableOpacity
                 style={styles.routeClearBtn}
-                onPress={() => { setRouteCoords([]); setRouteCongestionTiers([]); setRouteAlternatives([]); setRouteDestInput(''); setPostedSpeedLimitKph(null); activeDestRef.current = null; activeRouteSegmentsRef.current = { coords: [], segmentsKph: [] }; }}
+                onPress={() => { setRouteCoords([]); setRouteCongestionTiers([]); setRouteAlternatives([]); setRouteDestInput(''); setPostedSpeedLimitKph(null); activeDestRef.current = null; activeWaypointsRef.current = []; activeRouteSegmentsRef.current = { coords: [], segmentsKph: [] }; }}
                 accessibilityRole="button"
                 accessibilityLabel="Clear current route"
               >

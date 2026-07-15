@@ -17,6 +17,29 @@ export const HAZARD_TYPES = [
 
 export type HazardType = (typeof HAZARD_TYPES)[number];
 
+// Must match the server's expiry window (hazards.routes.ts HAZARD_EXPIRY_MS,
+// Req 11.3) so pins disappear from the map around the same time the server
+// stops treating the report as active.
+export const HAZARD_EXPIRY_MS = 30 * 60 * 1000; // 30 minutes
+
+/**
+ * Whether a hazard pin is still active at `nowMs` (Req 11.3, 11.5). Prefers
+ * the server-supplied expiry (which moves forward when other users confirm
+ * the hazard — Req 11.5) and only falls back to the local
+ * reportedAt + 30 min window when no expiry was delivered (e.g. the slim
+ * hazard:nearby socket payload). Pins with neither timestamp are kept — the
+ * server said they were active at fetch time, and hazard:expired removes
+ * them. Pure function, shared by MapScreen and IdleMapScreen.
+ */
+export function isHazardActive(
+  pin: { expiresAt?: number; reportedAt?: number },
+  nowMs: number,
+): boolean {
+  if (pin.expiresAt != null) return nowMs < pin.expiresAt;
+  if (pin.reportedAt != null) return nowMs - pin.reportedAt < HAZARD_EXPIRY_MS;
+  return true;
+}
+
 export interface HazardReport {
   id: string;
   type: HazardType;

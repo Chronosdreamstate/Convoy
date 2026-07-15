@@ -224,6 +224,7 @@ export default async function hazardsRoutes(fastify: FastifyInstance): Promise<v
     // Wrap all inserts in a transaction so a partial failure leaves no orphaned rows
     const client = await pool.connect();
     const inserted: string[] = [];
+    const insertedPayloads: HazardResponse[] = [];
     try {
       await client.query('BEGIN');
       for (const h of hazards) {
@@ -237,6 +238,17 @@ export default async function hazardsRoutes(fastify: FastifyInstance): Promise<v
           [userId, h.type, h.lng, h.lat, expires, created],
         );
         inserted.push(r.rows[0].id);
+        insertedPayloads.push({
+          id: r.rows[0].id,
+          type: h.type,
+          lat: h.lat,
+          lng: h.lng,
+          status: 'active',
+          expiresAt: expires.toISOString(),
+          confirmationCount: 0,
+          dismissalCount: 0,
+          createdAt: created.toISOString(),
+        });
       }
       await client.query('COMMIT');
     } catch (err) {
@@ -244,6 +256,18 @@ export default async function hazardsRoutes(fastify: FastifyInstance): Promise<v
       throw err;
     } finally {
       client.release();
+    }
+
+    // Broadcast each synced report exactly like the live POST /hazards path
+    // (Req 11.2, 11.10) — previously offline-queued hazards were inserted
+    // silently, so other users' maps never showed them until their next
+    // GET /hazards backfill (app restart / socket reconnect). Skip reports
+    // that expired before the sync completed — broadcasting an already-dead
+    // hazard would paint a pin the server won't return from GET /hazards.
+    const nowAfterCommit = Date.now();
+    for (const payload of insertedPayloads) {
+      if (new Date(payload.expiresAt).getTime() <= nowAfterCommit) continue;
+      fastify.io.emit('hazard:new', payload);
     }
 
     return reply.code(201).send({ inserted, count: inserted.length });

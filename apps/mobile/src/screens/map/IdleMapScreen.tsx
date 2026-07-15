@@ -16,16 +16,25 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Socket } from 'socket.io-client';
 import { Ionicons, MaterialCommunityIcons, MaterialIcons } from '@expo/vector-icons';
 import LocationPermissionPrescreen from '../../components/LocationPermissionPrescreen';
+import HazardPicker from '../../components/HazardPicker';
 import { apiClient } from '../../services/apiClient';
 import { authService } from '../../services/AuthService';
 import { HapticService } from '../../services/HapticService';
 import { WebSocketService } from '../../services/WebSocketService';
 import { rallyService, SosPin, SOS_EMOJI } from '../../services/RallyService';
+import {
+  HazardService,
+  HazardType,
+  IHazardApiClient,
+  isHazardActive,
+} from '../../services/HazardService';
+import { SQLiteOfflineDB } from '../../services/OfflineCacheService';
 import { openMapsDirections } from '../../utils/openMapsDirections';
+import { haversineDistanceM } from '../../utils/geo';
 import { useAuthStore } from '../../stores/authStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useReduceMotion } from '../../hooks/useReduceMotion';
-import { sharedMotionState } from '../../services/MotionStateService';
+import { deriveMotionState, sharedMotionState } from '../../services/MotionStateService';
 import { ThemeColors, useTheme } from '../../theme';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
@@ -44,6 +53,79 @@ interface NearbyGroup {
   memberCount: number;
   lat?: number;
   lng?: number;
+}
+
+// ---------------------------------------------------------------------------
+// Hazard reporting on the no-group surface (Req 11.1, 11.2, 11.4, 11.9).
+// Req 11.1 requires a persistent "Report" button on the main map screen at
+// all times when authenticated — signed-in users WITHOUT an active convoy
+// land on this screen, which previously had no hazard affordances at all:
+// no report button, and hazards broadcast by other users never rendered even
+// though this screen's personal-room socket receives the global hazard:new
+// emit. Mirrors MapScreen's plumbing (same SQLite file, so reports queued
+// here are flushed by the same reconnect logic).
+// ---------------------------------------------------------------------------
+
+interface IdleHazardPin {
+  id: string;
+  type: string;
+  lat: number;
+  lng: number;
+  reportedAt?: number;
+  /** Server-supplied expiry (ms epoch) — moves forward on confirmations (Req 11.5). */
+  expiresAt?: number;
+}
+
+// Same emoji set as HazardPicker / MapScreen's pins — glance recognition.
+const HAZARD_EMOJI: Record<string, string> = {
+  pothole: '🕳️', accident: '🚗', roadwork: '🚧', debris: '🪨',
+  animal: '🦌', speed_trap: '📷', ice: '🧊', flood: '🌊', other: '⚠️',
+};
+function hazardLabel(type: string): string {
+  return (type.charAt(0).toUpperCase() + type.slice(1)).replace('_', ' ');
+}
+function formatHazardAge(ts: number): string {
+  const mins = Math.floor((Date.now() - ts) / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  return `${Math.floor(mins / 60)}h ago`;
+}
+function formatHazardDistance(distM: number): string {
+  return distM >= 1000 ? `${(distM / 1000).toFixed(1)} km` : `${Math.round(distM)} m`;
+}
+
+// expo-sqlite keys connections by filename, so this is the same on-disk queue
+// MapScreen / HazardReportModal use — anything queued here is flushed by
+// whichever surface reconnects first.
+const offlineDB = new SQLiteOfflineDB();
+const offlineDBReady: Promise<boolean> = offlineDB.init().then(() => true).catch(() => false);
+
+const hazardApiClient: IHazardApiClient = {
+  createHazard: (type, lat, lng) =>
+    apiClient.post('/api/v1/hazards', { type, lat, lng }).then((r) => r.data),
+  confirmHazard: (id) => apiClient.post(`/api/v1/hazards/${id}/confirm`).then(() => undefined),
+  dismissHazard: (id) => apiClient.post(`/api/v1/hazards/${id}/dismiss`).then(() => undefined),
+};
+const hazardService = new HazardService(
+  hazardApiClient,
+  { saveOfflineHazard: (h) => offlineDB.saveHazard(h) },
+  () => true, // always attempt the network call; failures fall back to the offline queue
+);
+
+/** Flushes hazard reports queued offline (Req 11.9, 11.10). Safe to call repeatedly. */
+async function flushOfflineHazards(): Promise<void> {
+  const ready = await offlineDBReady;
+  if (!ready) return;
+  const pending = await offlineDB.getPendingHazards();
+  if (pending.length === 0) return;
+  try {
+    await apiClient.post('/api/v1/hazards/bulk', {
+      hazards: pending.map((h) => ({ type: h.type, lat: h.lat, lng: h.lng, createdAt: h.createdAt })),
+    });
+    await offlineDB.clearHazards(pending.map((h) => h.id));
+  } catch {
+    // Still offline or server rejected the batch — retry on the next reconnect.
+  }
 }
 
 /**
@@ -157,6 +239,11 @@ export default function IdleMapScreen() {
   // Friends' standalone SOS pins (Req 25.7) — keyed by SOS id, populated via the
   // personal-room `sos:alert` socket event since there's no active group here.
   const [friendSosPins, setFriendSosPins] = useState<Map<string, SosPin>>(new Map());
+  // Active hazard reports (Req 11.4) — backfilled by proximity once a GPS fix
+  // exists, kept live via the global hazard:new broadcast + the personal-room
+  // hazard:nearby / hazard:expired events this screen's socket already receives.
+  const [hazardPins, setHazardPins] = useState<Map<string, IdleHazardPin>>(new Map());
+  const [showHazardPicker, setShowHazardPicker] = useState(false);
   // The user's OWN standalone SOS (Req 25.1, 25.7). Unlike MapScreen's grouped
   // path there is no socket echo without a group, so the pin returned by the
   // POST is tracked (and rendered) locally, and cancel clears it locally too.
@@ -185,8 +272,12 @@ export default function IdleMapScreen() {
   // fires once per screen visit, not on every 20s poll refresh.
   const focusHandledRef = useRef(false);
   // Last known own GPS fix — a ref (not state) because it's only read at
-  // event time (sending an SOS), and the GPS watch ticks every ~2s.
+  // event time (sending an SOS / reporting a hazard), and the GPS watch ticks
+  // every ~2s.
   const myLocationRef = useRef<{ lat: number; lng: number } | null>(null);
+  // Set once the first proximity-scoped hazard backfill has fired, so the GPS
+  // watch callback (every ~2s) doesn't refetch repeatedly (mirrors MapScreen).
+  const hazardBackfillDoneRef = useRef(false);
 
   // Animations
   const pulseOpacity = useRef(new Animated.Value(1)).current;
@@ -282,6 +373,39 @@ export default function IdleMapScreen() {
       .catch(() => {});
   }, [token]);
 
+  // Flush any hazard reports queued offline (Req 11.9, 11.10) — without this,
+  // a report queued on this screen by a user who never joins a convoy (so
+  // MapScreen never mounts) would sit in SQLite forever.
+  useEffect(() => { void flushOfflineHazards(); }, []);
+
+  // Backfill active hazards near a GPS fix (Req 11.4) — GET /hazards is
+  // proximity-scoped, so this needs a location. Called on the first fix and on
+  // every socket (re)connect. Best-effort: the live socket push is primary.
+  const fetchNearbyHazards = useCallback(async (lat: number, lng: number) => {
+    try {
+      const res = await apiClient.get<{
+        hazards: Array<{
+          id: string; type: string; lat: number; lng: number;
+          createdAt: string; expiresAt?: string;
+        }>;
+      }>('/api/v1/hazards', { params: { lat, lng, radius: 20_000 } });
+      setHazardPins((prev) => {
+        const m = new Map(prev);
+        for (const h of res.data.hazards) {
+          m.set(h.id, {
+            id: h.id,
+            type: h.type,
+            lat: h.lat,
+            lng: h.lng,
+            reportedAt: new Date(h.createdAt).getTime(),
+            expiresAt: h.expiresAt ? new Date(h.expiresAt).getTime() : undefined,
+          });
+        }
+        return m;
+      });
+    } catch { /* best-effort — live socket push remains primary delivery */ }
+  }, []);
+
   // Personal-room socket connection — there's no active group here, so this is the
   // only channel a friend's standalone SOS (`POST /sos` → `sos:alert`, broadcast to
   // `user:<id>`) can reach this screen through. WebSocketService's `auth` is sent
@@ -319,12 +443,43 @@ export default function IdleMapScreen() {
       });
     });
 
+    // Hazards (Req 11.4): hazard:new is a global broadcast every connected
+    // socket receives — this screen ignored it entirely before, so hazards
+    // reported by other users never appeared on the no-group map. expiresAt
+    // arrives as an ISO string on the REST-create broadcast and is absent
+    // from the slim hazard:nearby payload — normalize to ms epoch.
+    const toHazardPin = (h: { id: string; type: string; lat: number; lng: number; expiresAt?: string | number }): IdleHazardPin => ({
+      id: h.id,
+      type: h.type,
+      lat: h.lat,
+      lng: h.lng,
+      reportedAt: Date.now(),
+      expiresAt: h.expiresAt != null ? new Date(h.expiresAt).getTime() : undefined,
+    });
+    socket.on('hazard:new', (h: { id: string; type: string; lat: number; lng: number; expiresAt?: string }) => {
+      const pin = toHazardPin(h);
+      setHazardPins((p) => new Map(p).set(pin.id, pin));
+    });
+    socket.on('hazard:nearby', (h: { id: string; type: string; lat: number; lng: number }) => {
+      const pin = toHazardPin(h);
+      setHazardPins((p) => new Map(p).set(pin.id, pin));
+    });
+    socket.on('hazard:expired', ({ id }: { id: string }) => {
+      setHazardPins((p) => { const n = new Map(p); n.delete(id); return n; });
+    });
+    socket.on('connect', () => {
+      // Drain the offline queue and re-sync hazards missed while disconnected.
+      void flushOfflineHazards();
+      const loc = myLocationRef.current;
+      if (loc) void fetchNearbyHazards(loc.lat, loc.lng);
+    });
+
     return () => {
       wsService.disconnect();
       socketRef.current = null;
       wsServiceRef.current = null;
     };
-  }, [token]);
+  }, [token, fetchNearbyHazards]);
 
   // Poll friends' shared locations (Req 70). A periodic poll rather than a
   // socket push is intentionally simpler here — the backend may not push
@@ -480,6 +635,37 @@ export default function IdleMapScreen() {
     }
   }, [mySosPin]);
 
+  // Report-a-hazard flow (Req 11.1, 11.2): persistent Report button →
+  // HazardPicker's quick-select grid → POST (or offline queue). Mirrors
+  // MapScreen's handleHazardSelect; additionally paints the reporter's own
+  // pin from the REST response so feedback is immediate even if the socket
+  // echo (global hazard:new) is slow or down.
+  const handleHazardSelect = useCallback(async (type: HazardType) => {
+    const loc = myLocationRef.current;
+    if (!loc) {
+      Alert.alert('Location required', 'Enable location permissions to report a hazard.');
+      return;
+    }
+    const result = await hazardService.report(type, loc.lat, loc.lng);
+    if (!result) {
+      Alert.alert('Hazard Queued', 'No connection — this report will send once you reconnect.');
+      return;
+    }
+    setHazardPins((p) => new Map(p).set(result.id, {
+      id: result.id,
+      type: result.type,
+      lat: result.lat,
+      lng: result.lng,
+      reportedAt: new Date(result.createdAt).getTime(),
+      expiresAt: new Date(result.expiresAt).getTime(),
+    }));
+    showQuickAlert(`${HAZARD_EMOJI[type] ?? '⚠️'} Hazard reported`);
+  }, [showQuickAlert]);
+
+  const closeHazardPicker = useCallback(() => setShowHazardPicker(false), []);
+
+  const hazardPinList = useMemo(() => Array.from(hazardPins.values()), [hazardPins]);
+
   const clearIdleTimer = () => {
     if (idleTimerRef.current) { clearTimeout(idleTimerRef.current); idleTimerRef.current = null; }
   };
@@ -549,6 +735,11 @@ export default function IdleMapScreen() {
     mapRef.current?.animateToRegion(region, 500);
     setLocating(false);
     fetchNearbyGroups(latitude, longitude);
+    // First GPS fix — backfill active hazards by proximity (Req 11.4).
+    if (!hazardBackfillDoneRef.current) {
+      hazardBackfillDoneRef.current = true;
+      void fetchNearbyHazards(latitude, longitude);
+    }
     startLiveLocation();
   };
 
@@ -670,6 +861,28 @@ export default function IdleMapScreen() {
             </View>
           </Marker>
         )}
+
+        {/* Active hazard reports (Req 11.4) — type, distance from the user,
+            and report age, filtered by the same expiry rules as MapScreen. */}
+        {hazardPinList
+          .filter((h) => isHazardActive(h, Date.now()))
+          .map((h) => {
+            const loc = myLocationRef.current;
+            const parts = [
+              loc ? `${formatHazardDistance(haversineDistanceM(loc.lat, loc.lng, h.lat, h.lng))} away` : null,
+              h.reportedAt ? formatHazardAge(h.reportedAt) : null,
+            ].filter(Boolean);
+            return (
+              <Marker
+                key={h.id}
+                coordinate={{ latitude: h.lat, longitude: h.lng }}
+                pinColor={colors.warning}
+                title={`${HAZARD_EMOJI[h.type] ?? '⚠️'} ${hazardLabel(h.type)}`}
+                description={parts.join(' · ') || undefined}
+                accessibilityLabel={`${hazardLabel(h.type)} hazard${parts.length ? `, ${parts.join(', ')}` : ''}`}
+              />
+            );
+          })}
 
         {/* Friends sharing their live location with us (Req 70) */}
         {friendLocations.map((f) => (
@@ -802,6 +1015,23 @@ export default function IdleMapScreen() {
           Mirrors MapScreen's FAB SOS item: card circle with the accent ring
           for contrast over map imagery (Req 40), flipping to the muted
           "cancel" treatment while the user's own SOS is active. */}
+      {/* Persistent hazard Report button (Req 11.1 — visible at all times when
+          authenticated, including on this no-group surface). Sits directly
+          above the SOS button in the same right-edge column. */}
+      {user && (
+        <View style={[styles.sosFabContainer, { bottom: cardHeight + 12 + (canSendSos(user) ? 64 : 0) }]}>
+          <TouchableOpacity
+            style={[styles.sosFab, styles.hazardFab]}
+            onPress={() => setShowHazardPicker(true)}
+            accessibilityRole="button"
+            accessibilityLabel="Report a road hazard"
+            accessibilityHint="Opens the hazard type picker"
+          >
+            <Ionicons name="warning" size={22} color={colors.warning} />
+          </TouchableOpacity>
+        </View>
+      )}
+
       {canSendSos(user) && (
         <View style={[styles.sosFabContainer, { bottom: cardHeight + 12 }]}>
           {mySosPin ? (
@@ -964,6 +1194,15 @@ export default function IdleMapScreen() {
           <Text style={styles.ghostBtnText}>Browse Groups →</Text>
         </TouchableOpacity>
       </View>
+
+      {/* Hazard type quick-select grid (Req 11.2) — same motion-aware picker
+          MapScreen uses (6 large targets in motion, full 9 parked, Req 31). */}
+      <HazardPicker
+        visible={showHazardPicker}
+        isInMotion={deriveMotionState(speedKph ?? 0) === 'in_motion'}
+        onSelect={handleHazardSelect}
+        onClose={closeHazardPicker}
+      />
 
       {/* SOS confirm modal — same structure and copy as MapScreen's groupless
           branch so the two screens feel identical (Req 25.1, 25.7). */}
@@ -1276,6 +1515,10 @@ return StyleSheet.create({
   // (same as MapScreen's fabSosCancelItem).
   sosFabCancel: { borderColor: colors.border, backgroundColor: colors.border },
   sosFabText: { color: colors.text, fontWeight: '800', fontSize: 11 },
+  // Persistent hazard Report button (Req 11.1) — same circle treatment as the
+  // SOS button but ringed in the warning color, matching MapScreen's amber
+  // hazard affordances.
+  hazardFab: { borderColor: colors.warning },
 
   // Quick-action alert toast (mirrors MapScreen's quickAlertBanner)
   quickAlertBanner: {
