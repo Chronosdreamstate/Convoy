@@ -401,6 +401,6 @@ function createStyles(colors: ThemeColors) {
       paddingHorizontal: 24, paddingVertical: 12, minHeight: 48,
       alignItems: 'center', justifyContent: 'center',
     },
-    settingsBtnText: { color: colors.text, fontSize: 15, fontWeight: '700' },
+    settingsBtnText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
   });
 }

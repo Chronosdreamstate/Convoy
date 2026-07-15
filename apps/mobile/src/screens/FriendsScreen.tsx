@@ -449,8 +449,8 @@ function RequestRow({
           hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
         >
           {isMe && acting?.action === 'accept'
-            ? <ActivityIndicator color={colors.text} size="small" />
-            : <Ionicons name="checkmark" size={20} color={colors.text} />}
+            ? <ActivityIndicator color="#FFFFFF" size="small" />
+            : <Ionicons name="checkmark" size={20} color="#FFFFFF" />}
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.declineBtn}
@@ -860,7 +860,7 @@ export default function FriendsScreen() {
         accessibilityLabel="Invite friends"
         accessibilityState={{ disabled: inviting }}
       >
-        {inviting ? <ActivityIndicator color={colors.text} size="small" /> : <Ionicons name="add" size={30} color={colors.text} />}
+        {inviting ? <ActivityIndicator color="#FFFFFF" size="small" /> : <Ionicons name="add" size={30} color="#FFFFFF" />}
       </TouchableOpacity>
     </SafeAreaView>
   );
@@ -896,7 +896,7 @@ function createStyles(colors: ThemeColors) {
   tabLabelActive: { color: colors.text },
   underline: { position: 'absolute', bottom: 0, height: 2, backgroundColor: colors.accent, borderRadius: 1 },
   badge: { backgroundColor: colors.accent, borderRadius: 10, minWidth: 18, height: 18, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 },
-  badgeTxt: { color: colors.text, fontSize: 10, fontWeight: '700' },
+  badgeTxt: { color: '#FFFFFF', fontSize: 10, fontWeight: '700' },
 
   content: { flex: 1 },
   skeletonWrap: { flex: 1, paddingHorizontal: 16, paddingTop: 12, gap: 12 },
@@ -937,7 +937,7 @@ function createStyles(colors: ThemeColors) {
   withdrawBtnTxt: { color: colors.accent, fontSize: 13, fontWeight: '700' },
 
   addBtn: { paddingHorizontal: 14, height: 34, borderRadius: 8, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center' },
-  addBtnTxt: { color: colors.text, fontSize: 13, fontWeight: '700' },
+  addBtnTxt: { color: '#FFFFFF', fontSize: 13, fontWeight: '700' },
   alreadyFriendBadge: { paddingHorizontal: 10, height: 30, borderRadius: 8, backgroundColor: colors.cardElevated, alignItems: 'center', justifyContent: 'center' },
   alreadyFriendTxt: { color: colors.success, fontSize: 12, fontWeight: '600' },
   sentBadge: { paddingHorizontal: 10, height: 30, borderRadius: 8, backgroundColor: colors.cardElevated, alignItems: 'center', justifyContent: 'center' },
@@ -953,7 +953,7 @@ function createStyles(colors: ThemeColors) {
     marginTop: 20, paddingHorizontal: 22, height: 44, borderRadius: 10, backgroundColor: colors.accent,
   },
   retryIcon: { marginRight: 6 },
-  retryBtnTxt: { color: colors.text, fontSize: 14, fontWeight: '700' },
+  retryBtnTxt: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
 
   fab: {
     position: 'absolute', bottom: 28, right: 24, width: 56, height: 56, borderRadius: 28,

@@ -522,7 +522,7 @@ export default function GroupBrowseScreen() {
           >
             <Text style={[styles.filterPillText, activeFilter === tab && styles.filterPillTextActive]}>
               {tab === 'Nearby'
-                ? <><Ionicons name="location-outline" size={12} color={activeFilter === tab ? colors.text : colors.textMuted} /> Nearby</>
+                ? <><Ionicons name="location-outline" size={12} color={activeFilter === tab ? '#FFFFFF' : colors.textMuted} /> Nearby</>
                 : tab}
             </Text>
           </TouchableOpacity>
@@ -550,7 +550,7 @@ export default function GroupBrowseScreen() {
                 <MaterialCommunityIcons
                   name={vf.icon}
                   size={12}
-                  color={vehicleFilter === vf.key ? colors.text : colors.textMuted}
+                  color={vehicleFilter === vf.key ? '#FFFFFF' : colors.textMuted}
                 />
               )}
               {vf.icon ? ` ${vf.label}` : vf.label}
@@ -751,7 +751,7 @@ function createStyles(colors: ThemeColors) {
     fontWeight: '600',
   },
   filterPillTextActive: {
-    color: colors.text,
+    color: '#FFFFFF',
   },
   locationStatus: {
     flexDirection: 'row',
@@ -916,7 +916,7 @@ function createStyles(colors: ThemeColors) {
     opacity: 0.6,
   },
   joinButtonText: {
-    color: colors.text,
+    color: '#FFFFFF',
     fontSize: 15,
     fontWeight: '700',
     letterSpacing: 0.3,
