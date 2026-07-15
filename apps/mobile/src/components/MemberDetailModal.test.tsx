@@ -235,3 +235,67 @@ describe('MemberDetailModal ETA pill (Req 8.5)', () => {
     expect(mockGet).not.toHaveBeenCalledWith(expect.stringContaining('/eta'));
   });
 });
+
+// ---------------------------------------------------------------------------
+// Friend-state awareness (Req 30.1) — the sheet fetches the relationship on
+// open and must not offer "Add Friend" to existing friends or to members with
+// a request already pending in either direction.
+// ---------------------------------------------------------------------------
+
+describe('MemberDetailModal friend button state', () => {
+  function mockRoutes(profile: { friendStatus: string | null; friendRequestDirection?: string | null }) {
+    mockGet.mockImplementation(async (url: string) => {
+      if (url.startsWith('/api/v1/users/')) return { data: profile };
+      if (url.startsWith('/api/v1/vehicles/')) return { data: { vehicle: null } };
+      throw new Error(`unmocked GET ${url}`);
+    });
+  }
+
+  it('shows a settled "Friends" state for an existing friend', async () => {
+    mockRoutes({ friendStatus: 'accepted' });
+    const screen = renderModal();
+
+    await waitFor(() => expect(screen.getByText('Friends')).toBeTruthy());
+    expect(screen.queryByText('Add Friend')).toBeNull();
+    expect(
+      screen.getByLabelText('Friends').props.accessibilityState.disabled,
+    ).toBe(true);
+  });
+
+  it('shows a disabled "Request Sent" when the viewer already has an outgoing request', async () => {
+    mockRoutes({ friendStatus: 'pending', friendRequestDirection: 'outgoing' });
+    const screen = renderModal();
+
+    await waitFor(() => expect(screen.getByText('Request Sent')).toBeTruthy());
+    expect(
+      screen.getByLabelText('Request Sent').props.accessibilityState.disabled,
+    ).toBe(true);
+  });
+
+  it('offers "Respond to Request" (enabled) when the member already requested the viewer', async () => {
+    mockRoutes({ friendStatus: 'pending', friendRequestDirection: 'incoming' });
+    const screen = renderModal();
+
+    await waitFor(() => expect(screen.getByText('Respond to Request')).toBeTruthy());
+    expect(
+      screen.getByLabelText('Respond to Request').props.accessibilityState.disabled,
+    ).toBe(false);
+  });
+
+  it('keeps the plain "Add Friend" button when there is no relationship', async () => {
+    mockRoutes({ friendStatus: null });
+    const screen = renderModal();
+
+    await waitFor(() => expect(screen.getByText('Add Friend')).toBeTruthy());
+    expect(
+      screen.getByLabelText('Add Friend').props.accessibilityState.disabled,
+    ).toBe(false);
+  });
+
+  it('degrades to "Add Friend" when the profile fetch fails', async () => {
+    mockGet.mockRejectedValue(new Error('offline'));
+    const screen = renderModal();
+
+    await waitFor(() => expect(screen.getByText('Add Friend')).toBeTruthy());
+  });
+});

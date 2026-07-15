@@ -107,6 +107,8 @@ export default function MemberDetailModal({
   const activeGroupId = useGroupStore((s) => s.activeGroupId);
   const [friendSent, setFriendSent] = useState(false);
   const [addingFriend, setAddingFriend] = useState(false);
+  const [friendStatus, setFriendStatus] = useState<string | null>(null);
+  const [friendDirection, setFriendDirection] = useState<'outgoing' | 'incoming' | null>(null);
   const [inviting, setInviting] = useState(false);
   const [kicking, setKicking] = useState(false);
   const [muting, setMuting] = useState(false);
@@ -154,6 +156,32 @@ export default function MemberDetailModal({
     return () => { cancelled = true; };
   }, [visible, memberUserId, activeGroupId]);
 
+  // Friend state when the sheet opens — without this the modal offered "Add
+  // Friend" to existing friends and to members with a request already pending
+  // in EITHER direction, and the POST just failed with a generic error. Uses
+  // the same GET /users/:id fields as UserProfileScreen (friendStatus +
+  // friendRequestDirection). Failure degrades to the old optimistic button.
+  useEffect(() => {
+    if (!visible || !memberUserId) {
+      setFriendStatus(null);
+      setFriendDirection(null);
+      setFriendSent(false);
+      return;
+    }
+    let cancelled = false;
+    apiClient
+      .get<{ friendStatus: string | null; friendRequestDirection?: 'outgoing' | 'incoming' | null }>(
+        `/api/v1/users/${memberUserId}`,
+      )
+      .then((res) => {
+        if (cancelled) return;
+        setFriendStatus(res.data.friendStatus);
+        setFriendDirection(res.data.friendRequestDirection ?? null);
+      })
+      .catch(() => { /* degrade to the optimistic Add Friend button */ });
+    return () => { cancelled = true; };
+  }, [visible, memberUserId]);
+
   if (!member) return null;
 
   const showAdminControls = isCurrentUserAdmin;
@@ -190,6 +218,29 @@ export default function MemberDetailModal({
 
   const avatarBg = member.isAdmin ? colors.accentMuted : colors.card;
   const avatarTextColor = member.isAdmin ? colors.accent : colors.textMuted;
+
+  // Friend-button state derived from the fetched relationship (Req 30.1):
+  //   accepted            → "Friends" (settled, disabled)
+  //   pending outgoing    → "Request Sent" (disabled; withdraw lives on the profile)
+  //   pending incoming    → "Respond to Request" → opens the full profile,
+  //                         where Accept/Decline live — the modal must not
+  //                         fire a duplicate outgoing request at someone
+  //                         already waiting on YOUR answer
+  //   none / fetch failed → "Add Friend" (the original optimistic behavior)
+  const isIncomingPending = friendStatus === 'pending' && friendDirection === 'incoming';
+  const friendSettled = friendStatus === 'accepted' || friendSent
+    || (friendStatus === 'pending' && friendDirection !== 'incoming');
+  const friendBtnLabel = friendStatus === 'accepted'
+    ? 'Friends'
+    : isIncomingPending
+      ? 'Respond to Request'
+      : friendSettled
+        ? 'Request Sent'
+        : 'Add Friend';
+  const openFullProfile = () => {
+    onClose();
+    (router.push as (href: string) => void)(`/profile/${member.userId}`);
+  };
 
   return (
     <Modal
@@ -319,32 +370,38 @@ export default function MemberDetailModal({
             </TouchableOpacity>
           )}
           <TouchableOpacity
-            style={[styles.addFriendBtn, friendSent && styles.addFriendSent]}
-            onPress={handleAddFriend}
-            disabled={friendSent || addingFriend}
+            style={[styles.addFriendBtn, friendSettled && styles.addFriendSent]}
+            onPress={isIncomingPending ? openFullProfile : handleAddFriend}
+            disabled={friendSettled || addingFriend}
             accessibilityRole="button"
-            accessibilityLabel={friendSent ? 'Friend request sent' : 'Add friend'}
-            accessibilityState={{ disabled: friendSent || addingFriend, busy: addingFriend }}
+            accessibilityLabel={friendBtnLabel}
+            accessibilityState={{ disabled: friendSettled || addingFriend, busy: addingFriend }}
           >
             {addingFriend ? (
               <ActivityIndicator color={colors.text} size="small" />
             ) : (
               <>
                 <Ionicons
-                  name={friendSent ? 'checkmark-circle' : 'person-add-outline'}
+                  name={
+                    friendStatus === 'accepted' || friendSent
+                      ? 'checkmark-circle'
+                      : isIncomingPending
+                        ? 'mail-unread-outline'
+                        : friendSettled
+                          ? 'time-outline'
+                          : 'person-add-outline'
+                  }
                   size={15}
-                  color={friendSent ? colors.success : colors.text}
+                  color={friendStatus === 'accepted' || friendSent ? colors.success : colors.text}
                   style={styles.btnIcon}
                 />
-                <Text style={styles.addFriendText}>
-                  {friendSent ? 'Request Sent' : 'Add Friend'}
-                </Text>
+                <Text style={styles.addFriendText}>{friendBtnLabel}</Text>
               </>
             )}
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.viewProfileBtn}
-            onPress={() => { onClose(); (router.push as (href: string) => void)(`/profile/${member.userId}`); }}
+            onPress={openFullProfile}
             accessibilityRole="button"
             accessibilityLabel="View full profile"
           >
