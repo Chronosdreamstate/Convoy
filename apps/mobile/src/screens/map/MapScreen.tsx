@@ -649,6 +649,13 @@ export default function MapScreen({ groupId, socketUrl, isAdmin: isAdminProp = f
   // Keep mySosIdRef in sync so the socket handler closure always sees the current value
   useEffect(() => { mySosIdRef.current = mySosId; }, [mySosId]);
 
+  // Ref mirror of sosPins so the SOS backfill can tell genuinely-new pins
+  // (alert the user) from ones already on the map (a reconnect must not
+  // re-pop an alert the user already dismissed — dismissal clears sosAlerts
+  // but the pin stays in sosPins).
+  const sosPinsRef = useRef(sosPins);
+  useEffect(() => { sosPinsRef.current = sosPins; }, [sosPins]);
+
   // showQuickAlert/showAnnouncement schedule a setTimeout to auto-dismiss their toast
   // (4s / 6s respectively). Without this, navigating away from MapScreen while one of
   // those timers is still pending (e.g. leaving the group right after a quick alert
@@ -1072,8 +1079,39 @@ export default function MapScreen({ groupId, socketUrl, isAdmin: isAdminProp = f
         const rp = await rallyService.getActiveRally(groupId);
         if (rp) setRallyPoints((prev) => new Map(prev).set(rp.id, rp));
       } catch { /* best-effort */ }
+
+      // SOS backfill (Req 25.4): active SOS pins were previously delivered
+      // ONLY via the live sos:alert push, so a late joiner / reconnect never
+      // saw an ongoing emergency. Pins already on the map are skipped so a
+      // reconnect can't re-alert; genuinely-new pins get the same full alert
+      // treatment as a live sos:alert. The sender's own pin re-arms mySosId
+      // so the cancel affordance survives an app restart (Req 25.6).
+      try {
+        const activeSos = await rallyService.getActiveGroupSos(groupId);
+        const fresh = activeSos.filter((p) => !sosPinsRef.current.has(p.id));
+        if (fresh.length > 0) {
+          setSosPins((prev) => {
+            const m = new Map(prev);
+            for (const p of fresh) m.set(p.id, p);
+            return m;
+          });
+          const mine = fresh.find((p) => p.userId === user?.id);
+          if (mine && !mySosIdRef.current) setMySosId(mine.id);
+          setSosAlerts((prev) => {
+            const additions = fresh
+              .filter((p) => p.userId !== user?.id && !prev.some((a) => a.pin.id === p.id))
+              .map((p) => ({
+                pin: p,
+                memberName: p.senderName
+                  ?? memberNamesRef.current[p.userId]
+                  ?? `Member ${p.userId.slice(0, 6)}`,
+              }));
+            return additions.length > 0 ? [...prev, ...additions] : prev;
+          });
+        }
+      } catch { /* best-effort — live socket push remains primary delivery */ }
     }
-  }, [groupId]);
+  }, [groupId, user?.id]);
 
   // Ref mirror of fetchActiveHazardsAndRally so the mount-only LocationService
   // callback (deps: []) below always calls the current closure (current groupId)
@@ -1339,7 +1377,9 @@ export default function MapScreen({ groupId, socketUrl, isAdmin: isAdminProp = f
       setSosPins((p) => new Map(p).set(data.id, data));
       setSosAlerts((prev) => {
         if (prev.some((a) => a.pin.id === data.id)) return prev;
-        const name = data.userId === user?.id ? 'You' : (memberNamesRef.current[data.userId] ?? `Member ${data.userId.slice(0, 6)}`);
+        // Prefer the local member list, then the server-sent senderName (Req 25.5,
+        // covers senders missing from a just-joined Member's list), then the id stub.
+        const name = data.userId === user?.id ? 'You' : (memberNamesRef.current[data.userId] ?? data.senderName ?? `Member ${data.userId.slice(0, 6)}`);
         return [...prev, { pin: data, memberName: name }];
       });
     });

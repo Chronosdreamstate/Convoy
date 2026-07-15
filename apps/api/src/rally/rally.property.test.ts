@@ -10,6 +10,8 @@ import {
   canBroadcastRally,
   canCancelRally,
   canCancelSos,
+  deactivatePreviousRallies,
+  getActiveGroupSos,
   serializeRallyRow,
   RawRallyRow,
 } from './rally.routes';
@@ -159,5 +161,116 @@ describe('Property 41: SOS cancellation removes pin from all Members maps', () =
         ).toBe(false);
       }),
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Single active rally per group (Req 20.3) — broadcasting a new rally must
+// retire every previous active row and emit rally:cancelled for each so no
+// stale pin survives on Members' maps.
+// ---------------------------------------------------------------------------
+describe('deactivatePreviousRallies (Req 20.3)', () => {
+  function buildIo(log: Array<{ room: string; event: string; data: unknown }>) {
+    return {
+      to: (room: string) => ({
+        emit: (event: string, data: unknown) => { log.push({ room, event, data }); },
+      }),
+    };
+  }
+
+  test('deactivates every active rally and emits rally:cancelled for each', async () => {
+    const log: Array<{ room: string; event: string; data: unknown }> = [];
+    const db = {
+      query: async () => ({ rows: [{ id: 'r-1' }, { id: 'r-2' }], rowCount: 2 }),
+    } as unknown as import('pg').Pool;
+
+    const ids = await deactivatePreviousRallies(db, buildIo(log), 'g-1');
+
+    expect(ids).toEqual(['r-1', 'r-2']);
+    expect(log).toEqual([
+      { room: 'group:g-1', event: 'rally:cancelled', data: { rallyId: 'r-1', groupId: 'g-1' } },
+      { room: 'group:g-1', event: 'rally:cancelled', data: { rallyId: 'r-2', groupId: 'g-1' } },
+    ]);
+  });
+
+  test('no active rallies: no emissions, empty result', async () => {
+    const log: Array<{ room: string; event: string; data: unknown }> = [];
+    const db = {
+      query: async () => ({ rows: [], rowCount: 0 }),
+    } as unknown as import('pg').Pool;
+
+    const ids = await deactivatePreviousRallies(db, buildIo(log), 'g-1');
+
+    expect(ids).toEqual([]);
+    expect(log).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Active SOS backfill (Req 25.4, 25.5) — late joiners / reconnects fetch the
+// group's live SOS pins from Redis; expired or malformed entries are skipped
+// and each pin carries the sender's name.
+// ---------------------------------------------------------------------------
+describe('getActiveGroupSos (Req 25.4, 25.5)', () => {
+  function buildDb(memberIds: string[], names: Array<{ id: string; display_name: string; ptt_callsign: string | null }>) {
+    return {
+      query: async (sql: string) => {
+        if (sql.includes('convoy_members')) {
+          return { rows: memberIds.map((user_id) => ({ user_id })), rowCount: memberIds.length };
+        }
+        return { rows: names, rowCount: names.length };
+      },
+    } as unknown as import('pg').Pool;
+  }
+
+  function buildRedis(entries: Record<string, string | null>) {
+    return {
+      mget: async (...keys: string[]) => keys.map((k) => entries[k] ?? null),
+    } as unknown as import('ioredis').default;
+  }
+
+  test('returns each members active pin with senderName resolved (callsign wins over display name)', async () => {
+    const db = buildDb(
+      ['u-1', 'u-2'],
+      [
+        { id: 'u-1', display_name: 'Alice', ptt_callsign: 'Red Leader' },
+        { id: 'u-2', display_name: 'Bob', ptt_callsign: null },
+      ],
+    );
+    const redis = buildRedis({
+      'sos:user:g-1:u-1': 's-1',
+      'sos:user:g-1:u-2': 's-2',
+      'sos:s-1': JSON.stringify({ userId: 'u-1', lat: 1, lng: 2, type: 'breakdown', createdAt: '2026-07-14T00:00:00Z' }),
+      'sos:s-2': JSON.stringify({ userId: 'u-2', lat: 3, lng: 4, createdAt: '2026-07-14T00:01:00Z' }),
+    });
+
+    const pins = await getActiveGroupSos(db, redis, 'g-1');
+
+    expect(pins).toHaveLength(2);
+    expect(pins[0]).toMatchObject({ id: 's-1', userId: 'u-1', groupId: 'g-1', lat: 1, lng: 2, type: 'breakdown', senderName: 'Red Leader' });
+    // type defaults to 'general' when the stored pin predates the field
+    expect(pins[1]).toMatchObject({ id: 's-2', userId: 'u-2', type: 'general', senderName: 'Bob' });
+  });
+
+  test('pins expired between the index and body lookups are skipped, as are malformed entries', async () => {
+    const db = buildDb(['u-1', 'u-2', 'u-3'], [{ id: 'u-3', display_name: 'Cara', ptt_callsign: null }]);
+    const redis = buildRedis({
+      'sos:user:g-1:u-1': 's-expired',
+      'sos:user:g-1:u-2': 's-bad',
+      'sos:user:g-1:u-3': 's-ok',
+      // 'sos:s-expired' absent — TTL fired between the two mgets
+      'sos:s-bad': 'not json',
+      'sos:s-ok': JSON.stringify({ userId: 'u-3', lat: 9, lng: 9, createdAt: '2026-07-14T00:00:00Z' }),
+    });
+
+    const pins = await getActiveGroupSos(db, redis, 'g-1');
+
+    expect(pins).toHaveLength(1);
+    expect(pins[0].id).toBe('s-ok');
+  });
+
+  test('group with no members or no active pins returns []', async () => {
+    expect(await getActiveGroupSos(buildDb([], []), buildRedis({}), 'g-1')).toEqual([]);
+    expect(await getActiveGroupSos(buildDb(['u-1'], []), buildRedis({}), 'g-1')).toEqual([]);
   });
 });

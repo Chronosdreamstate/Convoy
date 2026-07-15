@@ -19,6 +19,7 @@ import {
   getPresence,
   getUserDmGroupIds,
   handleLocationUpdate,
+  handleSosAcknowledge,
   haversineMeters,
   IoBroadcaster,
   LocationPayload,
@@ -782,5 +783,109 @@ describe('Property 98: haversineMeters(A, B) <= 20_037_508 for any coordinate pa
       ),
       { numRuns: 500 },
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// SOS acknowledgment routing (Req 25.5, 25.7)
+//   The relay targets the SOS pin's own group (or its owner's personal room
+//   for a standalone SOS) — NOT the acknowledger's convoy. Expired pins fall
+//   back to the acknowledger's group room; with no group either, nothing is
+//   emitted (never the bogus room `group:`).
+// ---------------------------------------------------------------------------
+describe('SOS acknowledgment routing', () => {
+  function buildSosRedis(pins: Record<string, string>): Redis {
+    return { get: async (key: string) => pins[key] ?? null } as unknown as Redis;
+  }
+
+  function buildStatDb(): Pool {
+    return { query: async () => ({ rows: [], rowCount: 1 }) } as unknown as Pool;
+  }
+
+  it('group SOS: ack is broadcast to the PINs group room, not the acknowledgers', async () => {
+    const log: Emission[] = [];
+    await handleSosAcknowledge({
+      sosId: 'sos-1',
+      memberName: 'Alice',
+      ackUserId: 'acker-1',
+      groupId: 'acker-group',
+      redis: buildSosRedis({
+        'sos:sos-1': JSON.stringify({ userId: 'owner-1', groupId: 'pin-group' }),
+      }),
+      db: buildStatDb(),
+      io: buildMockIO(log),
+    });
+
+    expect(log).toEqual([
+      {
+        room: 'group:pin-group',
+        event: 'sos:acknowledged',
+        data: { sosId: 'sos-1', memberName: 'Alice', acknowledgedBy: 'acker-1' },
+      },
+    ]);
+  });
+
+  it('standalone SOS: ack reaches the owners personal room even when the acknowledger has no group', async () => {
+    const log: Emission[] = [];
+    await handleSosAcknowledge({
+      sosId: 'sos-2',
+      ackUserId: 'friend-1',
+      groupId: '',
+      redis: buildSosRedis({
+        'sos:sos-2': JSON.stringify({ userId: 'owner-2', groupId: null }),
+      }),
+      db: buildStatDb(),
+      io: buildMockIO(log),
+    });
+
+    expect(log).toHaveLength(1);
+    expect(log[0].room).toBe('user:owner-2');
+    expect(log[0].event).toBe('sos:acknowledged');
+  });
+
+  it('expired pin: falls back to the acknowledgers group room', async () => {
+    const log: Emission[] = [];
+    await handleSosAcknowledge({
+      sosId: 'gone',
+      ackUserId: 'acker-1',
+      groupId: 'acker-group',
+      redis: buildSosRedis({}),
+      db: buildStatDb(),
+      io: buildMockIO(log),
+    });
+
+    expect(log).toHaveLength(1);
+    expect(log[0].room).toBe('group:acker-group');
+  });
+
+  it('expired pin + groupless acknowledger: emits nothing (never the bogus room `group:`)', async () => {
+    const log: Emission[] = [];
+    await handleSosAcknowledge({
+      sosId: 'gone',
+      ackUserId: 'acker-1',
+      groupId: '',
+      redis: buildSosRedis({}),
+      db: buildStatDb(),
+      io: buildMockIO(log),
+    });
+
+    expect(log).toHaveLength(0);
+  });
+
+  it('credits the sos_hero stat counter for the acknowledging member', async () => {
+    const calls: Array<{ sql: string; params: unknown[] }> = [];
+    const db = {
+      query: async (sql: string, params: unknown[]) => { calls.push({ sql, params }); return { rows: [], rowCount: 1 }; },
+    } as unknown as Pool;
+    await handleSosAcknowledge({
+      sosId: 'sos-1',
+      ackUserId: 'acker-1',
+      groupId: 'g',
+      redis: buildSosRedis({ 'sos:sos-1': JSON.stringify({ userId: 'o', groupId: 'g' }) }),
+      db,
+      io: buildMockIO([]),
+    });
+
+    expect(calls.some((c) => c.sql.includes('user_stat_counters') && c.params.includes('sos_hero') && c.params.includes('acker-1'))).toBe(true);
   });
 });
