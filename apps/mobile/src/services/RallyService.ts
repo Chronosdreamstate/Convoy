@@ -48,6 +48,10 @@ export interface SosPin {
   lng: number;
   type: SosType;
   createdAt: string;
+  /** Transmitting member's callsign/display name (Req 25.5) — set by the server
+   *  so recipients without a member list for the sender (friends receiving a
+   *  standalone SOS, late joiners) can still show who needs help. */
+  senderName?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -125,6 +129,20 @@ class RallyService {
       `/api/v1/groups/${groupId}/rally/active`,
     );
     return res.data.rallyPoint;
+  }
+
+  /**
+   * Fetches the group's currently-active SOS pins, or [] if none.
+   * Used to backfill state on mount/reconnect for Members who missed the
+   * live `sos:alert` socket broadcast (late join, background/kill, reconnect)
+   * — Req 25.4 requires the pin on ALL group Members' maps, not just those
+   * whose socket happened to be connected at broadcast time.
+   */
+  async getActiveGroupSos(groupId: string): Promise<SosPin[]> {
+    const res = await apiClient.get<{ sosPins: SosPin[] }>(
+      `/api/v1/groups/${groupId}/sos/active`,
+    );
+    return res.data.sosPins;
   }
 
   /** Broadcast an SOS pin to the active group (Req 25.1–25.3). */

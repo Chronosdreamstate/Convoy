@@ -51,13 +51,18 @@ export interface PttSessionInfo {
 const DUCK_VOLUME = 120; // 30% of 400 max
 const FULL_VOLUME = 400;
 
+/** Retry cadence for a failed channel join (e.g. token fetch while offline). */
+export const REJOIN_DELAY_MS = 10_000;
+
 export class PTTService {
   private session: PttSessionInfo | null = null;
   private currentLogId: string | null = null;
   private holdTimer: ReturnType<typeof setTimeout> | null = null;
+  private rejoinTimer: ReturnType<typeof setTimeout> | null = null;
   private selfMuted = false;
   private adminMuted = false;
   private isTransmitting = false;
+  private channelJoined = false;
   private listenersRegistered = false;
   private expiryListenerRegistered = false;
   private userVolume = FULL_VOLUME; // reflects user's pttVolumePercent setting (0–400)
@@ -78,16 +83,33 @@ export class PTTService {
     private readonly clearTimeout_: typeof clearTimeout = clearTimeout,
   ) {}
 
-  /** Join a group's PTT channel. Fetches token from API. */
+  /**
+   * Join a group's PTT channel. Fetches token from API.
+   *
+   * Never rejects: a failed token fetch / engine join (e.g. the app came up
+   * offline) marks the session unjoined, schedules a retry, and leaves
+   * `voiceAvailable` false so the UI shows "Voice unavailable" (Req 43.3) —
+   * previously the rejection was unhandled and PTT stayed silently dead for
+   * the entire session even after connectivity returned.
+   */
   async joinChannel(session: PttSessionInfo): Promise<void> {
     this.session = session;
+    this.channelJoined = false;
     const { groupId, channelId } = session;
 
     if (!this.engine.isConnected()) return; // degraded mode (Req 43.3)
 
-    const { token, uid, channelName } = await this.tokenFetcher.fetchToken(groupId, channelId);
-
-    await this.engine.joinChannel(token, channelName, uid);
+    try {
+      const { token, uid, channelName } = await this.tokenFetcher.fetchToken(groupId, channelId);
+      // Session may have changed while the fetch was in flight (leave/rejoin race)
+      if (this.session !== session) return;
+      await this.engine.joinChannel(token, channelName, uid);
+      this.channelJoined = true;
+    } catch (err) {
+      console.warn('[PTTService] PTT channel join failed — retrying:', err);
+      this.scheduleRejoin();
+      return;
+    }
     this.engine.adjustPlaybackSignalVolume(this.userVolume);
 
     // Auto-refresh before expiry (Req 38.2) — register only once to prevent accumulation.
@@ -123,11 +145,26 @@ export class PTTService {
     }
   }
 
+  /** Re-attempts joinChannel after a failed join, once per REJOIN_DELAY_MS. */
+  private scheduleRejoin(): void {
+    if (this.rejoinTimer !== null) return;
+    this.rejoinTimer = this.setTimeout_(() => {
+      this.rejoinTimer = null;
+      const current = this.session;
+      if (!current || this.channelJoined) return;
+      void this.joinChannel(current);
+    }, REJOIN_DELAY_MS);
+  }
+
   /** Called on PTT button hold-start. */
   holdStart(): void {
     if (!this.session) return;
     if (this.selfMuted || this.adminMuted) return; // Req 10.10, 10.11
     if (!this.engine.isConnected()) return; // Req 43.3
+    // Not actually in the Agora channel (join failed / still retrying) — a
+    // transmit here would signal ptt:start to the group while nobody can hear
+    // any audio (Req 43.3: disable rather than silently fail).
+    if (!this.channelJoined) return;
     if (this.isTransmitting) return;
 
     this.isTransmitting = true;
@@ -207,6 +244,11 @@ export class PTTService {
   async leaveChannel(): Promise<void> {
     if (this.isTransmitting) this.holdEnd();
     this.session = null;
+    this.channelJoined = false;
+    if (this.rejoinTimer !== null) {
+      this.clearTimeout_(this.rejoinTimer);
+      this.rejoinTimer = null;
+    }
     this.expiryListenerRegistered = false; // reset so next joinChannel re-registers for the new session
     await this.engine.leaveChannel();
     if (this.listenersRegistered) {
@@ -217,6 +259,11 @@ export class PTTService {
   }
 
   get voiceAvailable(): boolean {
-    return this.engine.isConnected();
+    // With an active session, "available" means actually joined to the Agora
+    // channel — a failed join (offline token fetch) must surface the "Voice
+    // unavailable" indicator instead of a PTT button that silently does
+    // nothing (Req 43.3). Without a session, engine readiness is the signal.
+    if (!this.engine.isConnected()) return false;
+    return this.session === null || this.channelJoined;
   }
 }

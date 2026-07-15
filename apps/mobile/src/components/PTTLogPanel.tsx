@@ -38,6 +38,8 @@ export interface PttLogEntry {
   displayName: string;
   callsign: string | null;
   channelId: string | null;
+  /** Human-readable channel name (e.g. "All") — falls back to channelId display when absent. */
+  channelName?: string | null;
   startedAt: string; // ISO-8601
   endedAt?: string;  // set when ptt:ended fires
   vehicleType?: string;
@@ -79,6 +81,12 @@ function formatDuration(startIso: string, endIso?: string): string {
 
 function formatFullTimestamp(iso: string): string {
   return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
+/** Channel label for a log row — prefer the server-sent channel name over the raw UUID. */
+function formatChannelLabel(entry: Pick<PttLogEntry, 'channelId' | 'channelName'>): string {
+  if (entry.channelName) return `#${entry.channelName}`;
+  return entry.channelId ? `#${entry.channelId.slice(0, 8)}` : 'all channels';
 }
 
 function getVehicleEmoji(vehicleType?: string): string {
@@ -196,7 +204,7 @@ function LogRow({
               {isActive && <Text style={styles.liveLabel}> LIVE</Text>}
             </View>
             <Text style={styles.channelLabel} numberOfLines={1}>
-              {entry.channelId ? `#${entry.channelId}` : 'all channels'}{duration ? ` · ${duration}` : ''}
+              {formatChannelLabel(entry)}{duration ? ` · ${duration}` : ''}
             </Text>
           </View>
 
@@ -247,7 +255,11 @@ function PTTLogPanel({ socket, initialEntries = [], groupId, isInMotion = false 
   const [entries, setEntries] = useState<PttLogEntry[]>(
     initialEntries.slice(-MAX_ENTRIES),
   );
-  const [activeUserId, setActiveUserId] = useState<string | null>(null);
+  // Active transmissions keyed by logId (not a single userId) — concurrent
+  // talkers are legal (Agora doesn't arbitrate), and keying on one userId made
+  // the first talker's ptt:ended clear the LIVE indicator for everyone still
+  // transmitting (Req 10.4).
+  const [activeLogIds, setActiveLogIds] = useState<ReadonlySet<string>>(new Set());
   const [tick, setTick] = useState(0);
   const [collapsed, setCollapsed] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -273,6 +285,7 @@ function PTTLogPanel({ socket, initialEntries = [], groupId, isInMotion = false 
           id: string;
           userId: string;
           channelId: string | null;
+          channelName?: string | null;
           startedAt: string;
           endedAt: string | null;
           displayName: string;
@@ -285,6 +298,7 @@ function PTTLogPanel({ socket, initialEntries = [], groupId, isInMotion = false 
         displayName: r.displayName,
         callsign: r.callsign,
         channelId: r.channelId,
+        channelName: r.channelName ?? null,
         startedAt: r.startedAt,
         endedAt: r.endedAt ?? undefined,
       }));
@@ -299,6 +313,16 @@ function PTTLogPanel({ socket, initialEntries = [], groupId, isInMotion = false 
 
   useEffect(() => { void fetchBacklog(); }, [fetchBacklog]);
 
+  // Re-backfill on every socket (re)connect — transmissions that happened
+  // while this device was disconnected produced no live events here, so
+  // without this they were permanently missing from the log (Req 27.1/27.2;
+  // the mount-time fetch above only covers the cold open).
+  useEffect(() => {
+    const onConnect = () => { void fetchBacklog(); };
+    socket.on('connect', onConnect);
+    return () => { socket.off('connect', onConnect); };
+  }, [socket, fetchBacklog]);
+
   // Tick every second for relative timestamps
   useEffect(() => {
     const id = setInterval(() => setTick((t) => t + 1), 1000);
@@ -306,18 +330,19 @@ function PTTLogPanel({ socket, initialEntries = [], groupId, isInMotion = false 
   }, []);
 
   const handlePttTransmit = useCallback(
-    (data: { logId: string; userId: string; channelId: string; callsign?: string; vehicleType?: string }) => {
+    (data: { logId: string; userId: string; channelId: string; callsign?: string; vehicleType?: string; channelName?: string }) => {
       const entry: PttLogEntry = {
         id: data.logId,
         userId: data.userId,
         displayName: data.userId,
         callsign: data.callsign ?? null,
         channelId: data.channelId,
+        channelName: data.channelName ?? null,
         startedAt: new Date().toISOString(),
         vehicleType: data.vehicleType,
       };
       setEntries((prev) => [...prev, entry].slice(-MAX_ENTRIES));
-      setActiveUserId(data.userId);
+      setActiveLogIds((prev) => new Set(prev).add(data.logId));
       setUnread((u) => (collapsed ? u + 1 : 0));
     },
     [collapsed],
@@ -325,7 +350,15 @@ function PTTLogPanel({ socket, initialEntries = [], groupId, isInMotion = false 
 
   const handlePttEnded = useCallback(
     (data?: { logId?: string; userId?: string; durationMs?: number }) => {
-      setActiveUserId(null);
+      setActiveLogIds((prev) => {
+        // No logId (malformed/legacy event) — we can't tell which transmission
+        // ended, so clear them all rather than leave a LIVE row stuck forever.
+        if (!data?.logId) return new Set<string>();
+        if (!prev.has(data.logId)) return prev;
+        const next = new Set(prev);
+        next.delete(data.logId);
+        return next;
+      });
       if (data?.logId) {
         const endedAt = new Date().toISOString();
         setEntries((prev) =>
@@ -345,7 +378,7 @@ function PTTLogPanel({ socket, initialEntries = [], groupId, isInMotion = false 
 
   const handleGroupEnded = useCallback(() => {
     setEntries([]);
-    setActiveUserId(null);
+    setActiveLogIds(new Set());
     setUnread(0);
     pttAnalytics.reset();
     setLeaderboard([]);
@@ -478,7 +511,7 @@ function PTTLogPanel({ socket, initialEntries = [], groupId, isInMotion = false 
                   <LogRow
                     key={entry.id}
                     entry={entry}
-                    isActive={entry.userId === activeUserId}
+                    isActive={activeLogIds.has(entry.id)}
                     tick={tick}
                     isExpanded={expandedId === entry.id}
                     onPress={() => handleRowPress(entry.id)}

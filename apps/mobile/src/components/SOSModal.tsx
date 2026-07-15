@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
 import {
+  Alert,
   Modal,
   View,
   Text,
@@ -21,15 +22,37 @@ export default function SOSModal({ visible, onClose, groupId }: SOSModalProps) {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
-  function emitAlert(type: 'sos' | 'breakdown', message: string) {
+  /** Returns true when the alert actually went out. */
+  function emitAlert(type: 'sos' | 'breakdown', message: string): boolean {
     if (socket?.connected) {
       socket.emit('convoy:alert', { type, message, groupId });
+      return true;
     }
+    return false;
+  }
+
+  /**
+   * An emergency action must never fail silently (Req 43): when the socket is
+   * down, keep the sheet open and tell the user their convoy was NOT alerted —
+   * with the one channel that doesn't depend on this app's connectivity.
+   */
+  function sendOrWarn(type: 'sos' | 'breakdown', message: string) {
+    if (emitAlert(type, message)) {
+      onClose();
+      return;
+    }
+    Alert.alert(
+      'Convoy Not Alerted',
+      "You're offline, so your convoy did not receive this alert. If this is a real emergency, call 911 directly.",
+      [
+        { text: 'Call 911', onPress: () => { void Linking.openURL('tel:911'); } },
+        { text: 'OK', style: 'cancel' },
+      ],
+    );
   }
 
   function handleBreakdown() {
-    emitAlert('breakdown', 'Breakdown — convoy member needs to stop');
-    onClose();
+    sendOrWarn('breakdown', 'Breakdown — convoy member needs to stop');
   }
 
   function handleMedical() {
@@ -38,8 +61,7 @@ export default function SOSModal({ visible, onClose, groupId }: SOSModalProps) {
   }
 
   function handleConvoyHalt() {
-    emitAlert('sos', 'SOS — convoy halt requested');
-    onClose();
+    sendOrWarn('sos', 'SOS — convoy halt requested');
   }
 
   return (

@@ -433,14 +433,15 @@ export default async function pttRoutes(fastify: FastifyInstance): Promise<void>
     }
 
     const result = await pool.query<{
-      id: string; user_id: string; channel_id: string | null;
+      id: string; user_id: string; channel_id: string | null; channel_name: string | null;
       started_at: Date; ended_at: Date | null;
       display_name: string; ptt_callsign: string | null;
     }>(
-      `SELECT l.id, l.user_id, l.channel_id, l.started_at, l.ended_at,
+      `SELECT l.id, l.user_id, l.channel_id, c.name AS channel_name, l.started_at, l.ended_at,
               u.display_name, u.ptt_callsign
        FROM ptt_log l
        JOIN users u ON u.id = l.user_id
+       LEFT JOIN ptt_channels c ON c.id = l.channel_id
        WHERE l.group_id = $1
        ORDER BY l.started_at ASC`,
       [id],
@@ -448,12 +449,15 @@ export default async function pttRoutes(fastify: FastifyInstance): Promise<void>
 
     // Wrapped object for consistency with every other list endpoint.
     // PTTLogPanel fetches this on mount to backfill transmissions that
-    // happened before the panel was opened (Req 27.2).
+    // happened before the panel was opened (Req 27.2). channelName mirrors the
+    // live ptt:transmit payload so backfilled entries label the channel by its
+    // human-readable name, not the raw channel UUID.
     return {
       log: result.rows.map((r) => ({
         id: r.id,
         userId: r.user_id,
         channelId: r.channel_id,
+        channelName: r.channel_name,
         startedAt: r.started_at.toISOString(),
         endedAt: r.ended_at ? r.ended_at.toISOString() : null,
         displayName: r.display_name,

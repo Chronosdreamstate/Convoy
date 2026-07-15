@@ -95,6 +95,7 @@ describe('Property 108: Every holdStart is matched by exactly one holdEnd — no
         async (actions) => {
           const { svc, muteHistory } = makeSvc();
           svc['session'] = session;
+          svc['channelJoined'] = true; // mirror the state a successful joinChannel leaves
 
           for (const isStart of actions) {
             if (isStart) svc.holdStart();
@@ -119,6 +120,7 @@ describe('Property 108: Every holdStart is matched by exactly one holdEnd — no
         (startCount) => {
           const { svc, muteHistory } = makeSvc();
           svc['session'] = session;
+          svc['channelJoined'] = true; // mirror the state a successful joinChannel leaves
 
           for (let i = 0; i < startCount; i++) svc.holdStart();
           svc.holdEnd();
@@ -138,6 +140,7 @@ describe('Property 108: Every holdStart is matched by exactly one holdEnd — no
         (endCount) => {
           const { svc, muteHistory } = makeSvc();
           svc['session'] = session;
+          svc['channelJoined'] = true; // mirror the state a successful joinChannel leaves
 
           svc.holdStart();
           for (let i = 0; i < endCount; i++) svc.holdEnd();
@@ -157,6 +160,7 @@ describe('Property 108: Every holdStart is matched by exactly one holdEnd — no
         (pairs) => {
           const { svc, muteHistory } = makeSvc();
           svc['session'] = session;
+          svc['channelJoined'] = true; // mirror the state a successful joinChannel leaves
 
           for (let i = 0; i < pairs; i++) {
             svc.holdStart();
@@ -188,6 +192,7 @@ describe('Property 109: Mute guards unconditionally block holdStart', () => {
         ([selfMuted, adminMuted]) => {
           const { svc, muteHistory, socket } = makeSvc();
           svc['session'] = session;
+          svc['channelJoined'] = true; // mirror the state a successful joinChannel leaves
           if (selfMuted) svc.setSelfMuted(true);
           if (adminMuted) svc.setAdminMuted(true);
 
@@ -209,6 +214,7 @@ describe('Property 109: Mute guards unconditionally block holdStart', () => {
         (_seed) => {
           const { svc, muteHistory } = makeSvc();
           svc['session'] = session;
+          svc['channelJoined'] = true; // mirror the state a successful joinChannel leaves
 
           svc.holdStart();
           expect(muteHistory.filter((m) => !m)).toHaveLength(1);
@@ -230,6 +236,7 @@ describe('Property 109: Mute guards unconditionally block holdStart', () => {
         (_seed) => {
           const { svc, muteHistory } = makeSvc();
           svc['session'] = session;
+          svc['channelJoined'] = true; // mirror the state a successful joinChannel leaves
 
           svc.holdStart();
           svc.setAdminMuted(true);
@@ -245,6 +252,7 @@ describe('Property 109: Mute guards unconditionally block holdStart', () => {
   it('holdStart after mute removal resumes transmitting normally', () => {
     const { svc, muteHistory } = makeSvc();
     svc['session'] = session;
+    svc['channelJoined'] = true; // mirror the state a successful joinChannel leaves
 
     svc.setSelfMuted(true);
     svc.holdStart(); // blocked
@@ -271,6 +279,7 @@ describe('Property 110: leaveChannel always terminates active transmission', () 
           const { setTimeout_, clearTimeout_ } = noopTimers();
           const svc = new PTTService(engine, buildTokenFetcher(), socket, haptic, setTimeout_, clearTimeout_);
           svc['session'] = { groupId: 'g1', channelId: 'ch1', maxSeconds };
+          svc['channelJoined'] = true; // mirror the state a successful joinChannel leaves
 
           svc.holdStart();
           expect(muteHistory.filter((m) => !m)).toHaveLength(1);
@@ -293,6 +302,7 @@ describe('Property 110: leaveChannel always terminates active transmission', () 
         async (wasHolding) => {
           const { svc } = makeSvc();
           svc['session'] = session;
+          svc['channelJoined'] = true; // mirror the state a successful joinChannel leaves
           if (wasHolding) svc.holdStart();
 
           await svc.leaveChannel();
@@ -307,6 +317,7 @@ describe('Property 110: leaveChannel always terminates active transmission', () 
   it('leaveChannel while not transmitting does not call muteLocalAudioStream', async () => {
     const { svc, muteHistory } = makeSvc();
     svc['session'] = session;
+    svc['channelJoined'] = true; // mirror the state a successful joinChannel leaves
 
     await svc.leaveChannel();
 
@@ -316,6 +327,7 @@ describe('Property 110: leaveChannel always terminates active transmission', () 
   it('session is null after leaveChannel — subsequent holdStart is a no-op', async () => {
     const { svc, muteHistory } = makeSvc();
     svc['session'] = session;
+    svc['channelJoined'] = true; // mirror the state a successful joinChannel leaves
     svc.holdStart();
 
     await svc.leaveChannel();
@@ -467,6 +479,7 @@ describe('Property 112: setUserVolume scales volumePercent to Agora range [0–4
         (volumePercent) => {
           const { svc, volumeHistory } = makeSvc();
           svc['session'] = session;
+          svc['channelJoined'] = true; // mirror the state a successful joinChannel leaves
 
           svc.holdStart();
           const countBefore = volumeHistory.length;
@@ -487,6 +500,7 @@ describe('Property 112: setUserVolume scales volumePercent to Agora range [0–4
         (volumePercent) => {
           const { svc, volumeHistory } = makeSvc();
           svc['session'] = session;
+          svc['channelJoined'] = true; // mirror the state a successful joinChannel leaves
 
           svc.setUserVolume(volumePercent);
           svc.holdStart();

@@ -91,7 +91,7 @@ describe('PTTService.setUserVolume', () => {
     jest.useFakeTimers();
     const engine = buildEngine();
     const svc = new PTTService(engine, buildTokenFetcher(), buildSocket(), haptic);
-    svc['session'] = session; // inject session directly
+    svc['session'] = session; svc['channelJoined'] = true; // inject joined session directly
     svc.holdStart();
     engine.volumeCalls.length = 0; // clear prior calls
     svc.setUserVolume(50);
@@ -137,6 +137,7 @@ describe('PTTService volume restore after ducking', () => {
     const svc = new PTTService(engine, buildTokenFetcher(), buildSocket(), haptic);
     svc.setUserVolume(75); // 300
     svc['session'] = session;
+    svc['channelJoined'] = true; // mirror the state a successful joinChannel leaves
     svc.holdStart();
     engine.volumeCalls.length = 0;
     svc.holdEnd();
@@ -182,6 +183,7 @@ describe('PTTService mute state machine', () => {
     const engine = buildEngine();
     const svc = new PTTService(engine, buildTokenFetcher(), buildSocket(), haptic);
     svc['session'] = session;
+    svc['channelJoined'] = true; // mirror the state a successful joinChannel leaves
     svc.setSelfMuted(true);
     svc.holdStart();
     expect(engine.muteLocalAudioStream).not.toHaveBeenCalled();
@@ -193,6 +195,7 @@ describe('PTTService mute state machine', () => {
     const engine = buildEngine();
     const svc = new PTTService(engine, buildTokenFetcher(), buildSocket(), haptic);
     svc['session'] = session;
+    svc['channelJoined'] = true; // mirror the state a successful joinChannel leaves
     svc.setAdminMuted(true);
     svc.holdStart();
     expect(engine.muteLocalAudioStream).not.toHaveBeenCalled();
@@ -205,6 +208,7 @@ describe('PTTService mute state machine', () => {
     const socket = buildSocket();
     const svc = new PTTService(engine, buildTokenFetcher(), socket, haptic);
     svc['session'] = session;
+    svc['channelJoined'] = true; // mirror the state a successful joinChannel leaves
     svc.holdStart();
     expect((socket.emit as jest.Mock).mock.calls.some(([e]: [string]) => e === 'ptt:start')).toBe(true);
     svc.setSelfMuted(true);

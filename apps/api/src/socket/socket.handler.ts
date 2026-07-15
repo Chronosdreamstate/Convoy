@@ -260,12 +260,26 @@ export async function handlePttStart(params: {
   }
 
   // Fetch channel info and recipient list
-  const channelResult = await db.query<{ id: string; is_all: boolean }>(
-    'SELECT id, is_all FROM ptt_channels WHERE id = $1 AND group_id = $2',
+  const channelResult = await db.query<{ id: string; is_all: boolean; name: string | null }>(
+    'SELECT id, is_all, name FROM ptt_channels WHERE id = $1 AND group_id = $2',
     [channelId, groupId],
   );
   const channel = channelResult.rows[0];
   if (!channel) return { logId: null };
+
+  // Sub-channel transmissions require assignment to that channel (Req 26.4) —
+  // mirrors the /ptt/token gate. Without this, any group member could emit
+  // ptt:start with a sub-channel id they were never added to and spoof log
+  // entries / LIVE indicators into that channel (their audio is already
+  // blocked by the token check, making the phantom entry doubly misleading).
+  // The "All" channel is exempt: every active member can always reach it (Req 26.5).
+  if (!channel.is_all) {
+    const channelMember = await db.query(
+      'SELECT 1 FROM ptt_channel_members WHERE channel_id = $1 AND user_id = $2',
+      [channelId, userId],
+    );
+    if ((channelMember.rowCount ?? 0) === 0) return { logId: null };
+  }
 
   let recipientIds: string[];
   if (channel.is_all) {
@@ -306,8 +320,10 @@ export async function handlePttStart(params: {
   );
   const vehicleType = vehicleResult.rows[0]?.vehicle_type ?? undefined;
 
-  // Broadcast ptt:transmit to all recipients via their personal rooms (Properties 43 & 44)
-  const payload = { logId, userId, channelId, groupId, callsign, vehicleType };
+  // Broadcast ptt:transmit to all recipients via their personal rooms (Properties 43 & 44).
+  // channelName lets PTTLogPanel label entries with the human-readable channel
+  // name instead of the raw channel UUID (Req 27.2).
+  const payload = { logId, userId, channelId, groupId, callsign, vehicleType, channelName: channel.name ?? undefined };
   for (const recipientId of recipientIds) {
     io.to(`user:${recipientId}`).emit('ptt:transmit', payload);
   }
@@ -373,7 +389,13 @@ export async function handlePttEnd(params: {
       'SELECT is_all FROM ptt_channels WHERE id = $1',
       [log.channel_id],
     );
-    const isAll = channelResult.rows[0]?.is_all ?? false;
+    const channelRow = channelResult.rows[0];
+    // No row means the channel was deleted mid-transmission — fall back to the
+    // whole group so ptt:ended still reaches everyone who received
+    // ptt:transmit and media ducking is never left stuck on (Req 10.9).
+    // (Previously a deleted channel resolved to an empty ptt_channel_members
+    // list and the end event went to nobody.)
+    const isAll = channelRow?.is_all ?? true;
     if (isAll) {
       const r = await db.query<{ user_id: string }>(
         'SELECT user_id FROM convoy_members WHERE group_id = $1 AND left_at IS NULL',
@@ -395,6 +417,50 @@ export async function handlePttEnd(params: {
   for (const recipientId of recipientIds) {
     io.to(`user:${recipientId}`).emit('ptt:ended', payload);
   }
+}
+
+// ---------------------------------------------------------------------------
+// SOS acknowledgment — exported for property testing
+//
+// Routing is driven by the SOS pin itself (stored in Redis by rally.routes.ts
+// for the pin's 2h lifetime), NOT by the acknowledging socket's convoy:
+//   - group SOS      → broadcast to that group's room (owner included);
+//   - standalone SOS → emit to the owner's personal room. Previously the relay
+//     targeted `group:<ackers groupId>`, which for a groupless acknowledger was
+//     the bogus room `group:` — the friend who raised a standalone SOS never
+//     learned anyone had seen it (Req 25.5/25.7).
+// When the pin has already expired from Redis, fall back to the acknowledger's
+// own group room (the pre-fix behavior) so an in-convoy ack still relays.
+// ---------------------------------------------------------------------------
+export async function handleSosAcknowledge(params: {
+  sosId: string;
+  memberName?: string;
+  ackUserId: string;
+  /** The acknowledging socket's resolved groupId ('' when not in a convoy). */
+  groupId: string;
+  redis: Redis;
+  db: Pool;
+  io: IoBroadcaster;
+}): Promise<void> {
+  const { sosId, memberName, ackUserId, groupId, redis, db, io } = params;
+  const payload = { sosId, memberName, acknowledgedBy: ackUserId };
+
+  let sos: { userId?: string; groupId?: string | null } | null = null;
+  try {
+    const raw = await redis.get(`sos:${sosId}`);
+    if (raw) sos = JSON.parse(raw) as { userId?: string; groupId?: string | null };
+  } catch { /* fall through to the acknowledger's group room below */ }
+
+  if (sos?.groupId) {
+    io.to(`group:${sos.groupId}`).emit('sos:acknowledged', payload);
+  } else if (sos?.userId) {
+    io.to(`user:${sos.userId}`).emit('sos:acknowledged', payload);
+  } else if (groupId) {
+    io.to(`group:${groupId}`).emit('sos:acknowledged', payload);
+  }
+
+  // sos_hero achievement — credit the member who responded to the alert.
+  await incrementStatCounter(db, ackUserId, 'sos_hero', 1);
 }
 
 // ---------------------------------------------------------------------------
@@ -1127,10 +1193,15 @@ export function registerSocketHandlers(
       if (!sosId) return;
       void whenReady().then((ok) => {
         if (!ok) return;
-        socket.to(`group:${groupId}`).emit('sos:acknowledged', { sosId, memberName, acknowledgedBy: userId });
-        incrementStatCounter(fastify.db, userId, 'sos_hero', 1).catch((err: unknown) =>
-          fastify.log.error({ err }, 'sos_hero counter increment error'),
-        );
+        handleSosAcknowledge({
+          sosId,
+          memberName,
+          ackUserId: userId,
+          groupId,
+          redis: fastify.redis,
+          db: fastify.db,
+          io,
+        }).catch((err: unknown) => fastify.log.error({ err }, 'sos acknowledge error'));
       });
     });
 
