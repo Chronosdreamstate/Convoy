@@ -184,6 +184,14 @@ async function authRoutes(fastify: FastifyInstance, _opts: FastifyPluginOptions)
 
     const otp = await requestOtp(phone, fastify.redis);
 
+    // A fresh code voids every guess made against the old one, so clear the
+    // verification-attempt counter. Without this, the verify endpoint's 429
+    // ("request a new OTP") is a dead end — the new code would still be
+    // rejected for the rest of the 10-minute window. Brute-force exposure
+    // stays bounded: the request limit above caps an attacker at
+    // OTP_RATE_LIMIT × OTP_VERIFY_LIMIT guesses per window.
+    await fastify.redis.del(`rl:otpverify:${phone}`);
+
     // In production, OTP is sent via SMS provider — do not return it in the response.
     // We return it here for development/mock purposes.
     if (env.NODE_ENV !== 'production') {
