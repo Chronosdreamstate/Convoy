@@ -54,6 +54,14 @@ export function computeBackoffMs(
   return Math.max(0, Math.round(base + jitter));
 }
 
+/**
+ * Consecutive token-refresh failures tolerated before the connection is
+ * declared dead (onAuthFailed). A refresh usually fails because the device is
+ * in a dead zone — not because the refresh token was revoked — so a single
+ * failure must NOT bounce the driver to the login screen mid-convoy.
+ */
+export const MAX_AUTH_REFRESH_FAILURES = 3;
+
 // ---------------------------------------------------------------------------
 // WebSocketService
 // ---------------------------------------------------------------------------
@@ -81,6 +89,11 @@ export class WebSocketService {
   private lastLocationEmitTs = 0;
   private pendingLocationPayload: unknown = null;
   private locationThrottleTimer: ReturnType<typeof setTimeout> | null = null;
+
+  // Auth refresh state — see _onConnectError
+  private authRefreshInFlight = false;
+  private authRefreshFailures = 0;
+  private authRetryTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(config: WebSocketConfig) {
     this.config = {
@@ -112,6 +125,9 @@ export class WebSocketService {
     this.socket = io(this.config.url, opts);
 
     this.socket.on('connect', () => {
+      // A live connection proves auth is healthy — reset the dead-zone
+      // refresh-failure streak so a later flap starts from a clean slate.
+      this.authRefreshFailures = 0;
       this._startHeartbeat();
     });
 
@@ -119,33 +135,73 @@ export class WebSocketService {
       this._stopHeartbeat();
     });
 
-    this.socket.on('connect_error', async (err: Error) => {
-      const isAuthError =
-        err.message.includes('401') ||
-        err.message.toLowerCase().includes('unauthorized') ||
-        err.message.toLowerCase().includes('token');
-
-      if (!isAuthError || !this.config.onAuthError) return;
-
-      const s = this.socket;
-      if (!s) return;
-
-      // Prevent socket.io's built-in reconnection from racing with our token refresh.
-      s.io.opts.reconnection = false;
-
-      try {
-        const newToken = await this.config.onAuthError();
-        s.auth = { ...s.auth, token: newToken };
-        s.io.opts.reconnection = true;
-        s.connect();
-      } catch {
-        this.config.onAuthFailed?.();
-      }
+    this.socket.on('connect_error', (err: Error) => {
+      void this._onConnectError(err);
     });
 
     this._subscribeAppState();
 
     return this.socket;
+  }
+
+  /**
+   * connect_error handler — public only so tests can drive it directly.
+   *
+   * Auth errors trigger a token refresh and reconnect. A failed refresh is
+   * usually a dead zone (refresh HTTP call had no network), NOT a revoked
+   * refresh token — so instead of declaring auth dead on the first failure,
+   * reconnection is resumed with backoff and only MAX_AUTH_REFRESH_FAILURES
+   * consecutive failures escalate to onAuthFailed (which typically signs the
+   * user out). A genuinely revoked token still escalates quickly: each
+   * reconnect is rejected by the server with an auth error, the refresh fails
+   * again, and the streak reaches the cap within a few backoff cycles.
+   */
+  async _onConnectError(err: Error): Promise<void> {
+    const isAuthError =
+      err.message.includes('401') ||
+      err.message.toLowerCase().includes('unauthorized') ||
+      err.message.toLowerCase().includes('token');
+
+    if (!isAuthError || !this.config.onAuthError) return;
+
+    // connect_error fires on every failed attempt — never stack refreshes.
+    if (this.authRefreshInFlight) return;
+
+    const s = this.socket;
+    if (!s) return;
+
+    this.authRefreshInFlight = true;
+
+    // Pause socket.io's built-in reconnection so it can't race the refresh
+    // with the stale token. NOTE: Manager#reconnection(boolean) is the live
+    // switch — mutating `io.opts.reconnection` after construction is a no-op.
+    s.io.reconnection(false);
+
+    try {
+      const newToken = await this.config.onAuthError();
+      if (this.socket !== s) return; // socket replaced/disconnected mid-refresh
+      s.auth = { ...(s.auth as Record<string, string>), token: newToken };
+      this.authRefreshFailures = 0;
+      s.io.reconnection(true);
+      s.connect();
+    } catch {
+      if (this.socket !== s) return;
+      this.authRefreshFailures += 1;
+      if (this.authRefreshFailures >= MAX_AUTH_REFRESH_FAILURES) {
+        this.config.onAuthFailed?.();
+        return;
+      }
+      // Transient (likely offline) — resume reconnection and retry with the
+      // standard jittered backoff instead of forcing a sign-out mid-drive.
+      s.io.reconnection(true);
+      if (this.authRetryTimer) clearTimeout(this.authRetryTimer);
+      this.authRetryTimer = setTimeout(() => {
+        this.authRetryTimer = null;
+        if (this.socket === s && !s.connected) s.connect();
+      }, computeBackoffMs(this.authRefreshFailures, this.config.initialDelayMs, this.config.maxDelayMs));
+    } finally {
+      this.authRefreshInFlight = false;
+    }
   }
 
   /**
@@ -182,6 +238,11 @@ export class WebSocketService {
   disconnect(): void {
     this._stopHeartbeat();
     this._unsubscribeAppState();
+    if (this.authRetryTimer) {
+      clearTimeout(this.authRetryTimer);
+      this.authRetryTimer = null;
+    }
+    this.authRefreshFailures = 0;
     if (this.locationThrottleTimer) {
       clearTimeout(this.locationThrottleTimer);
       this.locationThrottleTimer = null;
