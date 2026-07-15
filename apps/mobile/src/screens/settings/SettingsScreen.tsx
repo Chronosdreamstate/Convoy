@@ -833,7 +833,7 @@ export default function SettingsScreen() {
           <SettingRow
             icon="car-outline"
             label="CarPlay / Android Auto"
-            subtitle="Connect to your vehicle to configure head unit settings"
+            subtitle="Supported — CORTEGE appears automatically when your phone is connected to your car"
           />
           <SettingRow
             icon="mic-circle-outline"

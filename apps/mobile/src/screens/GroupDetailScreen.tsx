@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -121,13 +121,18 @@ export default function GroupDetailScreen() {
   // null (endpoint failed / field absent) just hides the count.
   const [eventsTotal, setEventsTotal] = useState<number | null>(null);
 
+  const hasLoadedRef = useRef(false);
   const fetchGroup = useCallback(async () => {
     if (!id) return;
-    setLoading(true);
+    // Skeleton only on first load — pull-to-refresh (onRefresh) also calls this,
+    // and setting loading here blanked the loaded group back to the skeleton.
+    // Ref (not `group`) keeps fetchGroup's identity stable to avoid a refetch loop.
+    if (!hasLoadedRef.current) setLoading(true);
     setError(null);
     try {
       const res = await apiClient.get<GroupDetail>(`/api/v1/groups/${id}`);
       setGroup(res.data);
+      hasLoadedRef.current = true;
     } catch {
       setError('Could not load group. Tap to retry.');
     } finally {

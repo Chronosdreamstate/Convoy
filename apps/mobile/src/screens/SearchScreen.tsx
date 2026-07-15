@@ -189,7 +189,12 @@ export default function SearchScreen() {
 
   const renderGroup = useCallback(({ item }: { item: Group }) => (
     <View style={styles.card}>
-      <View style={styles.cardLeft}>
+      <TouchableOpacity
+        style={styles.cardLeft}
+        onPress={() => router.push(`/group/${item.id}` as never)}
+        accessibilityRole="button"
+        accessibilityLabel={`View ${item.name} details`}
+      >
         <Text style={styles.cardName} numberOfLines={1}>{item.name}</Text>
         <View style={styles.pillRow}>
           <View style={styles.pill}>
@@ -207,7 +212,7 @@ export default function SearchScreen() {
             </View>
           )}
         </View>
-      </View>
+      </TouchableOpacity>
       {requestedIds.has(item.id) ? (
         <View style={[styles.actionBtn, styles.actionBtnMuted]}>
           <Text style={[styles.actionBtnText, styles.actionBtnTextMuted]}>Requested</Text>
@@ -228,7 +233,7 @@ export default function SearchScreen() {
         </TouchableOpacity>
       )}
     </View>
-  ), [handleJoinGroup, submittingIds, requestedIds, colors, styles]);
+  ), [handleJoinGroup, submittingIds, requestedIds, colors, styles, router]);
 
   const renderPerson = useCallback(({ item }: { item: UserResult }) => {
     const status = friendActions[item.id] ?? item.friendStatus ?? 'none';
@@ -240,10 +245,15 @@ export default function SearchScreen() {
           <Text style={styles.avatarText}>{initial}</Text>
           {item.isOnline && <View style={styles.onlineDot} />}
         </View>
-        <View style={styles.cardLeft}>
+        <TouchableOpacity
+          style={styles.cardLeft}
+          onPress={() => router.push(`/profile/${item.id}` as never)}
+          accessibilityRole="button"
+          accessibilityLabel={`View ${item.displayName}'s profile`}
+        >
           <Text style={styles.cardName}>{item.displayName}</Text>
           {item.pttCallsign ? <Text style={styles.muted}>{item.pttCallsign}</Text> : null}
-        </View>
+        </TouchableOpacity>
         {status === 'none' && (
           <TouchableOpacity
             style={styles.actionBtn}
@@ -271,7 +281,7 @@ export default function SearchScreen() {
         )}
       </View>
     );
-  }, [friendActions, handleAddFriend, submittingIds, colors, styles]);
+  }, [friendActions, handleAddFriend, submittingIds, colors, styles, router]);
 
   // Req 33 — cap the visible results to 4 rows while the vehicle is in motion
   // (see MotionAwareList). Groups and people live on separate tabs and never

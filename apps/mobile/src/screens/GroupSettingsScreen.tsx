@@ -151,6 +151,7 @@ export default function GroupSettingsScreen() {
   const [settings, setSettings] = useState<GroupSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [dangerActionInFlight, setDangerActionInFlight] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Editable draft state
@@ -302,11 +303,14 @@ export default function GroupSettingsScreen() {
           text: 'End Group',
           style: 'destructive',
           onPress: async () => {
+            if (dangerActionInFlight) return;
+            setDangerActionInFlight(true);
             try {
               await apiClient.post(`/api/v1/groups/${groupId}/end`);
               router.replace('/(tabs)/convoy');
             } catch {
               Alert.alert('Error', 'Failed to end group.');
+              setDangerActionInFlight(false);
             }
           },
         },
@@ -329,11 +333,14 @@ export default function GroupSettingsScreen() {
           text: 'Leave',
           style: 'destructive',
           onPress: async () => {
+            if (dangerActionInFlight) return;
+            setDangerActionInFlight(true);
             try {
               await apiClient.post(`/api/v1/groups/${groupId}/leave`);
               router.replace('/(tabs)/convoy');
             } catch {
               Alert.alert('Error', 'Failed to leave group.');
+              setDangerActionInFlight(false);
             }
           },
         },
@@ -679,19 +686,23 @@ export default function GroupSettingsScreen() {
         <View style={styles.card}>
           {isAdmin && (
             <TouchableOpacity
-              style={styles.dangerBtn}
+              style={[styles.dangerBtn, dangerActionInFlight && { opacity: 0.5 }]}
               onPress={handleEndGroup}
+              disabled={dangerActionInFlight}
               accessibilityRole="button"
               accessibilityLabel="End group"
+              accessibilityState={{ disabled: dangerActionInFlight, busy: dangerActionInFlight }}
             >
               <Text style={styles.dangerBtnText}>End Group</Text>
             </TouchableOpacity>
           )}
           <TouchableOpacity
-            style={[styles.mutedBtn, isAdmin && { marginTop: 10 }]}
+            style={[styles.mutedBtn, isAdmin && { marginTop: 10 }, dangerActionInFlight && { opacity: 0.5 }]}
             onPress={handleLeaveGroup}
+            disabled={dangerActionInFlight}
             accessibilityRole="button"
             accessibilityLabel="Leave group"
+            accessibilityState={{ disabled: dangerActionInFlight, busy: dangerActionInFlight }}
           >
             <Text style={styles.mutedBtnText}>Leave Group</Text>
           </TouchableOpacity>

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -106,9 +106,14 @@ export default function EventDetailScreen() {
 
   const isAdmin = event?.createdBy === user?.id;
 
+  const hasLoadedRef = useRef(false);
   const load = useCallback(async () => {
     if (!resolvedGroupId || !eventId) return;
-    setLoading(true);
+    // Only show the full-screen skeleton on the initial load. Pull-to-refresh
+    // (onRefresh) also calls load(); without this guard it blanked the loaded
+    // event back to the skeleton and dropped the RefreshControl spinner. Uses a
+    // ref (not `event`) so load()'s identity stays stable and can't refetch-loop.
+    if (!hasLoadedRef.current) setLoading(true);
     try {
       const [eventsRes, rsvpRes] = await Promise.all([
         apiClient.get<{ events: EventData[] }>(
@@ -127,6 +132,7 @@ export default function EventDetailScreen() {
       setCounts(rsvpRes.data.counts);
       setMyStatus(rsvpRes.data.myStatus);
       setLoadError(false);
+      hasLoadedRef.current = true;
     } catch {
       // keep showing whatever we have; only flag a hard error when there's
       // nothing on screen to fall back to
@@ -155,19 +161,9 @@ export default function EventDetailScreen() {
       setMyStatus(res.data.rsvp.status as RsvpStatus);
       setCounts(res.data.counts);
       void load();
-      if (status === 'going' && event) {
-        setTimeout(() => {
-          void Share.share({
-            message: [
-              `I'm going to "${event.title}" on CORTEGE! 🏎️`,
-              `📅 ${formatEventDate(event.scheduledFor)}`,
-              '',
-              'Join us: convoy.app',
-            ].join('\n'),
-            title: event.title,
-          }).catch(() => {});
-        }, 600);
-      }
+      // NOTE: do not auto-open the share sheet here — tapping "Going" is an RSVP,
+      // not a share. Sharing is an explicit action via the Share button (which
+      // calls handleShareEvent); auto-firing it hijacked the screen every time.
     } catch (err: unknown) {
       Alert.alert('Error', err instanceof Error ? err.message : 'Could not update RSVP');
     } finally {
