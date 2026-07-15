@@ -8,6 +8,7 @@ import {
 } from 'react-native';
 import type { SpeedCamera } from '../services/SpeedAlertService';
 import { speedAlertService } from '../services/SpeedAlertService';
+import { useReduceMotion } from '../hooks/useReduceMotion';
 import { ThemeColors, useTheme, withAlpha } from '../theme';
 
 interface Props {
@@ -28,18 +29,26 @@ export default function SpeedCameraAlert({ camera, distanceM, onDismiss }: Props
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const slideAnim = useRef(new Animated.Value(-120)).current;
   const opacityAnim = useRef(new Animated.Value(0)).current;
+  const reduceMotion = useReduceMotion();
 
   useEffect(() => {
-    Animated.parallel([
-      Animated.spring(slideAnim, { toValue: 0, useNativeDriver: true, tension: 80, friction: 10 }),
-      Animated.timing(opacityAnim, { toValue: 1, duration: 200, useNativeDriver: true }),
-    ]).start();
+    // OS reduce-motion: appear/disappear in place instead of sliding+fading.
+    if (reduceMotion) {
+      slideAnim.setValue(0);
+      opacityAnim.setValue(1);
+    } else {
+      Animated.parallel([
+        Animated.spring(slideAnim, { toValue: 0, useNativeDriver: true, tension: 80, friction: 10 }),
+        Animated.timing(opacityAnim, { toValue: 1, duration: 200, useNativeDriver: true }),
+      ]).start();
+    }
 
     const timer = setTimeout(() => dismiss(), 8000);
     return () => clearTimeout(timer);
   }, []);
 
   function dismiss() {
+    if (reduceMotion) { onDismiss(); return; }
     Animated.parallel([
       Animated.timing(slideAnim, { toValue: -120, duration: 250, useNativeDriver: true }),
       Animated.timing(opacityAnim, { toValue: 0, duration: 200, useNativeDriver: true }),

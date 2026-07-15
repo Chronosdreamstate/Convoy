@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef } from 'react';
 import { Animated, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { HapticService } from '../services/HapticService';
+import { useReduceMotion } from '../hooks/useReduceMotion';
 import { ThemeColors, useTheme } from '../theme';
 
 interface Props {
@@ -22,21 +23,30 @@ function GapAlertBanner({ memberName, distanceM, thresholdM, onDismiss, onSlowDo
   const slideY = useRef(new Animated.Value(-80)).current;
   const progress = useRef(new Animated.Value(1)).current;
   const dismissTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reduceMotion = useReduceMotion();
 
   useEffect(() => {
     HapticService.trigger('warning');
-    Animated.spring(slideY, {
-      toValue: 0,
-      damping: 20,
-      stiffness: 180,
-      useNativeDriver: true,
-    }).start();
+    // OS reduce-motion: snap the banner into place and hide the shrinking
+    // progress bar rather than animating the slide-in and 10s countdown. The
+    // auto-dismiss timer still runs — only the motion is suppressed.
+    if (reduceMotion) {
+      slideY.setValue(0);
+      progress.setValue(0);
+    } else {
+      Animated.spring(slideY, {
+        toValue: 0,
+        damping: 20,
+        stiffness: 180,
+        useNativeDriver: true,
+      }).start();
 
-    Animated.timing(progress, {
-      toValue: 0,
-      duration: 10000,
-      useNativeDriver: false,
-    }).start();
+      Animated.timing(progress, {
+        toValue: 0,
+        duration: 10000,
+        useNativeDriver: false,
+      }).start();
+    }
 
     dismissTimer.current = setTimeout(onDismiss, 10000);
     return () => {

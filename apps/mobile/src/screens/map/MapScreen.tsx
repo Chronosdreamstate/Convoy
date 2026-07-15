@@ -59,6 +59,7 @@ import { HapticService } from '../../services/HapticService';
 import { LocationService } from '../../services/LocationService';
 import { LiveActivityService } from '../../services/LiveActivityService';
 import { useWeather } from '../../hooks/useWeather';
+import { useReduceMotion } from '../../hooks/useReduceMotion';
 
 interface GapAlert { memberId: string; distanceM: number }
 interface SosAlert { pin: SosPin; memberName: string }
@@ -279,19 +280,25 @@ const MemberMarkerView = React.memo(function MemberMarkerView({ member, isStale,
   // not the app's light/dark surface.
   const gapDotColor = gapStatus === 'alert' ? colors.accent : gapStatus === 'warning' ? colors.warning : colors.success;
   const ringScale = useRef(new Animated.Value(1)).current;
+  const reduceMotion = useReduceMotion();
 
   useEffect(() => {
-    if (!isStale) {
-      const anim = Animated.loop(
-        Animated.sequence([
-          Animated.timing(ringScale, { toValue: 1.45, duration: 900, useNativeDriver: true }),
-          Animated.timing(ringScale, { toValue: 1, duration: 900, useNativeDriver: true }),
-        ]),
-      );
-      anim.start();
-      return () => anim.stop();
+    if (isStale) return;
+    // OS reduce-motion: hold a static ring instead of the continuous pulse
+    // (mirrors PTTButton / ConvoyScreen's PulsingDot).
+    if (reduceMotion) {
+      ringScale.setValue(1.2);
+      return;
     }
-  }, [isStale, ringScale]);
+    const anim = Animated.loop(
+      Animated.sequence([
+        Animated.timing(ringScale, { toValue: 1.45, duration: 900, useNativeDriver: true }),
+        Animated.timing(ringScale, { toValue: 1, duration: 900, useNativeDriver: true }),
+      ]),
+    );
+    anim.start();
+    return () => anim.stop();
+  }, [isStale, ringScale, reduceMotion]);
 
   return (
     <View style={{ alignItems: 'center' }}>
@@ -486,6 +493,7 @@ export default function MapScreen({ groupId, socketUrl, isAdmin: isAdminProp = f
   const groupPttMaxSeconds = useGroupStore((s) => s.pttMaxSeconds);
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
+  const reduceMotion = useReduceMotion();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const overlayStyles = useMemo(() => makeOverlayStyles(colors), [colors]);
 
@@ -813,6 +821,13 @@ export default function MapScreen({ groupId, socketUrl, isAdmin: isAdminProp = f
   // Pulsing ring animation when actively transmitting PTT
   useEffect(() => {
     if (isPttTransmitting) {
+      // OS reduce-motion: a static, steady ring conveys "transmitting" without
+      // the continuous pulse (mirrors PTTButton's reduce-motion path).
+      if (reduceMotion) {
+        pttRingScale.setValue(1.35);
+        pttRingOpacity.setValue(0.5);
+        return;
+      }
       pttRingScale.setValue(1);
       pttRingOpacity.setValue(0.6);
       const anim = Animated.loop(
@@ -831,7 +846,7 @@ export default function MapScreen({ groupId, socketUrl, isAdmin: isAdminProp = f
       return () => anim.stop();
     }
     pttRingOpacity.setValue(0);
-  }, [isPttTransmitting, pttRingScale, pttRingOpacity]);
+  }, [isPttTransmitting, pttRingScale, pttRingOpacity, reduceMotion]);
 
   // Fetch member display names once when group is active so markers and panels show real names
   useEffect(() => {
