@@ -6,14 +6,17 @@
  *   the gateway deletes the token from the devices table.
  *   Validates: Requirements 15.1, 15.3
  *
- * Property 104: Network errors are non-fatal (no DB side-effect)
- *   If the Expo HTTP call throws or returns a non-ok status, no DB query is issued.
+ * Property 104: Transient failures are retryable, permanent ones are not
+ *   Network errors, 429 and 5xx from Expo throw PushGatewayTransientError (so
+ *   the BullMQ worker retries the job — previously they were swallowed and the
+ *   notification was silently lost); other 4xx are permanent and non-throwing.
+ *   No failure path issues a DB query.
  *   Validates: Requirements 15.1, 43.1
  */
 
 import fc from 'fast-check';
 import { Pool } from 'pg';
-import { ExpoPushGateway } from './push.gateway';
+import { ExpoPushGateway, PushGatewayTransientError } from './push.gateway';
 
 // ---------------------------------------------------------------------------
 // Test doubles
@@ -123,29 +126,50 @@ describe('Property 103: Stale push tokens are removed on DeviceNotRegistered', (
 });
 
 // ---------------------------------------------------------------------------
-// Property 104: Network errors are non-fatal and produce no DB side-effects
+// Property 104: Transient failures throw (retryable); permanent ones don't.
+// No failure path issues a DB query.
 // ---------------------------------------------------------------------------
-describe('Property 104: Network errors are non-fatal (no DB side-effect)', () => {
-  it('fetch throwing does not cause DB query and does not throw', async () => {
+describe('Property 104: Transient failures are retryable, permanent ones are not', () => {
+  it('fetch throwing rethrows as PushGatewayTransientError (BullMQ retries) with no DB query', async () => {
     const { db } = makeDb();
     mockFetch.mockRejectedValue(new Error('network failure'));
 
     const gateway = new ExpoPushGateway(db);
-    await expect(gateway.send('tok', 'ios', validPayload)).resolves.toBeUndefined();
+    await expect(gateway.send('tok', 'ios', validPayload))
+      .rejects.toBeInstanceOf(PushGatewayTransientError);
 
     expect(db.query).not.toHaveBeenCalled();
   });
 
-  it('non-ok HTTP response does not cause DB query', async () => {
+  it('Expo 5xx and 429 throw PushGatewayTransientError with no DB query', async () => {
     await fc.assert(
       fc.asyncProperty(
-        fc.integer({ min: 400, max: 599 }),
+        fc.oneof(fc.constant(429), fc.integer({ min: 500, max: 599 })),
         async (statusCode) => {
           const { db } = makeDb();
           mockFetch.mockResolvedValue(new Response('error', { status: statusCode }));
 
           const gateway = new ExpoPushGateway(db);
-          await gateway.send('tok', 'android', validPayload);
+          await expect(gateway.send('tok', 'android', validPayload))
+            .rejects.toBeInstanceOf(PushGatewayTransientError);
+
+          expect(db.query).not.toHaveBeenCalled();
+        },
+      ),
+      { numRuns: 20 },
+    );
+  });
+
+  it('other 4xx responses are permanent: non-throwing, no DB query', async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        fc.integer({ min: 400, max: 499 }).filter((s) => s !== 429),
+        async (statusCode) => {
+          const { db } = makeDb();
+          mockFetch.mockResolvedValue(new Response('error', { status: statusCode }));
+
+          const gateway = new ExpoPushGateway(db);
+          await expect(gateway.send('tok', 'android', validPayload)).resolves.toBeUndefined();
 
           expect(db.query).not.toHaveBeenCalled();
         },

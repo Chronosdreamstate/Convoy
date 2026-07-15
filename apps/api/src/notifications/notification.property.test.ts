@@ -307,3 +307,142 @@ describe('Push payload data.type stamp', () => {
     expect(payloads[0].data).toEqual({ sosId: 's-1', groupId: 'g-1', type: 'sos_alert' });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Delivery guarantees — retries, dead jobs, partial device failures.
+// BullMQ defaults to a single attempt, so transient failures silently lost
+// notifications unless the enqueue sets attempts/backoff and the worker
+// rethrows total failures (Req 15.1, 43.1).
+// ---------------------------------------------------------------------------
+describe('Delivery guarantees', () => {
+  const allowAllPrefs: IPreferenceStore = {
+    getPreferences: jest.fn(async () => null),
+  };
+
+  it('queued jobs are added with retry attempts, backoff, and Redis cleanup', async () => {
+    const { queue } = makeMockQueue();
+
+    await enqueueNotification(queue, makeJob({ type: 'hazard_alert' }));
+
+    expect(queue.add).toHaveBeenCalledWith(
+      'hazard_alert',
+      expect.objectContaining({ type: 'hazard_alert' }),
+      expect.objectContaining({
+        attempts: 5,
+        backoff: { type: 'exponential', delay: 2_000 },
+        removeOnComplete: expect.anything(),
+        removeOnFail: expect.anything(),
+      }),
+    );
+  });
+
+  it('worker rethrows when EVERY device send fails, so BullMQ retries the job', async () => {
+    const gateway: IPushGateway = {
+      send: jest.fn(async () => { throw new Error('expo down'); }),
+    };
+    const deviceStore = makeMockDeviceStore([
+      { token: 't1', platform: 'ios' },
+      { token: 't2', platform: 'android' },
+    ]);
+
+    await expect(
+      processNotificationJob(makeJob(), deviceStore, gateway, allowAllPrefs),
+    ).rejects.toThrow('expo down');
+  });
+
+  it('worker does NOT rethrow on partial failure (retry would duplicate delivered pushes)', async () => {
+    const gateway: IPushGateway = {
+      send: jest.fn(async (token: string) => {
+        if (token === 'bad') throw new Error('DeviceNotRegistered');
+      }),
+    };
+    const deviceStore = makeMockDeviceStore([
+      { token: 'good', platform: 'ios' },
+      { token: 'bad', platform: 'android' },
+    ]);
+
+    await expect(
+      processNotificationJob(makeJob(), deviceStore, gateway, allowAllPrefs),
+    ).resolves.toBeUndefined();
+  });
+
+  it('worker with zero devices does not throw (nothing to deliver)', async () => {
+    const { gateway } = makeMockGateway();
+    const deviceStore = makeMockDeviceStore([]);
+
+    await expect(
+      processNotificationJob(makeJob(), deviceStore, gateway, allowAllPrefs),
+    ).resolves.toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Inline SOS resilience + history persistence (Req 15.4, 20.5) — one dead
+// token must not reject the fan-out, and SOS must land in the in-app
+// Notification Center like every queued notification does.
+// ---------------------------------------------------------------------------
+describe('Inline SOS delivery resilience and history', () => {
+  function makeDbMock() {
+    const queries: Array<{ sql: string; params: unknown[] }> = [];
+    const db = {
+      query: jest.fn(async (sql: string, params: unknown[]) => {
+        queries.push({ sql, params });
+        return { rows: [], rowCount: 1 };
+      }),
+    };
+    return { db: db as unknown as import('pg').Pool, queries };
+  }
+
+  it('one failing device does not reject the SOS fan-out; other devices still receive it', async () => {
+    const sent: string[] = [];
+    const gateway: IPushGateway = {
+      send: jest.fn(async (token: string) => {
+        if (token === 'dead') throw new Error('DeviceNotRegistered');
+        sent.push(token);
+      }),
+    };
+    const deviceStore = makeMockDeviceStore([
+      { token: 'dead', platform: 'ios' },
+      { token: 'alive', platform: 'android' },
+    ]);
+    const { queue } = makeMockQueue();
+
+    await expect(
+      enqueueNotification(queue, makeJob({ type: 'sos_alert' }), gateway, deviceStore),
+    ).resolves.toBeUndefined();
+    expect(sent).toEqual(['alive']);
+  });
+
+  it('persists the SOS to notification_history when a db is provided', async () => {
+    const { gateway } = makeMockGateway();
+    const deviceStore = makeMockDeviceStore([{ token: 'tok', platform: 'ios' }]);
+    const { queue } = makeMockQueue();
+    const { db, queries } = makeDbMock();
+
+    await enqueueNotification(
+      queue,
+      makeJob({ type: 'sos_alert', title: 'SOS', body: 'Help!', data: { groupId: 'g-1' } }),
+      gateway,
+      deviceStore,
+      db,
+    );
+
+    expect(queries).toHaveLength(1);
+    expect(queries[0].sql).toContain('INSERT INTO notification_history');
+    expect(queries[0].params).toEqual(['u1', 'sos_alert', 'SOS', 'Help!', JSON.stringify({ groupId: 'g-1' })]);
+  });
+
+  it('a history insert failure never blocks SOS delivery', async () => {
+    const { gateway, calls } = makeMockGateway();
+    const deviceStore = makeMockDeviceStore([{ token: 'tok', platform: 'ios' }]);
+    const { queue } = makeMockQueue();
+    const db = {
+      query: jest.fn(async () => { throw new Error('db down'); }),
+    } as unknown as import('pg').Pool;
+
+    await expect(
+      enqueueNotification(queue, makeJob({ type: 'sos_alert' }), gateway, deviceStore, db),
+    ).resolves.toBeUndefined();
+    expect(calls).toHaveLength(1);
+  });
+});

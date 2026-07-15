@@ -114,11 +114,22 @@ export async function processNotificationJob(
   // so tapping a notification actually navigates somewhere.
   const pushData = { ...(data ?? {}), type };
 
-  await Promise.all(
+  // Fan out per device. A single bad device must not reject the whole job —
+  // but if EVERY send failed (transient gateway/network error) nothing was
+  // delivered, so rethrow and let BullMQ retry the job with backoff. Partial
+  // failures are NOT retried: re-running the job would duplicate the push for
+  // the devices that already received it.
+  const results = await Promise.allSettled(
     devices.map((d) =>
       gateway.send(d.token, d.platform, { title, body, data: pushData, priority }),
     ),
   );
+  const failures = results.filter(
+    (r): r is PromiseRejectedResult => r.status === 'rejected',
+  );
+  if (devices.length > 0 && failures.length === devices.length) {
+    throw failures[0].reason;
+  }
 
   // Persist to notification_history for the in-app notification center
   if (db) {
@@ -158,11 +169,15 @@ export async function enqueueNotification(
   job: NotificationJob,
   gateway?: IPushGateway,
   deviceStore?: IDeviceStore,
+  db?: Pool,
 ): Promise<void> {
   if (job.type === 'sos_alert' && gateway && deviceStore) {
-    // High-priority SOS: bypass BullMQ queue and deliver directly
+    // High-priority SOS: bypass BullMQ queue and deliver directly.
     const devices = await deviceStore.getTokensForUser(job.userId);
-    await Promise.all(
+    // allSettled: one dead token must not reject the whole SOS fan-out (the
+    // caller is often a route/socket handler that must not 500 mid-SOS) —
+    // the remaining devices still get the alert.
+    await Promise.allSettled(
       devices.map((d) =>
         gateway.send(d.token, d.platform, {
           title: job.title,
@@ -173,7 +188,29 @@ export async function enqueueNotification(
         }),
       ),
     );
+    // The queued path persists to notification_history in the worker; the
+    // inline SOS path must do it here or SOS alerts never appear in the
+    // in-app Notification Center (Req 15.4, 20.5).
+    if (db) {
+      try {
+        await db.query(
+          `INSERT INTO notification_history (user_id, type, title, body, data)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [job.userId, job.type, job.title, job.body, job.data ? JSON.stringify(job.data) : '{}'],
+        );
+      } catch {
+        // non-fatal — history must never block SOS delivery
+      }
+    }
     return;
   }
-  await queue.add(job.type, job);
+  // Delivery guarantee: BullMQ defaults to a SINGLE attempt with no cleanup —
+  // one transient Redis/Expo hiccup silently lost the notification and
+  // completed jobs accumulated in Redis forever.
+  await queue.add(job.type, job, {
+    attempts: 5,
+    backoff: { type: 'exponential', delay: 2_000 },
+    removeOnComplete: { count: 1_000 },
+    removeOnFail: { count: 5_000 },
+  });
 }

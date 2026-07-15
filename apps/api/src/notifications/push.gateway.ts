@@ -10,6 +10,19 @@ interface ExpoReceipt {
   details?: { error?: string };
 }
 
+/**
+ * Transient delivery failure (network error reaching Expo, 429 rate limit,
+ * Expo 5xx). Thrown so the BullMQ worker's retry/backoff redelivers the job —
+ * swallowing these silently lost notifications (Req 15.1) because jobs only
+ * run once when nothing throws.
+ */
+export class PushGatewayTransientError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'PushGatewayTransientError';
+  }
+}
+
 export class ExpoPushGateway implements IPushGateway {
   constructor(private readonly db: Pool) {}
 
@@ -42,11 +55,21 @@ export class ExpoPushGateway implements IPushGateway {
           ...(payload.categoryIdentifier ? { categoryId: payload.categoryIdentifier } : {}),
         }),
       });
-    } catch {
-      return; // network error — non-fatal
+    } catch (err) {
+      // Network error reaching Expo — retryable.
+      throw new PushGatewayTransientError(
+        `Expo push request failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
 
-    if (!res.ok) return;
+    if (!res.ok) {
+      if (res.status === 429 || res.status >= 500) {
+        // Rate-limited or Expo-side outage — retryable.
+        throw new PushGatewayTransientError(`Expo push HTTP ${res.status}`);
+      }
+      // Other 4xx = malformed request; retrying would fail identically.
+      return;
+    }
 
     let result: { data: ExpoReceipt };
     try {
