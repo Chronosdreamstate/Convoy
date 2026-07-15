@@ -18,6 +18,7 @@ import { authService } from '../../services/AuthService';
 import { useAuthStore } from '../../stores/authStore';
 import AppleSignInButton from '../../components/AppleSignInButton';
 import GoogleSignInButton from '../../components/GoogleSignInButton';
+import { useReduceMotion } from '../../hooks/useReduceMotion';
 import { useTheme } from '../../theme';
 
 type Mode = 'signin' | 'signup';
@@ -33,7 +34,7 @@ export default function EmailScreen() {
   const router = useRouter();
   const theme = useTheme();
   const styles = useMemo(() => createStyles(theme), [theme]);
-  const { setUser, setAccessToken } = useAuthStore();
+  const { setUser, setAccessToken, setIsFirstLogin } = useAuthStore();
 
   const [mode, setMode] = useState<Mode>('signin');
   const [email, setEmail] = useState('');
@@ -48,14 +49,20 @@ export default function EmailScreen() {
 
   const passwordRef = useRef<TextInput>(null);
   const fadeAnim = useRef(new Animated.Value(0)).current;
+  const reduceMotion = useReduceMotion();
 
   useEffect(() => {
+    // OS reduce-motion: skip the entrance fade and show the form immediately.
+    if (reduceMotion) {
+      fadeAnim.setValue(1);
+      return;
+    }
     Animated.timing(fadeAnim, {
       toValue: 1,
       duration: 350,
       useNativeDriver: true,
     }).start();
-  }, [fadeAnim]);
+  }, [fadeAnim, reduceMotion]);
 
   const handleEmailChange = (text: string) => {
     const lower = text.toLowerCase();
@@ -113,7 +120,11 @@ export default function EmailScreen() {
 
       setUser(result.user);
       setAccessToken(result.accessToken);
-      router.replace('/(tabs)/map');
+      // Shared post-auth routing (with OtpScreen and the social sign-in
+      // buttons): new users resume onboarding, returning users go to the map.
+      const { route, isFirstLogin } = await authService.getPostAuthRoute();
+      setIsFirstLogin(isFirstLogin);
+      router.replace(route as never);
     } catch (err) {
       const message =
         err instanceof Error

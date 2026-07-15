@@ -25,8 +25,12 @@ jest.mock('expo-secure-store', () => ({
 }));
 
 const mockSignInSocial = jest.fn();
+const mockGetPostAuthRoute = jest.fn();
 jest.mock('../services/AuthService', () => ({
-  authService: { signInSocial: (...args: unknown[]) => mockSignInSocial(...args) },
+  authService: {
+    signInSocial: (...args: unknown[]) => mockSignInSocial(...args),
+    getPostAuthRoute: (...args: unknown[]) => mockGetPostAuthRoute(...args),
+  },
 }));
 
 const mockRouterReplace = jest.fn();
@@ -57,6 +61,7 @@ const TEST_USER = { id: 'u-apple-1', displayName: 'Apple Driver', privacy: 'open
 beforeEach(() => {
   jest.clearAllMocks();
   setPlatformOS('ios');
+  mockGetPostAuthRoute.mockResolvedValue({ route: '/(tabs)/map', isFirstLogin: false });
   useAuthStore.setState({
     user: null,
     accessToken: null,
@@ -154,6 +159,40 @@ describe('AppleSignInButton', () => {
     await waitFor(() => {
       const button = screen.getByTestId('apple-sign-in-button');
       expect(button.props.accessibilityState).toEqual({ disabled: false, busy: false });
+    });
+  });
+
+  it('routes a first-time user into onboarding instead of the map (Req 36.7)', async () => {
+    mockAppleSignInAsync.mockResolvedValue({ identityToken: 'apple-id-token' });
+    mockSignInSocial.mockResolvedValue({ user: TEST_USER, accessToken: 'jwt-123' });
+    mockGetPostAuthRoute.mockResolvedValue({ route: '/(onboarding)/vehicle', isFirstLogin: true });
+
+    const screen = render(<AppleSignInButton />);
+    fireEvent.press(screen.getByTestId('apple-sign-in-button'));
+
+    await waitFor(() => {
+      expect(mockRouterReplace).toHaveBeenCalledWith('/(onboarding)/vehicle');
+    });
+    expect(useAuthStore.getState().isFirstLogin).toBe(true);
+  });
+
+  it('surfaces the server-provided error message when the API explains the failure', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockAppleSignInAsync.mockResolvedValue({ identityToken: 'apple-id-token' });
+    // AuthService throws ApiError (Error + numeric status) with the server's message.
+    const apiError = Object.assign(new Error('Too many sign-in attempts. Please try again later.'), {
+      status: 429,
+    });
+    mockSignInSocial.mockRejectedValue(apiError);
+
+    const screen = render(<AppleSignInButton />);
+    fireEvent.press(screen.getByTestId('apple-sign-in-button'));
+
+    await waitFor(() => {
+      expect(alertSpy).toHaveBeenCalledWith(
+        'Sign In Failed',
+        'Too many sign-in attempts. Please try again later.',
+      );
     });
   });
 

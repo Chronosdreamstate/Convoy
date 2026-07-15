@@ -20,6 +20,25 @@ import { useTheme } from '../theme';
 // invisible on this fill (ON_ACCENT convention).
 const ON_ACCENT = '#FFFFFF';
 
+/**
+ * When the auth API rejected us with an explanation (AuthService throws
+ * ApiError: an Error carrying the HTTP status and the server's message, e.g.
+ * a 429 rate limit or 503 provider gate), surface that explanation instead of
+ * a generic failure line. Structural check rather than instanceof so tests
+ * that mock AuthService still match.
+ */
+function serverErrorMessage(err: unknown): string | null {
+  if (
+    err instanceof Error &&
+    typeof (err as { status?: unknown }).status === 'number' &&
+    err.message &&
+    err.message !== 'Request failed'
+  ) {
+    return err.message;
+  }
+  return null;
+}
+
 interface AppleSignInButtonProps {
   /** Externally disable the button (e.g. while another auth request is pending). */
   disabled?: boolean;
@@ -69,12 +88,19 @@ export default function AppleSignInButton({
         const result = await authService.signInSocial('apple', credential.identityToken);
         setUser(result.user);
         setAccessToken(result.accessToken);
-        router.replace('/(tabs)/map');
+        // Shared post-auth routing (with OtpScreen/EmailScreen): new users
+        // resume onboarding, returning users go to the map.
+        const { route, isFirstLogin } = await authService.getPostAuthRoute();
+        useAuthStore.getState().setIsFirstLogin(isFirstLogin);
+        router.replace(route as never);
       }
     } catch (err: unknown) {
       const code = (err as { code?: string })?.code;
       if (code !== 'ERR_REQUEST_CANCELED') {
-        Alert.alert('Sign In Failed', 'Could not sign in with Apple. Please try another method.');
+        Alert.alert(
+          'Sign In Failed',
+          serverErrorMessage(err) ?? 'Could not sign in with Apple. Please try another method.',
+        );
       }
     } finally {
       updateSigningIn(false);

@@ -22,10 +22,12 @@ jest.mock('expo-secure-store', () => ({
 
 const mockRequestOtp = jest.fn();
 const mockVerifyOtp = jest.fn();
+const mockGetPostAuthRoute = jest.fn();
 jest.mock('../../services/AuthService', () => ({
   authService: {
     requestOtp: (...args: unknown[]) => mockRequestOtp(...args),
     verifyOtp: (...args: unknown[]) => mockVerifyOtp(...args),
+    getPostAuthRoute: (...args: unknown[]) => mockGetPostAuthRoute(...args),
   },
 }));
 
@@ -47,6 +49,7 @@ import OtpScreen from './OtpScreen';
 beforeEach(() => {
   jest.clearAllMocks();
   mockReduceMotion = false;
+  mockGetPostAuthRoute.mockResolvedValue({ route: '/(tabs)/map', isFirstLogin: false });
   jest.useFakeTimers();
 });
 
@@ -82,6 +85,32 @@ describe('OtpScreen resend flow (Req 2.7)', () => {
     // Confirmation copy + a fresh cooldown.
     expect(screen.getByText('A new code has been sent.')).toBeTruthy();
     expect(screen.getByText(/Resend code in \d+s/)).toBeTruthy();
+  });
+});
+
+describe('OtpScreen post-verification routing (Req 36.7)', () => {
+  const AUTH_RESULT = {
+    user: { id: 'u-1', displayName: 'Driver', privacy: 'open' },
+    accessToken: 'token-abc',
+  };
+
+  it('routes a returning user straight to the map', async () => {
+    mockVerifyOtp.mockResolvedValue(AUTH_RESULT);
+    const screen = render(<OtpScreen />);
+
+    await enterCode(screen, '123456');
+
+    await waitFor(() => expect(mockRouterReplace).toHaveBeenCalledWith('/(tabs)/map'));
+  });
+
+  it('routes a first-time user into onboarding at the resume step', async () => {
+    mockVerifyOtp.mockResolvedValue(AUTH_RESULT);
+    mockGetPostAuthRoute.mockResolvedValue({ route: '/(onboarding)/vehicle', isFirstLogin: true });
+    const screen = render(<OtpScreen />);
+
+    await enterCode(screen, '123456');
+
+    await waitFor(() => expect(mockRouterReplace).toHaveBeenCalledWith('/(onboarding)/vehicle'));
   });
 });
 

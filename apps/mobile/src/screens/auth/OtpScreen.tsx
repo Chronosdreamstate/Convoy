@@ -13,10 +13,8 @@ import {
   ScrollView,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import * as SecureStore from 'expo-secure-store';
 import { authService } from '../../services/AuthService';
 import { useAuthStore } from '../../stores/authStore';
-import { onboardingState } from '../../utils/onboardingState';
 import { useReduceMotion } from '../../hooks/useReduceMotion';
 import { useTheme } from '../../theme';
 
@@ -88,18 +86,13 @@ export default function OtpScreen() {
     setIsVerifying(true);
     try {
       const result = await authService.verifyOtp(phone, value);
-      const onboardingDone = await SecureStore.getItemAsync('onboarding_complete').catch(() => '1');
       setUser(result.user);
       setAccessToken(result.accessToken);
-      if (!onboardingDone) {
-        setIsFirstLogin(true);
-        // Resume at whichever onboarding step is next, rather than always
-        // restarting from the first step for a returning-but-incomplete user.
-        const resumeRoute = await onboardingState.getResumeRoute();
-        router.replace((resumeRoute ?? '/(onboarding)/vehicle') as never);
-      } else {
-        router.replace('/(tabs)/map');
-      }
+      // Shared post-auth routing (with EmailScreen and the social sign-in
+      // buttons): new users resume onboarding, returning users go to the map.
+      const { route, isFirstLogin } = await authService.getPostAuthRoute();
+      setIsFirstLogin(isFirstLogin);
+      router.replace(route as never);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Verification failed. Please try again.';
       setError(message);

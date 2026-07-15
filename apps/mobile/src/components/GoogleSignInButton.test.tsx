@@ -26,8 +26,12 @@ jest.mock('expo-secure-store', () => ({
 }));
 
 const mockSignInWithGoogle = jest.fn();
+const mockGetPostAuthRoute = jest.fn();
 jest.mock('../services/AuthService', () => ({
-  authService: { signInWithGoogle: (...args: unknown[]) => mockSignInWithGoogle(...args) },
+  authService: {
+    signInWithGoogle: (...args: unknown[]) => mockSignInWithGoogle(...args),
+    getPostAuthRoute: (...args: unknown[]) => mockGetPostAuthRoute(...args),
+  },
 }));
 
 const mockRouterReplace = jest.fn();
@@ -78,6 +82,7 @@ beforeEach(() => {
   setPlatformOS('ios');
   clearGoogleEnv();
   mockRequest = {};
+  mockGetPostAuthRoute.mockResolvedValue({ route: '/(tabs)/map', isFirstLogin: false });
   useAuthStore.setState({
     user: null,
     accessToken: null,
@@ -182,16 +187,56 @@ describe('GoogleSignInButton — configured (live flow)', () => {
     expect(onLoadingChange).toHaveBeenLastCalledWith(false);
   });
 
-  it('does not call the auth service when the response has no id_token', async () => {
+  it('shows the failure alert (not silence) when a success response has no id_token', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
     mockPromptAsync.mockResolvedValue({ type: 'success', params: {} });
 
     const screen = render(<GoogleSignInButton />);
     fireEvent.press(screen.getByTestId('google-sign-in-button'));
 
     await waitFor(() => {
-      expect(mockPromptAsync).toHaveBeenCalled();
+      expect(alertSpy).toHaveBeenCalledWith(
+        'Sign In Failed',
+        'Could not sign in with Google. Please try another method.',
+      );
     });
     expect(mockSignInWithGoogle).not.toHaveBeenCalled();
+    expect(mockRouterReplace).not.toHaveBeenCalled();
+  });
+
+  it('routes a first-time user into onboarding instead of the map (Req 36.7)', async () => {
+    mockPromptAsync.mockResolvedValue({ type: 'success', params: { id_token: 'google-id-token' } });
+    mockSignInWithGoogle.mockResolvedValue({ user: TEST_USER, accessToken: 'jwt-456' });
+    mockGetPostAuthRoute.mockResolvedValue({ route: '/(onboarding)/vehicle', isFirstLogin: true });
+
+    const screen = render(<GoogleSignInButton />);
+    fireEvent.press(screen.getByTestId('google-sign-in-button'));
+
+    await waitFor(() => {
+      expect(mockRouterReplace).toHaveBeenCalledWith('/(onboarding)/vehicle');
+    });
+    expect(useAuthStore.getState().isFirstLogin).toBe(true);
+  });
+
+  it('surfaces the server-provided error message when the API explains the failure', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockPromptAsync.mockResolvedValue({ type: 'success', params: { id_token: 'google-id-token' } });
+    // AuthService throws ApiError (Error + numeric status) with the server's
+    // message — e.g. the 503 PROVIDER_NOT_CONFIGURED gate.
+    const apiError = Object.assign(new Error('Google sign-in is not available on this server.'), {
+      status: 503,
+    });
+    mockSignInWithGoogle.mockRejectedValue(apiError);
+
+    const screen = render(<GoogleSignInButton />);
+    fireEvent.press(screen.getByTestId('google-sign-in-button'));
+
+    await waitFor(() => {
+      expect(alertSpy).toHaveBeenCalledWith(
+        'Sign In Failed',
+        'Google sign-in is not available on this server.',
+      );
+    });
     expect(mockRouterReplace).not.toHaveBeenCalled();
   });
 

@@ -19,6 +19,25 @@ import { useTheme } from '../theme';
 // app theme (intentionally not themed, same convention as the Apple button).
 const GOOGLE_BLUE = '#4285F4';
 
+/**
+ * When the auth API rejected us with an explanation (AuthService throws
+ * ApiError: an Error carrying the HTTP status and the server's message, e.g.
+ * the 503 PROVIDER_NOT_CONFIGURED gate or a 429 rate limit), surface that
+ * explanation instead of a generic failure line. Structural check rather than
+ * instanceof so tests that mock AuthService still match.
+ */
+function serverErrorMessage(err: unknown): string | null {
+  if (
+    err instanceof Error &&
+    typeof (err as { status?: unknown }).status === 'number' &&
+    err.message &&
+    err.message !== 'Request failed'
+  ) {
+    return err.message;
+  }
+  return null;
+}
+
 interface GoogleSignInButtonProps {
   /** Externally disable the button (e.g. while another auth request is pending). */
   disabled?: boolean;
@@ -109,15 +128,26 @@ function LiveGoogleSignInButton({
           const auth = await authService.signInWithGoogle(idToken);
           setUser(auth.user);
           setAccessToken(auth.accessToken);
-          router.replace('/(tabs)/map');
+          // Shared post-auth routing (with OtpScreen/EmailScreen): new users
+          // resume onboarding, returning users go to the map.
+          const { route, isFirstLogin } = await authService.getPostAuthRoute();
+          useAuthStore.getState().setIsFirstLogin(isFirstLogin);
+          router.replace(route as never);
+        } else {
+          // Google reported success but returned no ID token — previously this
+          // failed silently, leaving the user staring at an idle button.
+          Alert.alert('Sign In Failed', 'Could not sign in with Google. Please try another method.');
         }
       } else if (result.type === 'error') {
         Alert.alert('Sign In Failed', 'Could not sign in with Google. Please try another method.');
       }
       // 'cancel' / 'dismiss' — the user backed out of the browser prompt;
       // stay silent, same as a cancelled Apple credential prompt.
-    } catch {
-      Alert.alert('Sign In Failed', 'Could not sign in with Google. Please try another method.');
+    } catch (err: unknown) {
+      Alert.alert(
+        'Sign In Failed',
+        serverErrorMessage(err) ?? 'Could not sign in with Google. Please try another method.',
+      );
     } finally {
       updateSigningIn(false);
     }

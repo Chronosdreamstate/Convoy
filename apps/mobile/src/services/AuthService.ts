@@ -23,6 +23,43 @@ interface AuthApiResponse {
 }
 
 /**
+ * Error thrown by auth endpoints, carrying the HTTP status alongside the
+ * server-provided message so callers can tell "the server explained why"
+ * (show err.message) apart from transport failures (show a generic fallback).
+ */
+export class ApiError extends Error {
+  readonly status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+  }
+}
+
+/**
+ * Pull the human-readable message out of an API error body. The API uses two
+ * shapes: @fastify/sensible replies put `message` at the top level (400/429),
+ * while the custom envelopes nest it as `{ error: { code, message } }`
+ * (INVALID_OTP 422, INVALID_CREDENTIALS 401, EMAIL_EXISTS 409,
+ * PROVIDER_NOT_CONFIGURED 503). Missing either shape, fall back to a generic
+ * message rather than showing the user raw JSON.
+ */
+function extractErrorMessage(body: unknown): string {
+  if (typeof body === 'object' && body !== null) {
+    const topLevel = (body as { message?: unknown }).message;
+    if (typeof topLevel === 'string' && topLevel) return topLevel;
+
+    const nested = (body as { error?: { message?: unknown } }).error;
+    if (typeof nested === 'object' && nested !== null) {
+      const nestedMessage = (nested as { message?: unknown }).message;
+      if (typeof nestedMessage === 'string' && nestedMessage) return nestedMessage;
+    }
+  }
+  return 'Request failed';
+}
+
+/**
  * Performs a raw fetch against the API without the Axios interceptor chain.
  * Used for auth endpoints that must not trigger the 401 retry loop.
  */
@@ -36,12 +73,8 @@ async function rawPost<T>(url: string, body: Record<string, unknown>): Promise<T
   });
 
   if (!response.ok) {
-    const errorBody = await response.json().catch(() => ({ message: 'Request failed' }));
-    const message =
-      typeof errorBody === 'object' && errorBody !== null && 'message' in errorBody
-        ? String((errorBody as { message: unknown }).message)
-        : 'Request failed';
-    throw new Error(message);
+    const errorBody: unknown = await response.json().catch(() => null);
+    throw new ApiError(extractErrorMessage(errorBody), response.status);
   }
 
   return response.json() as Promise<T>;
@@ -209,6 +242,30 @@ export class AuthService {
 
   async loadStoredToken(): Promise<string | null> {
     return SecureStore.getItemAsync(SECURE_STORE_KEY);
+  }
+
+  /**
+   * Where to send the user immediately after ANY successful sign-in (phone
+   * OTP, email, Apple, Google) — shared so every auth method routes new users
+   * through onboarding instead of only the OTP flow doing so (Req 36.7 hangs
+   * push-permission timing off onboarding completion, so skipping it breaks
+   * more than just the tutorial screens).
+   *
+   * Returns the route plus whether this counts as a first login so the caller
+   * can mirror it into authStore.isFirstLogin (the root layout's navigation
+   * guard uses that flag to keep the user inside the onboarding stack).
+   */
+  async getPostAuthRoute(): Promise<{ route: string; isFirstLogin: boolean }> {
+    // A keychain read failure is treated as "onboarding done" so a flaky
+    // SecureStore can never trap an existing user back in onboarding.
+    const onboardingDone = await SecureStore.getItemAsync('onboarding_complete').catch(() => '1');
+    if (onboardingDone) return { route: '/(tabs)/map', isFirstLogin: false };
+
+    // Resume at whichever onboarding step is next, rather than always
+    // restarting from the first step for a returning-but-incomplete user.
+    const resumeRoute = await onboardingState.getResumeRoute().catch(() => null);
+    if (!resumeRoute) return { route: '/(tabs)/map', isFirstLogin: false };
+    return { route: resumeRoute, isFirstLogin: true };
   }
 }
 

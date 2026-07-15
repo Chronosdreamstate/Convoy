@@ -19,8 +19,15 @@ const mockDeleteItemAsync = jest.fn().mockResolvedValue(undefined);
 // also calls getItemAsync at module load, which would consume queued
 // one-shot values meant for the token key.
 let storedAccessToken: string | null = null;
+let storedOnboardingFlag: string | null = null;
 const mockGetItemAsync = jest.fn((key: string) =>
-  Promise.resolve(key === 'convoy_access_token' ? storedAccessToken : null),
+  Promise.resolve(
+    key === 'convoy_access_token'
+      ? storedAccessToken
+      : key === 'onboarding_complete'
+        ? storedOnboardingFlag
+        : null,
+  ),
 );
 
 jest.mock('expo-secure-store', () => ({
@@ -101,6 +108,7 @@ describe('AuthService — secure token storage', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     storedAccessToken = null;
+    storedOnboardingFlag = null;
   });
 
   describe('verifyOtp', () => {
@@ -377,6 +385,157 @@ describe('AuthService — secure token storage', () => {
       await service.loadStoredToken();
 
       expect(mockAsyncStorageGetItemSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  // -------------------------------------------------------------
+  // API error surfacing (Req 2.7 / 2.8) — the server's explanation must reach
+  // the user, whichever of the API's two error envelopes carried it.
+  // -------------------------------------------------------------
+  describe('API error message extraction', () => {
+    function createErrorFetchMock(status: number, body: unknown) {
+      return jest.fn().mockResolvedValue({
+        ok: false,
+        status,
+        json: () => Promise.resolve(body),
+      });
+    }
+
+    it('surfaces the nested { error: { message } } envelope (wrong/expired OTP, 422)', async () => {
+      global.fetch = createErrorFetchMock(422, {
+        error: { code: 'INVALID_OTP', message: 'Invalid or expired OTP. Please request a new one.', retryable: true },
+      });
+
+      const service = await getAuthService();
+      await expect(service.verifyOtp('+15550001234', '000000')).rejects.toThrow(
+        'Invalid or expired OTP. Please request a new one.',
+      );
+    });
+
+    it('surfaces the nested envelope for invalid email credentials (401)', async () => {
+      global.fetch = createErrorFetchMock(401, {
+        error: { code: 'INVALID_CREDENTIALS', message: 'Invalid credentials' },
+      });
+
+      const service = await getAuthService();
+      await expect(service.signInEmail('a@b.com', 'wrong-password')).rejects.toThrow('Invalid credentials');
+    });
+
+    it('surfaces the nested envelope for duplicate email signup (409)', async () => {
+      global.fetch = createErrorFetchMock(409, {
+        error: { code: 'EMAIL_EXISTS', message: 'An account with this email already exists.' },
+      });
+
+      const service = await getAuthService();
+      await expect(service.signUpEmail('a@b.com', 'password123')).rejects.toThrow(
+        'An account with this email already exists.',
+      );
+    });
+
+    it('surfaces top-level messages from @fastify/sensible replies (429 rate limit)', async () => {
+      global.fetch = createErrorFetchMock(429, {
+        statusCode: 429,
+        error: 'Too Many Requests',
+        message: 'Too many OTP requests. Please try again later.',
+      });
+
+      const service = await getAuthService();
+      await expect(service.requestOtp('+15550001234')).rejects.toThrow(
+        'Too many OTP requests. Please try again later.',
+      );
+    });
+
+    it('attaches the HTTP status to the thrown error (ApiError shape)', async () => {
+      global.fetch = createErrorFetchMock(503, {
+        error: { code: 'PROVIDER_NOT_CONFIGURED', message: 'Google sign-in is not available on this server.' },
+      });
+
+      const service = await getAuthService();
+      await expect(service.signInSocial('google', 'tok')).rejects.toMatchObject({
+        message: 'Google sign-in is not available on this server.',
+        status: 503,
+      });
+    });
+
+    it('falls back to a generic message when the error body is unparseable', async () => {
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: false,
+        status: 500,
+        json: () => Promise.reject(new Error('not json')),
+      });
+
+      const service = await getAuthService();
+      await expect(service.requestOtp('+15550001234')).rejects.toThrow('Request failed');
+    });
+  });
+
+  // -------------------------------------------------------------
+  // Post-auth routing (Req 36.7) — shared across OTP, email, and social
+  // sign-in so onboarding is never skipped for a first-time user.
+  // -------------------------------------------------------------
+  describe('getPostAuthRoute', () => {
+    afterEach(() => {
+      // Restore the key-aware defaults — jest.clearAllMocks() clears calls but
+      // not implementations swapped in by individual tests below.
+      mockGetItemAsync.mockImplementation((key: string) =>
+        Promise.resolve(
+          key === 'convoy_access_token'
+            ? storedAccessToken
+            : key === 'onboarding_complete'
+              ? storedOnboardingFlag
+              : null,
+        ),
+      );
+      mockAsyncStorageGetItemSpy.mockReset();
+    });
+
+    it('routes to the map without first-login when onboarding is already complete', async () => {
+      storedOnboardingFlag = '1';
+
+      const service = await getAuthService();
+      await expect(service.getPostAuthRoute()).resolves.toEqual({
+        route: '/(tabs)/map',
+        isFirstLogin: false,
+      });
+    });
+
+    it('routes a brand-new user into onboarding at the vehicle step', async () => {
+      storedOnboardingFlag = null;
+      // No onboarding steps recorded — onboardingState resumes from the start.
+      mockAsyncStorageGetItemSpy.mockResolvedValue(null);
+
+      const service = await getAuthService();
+      await expect(service.getPostAuthRoute()).resolves.toEqual({
+        route: '/(onboarding)/vehicle',
+        isFirstLogin: true,
+      });
+    });
+
+    it('resumes a returning-but-incomplete user at the next unfinished step', async () => {
+      storedOnboardingFlag = null;
+      mockAsyncStorageGetItemSpy.mockImplementation((key: string) =>
+        Promise.resolve(key === '@convoy/onboarding_completed' ? JSON.stringify(['vehicle']) : null),
+      );
+
+      const service = await getAuthService();
+      await expect(service.getPostAuthRoute()).resolves.toEqual({
+        route: '/(onboarding)/ptt-tutorial',
+        isFirstLogin: true,
+      });
+    });
+
+    it('treats a keychain read failure as onboarding-complete (never traps existing users)', async () => {
+      mockGetItemAsync.mockImplementation((key: string) =>
+        key === 'onboarding_complete'
+          ? Promise.reject(new Error('keychain unavailable'))
+          : Promise.resolve(null),
+      );
+
+      const service = await getAuthService();
+      await expect(service.getPostAuthRoute()).resolves.toEqual({
+        route: '/(tabs)/map',
+        isFirstLogin: false,
+      });
     });
   });
 });
