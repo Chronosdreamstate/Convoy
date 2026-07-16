@@ -73,6 +73,7 @@ export default function PushPermissionModal({ visible, onEnable, onSkip }: Props
             onPress={onSkip}
             activeOpacity={0.7}
             style={styles.skipBtn}
+            hitSlop={{ top: 12, bottom: 12, left: 24, right: 24 }}
             accessibilityRole="button"
             accessibilityLabel="Maybe later"
           >

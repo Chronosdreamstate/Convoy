@@ -153,16 +153,25 @@ function LogRow({
 }) {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  const reduceMotion = useReduceMotion();
   const translateY = useRef(new Animated.Value(-16)).current;
   const rowOpacity = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
+    // OS reduce-motion: appear in place instead of sliding down + fading in.
+    // Backfill can mount ~15 rows at once, so the slide-in is exactly the kind
+    // of motion this setting suppresses (matches PulsingDot below).
+    if (reduceMotion) {
+      translateY.setValue(0);
+      rowOpacity.setValue(1);
+      return;
+    }
     Animated.parallel([
       Animated.timing(translateY, { toValue: 0, duration: 200, useNativeDriver: true }),
       Animated.timing(rowOpacity, { toValue: 1, duration: 200, useNativeDriver: true }),
     ]).start();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [reduceMotion]);
 
   void tick; // triggers elapsed recalc
 
