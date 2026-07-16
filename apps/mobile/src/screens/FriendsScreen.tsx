@@ -19,6 +19,7 @@ import { apiClient } from '../services/apiClient';
 import { MotionCapNotice, useMotionCappedData } from '../components/MotionAwareList';
 import { SkeletonRow } from '../components/SkeletonLoader';
 import { useGroupStore } from '../stores/groupStore';
+import { useReduceMotion } from '../hooks/useReduceMotion';
 import { useTheme, ThemeColors } from '../theme';
 
 // Types
@@ -121,7 +122,7 @@ function ListError({ message, onRetry }: { message: string; onRetry: () => void 
         accessibilityRole="button"
         accessibilityLabel="Try again"
       >
-        <Ionicons name="refresh" size={16} color={colors.text} style={styles.retryIcon} />
+        <Ionicons name="refresh" size={16} color="#FFFFFF" style={styles.retryIcon} />
         <Text style={styles.retryBtnTxt}>Try Again</Text>
       </TouchableOpacity>
     </View>
@@ -145,6 +146,7 @@ function FriendRow({
   const router = useRouter();
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
+  const reduceMotion = useReduceMotion();
   const activeGroupId = useGroupStore((s) => s.activeGroupId);
   const slideAnim = useRef(new Animated.Value(0)).current;
   const opAnim = useRef(new Animated.Value(1)).current;
@@ -154,6 +156,8 @@ function FriendRow({
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Remove', style: 'destructive', onPress: () => {
+          // Honor OS reduce-motion: skip the slide-out and remove immediately.
+          if (reduceMotion) { onRemove(friend.id); return; }
           Animated.parallel([
             Animated.timing(slideAnim, { toValue: -80, duration: 250, useNativeDriver: true }),
             Animated.timing(opAnim, { toValue: 0, duration: 250, useNativeDriver: true }),
@@ -171,6 +175,7 @@ function FriendRow({
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Block', style: 'destructive', onPress: () => {
+            if (reduceMotion) { onBlock(friend.id, friend.userId); return; }
             Animated.parallel([
               Animated.timing(slideAnim, { toValue: -80, duration: 250, useNativeDriver: true }),
               Animated.timing(opAnim, { toValue: 0, duration: 250, useNativeDriver: true }),
@@ -408,11 +413,13 @@ function RequestRow({
 }) {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
+  const reduceMotion = useReduceMotion();
   const slideAnim = useRef(new Animated.Value(0)).current;
   const opAnim = useRef(new Animated.Value(1)).current;
   const isMe = acting?.id === req.id;
 
   const handleAccept = () => {
+    if (reduceMotion) { onAct(req.id, 'accept'); return; }
     Animated.parallel([
       Animated.timing(slideAnim, { toValue: 80, duration: 280, useNativeDriver: true }),
       Animated.timing(opAnim, { toValue: 0, duration: 280, useNativeDriver: true }),
@@ -420,6 +427,7 @@ function RequestRow({
   };
 
   const handleDecline = () => {
+    if (reduceMotion) { onAct(req.id, 'decline'); return; }
     Animated.parallel([
       Animated.timing(slideAnim, { toValue: -80, duration: 220, useNativeDriver: true }),
       Animated.timing(opAnim, { toValue: 0, duration: 220, useNativeDriver: true }),
@@ -480,6 +488,7 @@ function SentRequestRow({
 }) {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
+  const reduceMotion = useReduceMotion();
   const slideAnim = useRef(new Animated.Value(0)).current;
   const opAnim = useRef(new Animated.Value(1)).current;
 
@@ -491,6 +500,7 @@ function SentRequestRow({
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Withdraw', style: 'destructive', onPress: () => {
+            if (reduceMotion) { onWithdraw(req); return; }
             Animated.parallel([
               Animated.timing(slideAnim, { toValue: -80, duration: 220, useNativeDriver: true }),
               Animated.timing(opAnim, { toValue: 0, duration: 220, useNativeDriver: true }),
@@ -692,7 +702,7 @@ function UserSearchResults({
               hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
             >
               {adding === u.id
-                ? <ActivityIndicator color={colors.text} size="small" />
+                ? <ActivityIndicator color="#FFFFFF" size="small" />
                 : <Text style={styles.addBtnTxt}>+ Add</Text>}
             </TouchableOpacity>
           )}
@@ -711,6 +721,7 @@ const TABS: { id: Tab; label: string }[] = [
 export default function FriendsScreen() {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
+  const reduceMotion = useReduceMotion();
   // Deep-link / notification-tap entry point: e.g. a friend_request push
   // navigates here with ?tab=requests so the Requests tab opens directly.
   const { tab: initialTabParam } = useLocalSearchParams<{ tab?: string }>();
@@ -744,6 +755,8 @@ export default function FriendsScreen() {
     setTab(idx === 0 ? 'friends' : 'requests');
     setQuery('');
     setSearchResults([]);
+    // Honor OS reduce-motion: snap the underline instead of springing it.
+    if (reduceMotion) { tabAnim.setValue(idx); return; }
     Animated.spring(tabAnim, { toValue: idx, useNativeDriver: true, tension: 120, friction: 14 }).start();
   };
 

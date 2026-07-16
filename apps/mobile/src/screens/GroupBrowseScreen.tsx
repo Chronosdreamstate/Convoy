@@ -175,7 +175,7 @@ function GroupCard({ group, onJoin, onView, joining, showDistance, eventCountdow
           accessibilityLabel={`Join ${group.name}`}
         >
           {joining ? (
-            <ActivityIndicator size="small" color={colors.text} />
+            <ActivityIndicator size="small" color="#FFFFFF" />
           ) : (
             <Text style={styles.joinButtonText}>Join</Text>
           )}
