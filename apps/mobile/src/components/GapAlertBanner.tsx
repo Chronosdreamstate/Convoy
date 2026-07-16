@@ -68,7 +68,7 @@ function GapAlertBanner({ memberName, distanceM, thresholdM, onDismiss, onSlowDo
     <Animated.View
       style={[styles.container, { transform: [{ translateY: slideY }] }]}
       accessible={true}
-      accessibilityLabel="You are falling behind the convoy"
+      accessibilityLabel={`${memberName} is falling behind — ${formatDist(distanceM)} behind, threshold ${formatDist(thresholdM)}`}
       accessibilityLiveRegion="assertive"
     >
       <View style={styles.strip} />
