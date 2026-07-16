@@ -427,7 +427,7 @@ export default function ProfileScreen() {
                 onSubmitEditing={() => setEditingName(false)}
                 placeholder="Your display name"
                 placeholderTextColor={colors.textSubtle}
-                maxLength={100}
+                maxLength={50}
                 returnKeyType="done"
                 accessibilityLabel="Display name input"
               />
@@ -474,7 +474,7 @@ export default function ProfileScreen() {
             onChangeText={(v) => { setPttCallsign(v); setIsDirty(true); }}
             placeholder="e.g. Alpha-1 (optional)"
             placeholderTextColor={colors.textSubtle}
-            maxLength={32}
+            maxLength={20}
             autoCapitalize="none"
             returnKeyType="done"
             onSubmitEditing={() => { void handleSaveProfile(); }}
