@@ -429,7 +429,7 @@ export default function WaypointManagementScreen() {
             accessibilityRole="button"
             accessibilityLabel="Add your first waypoint"
           >
-            <Ionicons name="add" size={18} color={colors.text} />
+            <Ionicons name="add" size={18} color={ON_ACCENT} />
             <Text style={styles.primaryBtnText}>Add waypoint</Text>
           </TouchableOpacity>
         </View>
@@ -483,12 +483,12 @@ export default function WaypointManagementScreen() {
             >
               {saving ? (
                 <>
-                  <ActivityIndicator color={colors.text} size="small" />
+                  <ActivityIndicator color={ON_ACCENT} size="small" />
                   <Text style={styles.primaryBtnText}>Broadcasting…</Text>
                 </>
               ) : (
                 <>
-                  <Ionicons name={saveError ? 'refresh' : 'megaphone-outline'} size={18} color={colors.text} />
+                  <Ionicons name={saveError ? 'refresh' : 'megaphone-outline'} size={18} color={ON_ACCENT} />
                   <Text style={styles.primaryBtnText}>
                     {saveError ? 'Retry broadcast' : 'Broadcast to group'}
                   </Text>
@@ -581,7 +581,7 @@ export default function WaypointManagementScreen() {
                 accessibilityLabel="Add this stop"
                 accessibilityState={{ disabled: !draftName.trim() }}
               >
-                <Ionicons name="add" size={18} color={colors.text} />
+                <Ionicons name="add" size={18} color={ON_ACCENT} />
                 <Text style={styles.primaryBtnText}>Add stop</Text>
               </TouchableOpacity>
             </View>

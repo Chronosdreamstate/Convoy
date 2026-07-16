@@ -147,6 +147,9 @@ export default function GarageScreen() {
     setEditingId(null); setForm(EMPTY_FORM); setFormError(null); setModalVisible(true);
   };
   const openEditModal = (v: Vehicle) => {
+    // Req 34 — the edit form is the same multi-step flow as add; block its
+    // entry point while in motion too (openAddModal already guards this).
+    if (guardInMotion()) return;
     setEditingId(v.id);
     setForm({
       // A never-set nickname prefills EMPTY — the derived "Make Model"
