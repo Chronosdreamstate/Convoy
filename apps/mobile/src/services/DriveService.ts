@@ -126,6 +126,13 @@ export function computeDriveStats(points: TrackPoint[]): DriveStats | null {
 
 export interface IDriveOfflineCache {
   saveDrive(drive: OfflineDrive): Promise<void>;
+  /**
+   * Remove drives already confirmed persisted server-side. finishSession()
+   * calls this after a successful online POST so SyncService's later queue
+   * drain doesn't re-POST the same drive and create a duplicate Drive_History
+   * record (the API's POST /drives is a plain INSERT with no idempotency key).
+   */
+  clearDrives(ids: string[]): Promise<void>;
 }
 
 export interface IDriveApiClient {
@@ -236,7 +243,7 @@ export class DriveService {
 
     if (params.isOnline()) {
       try {
-        return await params.api.postDrive({
+        const record = await params.api.postDrive({
           groupId: params.groupId,
           routeTrace: stats.routeTrace,
           distanceM: stats.distanceM,
@@ -247,6 +254,12 @@ export class DriveService {
           startedAt,
           endedAt,
         });
+        // Confirmed persisted server-side — drop the SQLite copy so SyncService's
+        // next drain doesn't re-POST it as a duplicate. Best-effort: a clear
+        // failure only risks one later duplicate, never losing the drive, so it
+        // must not turn a successful upload into a returned null.
+        await params.offlineCache.clearDrives([offlineDrive.id]).catch(() => {});
+        return record;
       } catch {
         return null; // SyncService will retry from SQLite
       }

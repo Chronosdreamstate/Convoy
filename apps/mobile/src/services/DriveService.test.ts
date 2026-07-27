@@ -70,7 +70,7 @@ describe('DriveService.claimEndNavigation (exactly-once end-screen push)', () =>
     await svc.finishSession({
       groupId: 'g1',
       memberCount: 3,
-      offlineCache: { saveDrive: jest.fn().mockResolvedValue(undefined) },
+      offlineCache: { saveDrive: jest.fn().mockResolvedValue(undefined), clearDrives: jest.fn().mockResolvedValue(undefined) },
       api: { postDrive: jest.fn().mockRejectedValue(new Error('offline')) },
       isOnline: () => false,
       nowMs: 60_000,
@@ -83,6 +83,55 @@ describe('DriveService.claimEndNavigation (exactly-once end-screen push)', () =>
 
   it('exports one app-wide instance shared by both screens', () => {
     expect(driveService).toBeInstanceOf(DriveService);
+  });
+});
+
+describe('DriveService.finishSession (no duplicate drive after online upload)', () => {
+  it('clears the SQLite copy after a successful POST so SyncService cannot re-post it', async () => {
+    const svc = new DriveService();
+    svc.startSession(0);
+    svc.addPoint(37.7, -122.4, 50, 0);
+    svc.addPoint(37.8, -122.3, 60, 60_000);
+
+    const saveDrive = jest.fn().mockResolvedValue(undefined);
+    const clearDrives = jest.fn().mockResolvedValue(undefined);
+    const postDrive = jest.fn().mockResolvedValue({ id: 'server-1' });
+
+    const record = await svc.finishSession({
+      groupId: 'g1',
+      memberCount: 3,
+      offlineCache: { saveDrive, clearDrives },
+      api: { postDrive },
+      isOnline: () => true,
+      nowMs: 60_000,
+    });
+
+    expect(record).toEqual({ id: 'server-1' });
+    expect(postDrive).toHaveBeenCalledTimes(1);
+    // The exact id it saved must be the exact id it clears.
+    const savedId = saveDrive.mock.calls[0][0].id;
+    expect(clearDrives).toHaveBeenCalledWith([savedId]);
+  });
+
+  it('keeps the SQLite copy when the POST fails so SyncService can retry it', async () => {
+    const svc = new DriveService();
+    svc.startSession(0);
+    svc.addPoint(37.7, -122.4, 50, 0);
+    svc.addPoint(37.8, -122.3, 60, 60_000);
+
+    const clearDrives = jest.fn().mockResolvedValue(undefined);
+
+    const record = await svc.finishSession({
+      groupId: 'g1',
+      memberCount: 3,
+      offlineCache: { saveDrive: jest.fn().mockResolvedValue(undefined), clearDrives },
+      api: { postDrive: jest.fn().mockRejectedValue(new Error('network')) },
+      isOnline: () => true,
+      nowMs: 60_000,
+    });
+
+    expect(record).toBeNull();
+    expect(clearDrives).not.toHaveBeenCalled();
   });
 });
 
