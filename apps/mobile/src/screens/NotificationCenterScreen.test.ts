@@ -21,7 +21,7 @@ jest.mock('../services/OfflineQueueService', () => ({
   isOfflineError: jest.fn(),
 }));
 
-import { mergeServerNotifications, NotificationItem } from './NotificationCenterScreen';
+import { mergeServerNotifications, prependRealtime, NotificationItem } from './NotificationCenterScreen';
 
 function makeItem(overrides: Partial<NotificationItem> = {}): NotificationItem {
   return {
@@ -93,5 +93,42 @@ describe('mergeServerNotifications', () => {
     expect(merged.find((n) => n.id === 'a')?.readAt).toBe('2026-07-13T10:05:00.000Z');
     expect(merged.find((n) => n.id === 'b')?.readAt).toBeNull();
     expect(merged.find((n) => n.id === 'c')?.readAt).toBeNull();
+  });
+});
+
+describe('prependRealtime — gap-alert de-duplication', () => {
+  const gap = (groupId: string, memberId: string): NotificationItem =>
+    makeItem({ id: `gap-${groupId}-${memberId}`, type: 'gap_alert', title: 'Rider fell behind' });
+
+  it('collapses repeated same-member gap ticks to a single row (stable id)', () => {
+    // One lag episode fires gap:alert every ~3s; every tick carries the same
+    // stable id, so the center must hold exactly one row for that member.
+    let state: NotificationItem[] = [];
+    for (let i = 0; i < 20; i++) {
+      state = prependRealtime(state, [gap('g1', 'm1')]);
+    }
+    expect(state).toHaveLength(1);
+    expect(state[0].id).toBe('gap-g1-m1');
+  });
+
+  it('keeps a separate row per distinct member falling behind', () => {
+    let state: NotificationItem[] = [];
+    state = prependRealtime(state, [gap('g1', 'm1')]);
+    state = prependRealtime(state, [gap('g1', 'm2')]);
+    state = prependRealtime(state, [gap('g1', 'm1')]); // m1 again — no new row
+    expect(state.map((n) => n.id).sort()).toEqual(['gap-g1-m1', 'gap-g1-m2']);
+  });
+
+  it('preserves the existing row (position + read-state) when a duplicate arrives', () => {
+    const read = { ...gap('g1', 'm1'), readAt: '2026-07-13T10:05:00.000Z' };
+    const merged = prependRealtime([read], [gap('g1', 'm1')]);
+    expect(merged).toHaveLength(1);
+    expect(merged[0].readAt).toBe('2026-07-13T10:05:00.000Z'); // not resurrected as unread
+  });
+
+  it('prepends genuinely new items newest-first and honors the cap', () => {
+    const prev = [makeItem({ id: 'old' })];
+    const merged = prependRealtime(prev, [makeItem({ id: 'new' })], 5);
+    expect(merged.map((n) => n.id)).toEqual(['new', 'old']);
   });
 });

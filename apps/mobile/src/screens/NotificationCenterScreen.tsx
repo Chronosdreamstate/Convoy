@@ -126,6 +126,24 @@ export function mergeServerNotifications(
   });
 }
 
+/**
+ * Prepend fresh real-time (socket-driven) notifications, newest first, and
+ * de-duplicate by id — an id already present is dropped, preserving the
+ * existing row's position and read-state. Gap alerts rely on this: the server
+ * emits gap:alert on every ~3s location tick while a member is behind (only the
+ * background push/history is throttled to 1/60s), so each gap carries a STABLE
+ * id (gap-<groupId>-<memberId>) and the repeats collapse into one row here
+ * instead of flooding the center. Exported for tests.
+ */
+export function prependRealtime(
+  prev: NotificationItem[],
+  incoming: NotificationItem[],
+  max: number = MAX_STORED,
+): NotificationItem[] {
+  const ids = new Set(prev.map((n) => n.id));
+  return [...incoming.filter((n) => !ids.has(n.id)), ...prev].slice(0, max);
+}
+
 function buildSections(items: NotificationItem[]): NotificationSection[] {
   const now = Date.now();
   const oneDayMs = 86400000;
@@ -241,11 +259,7 @@ export default function NotificationCenterScreen() {
 
   const mergeAndSave = useCallback((incoming: NotificationItem[]) => {
     setNotifications((prev) => {
-      const ids = new Set(prev.map((n) => n.id));
-      const merged = [
-        ...incoming.filter((n) => !ids.has(n.id)),
-        ...prev,
-      ].slice(0, MAX_STORED);
+      const merged = prependRealtime(prev, incoming);
       void saveToCache(merged);
       return merged;
     });
@@ -297,15 +311,23 @@ export default function NotificationCenterScreen() {
         createdAt: new Date().toISOString(),
         readAt: null,
       }])],
-      ['gap:alert', (d) => mergeAndSave([{
-        id: `gap-${Date.now()}`,
-        type: 'gap_alert',
-        title: `${(d.callsign as string) ?? 'Someone'} fell behind`,
-        body: `Gap detected in your convoy`,
-        data: { groupId: d.groupId as string },
-        createdAt: new Date().toISOString(),
-        readAt: null,
-      }])],
+      ['gap:alert', (d) => {
+        const gid = d.groupId as string | undefined;
+        const mid = d.memberId as string | undefined;
+        mergeAndSave([{
+          // Stable per member+group: the server emits gap:alert every ~3s tick
+          // while a member lags, so a timestamp id flooded the center with
+          // dozens of identical rows in one episode. A stable id collapses them
+          // to a single row (matching the server's 1-per-60s persisted copy).
+          id: gid && mid ? `gap-${gid}-${mid}` : `gap-${Date.now()}`,
+          type: 'gap_alert',
+          title: `${(d.callsign as string) ?? 'Someone'} fell behind`,
+          body: `Gap detected in your convoy`,
+          data: { groupId: gid as string, memberId: mid as string },
+          createdAt: new Date().toISOString(),
+          readAt: null,
+        }]);
+      }],
       ['friend:request', (d) => mergeAndSave([{
         id: `fr-${Date.now()}`,
         type: 'friend_request',
