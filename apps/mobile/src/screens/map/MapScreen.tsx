@@ -850,14 +850,19 @@ export default function MapScreen({ groupId, socketUrl, isAdmin: isAdminProp = f
 
   // Fetch member display names once when group is active so markers and panels show real names
   useEffect(() => {
-    if (!groupId || !token) { memberNamesRef.current = {}; return; }
+    if (!groupId || !token) { memberNamesRef.current = {}; memberCallsignsRef.current = {}; return; }
     apiClient
-      .get<{ members: Array<{ userId: string; displayName?: string; vehicle?: { year?: number | null; make?: string | null; model?: string | null; color?: string | null } | null }> }>(`/api/v1/groups/${groupId}/members`)
+      .get<{ members: Array<{ userId: string; displayName?: string; pttCallsign?: string | null; vehicle?: { year?: number | null; make?: string | null; model?: string | null; color?: string | null } | null }> }>(`/api/v1/groups/${groupId}/members`)
       .then((res) => {
         const names: Record<string, string> = {};
+        const callsigns: Record<string, string> = {};
         const vehicles: Record<string, string> = {};
         for (const m of res.data.members) {
           if (m.displayName) names[m.userId] = m.displayName;
+          // Callsign is preferred on map markers and member rows (see
+          // MemberMarkerView / renderMemberRow) — without populating this ref the
+          // callsign UI silently fell back to initials/name for every member.
+          if (m.pttCallsign) callsigns[m.userId] = m.pttCallsign;
           const parts = m.vehicle
             ? [m.vehicle.color, m.vehicle.year, m.vehicle.make, m.vehicle.model].filter(Boolean)
             : [];
@@ -866,6 +871,7 @@ export default function MapScreen({ groupId, socketUrl, isAdmin: isAdminProp = f
           vehicles[m.userId] = parts.length ? parts.join(' ') : 'No vehicle set';
         }
         memberNamesRef.current = names;
+        memberCallsignsRef.current = callsigns;
         memberVehiclesRef.current = vehicles;
         memberCountRef.current = res.data.members.length;
       })
