@@ -464,11 +464,17 @@ async function friendsRoutes(
     try {
       await client.query('BEGIN');
 
-      // Remove any existing friendship or pending request in either direction
+      // Remove any existing friendship or pending request in either direction.
+      // Exclude 'blocked' rows: the blocker's own block is refreshed by the
+      // upsert below, and — critically — the OTHER user's block of the blocker
+      // (requester_id = blockedId, status = 'blocked') must be preserved.
+      // Deleting it let a blocker strip the victim's independent block via a
+      // block-then-unblock, silently un-blocking themselves without consent.
       await client.query(
         `DELETE FROM friendships
-         WHERE (requester_id = $1 AND addressee_id = $2)
-            OR (requester_id = $2 AND addressee_id = $1)`,
+         WHERE ((requester_id = $1 AND addressee_id = $2)
+             OR (requester_id = $2 AND addressee_id = $1))
+           AND status <> 'blocked'`,
         [blockerId, blockedId],
       );
 

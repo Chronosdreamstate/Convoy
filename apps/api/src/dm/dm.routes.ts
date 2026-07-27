@@ -75,6 +75,16 @@ export default async function dmRoutes(fastify: FastifyInstance) {
     );
     if ((byPair.rowCount ?? 0) > 0) {
       const groupId = byPair.rows[0].id;
+      // Reactivate memberships in case a prior block soft-removed one/both rows
+      // (POST /friends/block sets left_at on the shared DM). Without this, a DM
+      // re-opened after unblock + re-friend hands back a groupId whose members
+      // are still left_at != NULL, so the membership-gated message endpoints
+      // silently 403 and the conversation appears broken.
+      await fastify.db.query(
+        `INSERT INTO convoy_members (group_id, user_id) VALUES ($1, $2), ($1, $3)
+         ON CONFLICT (group_id, user_id) DO UPDATE SET left_at = NULL`,
+        [groupId, userId, friendId],
+      );
       joinDmRoomSockets(fastify.io, groupId, [userId, friendId]);
       return reply.send({ groupId });
     }
