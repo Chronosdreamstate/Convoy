@@ -17,6 +17,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { HAZARD_TYPES, HazardType } from '../services/HazardService';
 import { ThemeColors, useTheme } from '../theme';
+import { useReduceMotion } from '../hooks/useReduceMotion';
 
 // ---------------------------------------------------------------------------
 // Label / emoji mapping for display
@@ -72,12 +73,17 @@ interface CardProps {
 
 function HazardCard({ label, emoji, isSelected, size, onPress, styles }: CardProps) {
   const scale = useRef(new Animated.Value(1)).current;
+  const reduceMotion = useReduceMotion();
 
   const handlePress = () => {
-    Animated.sequence([
-      Animated.timing(scale, { toValue: 0.92, duration: 70, useNativeDriver: true }),
-      Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 24, bounciness: 5 }),
-    ]).start();
+    // Skip the press-bounce under OS reduce-motion (matches NotificationRow's
+    // press-scale gating); selection is still conveyed by the card's border.
+    if (!reduceMotion) {
+      Animated.sequence([
+        Animated.timing(scale, { toValue: 0.92, duration: 70, useNativeDriver: true }),
+        Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 24, bounciness: 5 }),
+      ]).start();
+    }
     onPress();
   };
 

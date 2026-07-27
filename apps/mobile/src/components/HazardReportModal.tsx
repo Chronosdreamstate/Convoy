@@ -150,6 +150,14 @@ function HazardReportModal({ visible, onClose, lat, lng, isInMotion = false }: P
       ? `${lat.toFixed(5)}, ${lng.toFixed(5)}`
       : 'Acquiring GPS…';
 
+  // Gate the submit button so it can't fail silently or double-fire:
+  //  - lat/lng null → handleSubmit early-returns with no feedback (the button
+  //    looked enabled once a type was picked but did nothing while GPS acquired);
+  //  - toast set → the result banner shows for 2.2s while `submitting` is already
+  //    back to false, so a second tap would POST a duplicate hazard.
+  const gpsReady = lat != null && lng != null;
+  const canSubmit = !!type && gpsReady && !submitting && toast === null;
+
   return (
     <Modal
       visible={visible}
@@ -245,15 +253,20 @@ function HazardReportModal({ visible, onClose, lat, lng, isInMotion = false }: P
 
           {/* Submit */}
           <TouchableOpacity
-            style={[s.submitBtn, (!type || submitting) && s.submitOff]}
+            style={[s.submitBtn, !canSubmit && s.submitOff]}
             onPress={handleSubmit}
-            disabled={!type || submitting}
+            disabled={!canSubmit}
             activeOpacity={0.8}
             accessibilityRole="button"
             accessibilityLabel="Report Hazard"
+            accessibilityState={{ disabled: !canSubmit }}
           >
             <Text style={s.submitTxt}>
-              {submitting ? 'Reporting…' : 'Report Hazard'}
+              {submitting
+                ? 'Reporting…'
+                : !gpsReady
+                  ? 'Waiting for GPS…'
+                  : 'Report Hazard'}
             </Text>
           </TouchableOpacity>
 
