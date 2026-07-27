@@ -668,7 +668,7 @@ export default function DriveHistoryScreen() {
     }
   }, [expandedId, expandAnim, expandContentHeights]);
 
-  const fetchDrives = useCallback(async (pageNum: number, replace: boolean) => {
+  const fetchDrives = useCallback(async (pageNum: number, replace: boolean): Promise<boolean> => {
     if (replace) setFetchError(null);
     try {
       const res = await apiClient.get<{
@@ -678,8 +678,10 @@ export default function DriveHistoryScreen() {
       setDrives((prev) => (replace ? res.data.drives : [...prev, ...res.data.drives]));
       setHasMore(pageNum < res.data.pagination.pages);
       if (replace) setPage(1);
+      return true;
     } catch {
       if (replace) setFetchError('Could not load drive history. Check your connection.');
+      return false;
     } finally {
       setLoading(false);
     }
@@ -700,8 +702,11 @@ export default function DriveHistoryScreen() {
     if (!hasMore || loading || loadingMore) return;
     const next = page + 1;
     setLoadingMore(true);
+    // Only advance the page cursor when the fetch actually succeeded — a failed
+    // load-more must not bump `page`, or the next attempt would skip past the
+    // page that never loaded and silently drop a chunk of history.
     void fetchDrives(next, false)
-      .then(() => setPage(next))
+      .then((ok) => { if (ok) setPage(next); })
       .finally(() => setLoadingMore(false));
   }, [hasMore, loading, loadingMore, page, fetchDrives]);
 

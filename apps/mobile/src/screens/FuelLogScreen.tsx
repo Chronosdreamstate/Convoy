@@ -11,6 +11,7 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { apiClient } from '../services/apiClient';
 import { MotionCapNotice, useMotionCappedData } from '../components/MotionAwareList';
+import { useMotionGuard } from '../hooks/useMotionGuard';
 import { SkeletonBox } from '../components/SkeletonLoader';
 import { useSettingsStore } from '../stores/settingsStore';
 import { useTheme, withAlpha, ThemeColors } from '../theme';
@@ -274,6 +275,7 @@ function AddModal({ visible, onClose, onSaved }: {
 export default function FuelLogScreen() {
   const { colors } = useTheme();
   const s = useMemo(() => createStyles(colors), [colors]);
+  const guardInMotion = useMotionGuard();
   const [entries, setEntries] = useState<FuelEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -427,7 +429,7 @@ export default function FuelLogScreen() {
       />
 
       {/* FAB — bottom-right, 56 px crimson */}
-      <TouchableOpacity style={s.fab} onPress={() => setShowModal(true)} accessibilityRole="button" accessibilityLabel="Add fuel log">
+      <TouchableOpacity style={s.fab} onPress={() => { if (!guardInMotion()) setShowModal(true); }} accessibilityRole="button" accessibilityLabel="Add fuel log">
         <Ionicons name="add" size={30} color={ON_ACCENT} />
       </TouchableOpacity>
 
