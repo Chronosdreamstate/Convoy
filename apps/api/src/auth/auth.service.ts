@@ -2,7 +2,7 @@ import { FastifyInstance, FastifyReply } from 'fastify';
 import { Pool } from 'pg';
 import Redis from 'ioredis';
 import jwt from 'jsonwebtoken';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, randomInt } from 'node:crypto';
 import { env } from '../config/env';
 
 // 30 days in seconds — must match JWT_REFRESH_TTL config
@@ -19,7 +19,9 @@ const OTP_TTL_SECONDS = 300;
  * In production this would trigger an SMS; here we return it for mock usage.
  */
 export async function requestOtp(phone: string, redis: Redis): Promise<string> {
-  const otp = String(Math.floor(100000 + Math.random() * 900000));
+  // CSPRNG — Math.random() is not cryptographically secure and its output is
+  // predictable, which would undermine the limited-guess verify budget.
+  const otp = String(randomInt(100000, 1000000));
   await redis.set(`otp:${phone}`, otp, 'EX', OTP_TTL_SECONDS);
   return otp;
 }

@@ -285,11 +285,15 @@ async function authRoutes(fastify: FastifyInstance, _opts: FastifyPluginOptions)
       return reply.tooManyRequests('Too many signup attempts. Please try again later.');
     }
 
-    // Reject if this email already has an email auth provider (prevents duplicate rows)
+    // Reject if ANY account already owns this email — not just one with an
+    // 'email' provider. A user who signed up via Google/Apple has users.email
+    // set but no 'email' provider row; the old provider-scoped check let an
+    // attacker who knows that email register email/password onto the victim's
+    // existing user row (upsertUserByEmail's ON CONFLICT (email) DO UPDATE
+    // returns the victim's id) and then log straight into their account. Email
+    // linking must go through an authenticated flow, never unauthenticated signup.
     const existing = await fastify.db.query(
-      `SELECT u.id FROM users u
-       JOIN auth_providers ap ON ap.user_id = u.id AND ap.provider = 'email'
-       WHERE u.email = $1 LIMIT 1`,
+      `SELECT id FROM users WHERE email = $1 LIMIT 1`,
       [email],
     );
     if (existing.rows.length > 0) {
@@ -363,6 +367,11 @@ async function authRoutes(fastify: FastifyInstance, _opts: FastifyPluginOptions)
         error: { code: 'INVALID_CREDENTIALS', message: 'Invalid credentials' },
       });
     }
+
+    // Successful auth clears the failure counter so a legitimate user isn't
+    // locked out by earlier failures (and their own multi-device logins don't
+    // burn the budget) — mirrors the OTP-verify path.
+    await fastify.redis.del(loginKey);
 
     const { accessToken, refreshToken } = await issueTokens(row.id, fastify);
     setRefreshCookie(reply, refreshToken, env.NODE_ENV);
