@@ -44,11 +44,11 @@ function SosAlertModal({
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const timestampRef = useRef<string>('');
 
-  // Stable callback refs so the interval never stale-closes over props
+  // Stable callback ref so the interval never stale-closes over props. Only the
+  // auto/ manual acknowledge paths fire from inside the interval; the Dismiss
+  // button calls onDismiss directly, so no ref is needed for it.
   const onAcknowledgeRef = useRef(onAcknowledge);
-  const onDismissRef = useRef(onDismiss);
   useEffect(() => { onAcknowledgeRef.current = onAcknowledge; }, [onAcknowledge]);
-  useEffect(() => { onDismissRef.current = onDismiss; }, [onDismiss]);
 
   // Record timestamp and reset state each time the modal opens OR advances to a
   // different alert. MapScreen reuses this single instance for a QUEUE of alerts
@@ -69,10 +69,14 @@ function SosAlertModal({
 
   const reduceMotion = useReduceMotion();
 
-  // Alert haptic — fires once per open, independent of the motion setting.
+  // Alert haptic — fires for each distinct alert, independent of the motion
+  // setting. MapScreen reuses this instance for a QUEUE (visible stays true as
+  // one alert is cleared and the next takes its place), so keying only on
+  // `visible` left every alert after the first arriving with no haptic at all —
+  // a silent miss for a safety-critical notification. Include the alert identity.
   useEffect(() => {
     if (visible) HapticService.trigger('error');
-  }, [visible]);
+  }, [visible, memberName, locationLat, locationLng]);
 
   // Pulse animation — scale 1.0 → 1.2 → 1.0 over 800ms total.
   // With OS reduce-motion on, the icon holds still — urgency is still conveyed
@@ -110,10 +114,12 @@ function SosAlertModal({
         if (prev <= 1) {
           clearInterval(intervalRef.current!);
           intervalRef.current = null;
-          // Defer callbacks outside the state-update cycle
+          // Defer callbacks outside the state-update cycle. Acknowledge already
+          // advances the alert queue (MapScreen's handler emits ack AND drops
+          // the alert), so calling onDismiss too would slice a SECOND time and
+          // silently skip the next queued SOS — call acknowledge only.
           setTimeout(() => {
             onAcknowledgeRef.current();
-            onDismissRef.current();
           }, 0);
           return 0;
         }
@@ -127,7 +133,12 @@ function SosAlertModal({
         intervalRef.current = null;
       }
     };
-  }, [visible, cancelled]);
+    // memberName/coords are in the deps so the countdown RESTARTS for each new
+    // alert in the queue. Without them, an alert that auto-acknowledged (which
+    // leaves `cancelled` false) advanced to the next alert with `visible` and
+    // `cancelled` both unchanged — so this effect never re-ran and the next
+    // alert's countdown sat frozen, never auto-acknowledging.
+  }, [visible, cancelled, memberName, locationLat, locationLng]);
 
   const handleCall911 = () => {
     Linking.openURL('tel:911');
@@ -139,8 +150,9 @@ function SosAlertModal({
 
   const handleAlertGroup = () => {
     setCancelled(true);
+    // Acknowledge already advances the queue (see auto-acknowledge note above);
+    // calling onDismiss as well would slice a second alert off and skip it.
     onAcknowledgeRef.current();
-    onDismissRef.current();
   };
 
   const handleDismiss = () => {
