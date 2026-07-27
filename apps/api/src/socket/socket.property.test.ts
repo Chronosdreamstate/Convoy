@@ -794,6 +794,82 @@ describe('registerSocketHandlers — connect race (synchronous listener registra
     expect(ack).not.toHaveBeenCalled(); // gated handlers drop everything
     expect(socket.rooms.size).toBe(0); // no rooms were joined
   });
+
+  // convoy:start must persist a convoy_started row per other member, so the
+  // "Convoy started" entry the mobile client synthesizes from the live socket
+  // event survives a Notification Center refresh (which reconciles against
+  // GET /notifications and drops any row the server doesn't return).
+  it('convoy:start persists a convoy_started notification for every other member', async () => {
+    const admin = 'u-admin';
+    const inserts: Array<unknown[]> = [];
+    const query: QueryFn = async (sql, params = []) => {
+      if (sql.includes('SELECT id FROM convoy_members')) {
+        return { rows: [{ id: 'm-self' }], rowCount: 1 }; // connect-time membership → member
+      }
+      if (sql.includes('FROM convoy_groups')) {
+        return { rows: [{ admin_id: admin, name: 'Sunday Cruise' }], rowCount: 1 };
+      }
+      if (sql.includes('SELECT user_id FROM convoy_members')) {
+        return { rows: [{ user_id: 'm2' }, { user_id: 'm3' }], rowCount: 2 };
+      }
+      if (sql.includes('INSERT INTO notification_history')) {
+        inserts.push(params);
+        return { rows: [], rowCount: 1 };
+      }
+      return { rows: [], rowCount: 0 };
+    };
+    const handler = registerSocketHandlers(
+      connMockFastify(query),
+      buildMockIO([]) as unknown as SocketIO,
+    );
+    const socket = new MockSocket('cs-1', { userId: admin, groupId: 'g1' });
+    handler(socket as unknown as Socket);
+    await flush(); // connect-time membership check resolves → whenReady true
+
+    socket.trigger('convoy:start', { groupId: 'g1' });
+    await flush();
+    await flush();
+    await flush();
+
+    // one row per OTHER member (m2, m3); the starting admin is excluded
+    expect(inserts.map((p) => p[0])).toEqual(['m2', 'm3']);
+    for (const params of inserts) {
+      expect(params[1]).toBe('convoy_started');
+      expect(params[2]).toBe('Convoy started');
+      expect(params[3]).toBe('Sunday Cruise is on the move');
+      expect(JSON.parse(params[4] as string)).toEqual({ groupId: 'g1' });
+    }
+  });
+
+  it('convoy:start from a non-admin persists nothing', async () => {
+    const inserts: Array<unknown[]> = [];
+    const query: QueryFn = async (sql) => {
+      if (sql.includes('SELECT id FROM convoy_members')) {
+        return { rows: [{ id: 'm-self' }], rowCount: 1 };
+      }
+      if (sql.includes('FROM convoy_groups')) {
+        return { rows: [{ admin_id: 'someone-else', name: 'Sunday Cruise' }], rowCount: 1 };
+      }
+      if (sql.includes('INSERT INTO notification_history')) {
+        inserts.push([]);
+        return { rows: [], rowCount: 1 };
+      }
+      return { rows: [], rowCount: 0 };
+    };
+    const handler = registerSocketHandlers(
+      connMockFastify(query),
+      buildMockIO([]) as unknown as SocketIO,
+    );
+    const socket = new MockSocket('cs-2', { userId: 'u-not-admin', groupId: 'g1' });
+    handler(socket as unknown as Socket);
+    await flush();
+
+    socket.trigger('convoy:start', { groupId: 'g1' });
+    await flush();
+    await flush();
+
+    expect(inserts).toHaveLength(0);
+  });
 });
 
 // ---------------------------------------------------------------------------

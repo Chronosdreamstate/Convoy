@@ -1188,6 +1188,27 @@ export function registerSocketHandlers(
           startedBy: userId,
           groupName: group.rows[0]?.name,
         });
+
+        // Persist to notification_history so the "Convoy started" entry survives
+        // a Notification Center refresh. The mobile client synthesizes this row
+        // from the socket event with a client-only id, but on pull-to-refresh it
+        // reconciles against GET /notifications and drops any row the server
+        // doesn't return — so without a persisted copy the entry silently
+        // vanished. Mirrors the convoy:alert persistence pattern above; the
+        // starter is excluded since they triggered it deliberately. Non-fatal.
+        try {
+          const groupName = group.rows[0]?.name;
+          const members = await fastify.db.query<{ user_id: string }>(
+            'SELECT user_id FROM convoy_members WHERE group_id = $1 AND user_id != $2 AND left_at IS NULL',
+            [payloadGroupId, userId],
+          );
+          for (const m of members.rows) {
+            await fastify.db.query(
+              'INSERT INTO notification_history (user_id, type, title, body, data) VALUES ($1, $2, $3, $4, $5)',
+              [m.user_id, 'convoy_started', 'Convoy started', `${groupName ?? 'Your group'} is on the move`, JSON.stringify({ groupId: payloadGroupId })],
+            );
+          }
+        } catch { /* non-fatal — live socket event already delivered */ }
       } catch (err) {
         fastify.log.error({ err }, 'convoy start error');
       }
