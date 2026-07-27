@@ -400,6 +400,7 @@ function MessageBubble({ item, isOwn, currentUserId, onLongPress, onReact, onRet
                   r.userIds.includes(currentUserId) && styles.reactionPillOwn,
                 ]}
                 onPress={() => onReact(item.id, r.emoji)}
+                accessibilityRole="button"
                 accessibilityLabel={`${r.emoji} ${r.userIds.length}`}
               >
                 <Text style={styles.reactionEmoji}>{r.emoji}</Text>
