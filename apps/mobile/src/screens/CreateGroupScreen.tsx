@@ -42,8 +42,9 @@ const VEHICLE_TYPES: Array<{ type: string; label: string; icon: keyof typeof Mat
   { type: 'track_car', label: 'Track days', icon: 'flag-checkered' },
 ];
 
+// Floor is 100 m to match the server's create + settings schemas (both min
+// 100) — a 50 m option produced groups that then failed their own settings save.
 const GAP_OPTIONS = [
-  { label: '50 m', value: 50 },
   { label: '100 m', value: 100 },
   { label: '200 m', value: 200 },
   { label: '500 m', value: 500 },

@@ -19,7 +19,10 @@ const createGroupSchema = z.object({
   name: z.string().min(1).max(100),
   accessType: z.enum(['open', 'invite_only']).optional().default('open'),
   vehicleFocus: z.string().max(50).optional(),
-  gapThresholdM: z.number().int().min(50).max(160000).optional(),
+  // 100 m floor matches patchSettingsSchema below — otherwise a group created
+  // at 50 m failed its own settings save (min 100), which the app then had to
+  // clamp around.
+  gapThresholdM: z.number().int().min(100).max(160000).optional(),
   pttChannelName: z.string().max(40).optional(),
 });
 
@@ -228,7 +231,7 @@ async function groupsRoutes(
           name: { type: 'string', minLength: 1, maxLength: 100 },
           accessType: { type: 'string', enum: ['open', 'invite_only'] },
           vehicleFocus: { type: 'string', maxLength: 50 },
-          gapThresholdM: { type: 'integer', minimum: 50, maximum: 160000 },
+          gapThresholdM: { type: 'integer', minimum: 100, maximum: 160000 },
           pttChannelName: { type: 'string', maxLength: 40 },
         },
       },

@@ -113,7 +113,13 @@ const pillSelectorStyles = StyleSheet.create({
 // Constants
 // ---------------------------------------------------------------------------
 
+// Must cover every gap value a group can already have so the loaded value
+// always matches a pill (otherwise none renders selected). CreateGroupScreen
+// offers 100/200/500 (default 100); the patch endpoint's min is 100, so a
+// group created at 50 is clamped up on load (see loadSettings).
 const GAP_OPTIONS = [
+  { label: '100 m', value: 100 },
+  { label: '200 m', value: 200 },
   { label: '500 m', value: 500 },
   { label: '1 km', value: 1000 },
   { label: '2 km', value: 2000 },
@@ -190,7 +196,9 @@ export default function GroupSettingsScreen() {
       const g = settingsRes.data;
       setSettings(g);
       setName(g.name);
-      setGapThresholdM(g.gapThresholdM);
+      // The patch endpoint enforces a 100 m minimum (create allows 50), so a
+      // group made at 50 would 400 on save — clamp it up to the valid floor.
+      setGapThresholdM(Math.max(100, g.gapThresholdM));
       setPttMaxSeconds(g.pttMaxSeconds);
       setAccessType(g.accessType);
       if (membersRes) {
