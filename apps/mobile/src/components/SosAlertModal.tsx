@@ -50,7 +50,13 @@ function SosAlertModal({
   useEffect(() => { onAcknowledgeRef.current = onAcknowledge; }, [onAcknowledge]);
   useEffect(() => { onDismissRef.current = onDismiss; }, [onDismiss]);
 
-  // Record timestamp and reset state each time modal opens
+  // Record timestamp and reset state each time the modal opens OR advances to a
+  // different alert. MapScreen reuses this single instance for a QUEUE of alerts
+  // (sosAlerts[0]) — when one is acknowledged/dismissed and another remains,
+  // `visible` stays true while memberName/coords change. Keying the reset only
+  // on `visible` left the next alert showing the previous alert's timestamp and
+  // a frozen countdown (auto-acknowledge never restarted), so include the alert
+  // identity in the deps too.
   useEffect(() => {
     if (!visible) return;
     timestampRef.current = new Date().toLocaleTimeString([], {
@@ -59,7 +65,7 @@ function SosAlertModal({
     });
     setCancelled(false);
     setCountdown(COUNTDOWN_START);
-  }, [visible]);
+  }, [visible, memberName, locationLat, locationLng]);
 
   const reduceMotion = useReduceMotion();
 
@@ -198,6 +204,10 @@ function SosAlertModal({
                 onPress={handleCancel}
                 accessibilityRole="button"
                 accessibilityLabel="Cancel auto-acknowledge"
+                // The chip itself is short (padding-driven); extend the touch
+                // target to the 44pt minimum (Req 39.1) so this emergency
+                // control is easy to hit.
+                hitSlop={{ top: 12, bottom: 12, left: 10, right: 10 }}
               >
                 <Text style={styles.cancelChipText}>Cancel</Text>
               </TouchableOpacity>

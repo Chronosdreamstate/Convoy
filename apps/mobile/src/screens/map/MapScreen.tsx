@@ -2553,6 +2553,8 @@ export default function MapScreen({ groupId, socketUrl, isAdmin: isAdminProp = f
                   onPressOut={handlePttEnd}
                   accessibilityLabel={pttAdminMuted ? 'Muted by admin' : 'Hold to push to talk'}
                   accessibilityRole="button"
+                  // 40×40 button — extend the touch target to the 44pt minimum (Req 39.1).
+                  hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
                 >
                   <Ionicons
                     name={pttAdminMuted ? 'mic-off' : isPttTransmitting ? 'radio' : 'mic'}
