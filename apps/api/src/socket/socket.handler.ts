@@ -467,8 +467,16 @@ export async function handleSosAcknowledge(params: {
     io.to(`group:${groupId}`).emit('sos:acknowledged', payload);
   }
 
-  // sos_hero achievement — credit the member who responded to the alert.
-  await incrementStatCounter(db, ackUserId, 'sos_hero', 1);
+  // sos_hero achievement — credit the responding member, but only for a real
+  // SOS pin (a client could otherwise farm the counter by emitting
+  // sos:acknowledge with an arbitrary/expired sosId) and only once per SOS per
+  // responder (SET NX gate; TTL matches the pin's 2h lifetime).
+  if (sos) {
+    const firstAck = await redis.set(`sos_hero:${sosId}:${ackUserId}`, '1', 'EX', 7_200, 'NX');
+    if (firstAck === 'OK') {
+      await incrementStatCounter(db, ackUserId, 'sos_hero', 1);
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------

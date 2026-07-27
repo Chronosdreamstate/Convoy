@@ -166,12 +166,12 @@ async function usersRoutes(
     const result = await fastify.db.query<PublicProfileRow>(
       `SELECT u.id, u.display_name, u.avatar_url, u.ptt_callsign, u.bio, u.created_at,
               v.vehicle_type, v.make AS vehicle_make, v.model AS vehicle_model,
-              v.year AS vehicle_year, v.color AS vehicle_color, v.mods,
+              v.year AS vehicle_year, v.color AS vehicle_color, u.mods,
               COALESCE(ds.total_drives, 0)::text AS total_drives,
               COALESCE(ROUND(ds.total_distance_m / 1000.0), 0)::text AS total_distance_km
        FROM users u
        LEFT JOIN LATERAL (
-         SELECT vehicle_type, make, model, year, color, mods
+         SELECT vehicle_type, make, model, year, color
          FROM vehicles WHERE user_id = u.id AND is_active = true LIMIT 1
        ) v ON true
        LEFT JOIN LATERAL (

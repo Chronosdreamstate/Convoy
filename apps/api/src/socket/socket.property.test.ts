@@ -905,7 +905,12 @@ describe('Property 98: haversineMeters(A, B) <= 20_037_508 for any coordinate pa
 // ---------------------------------------------------------------------------
 describe('SOS acknowledgment routing', () => {
   function buildSosRedis(pins: Record<string, string>): Redis {
-    return { get: async (key: string) => pins[key] ?? null } as unknown as Redis;
+    return {
+      get: async (key: string) => pins[key] ?? null,
+      // sos_hero dedup gate — first acknowledgement wins ('OK'); tests don't
+      // exercise a repeat so a constant 'OK' is sufficient here.
+      set: async () => 'OK',
+    } as unknown as Redis;
   }
 
   function buildStatDb(): Pool {

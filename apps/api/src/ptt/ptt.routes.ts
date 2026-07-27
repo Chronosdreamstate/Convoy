@@ -399,9 +399,11 @@ export default async function pttRoutes(fastify: FastifyInstance): Promise<void>
           [userId, id],
         );
 
-        // Add to the new channel
+        // Add to the new channel. ON CONFLICT keeps a client retry / concurrent
+        // re-join idempotent instead of raising a 23505 unique violation (500).
         await client.query(
-          'INSERT INTO ptt_channel_members (channel_id, user_id) VALUES ($1, $2)',
+          `INSERT INTO ptt_channel_members (channel_id, user_id) VALUES ($1, $2)
+           ON CONFLICT (channel_id, user_id) DO NOTHING`,
           [channelId, userId],
         );
 
