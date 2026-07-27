@@ -690,7 +690,13 @@ export default function GroupChatScreen() {
 
     try {
       const { data } = await apiClient.post<Message>(`/api/v1/groups/${groupId}/messages`, { text: trimmed });
-      setMessages((prev) => prev.map((m) => (m.id === clientId ? { ...data, pending: false } : m)));
+      setMessages((prev) => {
+        // The socket echo of this same message can beat the POST response back;
+        // if it did, a real-id copy is already in the list. Drop it before
+        // reconciling the optimistic bubble so we don't end up with duplicates.
+        const deduped = prev.filter((m) => m.id !== data.id);
+        return deduped.map((m) => (m.id === clientId ? { ...data, pending: false } : m));
+      });
     } catch {
       setMessages((prev) => prev.map((m) => (m.id === clientId ? { ...m, pending: false, failed: true } : m)));
     } finally {
@@ -705,10 +711,13 @@ export default function GroupChatScreen() {
   // Tapping a failed bubble drops it and re-sends the same text as a fresh
   // optimistic message, rather than dumping it back into the input box.
   const handleRetry = useCallback((message: Message) => {
-    if (!message.text) return;
+    // Bail if a send is already in flight: sendMessage() no-ops while `sending`,
+    // so removing the failed bubble first would silently drop the text with no
+    // bubble and no retry affordance. Leave it; the user can retry once idle.
+    if (!message.text || sending) return;
     setMessages((prev) => prev.filter((m) => m.id !== message.id));
     void sendMessage(message.text);
-  }, [sendMessage]);
+  }, [sending, sendMessage]);
 
   // ---------------------------------------------------------------------------
   // Voice recording

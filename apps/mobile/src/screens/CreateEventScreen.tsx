@@ -232,7 +232,8 @@ export default function CreateEventScreen() {
           placeholder="Meeting point, route notes…"
           placeholderTextColor={colors.textSubtle}
           value={description}
-          onChangeText={setDescription}
+          onChangeText={(t) => setDescription(t.slice(0, 1000))}
+          maxLength={1000}
           multiline
           numberOfLines={4}
           textAlignVertical="top"

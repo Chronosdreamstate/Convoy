@@ -383,7 +383,7 @@ export default function MemberDetailModal({
               <>
                 <Ionicons
                   name={
-                    friendStatus === 'accepted' || friendSent
+                    friendStatus === 'accepted'
                       ? 'checkmark-circle'
                       : isIncomingPending
                         ? 'mail-unread-outline'
@@ -392,7 +392,7 @@ export default function MemberDetailModal({
                           : 'person-add-outline'
                   }
                   size={15}
-                  color={friendStatus === 'accepted' || friendSent ? colors.success : colors.text}
+                  color={friendStatus === 'accepted' ? colors.success : colors.text}
                   style={styles.btnIcon}
                 />
                 <Text style={styles.addFriendText}>{friendBtnLabel}</Text>

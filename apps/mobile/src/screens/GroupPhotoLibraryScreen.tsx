@@ -282,7 +282,10 @@ export default function GroupPhotoLibraryScreen() {
             <SkeletonBox key={i} width={CELL_SIZE} height={CELL_SIZE} borderRadius={0} />
           ))}
         </View>
-      ) : error ? (
+      ) : error && photos.length === 0 ? (
+        // Only take over the whole screen when there's nothing to fall back to.
+        // A transient pull-to-refresh failure must not blank an already-loaded
+        // gallery (mirrors EventDetailScreen's hard-error handling).
         <NetworkError onRetry={() => { setLoading(true); void load(); }} message={error} />
       ) : photos.length === 0 ? (
         <View style={styles.centered}>

@@ -104,7 +104,12 @@ export default function EventDetailScreen() {
   const [reminding, setReminding] = useState(false);
   const [cancelling, setCancelling] = useState(false);
 
-  const isAdmin = event?.createdBy === user?.id;
+  // Gate admin controls (Remind-All / Cancel) on the group's CURRENT admin, not
+  // the event's creator: the API enforces these on the live admin_id, which can
+  // change after an admin handoff. Fall back to createdBy only if the group
+  // fetch failed, so the creator never loses controls to a transient error.
+  const [groupAdminId, setGroupAdminId] = useState<string | null>(null);
+  const isAdmin = groupAdminId ? groupAdminId === user?.id : event?.createdBy === user?.id;
 
   const hasLoadedRef = useRef(false);
   const load = useCallback(async () => {
@@ -115,14 +120,17 @@ export default function EventDetailScreen() {
     // ref (not `event`) so load()'s identity stays stable and can't refetch-loop.
     if (!hasLoadedRef.current) setLoading(true);
     try {
-      const [eventsRes, rsvpRes] = await Promise.all([
+      const [eventsRes, rsvpRes, groupRes] = await Promise.all([
         apiClient.get<{ events: EventData[] }>(
           `/api/v1/groups/${resolvedGroupId}/events`,
         ),
         apiClient.get<{ rsvps: RsvpEntry[]; counts: RsvpCounts; myStatus: RsvpStatus | null }>(
           `/api/v1/groups/${resolvedGroupId}/events/${eventId}/rsvps`,
         ),
+        // Optional — used only to gate admin controls on the current admin.
+        apiClient.get<{ adminId: string }>(`/api/v1/groups/${resolvedGroupId}`).catch(() => null),
       ]);
+      if (groupRes) setGroupAdminId(groupRes.data.adminId);
       // The events list only carries upcoming events — a fetch that succeeds
       // but doesn't contain this id means the event passed or was cancelled,
       // which is a real answer, not an error.

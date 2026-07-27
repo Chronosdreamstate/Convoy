@@ -138,9 +138,9 @@ function FriendRow({
   blocking,
 }: {
   friend: Friend;
-  onRemove: (id: string) => void;
+  onRemove: (friend: Friend) => void;
   removing: boolean;
-  onBlock: (id: string, userId: string) => void;
+  onBlock: (friend: Friend) => void;
   blocking: boolean;
 }) {
   const router = useRouter();
@@ -157,11 +157,11 @@ function FriendRow({
       {
         text: 'Remove', style: 'destructive', onPress: () => {
           // Honor OS reduce-motion: skip the slide-out and remove immediately.
-          if (reduceMotion) { onRemove(friend.id); return; }
+          if (reduceMotion) { onRemove(friend); return; }
           Animated.parallel([
             Animated.timing(slideAnim, { toValue: -80, duration: 250, useNativeDriver: true }),
             Animated.timing(opAnim, { toValue: 0, duration: 250, useNativeDriver: true }),
-          ]).start(() => onRemove(friend.id));
+          ]).start(() => onRemove(friend));
         },
       },
     ]);
@@ -175,11 +175,11 @@ function FriendRow({
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Block', style: 'destructive', onPress: () => {
-            if (reduceMotion) { onBlock(friend.id, friend.userId); return; }
+            if (reduceMotion) { onBlock(friend); return; }
             Animated.parallel([
               Animated.timing(slideAnim, { toValue: -80, duration: 250, useNativeDriver: true }),
               Animated.timing(opAnim, { toValue: 0, duration: 250, useNativeDriver: true }),
-            ]).start(() => onBlock(friend.id, friend.userId));
+            ]).start(() => onBlock(friend));
           },
         },
       ],
@@ -310,22 +310,40 @@ function FriendsTab({ query }: { query: string }) {
     setRefreshing(false);
   }, [load]);
 
-  const handleRemove = useCallback(async (id: string) => {
-    setRemoving(id);
-    try {
-      await apiClient.delete(`/api/v1/friends/${id}`);
-      setFriends(p => p.filter(f => f.id !== id));
-    } catch { setError('Could not remove friend.'); }
-    finally { setRemoving(null); }
+  // Optimistic removal with rollback: the row animates out before the mutation
+  // resolves, so if we only removed on success a failed call would leave a
+  // faded-out phantom row still in state (looks like success, can't be re-acted
+  // on). Remove immediately, restore on real failure — the restore remounts a
+  // fresh row with reset animation values (mirrors the withdraw flow).
+  const handleRemove = useCallback((friend: Friend) => {
+    setRemoving(friend.id);
+    setFriends(p => p.filter(f => f.id !== friend.id));
+    void (async () => {
+      try {
+        await apiClient.delete(`/api/v1/friends/${friend.id}`);
+      } catch (e: unknown) {
+        // 404 = already gone server-side — removed is the correct end state.
+        if ((e as { status?: number }).status !== 404) {
+          setFriends(p => (p.some(f => f.id === friend.id) ? p : [...p, friend]));
+          setError('Could not remove friend.');
+        }
+      } finally { setRemoving(null); }
+    })();
   }, []);
 
-  const handleBlock = useCallback(async (id: string, userId: string) => {
-    setBlocking(id);
-    try {
-      await apiClient.post('/api/v1/friends/block', { userId });
-      setFriends(p => p.filter(f => f.id !== id));
-    } catch { setError('Could not block user.'); }
-    finally { setBlocking(null); }
+  const handleBlock = useCallback((friend: Friend) => {
+    setBlocking(friend.id);
+    setFriends(p => p.filter(f => f.id !== friend.id));
+    void (async () => {
+      try {
+        await apiClient.post('/api/v1/friends/block', { userId: friend.userId });
+      } catch (e: unknown) {
+        if ((e as { status?: number }).status !== 404) {
+          setFriends(p => (p.some(f => f.id === friend.id) ? p : [...p, friend]));
+          setError('Could not block user.');
+        }
+      } finally { setBlocking(null); }
+    })();
   }, []);
 
   const renderFriendItem = useCallback(({ item }: { item: Friend }) => (
@@ -408,7 +426,7 @@ function RequestRow({
   acting,
 }: {
   req: FriendRequest;
-  onAct: (id: string, action: 'accept' | 'decline') => void;
+  onAct: (req: FriendRequest, action: 'accept' | 'decline') => void;
   acting: { id: string; action: 'accept' | 'decline' } | null;
 }) {
   const { colors } = useTheme();
@@ -419,19 +437,19 @@ function RequestRow({
   const isMe = acting?.id === req.id;
 
   const handleAccept = () => {
-    if (reduceMotion) { onAct(req.id, 'accept'); return; }
+    if (reduceMotion) { onAct(req, 'accept'); return; }
     Animated.parallel([
       Animated.timing(slideAnim, { toValue: 80, duration: 280, useNativeDriver: true }),
       Animated.timing(opAnim, { toValue: 0, duration: 280, useNativeDriver: true }),
-    ]).start(() => onAct(req.id, 'accept'));
+    ]).start(() => onAct(req, 'accept'));
   };
 
   const handleDecline = () => {
-    if (reduceMotion) { onAct(req.id, 'decline'); return; }
+    if (reduceMotion) { onAct(req, 'decline'); return; }
     Animated.parallel([
       Animated.timing(slideAnim, { toValue: -80, duration: 220, useNativeDriver: true }),
       Animated.timing(opAnim, { toValue: 0, duration: 220, useNativeDriver: true }),
-    ]).start(() => onAct(req.id, 'decline'));
+    ]).start(() => onAct(req, 'decline'));
   };
 
   return (
@@ -581,13 +599,23 @@ function RequestsTab({ onCount }: { onCount: (n: number) => void }) {
     setRefreshing(false);
   }, [load]);
 
-  const act = useCallback(async (id: string, action: 'accept' | 'decline') => {
-    setActing({ id, action });
-    try {
-      await apiClient.post(`/api/v1/friends/requests/${id}/${action}`);
-      setReqs(p => p.filter(r => r.id !== id));
-    } catch { setError(`Failed to ${action} request.`); }
-    finally { setActing(null); }
+  // Optimistic removal with rollback — same rationale as FriendsTab.handleRemove:
+  // the row animates out before the call resolves, so removing only on success
+  // would strand a faded-out phantom on failure.
+  const act = useCallback((req: FriendRequest, action: 'accept' | 'decline') => {
+    setActing({ id: req.id, action });
+    setReqs(p => p.filter(r => r.id !== req.id));
+    void (async () => {
+      try {
+        await apiClient.post(`/api/v1/friends/requests/${req.id}/${action}`);
+      } catch (e: unknown) {
+        // 404 = request already gone server-side — removed is the right end state.
+        if ((e as { status?: number }).status !== 404) {
+          setReqs(p => (p.some(r => r.id === req.id) ? p : [req, ...p]));
+          setError(`Failed to ${action} request.`);
+        }
+      } finally { setActing(null); }
+    })();
   }, []);
 
   // Withdraw an outgoing request — optimistic removal, rolled back on failure.

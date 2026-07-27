@@ -273,6 +273,7 @@ export default function GroupBrowseScreen() {
     lng?: number;
     silent?: boolean;
     vehicleType?: VehicleFilter;
+    q?: string;
   } = {}) => {
     if (!opts.silent) setLoading(true);
     setFetchError(null);
@@ -282,6 +283,11 @@ export default function GroupBrowseScreen() {
       if (opts.lng !== undefined) params.lng = opts.lng;
       const vf = opts.vehicleType !== undefined ? opts.vehicleType : vehicleFilter;
       if (vf) params.vehicleType = vf;
+      // Server-side name search (API supports `q`). Without this, a group whose
+      // name matches but which falls outside the first 40 rows is unsearchable
+      // and unjoinable — client-side filtering alone only sees loaded rows.
+      const q = opts.q?.trim();
+      if (q) params.q = q;
 
       const res = await apiClient.get<{ groups: PublicGroup[] }>('/api/v1/groups', { params });
       const fetched = res.data.groups ?? [];
@@ -386,6 +392,18 @@ export default function GroupBrowseScreen() {
     return () => { cancelled = true; };
   }, [activeFilter, fetchGroups]);
 
+  // Debounced server-side search so results aren't limited to the loaded page.
+  // Skips the initial mount (the load effects already fetched with no query).
+  const searchInitRef = useRef(false);
+  useEffect(() => {
+    if (!searchInitRef.current) { searchInitRef.current = true; return; }
+    const handle = setTimeout(() => {
+      const coords = activeFilter === 'Nearby' ? userCoordsRef.current : null;
+      void fetchGroups({ lat: coords?.lat, lng: coords?.lng, q: search, silent: true });
+    }, 350);
+    return () => clearTimeout(handle);
+  }, [search]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const handleRefresh = useCallback(() => {
     setRefreshing(true);
     if (activeFilter === 'Nearby' && userCoordsRef.current) {
@@ -407,9 +425,16 @@ export default function GroupBrowseScreen() {
     setJoiningId(groupId);
     try {
       await apiClient.post(`/api/v1/groups/${groupId}/members`, {});
-      router.back();
-    } catch {
-      Alert.alert('Could not join', 'This group may be full or no longer available.');
+      // Enter the convoy after joining (matches GroupDetailScreen). `back()`
+      // dropped the user on the stale browse list without entering the group.
+      router.replace('/(tabs)/convoy');
+    } catch (e: unknown) {
+      // 409 = already a member — that's a success for "enter this convoy".
+      if ((e as { status?: number }).status === 409) {
+        router.replace('/(tabs)/convoy');
+      } else {
+        Alert.alert('Could not join', 'This group may be full or no longer available.');
+      }
     } finally {
       setJoiningId(null);
     }
