@@ -34,6 +34,25 @@ import { useTheme, ThemeColors } from '../../theme';
 // unreadable on the accent background.
 const ON_ACCENT = '#FFFFFF';
 
+// The API's pttCallsign column only accepts [a-zA-Z0-9_-] (users.routes.ts
+// patchMeSchema regex). Strip anything else as the user types so a stray
+// space or symbol can't produce a 400 the user has no way to understand.
+function sanitizeCallsign(v: string): string {
+  return v.replace(/[^a-zA-Z0-9_-]/g, '');
+}
+
+// Surface the API's specific validation message (e.g. the callsign or
+// display-name rule) from a rejected request instead of a generic failure
+// line. Fastify's reply.badRequest packs the reason into response.data.message.
+function serverMessage(err: unknown): string | null {
+  const data = (err as { response?: { data?: unknown } })?.response?.data;
+  if (data && typeof data === 'object' && 'message' in data) {
+    const m = (data as { message?: unknown }).message;
+    if (typeof m === 'string' && m) return m;
+  }
+  return null;
+}
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -223,9 +242,9 @@ export default function ProfileScreen() {
       setTimeout(() => {
         if (isMounted.current) setSaveSuccess(false);
       }, 3000);
-    } catch {
+    } catch (err) {
       if (!isMounted.current) return;
-      setError('Failed to update profile.');
+      setError(serverMessage(err) ?? 'Failed to update profile.');
     } finally {
       if (isMounted.current) setIsSaving(false);
     }
@@ -471,7 +490,7 @@ export default function ProfileScreen() {
             ref={callsignInputRef}
             style={[styles.nameInput, { marginBottom: 0 }]}
             value={pttCallsign}
-            onChangeText={(v) => { setPttCallsign(v); setIsDirty(true); }}
+            onChangeText={(v) => { setPttCallsign(sanitizeCallsign(v)); setIsDirty(true); }}
             placeholder="e.g. Alpha-1 (optional)"
             placeholderTextColor={colors.textSubtle}
             maxLength={20}
