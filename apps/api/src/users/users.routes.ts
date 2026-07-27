@@ -4,7 +4,10 @@ import { authenticate } from '../middleware/authenticate';
 import { generalLimiter } from '../middleware/rateLimiter';
 
 const PROFANITY = ['fuck', 'shit', 'ass'];
-const profanityFree = (s: string) => !PROFANITY.some((w) => s.toLowerCase().includes(w));
+// Match whole words only. A substring check rejected legitimate names that
+// merely contain a banned word (e.g. "Cassie"/"Bassett" tripping "ass").
+const PROFANITY_RE = new RegExp(`\\b(${PROFANITY.join('|')})\\b`, 'i');
+const profanityFree = (s: string) => !PROFANITY_RE.test(s);
 
 const patchMeSchema = z.object({
   displayName: z.string().min(1).max(50).refine(profanityFree, { message: 'Display name contains disallowed words' }).optional(),

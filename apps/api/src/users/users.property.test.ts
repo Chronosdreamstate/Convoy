@@ -352,6 +352,40 @@ describe('Property 55: PATCH /users/me enforces field constraints', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Display-name profanity filter is word-boundary, not substring
+// A substring check rejected legitimate names that merely CONTAIN a banned
+// word (e.g. "Cassie"/"Bassett" tripping "ass"); the filter must only reject
+// the banned word as a standalone token.
+// ---------------------------------------------------------------------------
+describe('PATCH /users/me display-name profanity filter', () => {
+  async function patchName(name: string): Promise<number> {
+    const app = buildTestApp();
+    resetStore([makeUser('u1')]);
+    const token = await makeToken(app, 'u1');
+    const res = await app.inject({
+      method: 'PATCH',
+      url: '/api/v1/users/me',
+      headers: { Authorization: `Bearer ${token}` },
+      payload: { displayName: name },
+    });
+    await app.close();
+    return res.statusCode;
+  }
+
+  it('accepts names that merely contain a banned word as a substring', async () => {
+    for (const name of ['Cassie', 'Bassett', 'Cassidy', 'Shitake Grower']) {
+      expect(await patchName(name)).toBe(200);
+    }
+  });
+
+  it('still rejects a banned word used as a standalone token', async () => {
+    for (const name of ['ass', 'you ass', 'what an ASS', 'fuck off']) {
+      expect(await patchName(name)).toBe(400);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Property 56: PATCH /users/me updates only specified fields
 // ---------------------------------------------------------------------------
 describe('Property 56: PATCH /users/me updates only specified fields', () => {
