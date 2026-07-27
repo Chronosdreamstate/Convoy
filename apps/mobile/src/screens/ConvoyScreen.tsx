@@ -167,8 +167,7 @@ export default function ConvoyScreen({ userId }: Props) {
   const [members, setMembers] = useState<GroupMember[]>([]);
   const [loading, setLoading] = useState(false);
   const [joinCode, setJoinCode] = useState('');
-  const [groupName, setGroupName] = useState('');
-  const [view, setView] = useState<'home' | 'create' | 'join' | 'discover'>('home');
+  const [view, setView] = useState<'home' | 'join' | 'discover'>('home');
 
   const [pttChannels, setPttChannels] = useState<PttChannel[]>([]);
   const [activePttChannelId, setActivePttChannelId] = useState<string | null>(null);
@@ -176,10 +175,6 @@ export default function ConvoyScreen({ userId }: Props) {
   const [showNewChannel, setShowNewChannel] = useState(false);
   const [newChannelName, setNewChannelName] = useState('');
   const [creatingChannel, setCreatingChannel] = useState(false);
-
-  const [createGapThreshold, setCreateGapThreshold] = useState(1000);
-  const [createAccessType, setCreateAccessType] = useState<'open' | 'invite_only'>('open');
-  const [createNameFocused, setCreateNameFocused] = useState(false);
 
   const [publicGroups, setPublicGroups] = useState<ConvoyGroup[]>([]);
   const [discoverLoading, setDiscoverLoading] = useState(false);
@@ -477,25 +472,6 @@ export default function ConvoyScreen({ userId }: Props) {
       Alert.alert('Error', 'Could not update gap threshold.');
     }
   }, [group]);
-
-  // ── Create group (Req 7.1–7.3) ────────────────────────────────────────────
-  const handleCreate = useCallback(async () => {
-    if (!groupName.trim()) return Alert.alert('Error', 'Enter a group name.');
-    setLoading(true);
-    try {
-      const res = await apiClient.post<ConvoyGroup>('/api/v1/groups', { name: groupName.trim(), gapThresholdM: createGapThreshold, accessType: createAccessType });
-      setGroup(res.data);
-      setView('home');
-      setGroupName('');
-      ExpoLocation.requestBackgroundPermissionsAsync().catch(() => {});
-    } catch {
-      Alert.alert('Error', 'Could not create group.');
-    } finally {
-      setLoading(false);
-    }
-    // createGapThreshold/createAccessType were missing here — picking a pill
-    // after typing the name silently created the group with stale settings.
-  }, [groupName, createGapThreshold, createAccessType]);
 
   // ── Join group (Req 7.4) ──────────────────────────────────────────────────
   const handleJoin = useCallback(async () => {
@@ -831,90 +807,6 @@ export default function ConvoyScreen({ userId }: Props) {
 
   // ── Home: no group ────────────────────────────────────────────────────────
   if (!group) {
-    if (view === 'create') {
-      return (
-        <SafeAreaView style={styles.container}>
-          <View style={styles.headerBar}>
-            <Text style={styles.headerTitle}>CREATE CONVOY</Text>
-            <TouchableOpacity onPress={() => setView('home')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} accessibilityRole="button" accessibilityLabel="Cancel">
-              <Ionicons name="close" size={22} color={colors.textMuted} />
-            </TouchableOpacity>
-          </View>
-
-          <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-            <Text style={styles.createFieldLabel}>GROUP NAME</Text>
-            <View>
-              <TextInput
-                style={[styles.input, createNameFocused && styles.inputFocused]}
-                placeholder="e.g. Sunday Rally"
-                placeholderTextColor={colors.textSubtle}
-                value={groupName}
-                onChangeText={setGroupName}
-                onFocus={() => setCreateNameFocused(true)}
-                onBlur={() => setCreateNameFocused(false)}
-                autoFocus
-                maxLength={50}
-                accessibilityLabel="Group name"
-              />
-              <Text style={styles.charCounter}>{groupName.length}/50</Text>
-            </View>
-
-            <Text style={styles.createFieldLabel}>GAP ALERT DISTANCE</Text>
-            <View style={styles.pillRow}>
-              {GAP_OPTIONS.map((opt) => (
-                <TouchableOpacity
-                  key={opt.value}
-                  style={[styles.createPill, createGapThreshold === opt.value && styles.createPillActive]}
-                  onPress={() => setCreateGapThreshold(opt.value)}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Gap threshold ${opt.label}`}
-                  accessibilityState={{ selected: createGapThreshold === opt.value }}
-                >
-                  <Text style={[styles.createPillText, createGapThreshold === opt.value && styles.createPillTextActive]}>
-                    {opt.label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-
-            <Text style={styles.createFieldLabel}>ACCESS TYPE</Text>
-            <View style={[styles.pillRow, { marginBottom: 24 }]}>
-              {(['open', 'invite_only'] as const).map((type) => (
-                <TouchableOpacity
-                  key={type}
-                  style={[styles.createPill, { flex: 1 }, createAccessType === type && styles.createPillActive]}
-                  onPress={() => setCreateAccessType(type)}
-                  accessibilityRole="button"
-                  accessibilityLabel={type === 'open' ? 'Open access' : 'Invite only'}
-                  accessibilityState={{ selected: createAccessType === type }}
-                >
-                  <Text style={[styles.createPillText, createAccessType === type && styles.createPillTextActive]}>
-                    <Ionicons
-                      name={type === 'open' ? 'globe-outline' : 'lock-closed-outline'}
-                      size={13}
-                      color={createAccessType === type ? colors.accent : colors.textSubtle}
-                    />
-                    {type === 'open' ? '  Open' : '  Invite Only'}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </ScrollView>
-
-          <TouchableOpacity
-            style={[styles.primaryBtn, { minHeight: 56 }, (!groupName.trim() || loading) && { opacity: 0.4 }]}
-            onPress={handleCreate}
-            disabled={!groupName.trim() || loading}
-            accessibilityRole="button"
-            accessibilityLabel="Create convoy"
-            accessibilityState={{ disabled: !groupName.trim() || loading }}
-          >
-            {loading ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.primaryBtnText}>Create Convoy</Text>}
-          </TouchableOpacity>
-        </SafeAreaView>
-      );
-    }
-
     if (view === 'join') {
       return (
         <SafeAreaView style={styles.container}>
