@@ -34,7 +34,11 @@ async function notificationsPlugin(fastify: FastifyInstance): Promise<void> {
   });
 
   fastify.decorate('enqueueNotification', async (job: NotificationJob) => {
-    await enqueueNotification(queue, job, gateway, deviceStore);
+    // Pass fastify.db so the inline SOS path persists to notification_history —
+    // without it SOS alerts are delivered but never appear in the in-app
+    // Notification Center (Req 15.4, 20.5). enqueueNotification's db arg is
+    // optional in signature but required in practice for the SOS branch.
+    await enqueueNotification(queue, job, gateway, deviceStore, fastify.db);
   });
 
   fastify.addHook('onClose', async () => {
