@@ -310,6 +310,10 @@ async function vehiclesRoutes(
     const client = await fastify.db.connect();
     try {
       await client.query('BEGIN');
+      // Serialize with POST/PATCH/activate: deleting the active vehicle
+      // reassigns is_active to the oldest remaining one, and without this lock a
+      // concurrent add/activate could interleave and leave two active vehicles.
+      await lockUserVehicles(client, userId);
 
       const fetchResult = await client.query<{ id: string; is_active: boolean }>(
         `SELECT id, is_active FROM vehicles WHERE id = $1 AND user_id = $2 FOR UPDATE`,
