@@ -18,6 +18,12 @@ function baseProdEnv(overrides: Partial<Env> = {}): Env {
     TWILIO_ACCOUNT_SID: 'ACxxxxxxxx',
     TWILIO_AUTH_TOKEN: 'auth-token',
     TWILIO_FROM_NUMBER: '+15550001111',
+    STORAGE_PROVIDER: 'local',
+    S3_BUCKET: '',
+    S3_REGION: 'us-east-1',
+    S3_ENDPOINT: '',
+    S3_ACCESS_KEY_ID: '',
+    S3_SECRET_ACCESS_KEY: '',
     AWS_BUCKET: 'convoy-media',
     FIREBASE_PROJECT_ID: 'convoy-app',
     MIGRATIONS_DIR: './src/db/migrations',
@@ -60,5 +66,14 @@ describe('productionConfigErrors', () => {
   it('flags incomplete Twilio credentials', () => {
     const errs = productionConfigErrors(baseProdEnv({ TWILIO_AUTH_TOKEN: '' }));
     expect(errs.some((e) => e.includes('TWILIO'))).toBe(true);
+  });
+
+  it('accepts STORAGE_PROVIDER=local without S3 credentials', () => {
+    expect(productionConfigErrors(baseProdEnv({ STORAGE_PROVIDER: 'local' }))).toEqual([]);
+  });
+
+  it('flags STORAGE_PROVIDER=s3 with incomplete S3 credentials', () => {
+    const errs = productionConfigErrors(baseProdEnv({ STORAGE_PROVIDER: 's3', S3_BUCKET: '' }));
+    expect(errs.some((e) => e.includes('S3'))).toBe(true);
   });
 });

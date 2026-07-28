@@ -1,13 +1,10 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import multipart from '@fastify/multipart';
-import { createWriteStream, createReadStream, existsSync, mkdirSync, statSync } from 'fs';
-import { unlink } from 'fs/promises';
-import { pipeline } from 'stream/promises';
-import path from 'path';
 import { randomUUID } from 'crypto';
 import { authenticate } from '../middleware/authenticate';
 import { generalLimiter } from '../middleware/rateLimiter';
 import { env } from '../config/env';
+import { createStorage } from './storage';
 
 const MIME_TO_EXT: Record<string, string> = {
   'image/jpeg': 'jpg',
@@ -49,10 +46,7 @@ const MAX_BYTES = 10 * 1024 * 1024; // 10 MB
 export default async function uploadsRoutes(fastify: FastifyInstance) {
   await fastify.register(multipart, { limits: { fileSize: MAX_BYTES, files: 1 } });
 
-  const uploadsDir = path.resolve(env.UPLOADS_DIR);
-  if (!existsSync(uploadsDir)) {
-    mkdirSync(uploadsDir, { recursive: true });
-  }
+  const storage = createStorage();
 
   // GET /uploads/:filename — serve uploaded files (public, immutable cache)
   fastify.get<{ Params: { filename: string } }>(
@@ -66,17 +60,18 @@ export default async function uploadsRoutes(fastify: FastifyInstance) {
       if (!/^[0-9a-fA-F-]{36}\.[a-zA-Z0-9]{1,8}$/.test(filename)) {
         return reply.badRequest('Invalid filename');
       }
-      const filePath = path.join(uploadsDir, filename);
-      if (!existsSync(filePath)) {
-        return reply.notFound('File not found');
-      }
       const ext = filename.split('.').pop()?.toLowerCase() ?? '';
       const contentType = EXT_TO_MIME[ext] ?? 'application/octet-stream';
-      const stat = statSync(filePath);
-      reply.header('Content-Type', contentType);
-      reply.header('Content-Length', stat.size);
+      const object = await storage.read(filename, contentType);
+      if (!object) {
+        return reply.notFound('File not found');
+      }
+      reply.header('Content-Type', object.contentType);
+      if (object.contentLength > 0) {
+        reply.header('Content-Length', object.contentLength);
+      }
       reply.header('Cache-Control', 'public, max-age=31536000, immutable');
-      return reply.send(createReadStream(filePath));
+      return reply.send(object.stream);
     },
   );
 
@@ -97,17 +92,16 @@ export default async function uploadsRoutes(fastify: FastifyInstance) {
 
     const ext = MIME_TO_EXT[mimetype] ?? defaultExt;
     const filename = `${randomUUID()}.${ext}`;
-    const dest = path.join(uploadsDir, filename);
 
     try {
-      await pipeline(data.file, createWriteStream(dest));
+      await storage.save(filename, data.file, mimetype);
     } catch {
-      await unlink(dest).catch(() => {});
+      await storage.remove(filename);
       return reply.internalServerError('Upload failed');
     }
 
     if ((data.file as { truncated?: boolean }).truncated) {
-      await unlink(dest).catch(() => {});
+      await storage.remove(filename);
       return reply.status(413).send({ error: 'File too large (max 10 MB)' });
     }
 

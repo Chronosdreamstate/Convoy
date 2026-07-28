@@ -39,7 +39,19 @@ const envSchema = z.object({
   TWILIO_AUTH_TOKEN: z.string().default(''),
   TWILIO_FROM_NUMBER: z.string().default(''),
 
-  // AWS
+  // Object storage for uploads. 'local' (default) writes to UPLOADS_DIR — fine
+  // for a single instance with a persistent volume, but ephemeral on most
+  // container hosts. 's3' uses any S3-compatible service (AWS S3, Cloudflare
+  // R2, DigitalOcean Spaces, Supabase Storage, MinIO) — set S3_ENDPOINT for
+  // non-AWS providers.
+  STORAGE_PROVIDER: z.enum(['local', 's3']).default('local'),
+  S3_BUCKET: z.string().default(''),
+  S3_REGION: z.string().default('us-east-1'),
+  S3_ENDPOINT: z.string().default(''),
+  S3_ACCESS_KEY_ID: z.string().default(''),
+  S3_SECRET_ACCESS_KEY: z.string().default(''),
+
+  // AWS (legacy — superseded by S3_* above)
   AWS_BUCKET: z.string().default('convoy-media'),
 
   // Firebase
@@ -88,6 +100,9 @@ export function productionConfigErrors(data: Env): string[] {
   }
   if (data.SMS_PROVIDER === 'twilio' && (!data.TWILIO_ACCOUNT_SID || !data.TWILIO_AUTH_TOKEN || !data.TWILIO_FROM_NUMBER)) {
     errors.push('SMS_PROVIDER=twilio but TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN / TWILIO_FROM_NUMBER are incomplete.');
+  }
+  if (data.STORAGE_PROVIDER === 's3' && (!data.S3_BUCKET || !data.S3_ACCESS_KEY_ID || !data.S3_SECRET_ACCESS_KEY)) {
+    errors.push('STORAGE_PROVIDER=s3 but S3_BUCKET / S3_ACCESS_KEY_ID / S3_SECRET_ACCESS_KEY are incomplete.');
   }
 
   return errors;
