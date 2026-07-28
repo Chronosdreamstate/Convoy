@@ -211,4 +211,20 @@ describe('GET /friends/search serialization', () => {
     const res = await app.inject({ method: 'GET', url: '/api/v1/friends/search?q=ab' });
     expect(res.statusCode).toBe(401);
   });
+
+  it('returns each user at most once even if the row set contains a duplicate', async () => {
+    // A pair can have friendship rows in both directions, which previously made
+    // the join emit the same user twice. The route must collapse those to one.
+    searchRows = [
+      { id: 'u-dup', display_name: 'Two Ways', avatar_url: null, ptt_callsign: null, privacy: 'open', friendship_status: 'pending' },
+      { id: 'u-dup', display_name: 'Two Ways', avatar_url: null, ptt_callsign: null, privacy: 'open', friendship_status: 'accepted' },
+      { id: 'u-other', display_name: 'Two Wheels', avatar_url: null, ptt_callsign: null, privacy: 'open', friendship_status: null },
+    ];
+
+    const res = await search('two');
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body) as { users: Array<{ id: string; friendshipStatus: string | null }> };
+    expect(body.users.map((u) => u.id)).toEqual(['u-dup', 'u-other']);
+    expect(body.users.filter((u) => u.id === 'u-dup')).toHaveLength(1);
+  });
 });

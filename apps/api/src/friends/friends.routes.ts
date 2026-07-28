@@ -76,12 +76,21 @@ async function friendsRoutes(
     const term = `%${q.trim()}%`;
 
     const result = await fastify.db.query<UserPublic & { friendship_status: string | null }>(
+      // LATERAL (not a plain LEFT JOIN) picks exactly ONE friendship row per
+      // user. A pair can have rows in both directions — the block upsert's
+      // unique key is the ordered (requester_id, addressee_id), so (me,u) and
+      // (u,me) can coexist — and a plain OR-join then emitted the user twice.
+      // Prefer an 'accepted' row when both exist so the status is deterministic.
       `SELECT u.id, u.display_name, u.avatar_url, u.ptt_callsign, u.privacy,
               f.status AS friendship_status
        FROM users u
-       LEFT JOIN friendships f
-         ON (f.requester_id = $1 AND f.addressee_id = u.id)
-         OR (f.requester_id = u.id AND f.addressee_id = $1)
+       LEFT JOIN LATERAL (
+         SELECT status FROM friendships f
+         WHERE (f.requester_id = $1 AND f.addressee_id = u.id)
+            OR (f.requester_id = u.id AND f.addressee_id = $1)
+         ORDER BY (status = 'accepted') DESC
+         LIMIT 1
+       ) f ON true
        WHERE u.id != $1
          AND u.display_name ILIKE $2
          AND NOT EXISTS (
@@ -95,14 +104,19 @@ async function friendsRoutes(
       [userId, term],
     );
 
+    // Enforce one entry per user at the route too, so a duplicate row can never
+    // reach the client regardless of the query shape.
+    const seen = new Set<string>();
     return reply.send({
-      users: result.rows.map((r) => ({
-        id: r.id,
-        displayName: r.display_name,
-        avatarUrl: r.avatar_url,
-        pttCallsign: r.ptt_callsign,
-        friendshipStatus: r.friendship_status ?? null,
-      })),
+      users: result.rows
+        .filter((r) => (seen.has(r.id) ? false : (seen.add(r.id), true)))
+        .map((r) => ({
+          id: r.id,
+          displayName: r.display_name,
+          avatarUrl: r.avatar_url,
+          pttCallsign: r.ptt_callsign,
+          friendshipStatus: r.friendship_status ?? null,
+        })),
     });
   });
 
