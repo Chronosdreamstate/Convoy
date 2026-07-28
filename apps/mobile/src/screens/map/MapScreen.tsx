@@ -42,6 +42,7 @@ import ScenicRouteSelector, { RouteOption } from '../../components/ScenicRouteSe
 import * as SecureStore from 'expo-secure-store';
 import { useGroupStore } from '../../stores/groupStore';
 import { SQLiteOfflineDB, computeBoundsWithBuffer } from '../../services/OfflineCacheService';
+import { runExclusiveHazardDrain } from '../../services/hazardSyncGuard';
 import { connectivityService } from '../../services/ConnectivityService';
 import { CongestionLevel, CongestionTier, congestionTierSegments, applyFuelStopWaypoint } from '../../services/RouteService';
 import CongestionRoutePolyline from '../../components/map/CongestionRoutePolyline';
@@ -457,20 +458,24 @@ const hazardService = new HazardService(
   () => true, // always attempt the network call; failures fall back to the offline queue below
 );
 
-/** Flushes any hazard reports queued while offline (Req 11.9, 11.10). Safe to call repeatedly. */
+/** Flushes any hazard reports queued while offline (Req 11.9, 11.10). Safe to call repeatedly.
+ * Shares an in-flight guard with SyncService.syncHazards so a reconnect that
+ * triggers both doesn't double-POST the same pending batch. */
 async function flushOfflineHazards(): Promise<void> {
   const ready = await offlineDBReady;
   if (!ready) return;
-  const pending = await offlineDB.getPendingHazards();
-  if (pending.length === 0) return;
-  try {
-    await apiClient.post('/api/v1/hazards/bulk', {
-      hazards: pending.map((h) => ({ type: h.type, lat: h.lat, lng: h.lng, createdAt: h.createdAt })),
-    });
-    await offlineDB.clearHazards(pending.map((h) => h.id));
-  } catch {
-    // Still offline or server rejected the batch — retry on the next reconnect.
-  }
+  await runExclusiveHazardDrain(async () => {
+    const pending = await offlineDB.getPendingHazards();
+    if (pending.length === 0) return;
+    try {
+      await apiClient.post('/api/v1/hazards/bulk', {
+        hazards: pending.map((h) => ({ type: h.type, lat: h.lat, lng: h.lng, createdAt: h.createdAt })),
+      });
+      await offlineDB.clearHazards(pending.map((h) => h.id));
+    } catch {
+      // Still offline or server rejected the batch — retry on the next reconnect.
+    }
+  });
 }
 
 export default function MapScreen({ groupId, socketUrl, isAdmin: isAdminProp = false, pttChannelId }: Props) {

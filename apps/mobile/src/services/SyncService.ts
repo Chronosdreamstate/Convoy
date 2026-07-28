@@ -4,6 +4,7 @@
  */
 
 import { IOfflineDB, OfflineHazard, OfflineDrive } from './OfflineCacheService';
+import { runExclusiveHazardDrain } from './hazardSyncGuard';
 
 // ---------------------------------------------------------------------------
 // Injectable interfaces
@@ -105,6 +106,13 @@ export class SyncService {
    * and keeping transient failures queued for the next sync.
    */
   private async syncHazards(): Promise<void> {
+    // Shared guard: MapScreen.flushOfflineHazards drains the same queue on map
+    // mount / socket reconnect. Without this, a reconnect that fires both read
+    // the full pending batch before either cleared it and double-POSTed it all.
+    await runExclusiveHazardDrain(() => this.drainHazards());
+  }
+
+  private async drainHazards(): Promise<void> {
     const hazards = await this.db.getPendingHazards();
     if (hazards.length === 0) return;
     try {
