@@ -3,7 +3,6 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
-  Linking,
   RefreshControl,
   SafeAreaView,
   ScrollView,
@@ -14,7 +13,6 @@ import {
   View,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import * as ExpoLocation from 'expo-location';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { apiClient } from '../services/apiClient';
 import { MotionCapNotice, useMotionCappedData } from '../components/MotionAwareList';
@@ -34,7 +32,6 @@ interface PublicGroup {
   gapThresholdM: number;
   accessType: 'open' | 'invite_only';
   isActive: boolean;
-  distanceM?: number; // populated in Nearby mode
   // Soonest upcoming event, joined in by GET /groups and /groups/featured —
   // the canonical source for the countdown pill (no per-group events fetch).
   nextEvent?: { title: string; scheduledFor: string } | null;
@@ -45,7 +42,7 @@ interface EventCountdown {
   urgent: boolean;
 }
 
-type FilterTab = 'All' | 'Nearby' | 'Active';
+type FilterTab = 'All' | 'Active';
 
 // Vehicle filter chip icons — rendered alongside the text label. Chips with no
 // clean vector-icon equivalent (JDM/Muscle are cultural/regional labels, not
@@ -68,11 +65,6 @@ type VehicleFilter = typeof VEHICLE_FILTERS[number]['key'];
 
 function formatGap(metres: number): string {
   if (metres < 1000) return `${metres} m`;
-  return `${(metres / 1000).toFixed(1)} km`;
-}
-
-function formatDistance(metres: number): string {
-  if (metres < 1000) return `${Math.round(metres)} m`;
   return `${(metres / 1000).toFixed(1)} km`;
 }
 
@@ -106,11 +98,10 @@ interface GroupCardProps {
   onJoin: (id: string) => void;
   onView: (id: string) => void;
   joining: boolean;
-  showDistance: boolean;
   eventCountdown?: EventCountdown | null;
 }
 
-function GroupCard({ group, onJoin, onView, joining, showDistance, eventCountdown }: GroupCardProps) {
+function GroupCard({ group, onJoin, onView, joining, eventCountdown }: GroupCardProps) {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   return (
@@ -146,14 +137,6 @@ function GroupCard({ group, onJoin, onView, joining, showDistance, eventCountdow
           <>
             <Text style={styles.metaDot}>·</Text>
             <Text style={styles.activeText}>● Live</Text>
-          </>
-        )}
-        {showDistance && group.distanceM !== undefined && (
-          <>
-            <Text style={styles.metaDot}>·</Text>
-            <Text style={styles.distanceText}>
-              <Ionicons name="location-outline" size={12} color={colors.accent} /> {formatDistance(group.distanceM)} away
-            </Text>
           </>
         )}
       </View>
@@ -254,7 +237,6 @@ export default function GroupBrowseScreen() {
   const router = useRouter();
   const [groups, setGroups] = useState<PublicGroup[]>([]);
   const [featuredGroups, setFeaturedGroups] = useState<PublicGroup[]>([]);
-  const [nearbyQuick, setNearbyQuick] = useState<PublicGroup[]>([]);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -262,15 +244,10 @@ export default function GroupBrowseScreen() {
   const [activeFilter, setActiveFilter] = useState<FilterTab>('All');
   const [vehicleFilter, setVehicleFilter] = useState<VehicleFilter>(null);
   const [joiningId, setJoiningId] = useState<string | null>(null);
-  const [locating, setLocating] = useState(false);
-  const [locationError, setLocationError] = useState<string | null>(null);
-  const userCoordsRef = useRef<{ lat: number; lng: number } | null>(null);
 
-  const FILTER_TABS: FilterTab[] = ['All', 'Nearby', 'Active'];
+  const FILTER_TABS: FilterTab[] = ['All', 'Active'];
 
   const fetchGroups = useCallback(async (opts: {
-    lat?: number;
-    lng?: number;
     silent?: boolean;
     vehicleType?: VehicleFilter;
     q?: string;
@@ -279,8 +256,6 @@ export default function GroupBrowseScreen() {
     setFetchError(null);
     try {
       const params: Record<string, unknown> = { accessType: 'open', limit: 40 };
-      if (opts.lat !== undefined) params.lat = opts.lat;
-      if (opts.lng !== undefined) params.lng = opts.lng;
       const vf = opts.vehicleType !== undefined ? opts.vehicleType : vehicleFilter;
       if (vf) params.vehicleType = vf;
       // Server-side name search (API supports `q`). Without this, a group whose
@@ -290,12 +265,7 @@ export default function GroupBrowseScreen() {
       if (q) params.q = q;
 
       const res = await apiClient.get<{ groups: PublicGroup[] }>('/api/v1/groups', { params });
-      const fetched = res.data.groups ?? [];
-
-      // Note: groups don't expose their own coords from the API yet — distance
-      // annotation will be added when the API returns lat/lng per group.
-
-      setGroups(fetched);
+      setGroups(res.data.groups ?? []);
     } catch {
       setFetchError('Could not load groups. Check your connection.');
     } finally {
@@ -324,94 +294,21 @@ export default function GroupBrowseScreen() {
     void fetchFeatured();
   }, [fetchGroups, fetchFeatured]);
 
-  // Auto-fetch nearby quick list if location permission already granted (no request)
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const { status } = await ExpoLocation.getForegroundPermissionsAsync();
-        if (status !== 'granted' || cancelled) return;
-        const loc = await ExpoLocation.getCurrentPositionAsync({ accuracy: ExpoLocation.Accuracy.Balanced });
-        if (cancelled) return;
-        const coords = { lat: loc.coords.latitude, lng: loc.coords.longitude };
-        userCoordsRef.current = coords;
-        const res = await apiClient.get<{ groups: PublicGroup[] }>('/api/v1/groups', {
-          params: { accessType: 'open', nearby: true, lat: coords.lat, lng: coords.lng, limit: 5 },
-        });
-        if (!cancelled) setNearbyQuick(res.data.groups ?? []);
-      } catch {
-        // silent
-      }
-    })();
-    return () => { cancelled = true; };
-  }, []);
-
-  // Handle Nearby filter activation
-  useEffect(() => {
-    if (activeFilter !== 'Nearby') {
-      setLocationError(null);
-      return;
-    }
-
-    // Already have coords — re-fetch immediately
-    if (userCoordsRef.current) {
-      void fetchGroups(userCoordsRef.current);
-      return;
-    }
-
-    let cancelled = false;
-    setLocating(true);
-    setLocationError(null);
-
-    (async () => {
-      try {
-        const { status } = await ExpoLocation.requestForegroundPermissionsAsync();
-        if (cancelled) return;
-
-        if (status !== 'granted') {
-          setLocationError('Location access needed for nearby groups.');
-          setLocating(false);
-          return;
-        }
-
-        const loc = await ExpoLocation.getCurrentPositionAsync({
-          accuracy: ExpoLocation.Accuracy.Balanced,
-        });
-        if (cancelled) return;
-
-        const coords = { lat: loc.coords.latitude, lng: loc.coords.longitude };
-        userCoordsRef.current = coords;
-        await fetchGroups(coords);
-      } catch {
-        if (!cancelled) setLocationError('Could not get your location. Please try again.');
-      } finally {
-        if (!cancelled) setLocating(false);
-      }
-    })();
-
-    return () => { cancelled = true; };
-  }, [activeFilter, fetchGroups]);
-
   // Debounced server-side search so results aren't limited to the loaded page.
   // Skips the initial mount (the load effects already fetched with no query).
   const searchInitRef = useRef(false);
   useEffect(() => {
     if (!searchInitRef.current) { searchInitRef.current = true; return; }
     const handle = setTimeout(() => {
-      const coords = activeFilter === 'Nearby' ? userCoordsRef.current : null;
-      void fetchGroups({ lat: coords?.lat, lng: coords?.lng, q: search, silent: true });
+      void fetchGroups({ q: search, silent: true });
     }, 350);
     return () => clearTimeout(handle);
   }, [search]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleRefresh = useCallback(() => {
     setRefreshing(true);
-    if (activeFilter === 'Nearby' && userCoordsRef.current) {
-      void fetchGroups({ ...userCoordsRef.current, silent: true });
-    } else {
-      void fetchGroups({ silent: true });
-    }
-  }, [activeFilter, fetchGroups]);
+    void fetchGroups({ silent: true });
+  }, [fetchGroups]);
 
   const filtered = groups
     .filter((g) => {
@@ -440,18 +337,15 @@ export default function GroupBrowseScreen() {
     }
   }, [router]);
 
-  const isNearby = activeFilter === 'Nearby';
-
   // Req 33 — while the vehicle is in motion, cap every scrollable list on this
   // screen to 4 rows/cards (a passenger browsing convoys to join mid-drive is
   // a normal use of this screen). The main results list gets the standard
-  // "pull over to see more" footer; the horizontal Featured and Nearby
-  // carousels are capped the same way with the notice rendered under each
-  // carousel. Section render conditions (featured >= 3, nearby > 0) and the
-  // events fetch keep reading the full arrays so nothing is lost while capped.
+  // "pull over to see more" footer; the horizontal Featured carousel is capped
+  // the same way with the notice rendered under it. Section render conditions
+  // (featured >= 3) and the events fetch keep reading the full arrays so
+  // nothing is lost while capped.
   const { data: visibleGroups, hiddenCount: hiddenGroupCount } = useMotionCappedData(filtered);
   const { data: visibleFeatured, hiddenCount: hiddenFeaturedCount } = useMotionCappedData(featuredGroups);
-  const { data: visibleNearbyQuick, hiddenCount: hiddenNearbyCount } = useMotionCappedData(nearbyQuick);
 
   const renderGroupItem = useCallback(
     ({ item }: { item: PublicGroup }) => (
@@ -460,11 +354,10 @@ export default function GroupBrowseScreen() {
         onJoin={handleJoin}
         onView={(id) => router.push(`/group/${id}` as never)}
         joining={joiningId === item.id}
-        showDistance={isNearby}
         eventCountdown={countdownFor(item)}
       />
     ),
-    [handleJoin, router, joiningId, isNearby],
+    [handleJoin, router, joiningId],
   );
 
   return (
@@ -546,9 +439,7 @@ export default function GroupBrowseScreen() {
             accessibilityState={{ selected: activeFilter === tab }}
           >
             <Text style={[styles.filterPillText, activeFilter === tab && styles.filterPillTextActive]}>
-              {tab === 'Nearby'
-                ? <><Ionicons name="location-outline" size={12} color={activeFilter === tab ? '#FFFFFF' : colors.textMuted} /> Nearby</>
-                : tab}
+              {tab}
             </Text>
           </TouchableOpacity>
         ))}
@@ -584,32 +475,6 @@ export default function GroupBrowseScreen() {
         ))}
       </ScrollView>
 
-      {/* Nearby status row */}
-      {isNearby && (locating || locationError) && (
-        <View style={styles.locationStatus}>
-          {locating ? (
-            <>
-              <ActivityIndicator size="small" color={colors.accent} style={{ marginRight: 8 }} />
-              <Text style={styles.locationStatusText}>Getting your location...</Text>
-            </>
-          ) : locationError ? (
-            <>
-              <Text style={styles.locationErrorText}>
-                <Ionicons name="location-outline" size={13} color={colors.textMuted} /> {locationError}
-              </Text>
-              <TouchableOpacity
-                onPress={() => void Linking.openSettings()}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                accessibilityRole="button"
-                accessibilityLabel="Open location settings"
-              >
-                <Text style={styles.locationSettingsLink}> Open Settings</Text>
-              </TouchableOpacity>
-            </>
-          ) : null}
-        </View>
-      )}
-
       {/* Content */}
       {loading && !refreshing ? (
         <View style={styles.skeletonList}>
@@ -624,52 +489,19 @@ export default function GroupBrowseScreen() {
           renderItem={renderGroupItem}
           contentContainerStyle={filtered.length === 0 ? styles.emptyContainer : styles.listContent}
           ListFooterComponent={<MotionCapNotice hiddenCount={hiddenGroupCount} />}
-          ListHeaderComponent={
-            nearbyQuick.length > 0 && activeFilter !== 'Nearby' ? (
-              <View style={browseStyles.nearbySection}>
-                <Text style={browseStyles.nearbyTitle}>
-                  <Ionicons name="location-outline" size={11} color={colors.textMuted} /> Nearby
-                </Text>
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={browseStyles.nearbyContent}
-                >
-                  {visibleNearbyQuick.map((group) => (
-                    <TouchableOpacity
-                      key={group.id}
-                      style={browseStyles.nearbyChip}
-                      onPress={() => router.push(`/group/${group.id}` as never)}
-                      activeOpacity={0.8}
-                      accessibilityRole="button"
-                      accessibilityLabel={`${group.name}, ${group.memberCount} members`}
-                    >
-                      <Text style={browseStyles.nearbyChipName} numberOfLines={1}>{group.name}</Text>
-                      <Text style={browseStyles.nearbyChipMeta}>{group.memberCount} members</Text>
-                    </TouchableOpacity>
-                  ))}
-                </ScrollView>
-                <MotionCapNotice hiddenCount={hiddenNearbyCount} />
-              </View>
-            ) : null
-          }
           ListEmptyComponent={
             <View style={styles.emptyState}>
               <Ionicons
-                name={locationError ? 'location-outline' : 'search-outline'}
+                name="search-outline"
                 size={52}
                 color={colors.textMuted}
                 style={styles.emptyEmoji}
               />
-              <Text style={styles.emptyTitle}>
-                {locationError ? 'Location Unavailable' : 'No public groups found'}
-              </Text>
+              <Text style={styles.emptyTitle}>No public groups found</Text>
               <Text style={styles.emptySubtitle}>
-                {locationError
-                  ? locationError
-                  : search.length > 0
-                    ? 'Try a different search term'
-                    : 'Be the first to create a public group'}
+                {search.length > 0
+                  ? 'Try a different search term'
+                  : 'Be the first to create a public group'}
               </Text>
             </View>
           }
@@ -778,26 +610,6 @@ function createStyles(colors: ThemeColors) {
   filterPillTextActive: {
     color: '#FFFFFF',
   },
-  locationStatus: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-  },
-  locationStatusText: {
-    color: colors.textMuted,
-    fontSize: 13,
-  },
-  locationErrorText: {
-    color: colors.textMuted,
-    fontSize: 13,
-    flex: 1,
-  },
-  locationSettingsLink: {
-    color: colors.accent,
-    fontSize: 13,
-    fontWeight: '600',
-  },
   listContent: {
     paddingHorizontal: 16,
     paddingTop: 8,
@@ -893,11 +705,6 @@ function createStyles(colors: ThemeColors) {
   },
   activeText: {
     color: colors.success,
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  distanceText: {
-    color: colors.accent,
     fontSize: 13,
     fontWeight: '600',
   },
@@ -1020,41 +827,6 @@ function createBrowseStyles(colors: ThemeColors) {
     color: colors.accent,
     fontSize: 12,
     fontWeight: '700',
-  },
-  // Nearby quick row
-  nearbySection: {
-    marginBottom: 12,
-  },
-  nearbyTitle: {
-    color: colors.textMuted,
-    fontSize: 12,
-    fontWeight: '700',
-    letterSpacing: 0.5,
-    textTransform: 'uppercase',
-    marginBottom: 8,
-  },
-  nearbyContent: {
-    gap: 8,
-    paddingRight: 4,
-  },
-  nearbyChip: {
-    backgroundColor: colors.card,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: colors.border,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    minWidth: 120,
-  },
-  nearbyChipName: {
-    color: colors.text,
-    fontSize: 13,
-    fontWeight: '600',
-    marginBottom: 2,
-  },
-  nearbyChipMeta: {
-    color: colors.textMuted,
-    fontSize: 11,
   },
   });
 }
