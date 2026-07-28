@@ -1269,9 +1269,17 @@ export function registerSocketHandlers(
       // became authorized (ok === false) set nothing up — skip entirely.
       void whenReady().then((ok) => {
         if (!ok) return;
-        // Only mark offline if this socket still owns the user's presence
-        // (guard against multi-tab / reconnect races) — setPresenceOffline
-        // returns false when a newer socket has taken ownership.
+        // Only mark offline / tear down this member's live state if this socket
+        // still owns the user's presence (guard against multi-tab / reconnect
+        // races) — setPresenceOffline returns false when a newer socket has
+        // taken ownership. In that case the user is STILL online via the other
+        // connection, so member:offline (which removes them from the group's
+        // online set on every client) and deleting their shared location marker
+        // would broadcast a false "they went offline". presence:update,
+        // member:offline and the location del are therefore all gated on the
+        // ownership transition — previously member:offline and the loc del ran
+        // unconditionally, flipping a still-connected multi-device/reconnecting
+        // member offline for the whole group.
         setPresenceOffline(fastify.redis, userId, socket.id)
           .then((transitioned) => {
             if (!transitioned) return;
@@ -1280,16 +1288,18 @@ export function registerSocketHandlers(
               isOnline: false,
               lastSeen: new Date().toISOString(),
             });
+            // NOTE: do NOT emit member:left here. A socket disconnect happens on
+            // every transient network drop / app backgrounding, but member:left is
+            // rendered as a "X left the convoy" toast — firing it on a blip showed
+            // a false departure to the whole group (Req 7.7). member:left is now
+            // emitted only from the actual leave/kick REST paths; a disconnect
+            // conveys presence via member:offline / presence:update.
+            io.to(`group:${groupId}`).emit('member:offline', { userId, ts: Date.now() });
+            fastify.redis
+              .del(`loc:${groupId}:${userId}`)
+              .catch((err: unknown) => fastify.log.error({ err }, 'redis del error'));
           })
           .catch((err: unknown) => fastify.log.error({ err }, 'presence offline error'));
-        // NOTE: do NOT emit member:left here. A socket disconnect happens on
-        // every transient network drop / app backgrounding, but member:left is
-        // rendered as a "X left the convoy" toast — firing it on a blip showed
-        // a false departure to the whole group (Req 7.7). member:left is now
-        // emitted only from the actual leave/kick REST paths; a disconnect
-        // conveys presence via member:offline / presence:update below.
-        io.to(`group:${groupId}`).emit('member:offline', { userId, ts: Date.now() });
-        fastify.redis.del(`loc:${groupId}:${userId}`).catch((err: unknown) => fastify.log.error({ err }, 'redis del error'));
       });
     });
   };

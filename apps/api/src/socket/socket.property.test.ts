@@ -873,6 +873,84 @@ describe('registerSocketHandlers — connect race (synchronous listener registra
 });
 
 // ---------------------------------------------------------------------------
+// Disconnect presence-ownership guard (Req 8.3 + multi-tab guard)
+//   member:offline (which removes the user from every client's group online
+//   set) and the shared-location del must only fire when THIS socket still
+//   owns the user's presence. A newer socket (second device / mid-reconnect)
+//   taking ownership means the user is still online — a stale socket's
+//   disconnect must not broadcast a false "went offline".
+// ---------------------------------------------------------------------------
+describe('registerSocketHandlers — disconnect presence ownership guard', () => {
+  function readyMemberFastify(redis: Redis): FastifyInstance {
+    // connect-time membership check passes so whenReady() resolves true.
+    const query: QueryFn = async (sql) =>
+      sql.includes('SELECT id FROM convoy_members')
+        ? { rows: [{ id: 'm-self' }], rowCount: 1 }
+        : { rows: [], rowCount: 0 };
+    return {
+      db: { query } as unknown as Pool,
+      redis,
+      log: { error: () => undefined, info: () => undefined },
+    } as unknown as FastifyInstance;
+  }
+
+  function presenceRedis(owner: string): Redis {
+    return {
+      set: async () => 'OK',
+      get: async () => owner, // presence:online:<userId> owner
+      del: async () => 1,
+      mget: async (...keys: string[]) => keys.map(() => null),
+      hgetall: async () => ({}),
+      hset: async () => 1,
+      expire: async () => 1,
+      incrbyfloat: async () => 0,
+      sadd: async () => 1,
+    } as unknown as Redis;
+  }
+
+  it('does NOT emit member:offline when a newer socket owns the presence (multi-tab / reconnect)', async () => {
+    const ioLog: Emission[] = [];
+    const handler = registerSocketHandlers(
+      readyMemberFastify(presenceRedis('another-socket')),
+      buildMockIO(ioLog) as unknown as SocketIO,
+    );
+    const socket = new MockSocket('stale-sock', { userId: 'u-multi', groupId: 'g-multi' });
+    handler(socket as unknown as Socket);
+    await flush(); // connect-time setup resolves
+
+    ioLog.length = 0; // discard connect-time member:online / presence emits
+    socket.disconnect();
+    await flush();
+    await flush();
+
+    expect(ioLog.filter((e) => e.event === 'member:offline')).toHaveLength(0);
+    expect(ioLog.filter((e) => e.event === 'presence:update')).toHaveLength(0);
+  });
+
+  it('emits member:offline to the group room when this socket owned the presence', async () => {
+    const ioLog: Emission[] = [];
+    const socketId = 'owner-sock';
+    const handler = registerSocketHandlers(
+      readyMemberFastify(presenceRedis(socketId)),
+      buildMockIO(ioLog) as unknown as SocketIO,
+    );
+    const socket = new MockSocket(socketId, { userId: 'u-solo', groupId: 'g-solo' });
+    handler(socket as unknown as Socket);
+    await flush();
+
+    ioLog.length = 0;
+    socket.disconnect();
+    await flush();
+    await flush();
+
+    const offline = ioLog.filter((e) => e.event === 'member:offline');
+    expect(offline).toHaveLength(1);
+    expect(offline[0].room).toBe('group:g-solo');
+    expect(offline[0].data).toMatchObject({ userId: 'u-solo' });
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Property 98: haversineMeters bounded — never exceeds Earth's half-circumference
 //   Earth's mean radius ≈ 6 371 km → half-circumference ≈ 20 037 km
 //   Validates: no astronomically wrong distance can slip through
