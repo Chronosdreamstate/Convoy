@@ -142,6 +142,10 @@ const channelNameSchema = z.object({
   name: z.string().min(1, 'Channel name is required').max(100, 'Channel name cannot exceed 100 characters').transform((s) => s.trim()),
 });
 
+const assignMemberSchema = z.object({
+  userId: z.string().uuid(),
+});
+
 // ---------------------------------------------------------------------------
 // Routes
 // ---------------------------------------------------------------------------
@@ -416,6 +420,78 @@ export default async function pttRoutes(fastify: FastifyInstance): Promise<void>
       }
 
       return reply.code(200).send({ channelId });
+    },
+  );
+
+  // -------------------------------------------------------------------------
+  // POST /groups/:id/channels/:channelId/members — Admin assigns a Member to a
+  // channel (Req 26.3). Same exactly-one-channel move as self-join, but
+  // admin-gated and targeting another member; emits ptt:channel_assigned to the
+  // target so their device switches channel (mirrors their own switch).
+  // -------------------------------------------------------------------------
+  fastify.post(
+    '/groups/:id/channels/:channelId/members',
+    { preHandler: [authenticate, generalLimiter(fastify.redis)] },
+    async (request, reply) => {
+      const adminId = (request.user as { sub: string }).sub;
+      const { id, channelId } = request.params as { id: string; channelId: string };
+      const parsed = assignMemberSchema.safeParse(request.body);
+      if (!parsed.success) return reply.badRequest(parsed.error.errors[0].message);
+      const { userId: targetUserId } = parsed.data;
+
+      const group = await pool.query<{ admin_id: string; status: string }>(
+        'SELECT admin_id, status FROM convoy_groups WHERE id = $1',
+        [id],
+      );
+      if (!group.rows[0]) return reply.notFound('Group not found');
+      if (group.rows[0].status !== 'active') return reply.gone('Group is already ended');
+      if (group.rows[0].admin_id !== adminId) {
+        return reply.forbidden('Only the Admin can assign members to channels');
+      }
+
+      const channel = await pool.query(
+        'SELECT 1 FROM ptt_channels WHERE id = $1 AND group_id = $2',
+        [channelId, id],
+      );
+      if ((channel.rowCount ?? 0) === 0) return reply.notFound('Channel not found');
+
+      const member = await pool.query(
+        'SELECT 1 FROM convoy_members WHERE group_id = $1 AND user_id = $2 AND left_at IS NULL',
+        [id, targetUserId],
+      );
+      if ((member.rowCount ?? 0) === 0) {
+        return reply.notFound('User is not an active member of this group');
+      }
+
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        // Remove from all channels in this group (exactly-one invariant, Req 26.6)
+        await client.query(
+          `DELETE FROM ptt_channel_members
+           WHERE user_id = $1 AND channel_id IN (
+             SELECT id FROM ptt_channels WHERE group_id = $2
+           )`,
+          [targetUserId, id],
+        );
+        await client.query(
+          `INSERT INTO ptt_channel_members (channel_id, user_id) VALUES ($1, $2)
+           ON CONFLICT (channel_id, user_id) DO NOTHING`,
+          [channelId, targetUserId],
+        );
+        await client.query('COMMIT');
+      } catch (err) {
+        await client.query('ROLLBACK');
+        throw err;
+      } finally {
+        client.release();
+      }
+
+      // Tell the target's device to switch channels — same effect as if they
+      // had switched it themselves from the PTT controls.
+      fastify.io.to(`user:${targetUserId}`).emit('ptt:channel_assigned', { groupId: id, channelId });
+
+      return reply.code(200).send({ channelId, userId: targetUserId });
     },
   );
 
