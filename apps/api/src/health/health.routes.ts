@@ -21,7 +21,10 @@ export async function healthRoutes(fastify: FastifyInstance) {
     const uptime = process.uptime();
     const mem = process.memoryUsage();
     const allOk = dbOk && redisOk;
-    reply.send({
+    // Return 503 when a dependency is down so load-balancer / orchestrator
+    // readiness probes (which key off the status code, not the body) actually
+    // pull a broken instance out of rotation instead of routing traffic to it.
+    reply.code(allOk ? 200 : 503).send({
       status: allOk ? 'ok' : 'degraded',
       uptime: Math.floor(uptime),
       timestamp: new Date().toISOString(),
