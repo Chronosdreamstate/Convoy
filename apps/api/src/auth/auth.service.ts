@@ -15,8 +15,9 @@ const REFRESH_TOKEN_TTL_S = 30 * 24 * 60 * 60;
 const OTP_TTL_SECONDS = 300;
 
 /**
- * Generate a 6-digit OTP, store it in Redis with a 300s TTL, and return it.
- * In production this would trigger an SMS; here we return it for mock usage.
+ * Generate a 6-digit OTP and store it in Redis with a 300s TTL. Returns the
+ * code so the caller can deliver it (via sendOtpSms in production; returned in
+ * the dev/test response for local flows — see the /auth/otp/request route).
  */
 export async function requestOtp(phone: string, redis: Redis): Promise<string> {
   // CSPRNG — Math.random() is not cryptographically secure and its output is

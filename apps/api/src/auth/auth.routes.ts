@@ -18,6 +18,7 @@ import {
   issueTokens,
   setRefreshCookie,
 } from './auth.service';
+import { sendOtpSms } from './sms';
 import { env } from '../config/env';
 
 // ---------------------------------------------------------------------------
@@ -192,12 +193,20 @@ async function authRoutes(fastify: FastifyInstance, _opts: FastifyPluginOptions)
     // OTP_RATE_LIMIT × OTP_VERIFY_LIMIT guesses per window.
     await fastify.redis.del(`rl:otpverify:${phone}`);
 
-    // In production, OTP is sent via SMS provider — do not return it in the response.
-    // We return it here for development/mock purposes.
+    // Development/test: return the code so local flows work without SMS.
     if (env.NODE_ENV !== 'production') {
       return reply.send({ message: 'OTP sent', _dev_otp: otp });
     }
 
+    // Production: deliver via the configured SMS provider and never leak the
+    // code in the response. A send failure must surface as an error, not a
+    // false "OTP sent" — otherwise the user waits for a code that never comes.
+    try {
+      await sendOtpSms(phone, otp);
+    } catch (err) {
+      fastify.log.error({ err }, 'OTP SMS delivery failed');
+      return reply.serviceUnavailable('Could not send the verification code. Please try again.');
+    }
     return reply.send({ message: 'OTP sent' });
   });
 

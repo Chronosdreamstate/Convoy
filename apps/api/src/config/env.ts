@@ -32,6 +32,13 @@ const envSchema = z.object({
   AGORA_APP_ID: z.string().default(''),
   AGORA_APP_CERTIFICATE: z.string().default(''),
 
+  // SMS (phone-OTP delivery). Required in production — without a provider the
+  // OTP is generated but never delivered, so phone sign-in cannot complete.
+  SMS_PROVIDER: z.enum(['twilio', 'none']).default('none'),
+  TWILIO_ACCOUNT_SID: z.string().default(''),
+  TWILIO_AUTH_TOKEN: z.string().default(''),
+  TWILIO_FROM_NUMBER: z.string().default(''),
+
   // AWS
   AWS_BUCKET: z.string().default('convoy-media'),
 
@@ -54,6 +61,38 @@ const INSECURE_JWT_DEFAULTS = new Set([
   'change-me-refresh-secret-minimum-32-chars',
 ]);
 
+/**
+ * Config that boots fine in development on placeholder defaults but must be set
+ * for real before going live — otherwise the server starts successfully while
+ * core features (maps/routing, push-to-talk, phone sign-in) are silently
+ * broken. Returns a human-readable error per missing item; empty means good.
+ * Pure + exported so it can be unit-tested without triggering process.exit.
+ */
+export function productionConfigErrors(data: Env): string[] {
+  const errors: string[] = [];
+
+  if (INSECURE_JWT_DEFAULTS.has(data.JWT_SECRET)) {
+    errors.push('JWT_SECRET is the insecure default — set a strong random secret.');
+  }
+  if (INSECURE_JWT_DEFAULTS.has(data.JWT_REFRESH_SECRET)) {
+    errors.push('JWT_REFRESH_SECRET is the insecure default — set a strong random secret.');
+  }
+  if (data.MAPBOX_API_TOKEN.startsWith('pk.placeholder')) {
+    errors.push('MAPBOX_API_TOKEN is the placeholder — routing, geocoding and drive cards will fail. Set a real Mapbox token.');
+  }
+  if (!data.AGORA_APP_ID || !data.AGORA_APP_CERTIFICATE) {
+    errors.push('AGORA_APP_ID / AGORA_APP_CERTIFICATE are empty — push-to-talk cannot mint tokens. Set the Agora credentials.');
+  }
+  if (data.SMS_PROVIDER === 'none') {
+    errors.push('SMS_PROVIDER is "none" — phone OTP cannot be delivered, so phone sign-in cannot complete. Set an SMS provider (e.g. twilio).');
+  }
+  if (data.SMS_PROVIDER === 'twilio' && (!data.TWILIO_ACCOUNT_SID || !data.TWILIO_AUTH_TOKEN || !data.TWILIO_FROM_NUMBER)) {
+    errors.push('SMS_PROVIDER=twilio but TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN / TWILIO_FROM_NUMBER are incomplete.');
+  }
+
+  return errors;
+}
+
 function parseEnv() {
   const result = envSchema.safeParse(process.env);
   if (!result.success) {
@@ -64,12 +103,12 @@ function parseEnv() {
   const data = result.data;
 
   if (data.NODE_ENV === 'production') {
-    if (INSECURE_JWT_DEFAULTS.has(data.JWT_SECRET)) {
-      console.error('FATAL: JWT_SECRET is set to the insecure default value. Set a strong random secret before deploying.');
-      process.exit(1);
-    }
-    if (INSECURE_JWT_DEFAULTS.has(data.JWT_REFRESH_SECRET)) {
-      console.error('FATAL: JWT_REFRESH_SECRET is set to the insecure default value. Set a strong random secret before deploying.');
+    const errors = productionConfigErrors(data);
+    if (errors.length > 0) {
+      console.error(
+        'FATAL: invalid production configuration — refusing to start:\n' +
+          errors.map((e) => `  - ${e}`).join('\n'),
+      );
       process.exit(1);
     }
   }
