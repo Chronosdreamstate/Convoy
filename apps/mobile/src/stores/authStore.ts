@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import * as SecureStore from 'expo-secure-store';
 import { SiriShortcutsService } from '../services/SiriShortcutsService';
+import { singleFlightRefresh } from '../services/refreshTokenGuard';
 
 const API_BASE_URL = `${process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000'}/api/v1`;
 
@@ -90,25 +91,32 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   logout: () => set(clearState),
 
   refreshToken: async () => {
-    try {
-      const res = await fetch(`${API_BASE_URL}/auth/refresh`, {
-        method: 'POST',
-        credentials: 'include', // sends the HttpOnly refreshToken cookie
-      });
-      if (!res.ok) {
-        get().signOut();
-        return false;
+    // Funnel through the shared single-flight guard so this raw-fetch path and
+    // apiClient's interceptor (via AuthService.refreshToken) never fire two
+    // concurrent /auth/refresh calls — the server rotates the refresh token on
+    // use, so the loser of that race would 401 and sign the user out.
+    const accessToken = await singleFlightRefresh(async () => {
+      try {
+        const res = await fetch(`${API_BASE_URL}/auth/refresh`, {
+          method: 'POST',
+          credentials: 'include', // sends the HttpOnly refreshToken cookie
+        });
+        if (!res.ok) return null;
+        const { accessToken } = await res.json() as { accessToken: string };
+        // Persist first so apiClient's request interceptor (which reads
+        // SecureStore per request) immediately picks up the fresh token.
+        await SecureStore.setItemAsync(SECURE_STORE_KEY, accessToken).catch(() => {});
+        set({ accessToken, token: accessToken });
+        return accessToken;
+      } catch {
+        return null;
       }
-      const { accessToken } = await res.json() as { accessToken: string };
-      // Persist first so apiClient's request interceptor (which reads
-      // SecureStore per request) immediately picks up the fresh token.
-      await SecureStore.setItemAsync(SECURE_STORE_KEY, accessToken).catch(() => {});
-      set({ accessToken, token: accessToken });
-      return true;
-    } catch {
+    });
+    if (!accessToken) {
       get().signOut();
       return false;
     }
+    return true;
   },
 
   handleUnauthorized: async (response: Response) => {

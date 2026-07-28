@@ -9,6 +9,7 @@ import { useSocketStore } from '../stores/socketStore';
 import { useRecentDestinationsStore } from '../stores/recentDestinationsStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import { onboardingState } from '../utils/onboardingState';
+import { singleFlightRefresh } from './refreshTokenGuard';
 
 const SECURE_STORE_KEY = 'convoy_access_token';
 
@@ -165,14 +166,19 @@ export class AuthService {
   }
 
   async refreshToken(): Promise<string | null> {
-    try {
-      const result = await rawPost<{ accessToken: string }>('/api/v1/auth/refresh', {});
-      await SecureStore.setItemAsync(SECURE_STORE_KEY, result.accessToken);
-      useAuthStore.getState().setAccessToken(result.accessToken);
-      return result.accessToken;
-    } catch {
-      return null;
-    }
+    // Single-flight so a concurrent authStore.refreshToken (raw-fetch screens)
+    // doesn't fire a second /auth/refresh that consumes the rotated token and
+    // 401s the loser into a sign-out.
+    return singleFlightRefresh(async () => {
+      try {
+        const result = await rawPost<{ accessToken: string }>('/api/v1/auth/refresh', {});
+        await SecureStore.setItemAsync(SECURE_STORE_KEY, result.accessToken);
+        useAuthStore.getState().setAccessToken(result.accessToken);
+        return result.accessToken;
+      } catch {
+        return null;
+      }
+    });
   }
 
   async signOut(): Promise<void> {
