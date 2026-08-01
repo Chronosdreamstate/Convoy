@@ -113,17 +113,28 @@ export function enforceExactlyOneChannel<T>(
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-/** Generate a real Agora RTC token via agora-token SDK. Falls back to a dev placeholder. */
-function generateAgoraToken(channelName: string, uid: number, ttlSeconds: number): string {
+/**
+ * Generate a real Agora RTC token via agora-token SDK. Falls back to a dev placeholder.
+ *
+ * `canTransmit` picks the Agora role: a muted member still needs to HEAR the
+ * convoy, so they get a subscriber token rather than no token at all.
+ */
+function generateAgoraToken(
+  channelName: string,
+  uid: number,
+  ttlSeconds: number,
+  canTransmit: boolean,
+): string {
+  const role = canTransmit ? RtcRole.PUBLISHER : RtcRole.SUBSCRIBER;
   if (!env.AGORA_APP_ID || !env.AGORA_APP_CERTIFICATE) {
-    return `dev-token-${channelName}-${uid}-${ttlSeconds}`;
+    return `dev-token-${channelName}-${uid}-${ttlSeconds}-${canTransmit ? 'pub' : 'sub'}`;
   }
   return RtcTokenBuilder.buildTokenWithUid(
     env.AGORA_APP_ID,
     env.AGORA_APP_CERTIFICATE,
     channelName,
     uid,
-    RtcRole.PUBLISHER,
+    role,
     ttlSeconds,
     ttlSeconds,
   );
@@ -170,9 +181,13 @@ export default async function pttRoutes(fastify: FastifyInstance): Promise<void>
     );
     const member = memberResult.rows[0];
     if (!member) return reply.forbidden('You are not an active member of this group');
-    if (!canTransmit({ isActiveMember: true, isMuted: member.is_muted })) {
-      return reply.forbidden('You are muted and cannot transmit');
-    }
+    // Being muted must not cut a member out of the convoy's audio — Req 10.10
+    // and 10.11 stop them TRANSMITTING, nothing more. Refusing the token here
+    // (as this route used to) left them unable to hear anyone, and the client
+    // retried the rejected fetch every 10s for the whole drive. Transmission
+    // stays blocked where it's authoritative: handlePttStart re-checks
+    // canTransmit on every ptt:start, so a forged publisher token buys nothing.
+    const mayTransmit = canTransmit({ isActiveMember: true, isMuted: member.is_muted });
 
     // Verify channel belongs to group
     const channelResult = await pool.query<{ id: string; is_all: boolean }>(
@@ -199,10 +214,14 @@ export default async function pttRoutes(fastify: FastifyInstance): Promise<void>
 
     const uid = userIdToAgoraUid(userId);
     const channelName = buildAgoraChannelName(groupId, channelId);
-    const token = generateAgoraToken(channelName, uid, PTT_TOKEN_TTL_S);
+    const token = generateAgoraToken(channelName, uid, PTT_TOKEN_TTL_S, mayTransmit);
     const expiresAt = new Date(Date.now() + PTT_TOKEN_TTL_S * 1000).toISOString();
 
-    return { token, uid, channelName, expiresAt };
+    // canTransmit tells the client to show the muted PTT button from the moment
+    // it joins — the ptt:muted socket event only covers mutes that happen while
+    // it's already listening, so a member muted before joining (or before an
+    // app restart) would otherwise see a normal button that silently does nothing.
+    return { token, uid, channelName, expiresAt, canTransmit: mayTransmit };
   });
 
   // -------------------------------------------------------------------------

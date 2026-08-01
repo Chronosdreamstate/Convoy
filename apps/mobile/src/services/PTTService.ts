@@ -27,6 +27,8 @@ export interface ITokenFetcher {
     uid: number;
     channelName: string;
     expiresAt: string;
+    /** False when the Admin has this member muted; the token is subscribe-only. */
+    canTransmit?: boolean;
   }>;
 }
 
@@ -100,9 +102,14 @@ export class PTTService {
     if (!this.engine.isConnected()) return; // degraded mode (Req 43.3)
 
     try {
-      const { token, uid, channelName } = await this.tokenFetcher.fetchToken(groupId, channelId);
+      const { token, uid, channelName, canTransmit } =
+        await this.tokenFetcher.fetchToken(groupId, channelId);
       // Session may have changed while the fetch was in flight (leave/rejoin race)
       if (this.session !== session) return;
+      // The token response carries the CURRENT mute state, which is the only
+      // way to learn about a mute applied before this device joined — the
+      // ptt:muted event only fires for mutes that happen while it's listening.
+      this.setAdminMuted(canTransmit === false);
       await this.engine.joinChannel(token, channelName, uid);
       this.channelJoined = true;
     } catch (err) {
@@ -256,6 +263,15 @@ export class PTTService {
       this.socket.off('ptt:ended', this.pttEndedHandler);
       this.listenersRegistered = false;
     }
+  }
+
+  /**
+   * Whether the Admin currently has this member muted. Exposed so the map can
+   * reconcile its "MUTED BY ADMIN" button state with the mute the token
+   * response reported at join time, not just the live ptt:muted events.
+   */
+  get isAdminMuted(): boolean {
+    return this.adminMuted;
   }
 
   get voiceAvailable(): boolean {

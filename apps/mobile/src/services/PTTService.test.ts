@@ -216,3 +216,68 @@ describe('PTTService mute state machine', () => {
     jest.useRealTimers();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Admin mute applied BEFORE this device joined (Req 10.10, 10.11)
+//
+// ptt:muted only reaches a device that's already listening, so a member muted
+// before joining — or before an app restart — used to arrive with a normal PTT
+// button. The token response carries the current mute state; a muted member
+// still joins the channel so they can hear the convoy.
+// ---------------------------------------------------------------------------
+
+describe('PTTService admin mute from the token response', () => {
+  function fetcherWith(canTransmit: boolean | undefined): ITokenFetcher {
+    return {
+      fetchToken: jest.fn().mockResolvedValue({
+        token: 'tok', uid: 1, channelName: 'ch', expiresAt: '', canTransmit,
+      }),
+    };
+  }
+
+  it('joins the channel and blocks transmission when the token is subscribe-only', async () => {
+    const engine = buildEngine();
+    const svc = new PTTService(engine, fetcherWith(false), buildSocket(), haptic);
+
+    await svc.joinChannel(session);
+
+    // Still in the audio channel — mute must not deafen them.
+    expect(engine.joinChannel).toHaveBeenCalled();
+    expect(svc.voiceAvailable).toBe(true);
+    expect(svc.isAdminMuted).toBe(true);
+
+    svc.holdStart();
+    expect(engine.muteLocalAudioStream).not.toHaveBeenCalled();
+  });
+
+  it('leaves an unmuted member able to transmit', async () => {
+    const engine = buildEngine();
+    const svc = new PTTService(engine, fetcherWith(true), buildSocket(), haptic);
+
+    await svc.joinChannel(session);
+
+    expect(svc.isAdminMuted).toBe(false);
+    svc.holdStart();
+    expect(engine.muteLocalAudioStream).toHaveBeenCalledWith(false);
+    svc.holdEnd(); // clears the real max-hold timer so Jest can exit
+  });
+
+  it('treats a response without canTransmit as unmuted (older server)', async () => {
+    const engine = buildEngine();
+    const svc = new PTTService(engine, fetcherWith(undefined), buildSocket(), haptic);
+
+    await svc.joinChannel(session);
+
+    expect(svc.isAdminMuted).toBe(false);
+  });
+
+  it('clears a stale admin mute when the member is unmuted before rejoining', async () => {
+    const engine = buildEngine();
+    const svc = new PTTService(engine, fetcherWith(true), buildSocket(), haptic);
+    svc.setAdminMuted(true);
+
+    await svc.joinChannel(session);
+
+    expect(svc.isAdminMuted).toBe(false);
+  });
+});

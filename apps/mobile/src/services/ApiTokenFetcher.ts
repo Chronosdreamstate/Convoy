@@ -11,6 +11,8 @@ interface PttTokenResponse {
   uid: number;
   channelName: string;
   expiresAt: string;
+  /** False when the Admin has this member muted — the token is subscribe-only. */
+  canTransmit?: boolean;
 }
 
 class ApiTokenFetcher implements ITokenFetcher {

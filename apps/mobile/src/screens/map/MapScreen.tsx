@@ -992,11 +992,18 @@ export default function MapScreen({ groupId, socketUrl, isAdmin: isAdminProp = f
     // maxSeconds comes from the active group's Admin-configured limit (Req 10.5, 10.6, 16.3),
     // not the user's personal settings — the hold-timer cutoff must match what the Admin set
     // for everyone in this convoy.
-    void service.joinChannel({ groupId, channelId: pttChannelId, maxSeconds: groupPttMaxSeconds });
+    void service.joinChannel({ groupId, channelId: pttChannelId, maxSeconds: groupPttMaxSeconds })
+      // joinChannel never rejects; this just surfaces a pre-existing admin mute
+      // on the button immediately instead of on the next 5s poll tick.
+      .then(() => { if (pttServiceRef.current === service) setPttAdminMuted(service.isAdminMuted); });
 
-    // Poll Agora engine availability every 5s to update "Voice unavailable" indicator (Req 43.3)
+    // Poll Agora engine availability every 5s to update "Voice unavailable" indicator (Req 43.3).
+    // The same tick reconciles the admin-mute button state: ptt:muted only
+    // covers mutes that land while this screen is listening, whereas the
+    // service learns a pre-existing mute from the token response on join.
     const availabilityPoll = setInterval(() => {
       setPttVoiceAvailable(pttServiceRef.current?.voiceAvailable ?? true);
+      setPttAdminMuted(pttServiceRef.current?.isAdminMuted ?? false);
     }, 5_000);
 
     return () => {
