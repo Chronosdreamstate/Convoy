@@ -16,7 +16,14 @@ export interface INetInfoProvider {
 }
 
 export interface ISyncApiClient {
-  postBulkHazards(hazards: OfflineHazard[]): Promise<void>;
+  /**
+   * Returns how many of the SUBMITTED hazards the server settled, counted from
+   * the head of the batch. The server trims a batch to the reporter's remaining
+   * hourly quota rather than rejecting the whole thing, so this can be less
+   * than `hazards.length`; the rest stay queued for the next window.
+   * A server that omits the field is treated as having taken them all.
+   */
+  postBulkHazards(hazards: OfflineHazard[]): Promise<{ accepted?: number } | void>;
   postDrive(drive: OfflineDrive): Promise<void>;
 }
 
@@ -116,8 +123,12 @@ export class SyncService {
     const hazards = await this.db.getPendingHazards();
     if (hazards.length === 0) return;
     try {
-      await this.retryWithBackoff(() => this.api.postBulkHazards(hazards), MAX_RETRIES);
-      await this.db.clearHazards(hazards.map((h) => h.id));
+      const res = await this.retryWithBackoff(() => this.api.postBulkHazards(hazards), MAX_RETRIES);
+      // Clear only what the server settled. It trims an oversized batch to the
+      // reporter's remaining hourly quota, so clearing the whole queue here
+      // would silently discard the reports it deliberately left for later.
+      const accepted = res?.accepted ?? hazards.length;
+      await this.db.clearHazards(hazards.slice(0, accepted).map((h) => h.id));
       return;
     } catch (err) {
       if (!this.isPermanentError(err)) throw err;

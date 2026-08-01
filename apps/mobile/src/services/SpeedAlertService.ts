@@ -53,7 +53,19 @@ class SpeedAlertService {
       // Offline: queue the report for replay on reconnect. Server rejections
       // (4xx/5xx) stay fire-and-forget — replaying wouldn't change them.
       if (isOfflineError(err)) {
-        await offlineQueue.enqueue({ method: 'POST', url: '/api/v1/speed-cameras', body, headers: {} });
+        // dedupeKey: POST /speed-cameras is a plain INSERT, so without one a
+        // driver who tapped report twice at the same spot (or drove past it on
+        // the way back) queued two entries that both replayed into separate
+        // map pins. Rounded to ~11m so the same camera reported from slightly
+        // different fixes collapses to one queued report.
+        const cell = `${lat.toFixed(4)},${lng.toFixed(4)}`;
+        await offlineQueue.enqueue({
+          method: 'POST',
+          url: '/api/v1/speed-cameras',
+          body,
+          headers: {},
+          dedupeKey: `camera-report:${type}:${cell}`,
+        });
       }
     }
   }

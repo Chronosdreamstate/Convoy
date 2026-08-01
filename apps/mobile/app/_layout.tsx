@@ -51,9 +51,12 @@ const syncService = new SyncService(
   syncDB,
   {
     postBulkHazards: async (hazards: OfflineHazard[]) => {
-      await apiClient.post('/api/v1/hazards/bulk', {
+      const res = await apiClient.post<{ accepted?: number }>('/api/v1/hazards/bulk', {
         hazards: hazards.map((h) => ({ type: h.type, lat: h.lat, lng: h.lng, createdAt: h.createdAt })),
       });
+      // Pass the count through: the server may have taken only part of the
+      // batch (hourly quota), and SyncService clears exactly that many.
+      return { accepted: res.data?.accepted };
     },
     postDrive: async (drive: OfflineDrive) => {
       await apiClient.post('/api/v1/drives', {

@@ -210,7 +210,29 @@ describe('reportCamera / voteOnCamera', () => {
       url: '/api/v1/speed-cameras',
       body: { lat: 1.5, lng: 2.5, type: 'mobile', source: 'community' },
       headers: {},
+      dedupeKey: 'camera-report:mobile:1.5000,2.5000',
     });
+  });
+
+  it('collapses repeat reports of the same camera into one queued entry', async () => {
+    // POST /speed-cameras is a plain INSERT, so two queued reports replay into
+    // two map pins for one camera.
+    mockPost.mockRejectedValue(new Error('Network Error'));
+    await speedAlertService.reportCamera(1.5, 2.5, 'mobile');
+    await speedAlertService.reportCamera(1.50002, 2.49998, 'mobile'); // a metre or two off
+
+    const keys = mockEnqueue.mock.calls.map((c) => (c[0] as { dedupeKey?: string }).dedupeKey);
+    expect(keys[0]).toBe(keys[1]);
+  });
+
+  it('keeps genuinely distinct camera reports apart', async () => {
+    mockPost.mockRejectedValue(new Error('Network Error'));
+    await speedAlertService.reportCamera(1.5, 2.5, 'mobile');
+    await speedAlertService.reportCamera(1.5, 2.5, 'fixed');  // different type
+    await speedAlertService.reportCamera(9.9, 8.8, 'mobile'); // different place
+
+    const keys = mockEnqueue.mock.calls.map((c) => (c[0] as { dedupeKey?: string }).dedupeKey);
+    expect(new Set(keys).size).toBe(3);
   });
 
   it('voteOnCamera queues the vote with a per-camera dedupeKey when offline', async () => {

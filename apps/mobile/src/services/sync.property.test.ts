@@ -437,3 +437,68 @@ describe('Hazard poison-item isolation on permanent (4xx) batch rejection', () =
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// Partial acceptance (Req 11.10)
+//
+// The server trims an oversized backlog to the reporter's remaining hourly
+// quota instead of rejecting the whole batch, so the client must clear exactly
+// what was settled. Clearing the lot would silently discard the reports the
+// server deliberately deferred; clearing none would re-send them forever.
+// ---------------------------------------------------------------------------
+
+describe('SyncService honours partial hazard acceptance', () => {
+  const pending = ['h1', 'h2', 'h3', 'h4', 'h5'].map(makeOfflineHazard);
+
+  it('clears only the accepted prefix and keeps the rest queued', async () => {
+    const { db, clearedHazards } = makeDb({ hazards: pending });
+    const api: ISyncApiClient = {
+      postBulkHazards: jest.fn(async () => ({ accepted: 3 })),
+      postDrive: jest.fn(async () => {}),
+    };
+
+    const svc = new SyncService(db, api, makeNetInfo(), undefined, async () => {});
+    await svc.sync();
+
+    expect(clearedHazards).toEqual(['h1', 'h2', 'h3']);
+  });
+
+  it('clears everything when the server takes the whole batch', async () => {
+    const { db, clearedHazards } = makeDb({ hazards: pending });
+    const api: ISyncApiClient = {
+      postBulkHazards: jest.fn(async () => ({ accepted: pending.length })),
+      postDrive: jest.fn(async () => {}),
+    };
+
+    const svc = new SyncService(db, api, makeNetInfo(), undefined, async () => {});
+    await svc.sync();
+
+    expect(clearedHazards).toEqual(['h1', 'h2', 'h3', 'h4', 'h5']);
+  });
+
+  it('treats a response without the field as full acceptance (older server)', async () => {
+    const { db, clearedHazards } = makeDb({ hazards: pending });
+    const api: ISyncApiClient = {
+      postBulkHazards: jest.fn(async () => undefined),
+      postDrive: jest.fn(async () => {}),
+    };
+
+    const svc = new SyncService(db, api, makeNetInfo(), undefined, async () => {});
+    await svc.sync();
+
+    expect(clearedHazards).toHaveLength(pending.length);
+  });
+
+  it('keeps the whole queue when the server accepted nothing', async () => {
+    const { db, clearedHazards } = makeDb({ hazards: pending });
+    const api: ISyncApiClient = {
+      postBulkHazards: jest.fn(async () => ({ accepted: 0 })),
+      postDrive: jest.fn(async () => {}),
+    };
+
+    const svc = new SyncService(db, api, makeNetInfo(), undefined, async () => {});
+    await svc.sync();
+
+    expect(clearedHazards).toHaveLength(0);
+  });
+});

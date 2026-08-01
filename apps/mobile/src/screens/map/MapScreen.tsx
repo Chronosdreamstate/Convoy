@@ -468,10 +468,14 @@ async function flushOfflineHazards(): Promise<void> {
     const pending = await offlineDB.getPendingHazards();
     if (pending.length === 0) return;
     try {
-      await apiClient.post('/api/v1/hazards/bulk', {
+      const res = await apiClient.post<{ accepted?: number }>('/api/v1/hazards/bulk', {
         hazards: pending.map((h) => ({ type: h.type, lat: h.lat, lng: h.lng, createdAt: h.createdAt })),
       });
-      await offlineDB.clearHazards(pending.map((h) => h.id));
+      // The server trims an oversized batch to the reporter's remaining hourly
+      // quota, so only the reports it actually settled may be cleared — the
+      // remainder has to survive for the next drain (Req 11.10).
+      const accepted = res.data?.accepted ?? pending.length;
+      await offlineDB.clearHazards(pending.slice(0, accepted).map((h) => h.id));
     } catch {
       // Still offline or server rejected the batch — retry on the next reconnect.
     }

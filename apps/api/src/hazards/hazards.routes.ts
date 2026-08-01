@@ -211,11 +211,25 @@ export default async function hazardsRoutes(fastify: FastifyInstance): Promise<v
 
     // Apply rate limit for the entire batch atomically — same bucket as the
     // per-request hazardReportLimiter on POST /hazards (Req 37.1).
+    //
+    // PARTIAL acceptance, not all-or-nothing. A driver who reported 12 hazards
+    // across a three-hour dead zone used to get a flat 429 for the whole batch
+    // on every reconnect: the client re-sent all 12 next time, went over the
+    // hourly cap again, and the backlog could never drain — the reports were
+    // stuck forever. Now the batch is trimmed to whatever quota is left, the
+    // rest stay queued on the device, and the response says how many landed so
+    // the client clears exactly those (Req 11.10).
     const rateKey = rateLimitKey(hazardReportLimit.prefix, userId);
     const afterBulk = await redis.incrby(rateKey, hazards.length);
     if (afterBulk === hazards.length) await redis.expire(rateKey, HAZARD_RATE_WINDOW_S);
-    if (afterBulk > HAZARD_RATE_LIMIT) {
-      await redis.decrby(rateKey, hazards.length);
+
+    const usedBeforeBatch = afterBulk - hazards.length;
+    const remainingQuota = Math.max(0, HAZARD_RATE_LIMIT - usedBeforeBatch);
+    const accepted = hazards.slice(0, remainingQuota);
+    const deferred = hazards.length - accepted.length;
+    if (deferred > 0) await redis.decrby(rateKey, deferred);
+
+    if (accepted.length === 0) {
       return reply.tooManyRequests(`Rate limit exceeded: max ${HAZARD_RATE_LIMIT} hazard reports per hour`);
     }
 
@@ -227,19 +241,38 @@ export default async function hazardsRoutes(fastify: FastifyInstance): Promise<v
     const insertedPayloads: HazardResponse[] = [];
     try {
       await client.query('BEGIN');
-      for (const h of hazards) {
+      for (const h of accepted) {
         // Clamp future timestamps to now so offline reports don't expire immediately
         const created = h.createdAt ? new Date(Math.min(h.createdAt, now)) : new Date();
         const expires = computeExpiresAt(created.getTime());
+        // Skip a report this user already filed at the same spot and instant.
+        // This endpoint is replayed at least once by design: if the response is
+        // lost after the transaction commits (dead zone drops the connection
+        // mid-reply), the device still holds the batch and re-sends it, which
+        // used to insert a second copy of every hazard AND re-broadcast it to
+        // the convoy. A replay carries byte-identical reporter/type/location/
+        // createdAt, so that tuple is the natural idempotency key — no client
+        // change and no new column needed. Guarded rather than a UNIQUE index
+        // because several genuinely distinct offline reports can share a
+        // created_at once the clamp above pins future timestamps to `now`.
         const r = await client.query<{ id: string }>(
           `INSERT INTO hazard_reports (reporter_id, hazard_type, location, expires_at, created_at)
-           VALUES ($1, $2, ST_SetSRID(ST_MakePoint($3, $4), 4326)::geography, $5, $6)
+           SELECT $1, $2, ST_SetSRID(ST_MakePoint($3, $4), 4326)::geography, $5, $6
+           WHERE NOT EXISTS (
+             SELECT 1 FROM hazard_reports
+             WHERE reporter_id = $1
+               AND hazard_type = $2
+               AND created_at = $6
+               AND ST_DWithin(location, ST_SetSRID(ST_MakePoint($3, $4), 4326)::geography, 1)
+           )
            RETURNING id`,
           [userId, h.type, h.lng, h.lat, expires, created],
         );
-        inserted.push(r.rows[0].id);
+        const row = r.rows[0];
+        if (!row) continue; // already filed — treat as synced, don't re-broadcast
+        inserted.push(row.id);
         insertedPayloads.push({
-          id: r.rows[0].id,
+          id: row.id,
           type: h.type,
           lat: h.lat,
           lng: h.lng,
@@ -270,7 +303,20 @@ export default async function hazardsRoutes(fastify: FastifyInstance): Promise<v
       fastify.io.emit('hazard:new', payload);
     }
 
-    return reply.code(201).send({ inserted, count: inserted.length });
+    // Reports recognised as replays cost the reporter nothing — they were
+    // already charged to the quota when they first landed.
+    const duplicates = accepted.length - inserted.length;
+    if (duplicates > 0) await redis.decrby(rateKey, duplicates);
+
+    // `accepted` is how many of the SUBMITTED items are now settled (inserted
+    // or already present) — the client clears that many from the head of the
+    // batch it sent. `deferred` is what it must keep for the next window.
+    return reply.code(201).send({
+      inserted,
+      count: inserted.length,
+      accepted: accepted.length,
+      deferred,
+    });
   });
 
   // POST /hazards/:id/confirm — confirm a report (Req 11.5)
