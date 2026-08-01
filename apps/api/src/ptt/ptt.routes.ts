@@ -219,9 +219,14 @@ export default async function pttRoutes(fastify: FastifyInstance): Promise<void>
     if ((member.rowCount ?? 0) === 0) return reply.forbidden('Not a member of this group');
 
     const result = await pool.query<{
-      id: string; name: string; is_all: boolean; member_count: string;
+      id: string; name: string; is_all: boolean; member_count: string; member_ids: string[];
     }>(
-      `SELECT c.id, c.name, c.is_all, COUNT(cm.user_id) AS member_count
+      // memberIds lets a client tell WHICH member sits on which channel (the
+      // Admin's assign picker highlights the target's current channel, Req 26.3).
+      // A convoy's channel roster is at most a few dozen rows, so aggregating
+      // the ids costs nothing over the COUNT that was already here.
+      `SELECT c.id, c.name, c.is_all, COUNT(cm.user_id) AS member_count,
+              COALESCE(ARRAY_AGG(cm.user_id) FILTER (WHERE cm.user_id IS NOT NULL), '{}') AS member_ids
        FROM ptt_channels c
        LEFT JOIN ptt_channel_members cm ON cm.channel_id = c.id
        WHERE c.group_id = $1
@@ -238,6 +243,7 @@ export default async function pttRoutes(fastify: FastifyInstance): Promise<void>
         name: r.name,
         isAll: r.is_all,
         memberCount: parseInt(r.member_count, 10),
+        memberIds: r.member_ids ?? [],
       })),
     };
   });
