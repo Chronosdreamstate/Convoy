@@ -48,3 +48,92 @@ jobs:
       - run: pnpm --filter @convoy/mobile lint
       - run: pnpm --filter @convoy/mobile typecheck
       - run: pnpm --filter @convoy/mobile test
+
+  # Exercises the actual deploy path: build the production image, apply every
+  # migration to a real PostGIS database, boot the server and probe /health.
+  #
+  # This exists because the compiled migration runner once found no .sql files
+  # (tsc does not emit them), logged "No pending migrations." and exited 0 — a
+  # deploy would have gone green having applied nothing. Unit tests cannot see
+  # that; only running the built image can.
+  deploy:
+    name: Deployable image
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgis/postgis:16-3.4-alpine
+        env:
+          POSTGRES_USER: convoy
+          POSTGRES_PASSWORD: convoy
+          POSTGRES_DB: convoy
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U convoy" --health-interval 10s
+          --health-timeout 5s --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 10s
+          --health-timeout 5s --health-retries 5
+    env:
+      NODE_ENV: production
+      PORT: '3000'
+      DATABASE_URL: postgres://convoy:convoy@172.17.0.1:5432/convoy
+      REDIS_URL: redis://172.17.0.1:6379
+      JWT_SECRET: ci-secret-that-is-at-least-32-characters-long
+      JWT_REFRESH_SECRET: ci-refresh-secret-at-least-32-characters
+      MAPBOX_API_TOKEN: pk.ci-token
+      AGORA_APP_ID: ci-agora-app-id
+      AGORA_APP_CERTIFICATE: ci-agora-certificate
+      SMS_PROVIDER: twilio
+      TWILIO_ACCOUNT_SID: ACci
+      TWILIO_AUTH_TOKEN: ci-token
+      TWILIO_FROM_NUMBER: '+15555550100'
+      CORS_ORIGINS: https://convoy.app
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build production image
+        run: docker build -f apps/api/Dockerfile -t convoy-api:ci .
+
+      - name: Migrations ship in the image
+        run: |
+          count=$(docker run --rm --entrypoint sh convoy-api:ci -c 'ls dist/db/migrations/*.sql | wc -l')
+          echo "migrations in image: $count"
+          test "$count" -gt 0
+
+      - name: Apply migrations to a real PostGIS database
+        run: |
+          docker run --rm --network host $(printf -- '-e %s ' NODE_ENV DATABASE_URL REDIS_URL \
+            JWT_SECRET JWT_REFRESH_SECRET MAPBOX_API_TOKEN AGORA_APP_ID AGORA_APP_CERTIFICATE \
+            SMS_PROVIDER TWILIO_ACCOUNT_SID TWILIO_AUTH_TOKEN TWILIO_FROM_NUMBER) \
+            --entrypoint node convoy-api:ci dist/db/migrate.js
+
+      - name: Re-running migrations is a no-op
+        run: |
+          out=$(docker run --rm --network host $(printf -- '-e %s ' NODE_ENV DATABASE_URL REDIS_URL \
+            JWT_SECRET JWT_REFRESH_SECRET MAPBOX_API_TOKEN AGORA_APP_ID AGORA_APP_CERTIFICATE \
+            SMS_PROVIDER TWILIO_ACCOUNT_SID TWILIO_AUTH_TOKEN TWILIO_FROM_NUMBER) \
+            --entrypoint node convoy-api:ci dist/db/migrate.js)
+          echo "$out"
+          echo "$out" | grep -q 'No pending migrations'
+
+      - name: Boot the server and probe readiness
+        run: |
+          docker run -d --name api --network host $(printf -- '-e %s ' NODE_ENV PORT DATABASE_URL \
+            REDIS_URL JWT_SECRET JWT_REFRESH_SECRET MAPBOX_API_TOKEN AGORA_APP_ID \
+            AGORA_APP_CERTIFICATE SMS_PROVIDER TWILIO_ACCOUNT_SID TWILIO_AUTH_TOKEN \
+            TWILIO_FROM_NUMBER CORS_ORIGINS) convoy-api:ci
+          for i in $(seq 1 30); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:3000/health || true)
+            [ "$code" = "200" ] && break
+            sleep 2
+          done
+          docker logs api
+          test "$code" = "200"
+
+      - name: SIGTERM shuts down cleanly
+        run: |
+          docker stop -t 15 api
+          test "$(docker inspect api --format '{{.State.ExitCode}}')" = "0"
