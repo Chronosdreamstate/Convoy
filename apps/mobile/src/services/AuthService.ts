@@ -10,6 +10,7 @@ import { useRecentDestinationsStore } from '../stores/recentDestinationsStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import { onboardingState } from '../utils/onboardingState';
 import { singleFlightRefresh } from './refreshTokenGuard';
+import { API_URL } from '../config/env';
 
 const SECURE_STORE_KEY = 'convoy_access_token';
 
@@ -65,7 +66,7 @@ function extractErrorMessage(body: unknown): string {
  * Used for auth endpoints that must not trigger the 401 retry loop.
  */
 async function rawPost<T>(url: string, body: Record<string, unknown>): Promise<T> {
-  const baseUrl = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
+  const baseUrl = API_URL;
   const response = await fetch(`${baseUrl}${url}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -109,7 +110,7 @@ async function deregisterPushToken(): Promise<void> {
   const accessToken = await SecureStore.getItemAsync(SECURE_STORE_KEY);
   if (!accessToken) return;
 
-  const baseUrl = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
+  const baseUrl = API_URL;
   await fetch(`${baseUrl}/api/v1/devices/${encodeURIComponent(token)}`, {
     method: 'DELETE',
     headers: { Authorization: `Bearer ${accessToken}` },

@@ -13,6 +13,7 @@ import SkeletonCard from '../../components/SkeletonLoader';
 import { useMotionGuard } from '../../hooks/useMotionGuard';
 import { useAuthStore } from '../../stores/authStore';
 import { useTheme, withAlpha, ThemeColors } from '../../theme';
+import { API_URL } from '../../config/env';
 
 // ---------- type helpers ----------
 type VehicleIconName = React.ComponentProps<typeof MaterialCommunityIcons>['name'];
@@ -101,7 +102,7 @@ export default function GarageScreen() {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const accessToken = useAuthStore((s) => s.accessToken);
-  const apiUrl = process.env.EXPO_PUBLIC_API_URL ?? '';
+  const apiUrl = API_URL;
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [mods, setMods] = useState<string[]>([]);
   const [newMod, setNewMod] = useState('');

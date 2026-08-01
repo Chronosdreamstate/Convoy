@@ -23,6 +23,7 @@ import {
   type INotificationRouter,
 } from '../src/services/NotificationService';
 import { onboardingState } from '../src/utils/onboardingState';
+import { currentConfigErrors } from '../src/config/env';
 import { SyncService } from '../src/services/SyncService';
 import { SQLiteOfflineDB } from '../src/services/OfflineCacheService';
 import type { OfflineHazard, OfflineDrive } from '../src/services/OfflineCacheService';
@@ -168,6 +169,43 @@ const splashStyles = StyleSheet.create({
   },
 });
 
+/**
+ * Shown instead of the app when a RELEASE build was produced without the
+ * configuration it needs (see src/config/env.ts).
+ *
+ * EXPO_PUBLIC_* values are inlined at build time, so there is nothing to
+ * retry — the build itself is wrong and has to be replaced. Saying that
+ * plainly beats the old behaviour, where a missing API URL fell back to
+ * localhost and every request failed as "offline" with no explanation.
+ */
+function ConfigErrorScreen({ errors }: { errors: string[] }) {
+  return (
+    <View style={configErrorStyles.container}>
+      <MaterialCommunityIcons name="alert-decagram" size={48} color="#FF6B6B" />
+      <Text style={configErrorStyles.title}>Build not configured</Text>
+      <Text style={configErrorStyles.body}>
+        This build of CORTEGE is missing required settings and cannot start.
+      </Text>
+      {errors.map((e) => (
+        <Text key={e} style={configErrorStyles.item}>
+          • {e}
+        </Text>
+      ))}
+      <Text style={configErrorStyles.footer}>
+        Set the EXPO_PUBLIC_* environment variables for this build profile and rebuild.
+      </Text>
+    </View>
+  );
+}
+
+const configErrorStyles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: '#101012', alignItems: 'center', justifyContent: 'center', padding: 28, gap: 12 },
+  title: { color: '#FFFFFF', fontSize: 22, fontWeight: '800' },
+  body: { color: '#C9C9CF', fontSize: 15, textAlign: 'center' },
+  item: { color: '#FF9F9F', fontSize: 13, alignSelf: 'stretch', lineHeight: 19 },
+  footer: { color: '#7A7A85', fontSize: 12, textAlign: 'center', marginTop: 8 },
+});
+
 /** Low-battery warning banner shown at the top of the screen (Req: expo-battery integration, not yet wired). */
 function LowBatteryBanner() {
   const { colors } = useTheme();
@@ -186,6 +224,10 @@ function LowBatteryBanner() {
     </View>
   );
 }
+
+// Resolved once at module load — the values are baked into the bundle, so this
+// can never change while the app is running.
+const CONFIG_ERRORS = currentConfigErrors();
 
 export default function RootLayout() {
   const { isAuthenticated, isLoading, isFirstLogin, setUser, setLoading, setIsFirstLogin, signOut: storeSignOut } = useAuthStore();
@@ -380,6 +422,17 @@ export default function RootLayout() {
       return () => { cancelled = true; };
     }
   }, [isAuthenticated, isLoading, isFirstLogin]);
+
+  // Ahead of the loading splash: with no usable API URL the startup /me call
+  // can only fail, and the user would sit on a splash then land in a
+  // permanently "offline" app.
+  if (CONFIG_ERRORS.length > 0) {
+    return (
+      <SafeAreaProvider>
+        <ConfigErrorScreen errors={CONFIG_ERRORS} />
+      </SafeAreaProvider>
+    );
+  }
 
   if (isLoading) {
     return (

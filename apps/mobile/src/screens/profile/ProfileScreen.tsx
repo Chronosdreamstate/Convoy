@@ -27,6 +27,7 @@ import { NetworkError } from '../../components/NetworkError';
 import { authService } from '../../services/AuthService';
 import { useAuthStore } from '../../stores/authStore';
 import { useTheme, ThemeColors } from '../../theme';
+import { API_URL } from '../../config/env';
 
 // Text/icons that always sit on the crimson accent fill (avatar initials,
 // camera badge, save button, active privacy chip) — stays light in both
@@ -146,7 +147,7 @@ export default function ProfileScreen() {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const accessToken = useAuthStore((s) => s.accessToken);
-  const apiUrl = process.env.EXPO_PUBLIC_API_URL ?? '';
+  const apiUrl = API_URL;
 
   const [profile, setProfile] = useState<Profile | null>(null);
   const [isLoading, setIsLoading] = useState(true);

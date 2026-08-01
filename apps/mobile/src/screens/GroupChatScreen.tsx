@@ -36,6 +36,7 @@ import { NetworkError } from '../components/NetworkError';
 import { MotionCapNotice, useMotionCappedData } from '../components/MotionAwareList';
 import { useReduceMotion } from '../hooks/useReduceMotion';
 import { theme, useTheme, ThemeColors, withAlpha } from '../theme';
+import { API_URL } from '../config/env';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -425,7 +426,7 @@ export default function GroupChatScreen() {
   const router = useRouter();
   const { accessToken, user } = useAuthStore();
   const { socket } = useSocketStore();
-  const apiUrl = process.env.EXPO_PUBLIC_API_URL ?? '';
+  const apiUrl = API_URL;
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(true);

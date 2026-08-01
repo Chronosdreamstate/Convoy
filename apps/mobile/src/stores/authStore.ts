@@ -2,8 +2,9 @@ import { create } from 'zustand';
 import * as SecureStore from 'expo-secure-store';
 import { SiriShortcutsService } from '../services/SiriShortcutsService';
 import { singleFlightRefresh } from '../services/refreshTokenGuard';
+import { API_V1_URL } from '../config/env';
 
-const API_BASE_URL = `${process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000'}/api/v1`;
+const API_BASE_URL = API_V1_URL;
 
 // Same key AuthService uses — apiClient reads its Bearer token from SecureStore
 // on every request, so a refreshed token MUST be persisted there as well or

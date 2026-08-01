@@ -24,6 +24,7 @@ import { MotionCapNotice, useMotionCappedData } from '../components/MotionAwareL
 import { SkeletonBox } from '../components/SkeletonLoader';
 import { NetworkError } from '../components/NetworkError';
 import { useTheme, ThemeColors } from '../theme';
+import { API_URL } from '../config/env';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const CELL_SIZE = (SCREEN_WIDTH - 3) / 2;
@@ -148,7 +149,7 @@ export default function GroupPhotoLibraryScreen() {
   const [viewerPhoto, setViewerPhoto] = useState<Photo | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
-  const apiUrl = process.env.EXPO_PUBLIC_API_URL ?? '';
+  const apiUrl = API_URL;
 
   const load = useCallback(async () => {
     if (!groupId) return;

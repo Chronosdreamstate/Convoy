@@ -36,8 +36,9 @@ import { useSettingsStore } from '../../stores/settingsStore';
 import { useReduceMotion } from '../../hooks/useReduceMotion';
 import { deriveMotionState, sharedMotionState } from '../../services/MotionStateService';
 import { ThemeColors, useTheme } from '../../theme';
+import { API_URL } from '../../config/env';
 
-const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
+
 const SOCKET_URL = API_URL.replace(/^http/, 'ws');
 
 const DEFAULT_REGION = {

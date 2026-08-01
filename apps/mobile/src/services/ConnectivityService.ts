@@ -24,6 +24,7 @@
  */
 
 import { AppState, AppStateStatus } from 'react-native';
+import { API_URL } from '../config/env';
 
 /** Poll cadence used ONLY while NetInfo is unavailable (degraded mode). */
 const FALLBACK_POLL_INTERVAL_MS = 150_000; // 2.5 min
@@ -51,7 +52,7 @@ export type NetInfoLoader = () => NetInfoLikeModule | null;
  * gets involved — a reachability check must be cheap and side-effect free.
  */
 async function defaultProbe(): Promise<boolean> {
-  const baseUrl = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
+  const baseUrl = API_URL;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS);
   try {

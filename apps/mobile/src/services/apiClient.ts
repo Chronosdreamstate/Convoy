@@ -1,10 +1,11 @@
 import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios';
 import * as SecureStore from 'expo-secure-store';
 import { authService } from './AuthService';
+import { API_URL } from '../config/env';
 
 const SECURE_STORE_KEY = 'convoy_access_token';
 
-const baseURL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
+const baseURL = API_URL;
 
 // Retry policy: up to 3 attempts with exponential backoff (Req 43.1).
 const MAX_RETRIES = 3;

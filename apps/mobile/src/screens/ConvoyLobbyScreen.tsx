@@ -28,8 +28,9 @@ import { useGroupStore } from '../stores/groupStore';
 import { useSocketStore } from '../stores/socketStore';
 import { useTheme, ThemeColors } from '../theme';
 import { useReduceMotion } from '../hooks/useReduceMotion';
+import { API_URL } from '../config/env';
 
-const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
+
 const SOCKET_URL = API_URL.replace(/^http/, 'ws');
 
 // ---------------------------------------------------------------------------
