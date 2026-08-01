@@ -50,7 +50,6 @@ export interface PttSessionInfo {
 // PTTService
 // ---------------------------------------------------------------------------
 
-const DUCK_VOLUME = 120; // 30% of 400 max
 const FULL_VOLUME = 400;
 
 /** Retry cadence for a failed channel join (e.g. token fetch while offline). */
@@ -69,8 +68,19 @@ export class PTTService {
   private expiryListenerRegistered = false;
   private userVolume = FULL_VOLUME; // reflects user's pttVolumePercent setting (0–400)
 
+  // Req 10.9 asks for the user's MUSIC to be ducked while PTT audio plays.
+  // That needs an audio-session change the JS layer cannot reach —
+  // AVAudioSession's .duckOthers on iOS, transient-may-duck audio focus on
+  // Android — so it is NOT implemented yet; these hooks are where it belongs.
+  //
+  // What they must not do is what they used to. adjustPlaybackSignalVolume()
+  // is Agora's REMOTE playback level (the same control setUserVolume drives),
+  // not the device's media volume, so ducking it to 30% on ptt:transmit made
+  // the convoy's voice quietest exactly while someone was speaking. The server
+  // sends ptt:transmit to every recipient's personal room, sender included, so
+  // every listener heard it. They now just re-assert the user's chosen level.
   private readonly pttTransmitHandler = () => {
-    this.engine.adjustPlaybackSignalVolume(DUCK_VOLUME);
+    this.engine.adjustPlaybackSignalVolume(this.userVolume);
   };
   private readonly pttEndedHandler = () => {
     this.engine.adjustPlaybackSignalVolume(this.userVolume);
@@ -144,7 +154,8 @@ export class PTTService {
       this.expiryListenerRegistered = true;
     }
 
-    // Listen for ptt:transmit to apply media ducking (Req 10.9)
+    // Transmission-boundary hooks — see pttTransmitHandler for what belongs
+    // here and what deliberately does not (Req 10.9 is still outstanding).
     if (!this.listenersRegistered) {
       this.socket.on('ptt:transmit', this.pttTransmitHandler);
       this.socket.on('ptt:ended', this.pttEndedHandler);

@@ -218,6 +218,64 @@ describe('PTTService mute state machine', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Incoming PTT must stay at the listener's chosen volume (Req 10.8)
+//
+// adjustPlaybackSignalVolume is Agora's REMOTE playback level, not the
+// device's media volume. Ducking it on ptt:transmit — an attempt at the Req
+// 10.9 media ducking that actually needs an audio-session change — dropped the
+// convoy's voice to 30% for the whole transmission, on every listener, since
+// the server broadcasts ptt:transmit to each recipient's personal room.
+// ---------------------------------------------------------------------------
+
+describe('PTTService playback volume across a transmission', () => {
+  /** Grab the handler PTTService registered for a socket event. */
+  function handlerFor(socket: { on: jest.Mock }, event: string): () => void {
+    const call = socket.on.mock.calls.find(([e]: [string]) => e === event);
+    return call?.[1] as () => void;
+  }
+
+  it('does not lower remote playback while someone is transmitting', async () => {
+    const engine = buildEngine();
+    const socket = buildSocket() as unknown as { on: jest.Mock };
+    const svc = new PTTService(engine, buildTokenFetcher(), socket as never, haptic);
+    await svc.joinChannel(session);
+    svc.setUserVolume(75); // 300 on Agora's 0–400 scale
+
+    engine.volumeCalls.length = 0;
+    handlerFor(socket, 'ptt:transmit')();
+
+    expect(engine.volumeCalls.map((c) => c.volume)).not.toContain(120);
+    expect(engine.volumeCalls.at(-1)?.volume).toBe(300);
+  });
+
+  it('is back at the same level once the transmission ends', async () => {
+    const engine = buildEngine();
+    const socket = buildSocket() as unknown as { on: jest.Mock };
+    const svc = new PTTService(engine, buildTokenFetcher(), socket as never, haptic);
+    await svc.joinChannel(session);
+    svc.setUserVolume(50);
+
+    handlerFor(socket, 'ptt:transmit')();
+    handlerFor(socket, 'ptt:ended')();
+
+    expect(engine.volumeCalls.at(-1)?.volume).toBe(200);
+  });
+
+  it('honours a volume change made mid-transmission', async () => {
+    const engine = buildEngine();
+    const socket = buildSocket() as unknown as { on: jest.Mock };
+    const svc = new PTTService(engine, buildTokenFetcher(), socket as never, haptic);
+    await svc.joinChannel(session);
+
+    handlerFor(socket, 'ptt:transmit')();
+    svc.setUserVolume(25);
+    handlerFor(socket, 'ptt:ended')();
+
+    expect(engine.volumeCalls.at(-1)?.volume).toBe(100);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Admin mute applied BEFORE this device joined (Req 10.10, 10.11)
 //
 // ptt:muted only reaches a device that's already listening, so a member muted
