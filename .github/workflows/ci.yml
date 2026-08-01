@@ -79,8 +79,8 @@ jobs:
     env:
       NODE_ENV: production
       PORT: '3000'
-      DATABASE_URL: postgres://convoy:convoy@172.17.0.1:5432/convoy
-      REDIS_URL: redis://172.17.0.1:6379
+      DATABASE_URL: postgres://convoy:convoy@localhost:5432/convoy
+      REDIS_URL: redis://localhost:6379
       JWT_SECRET: ci-secret-that-is-at-least-32-characters-long
       JWT_REFRESH_SECRET: ci-refresh-secret-at-least-32-characters
       MAPBOX_API_TOKEN: pk.ci-token
