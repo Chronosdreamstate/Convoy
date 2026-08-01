@@ -1,0 +1,15 @@
+# Keep the build context small and never ship local state or secrets.
+**/node_modules
+**/dist
+**/.expo
+**/coverage
+.git
+.github
+.kiro
+.vscode
+**/*.log
+**/.env
+**/.env.*
+!**/.env.example
+apps/mobile/android
+apps/mobile/ios

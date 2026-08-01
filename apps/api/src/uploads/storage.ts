@@ -35,7 +35,21 @@ export interface StorageBackend {
 
 export class LocalStorage implements StorageBackend {
   constructor(private readonly dir: string) {
-    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+    if (!existsSync(dir)) {
+      try {
+        mkdirSync(dir, { recursive: true });
+      } catch (err) {
+        // This runs while routes are being registered, so a bare EACCES here
+        // took the whole API down at boot with nothing but an mkdir stack
+        // trace — the usual cause is a container running unprivileged against
+        // a root-owned working directory. Say what to change instead.
+        throw new Error(
+          `Cannot create the uploads directory "${dir}": ${(err as Error).message}. ` +
+            'Point UPLOADS_DIR at a writable (and, in production, persistent) path, ' +
+            'or set STORAGE_PROVIDER=s3 to store uploads off the container filesystem.',
+        );
+      }
+    }
   }
 
   async save(filename: string, source: Readable, _contentType: string): Promise<void> {

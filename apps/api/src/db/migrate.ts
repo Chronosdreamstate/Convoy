@@ -36,14 +36,24 @@ async function getAppliedMigrations(client: PoolClient): Promise<Set<string>> {
 }
 
 function loadMigrations(): Migration[] {
+  // Missing or empty is a FAILURE, not "nothing to do". The .sql files sit
+  // beside this module, so a build that forgot to copy them into dist/ left
+  // the runner reporting "No pending migrations." and exiting 0 — a deploy
+  // would go green having applied nothing, then serve traffic against an
+  // empty schema. Refuse to be silent about it.
   if (!fs.existsSync(MIGRATIONS_DIR)) {
-    console.warn(`[migrate] Migrations directory not found: ${MIGRATIONS_DIR}`);
-    return [];
+    throw new Error(
+      `[migrate] Migrations directory not found: ${MIGRATIONS_DIR}. ` +
+        'If this is a compiled build, the .sql files were not copied into dist/ — run the package build script.',
+    );
   }
 
-  return fs
-    .readdirSync(MIGRATIONS_DIR)
-    .filter((f) => f.endsWith('.sql'))
+  const files = fs.readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith('.sql'));
+  if (files.length === 0) {
+    throw new Error(`[migrate] No .sql migrations found in ${MIGRATIONS_DIR}`);
+  }
+
+  return files
     .sort()
     .map((filename) => {
       const match = filename.match(/^(\d+)_(.+)\.sql$/);
@@ -58,11 +68,25 @@ function loadMigrations(): Migration[] {
     });
 }
 
+/**
+ * Arbitrary but fixed key for the migration advisory lock. Any value works as
+ * long as every deploy uses the same one.
+ */
+const MIGRATION_LOCK_ID = 8_274_119;
+
 async function runMigrations(): Promise<void> {
   const pool = new Pool({ connectionString: env.DATABASE_URL });
   const client = await pool.connect();
 
   try {
+    // Serialize concurrent runners. A rolling deploy starts several replicas
+    // at once and each runs this before booting; without the lock they race on
+    // the same pending list, and the losers fail on "relation already exists"
+    // (each migration is transactional, but the SELECT of applied versions is
+    // not atomic with applying them). pg_advisory_lock blocks rather than
+    // erroring, so the later replicas simply wait, then find nothing pending.
+    await client.query('SELECT pg_advisory_lock($1)', [MIGRATION_LOCK_ID]);
+
     await ensureMigrationsTable(client);
     const applied = await getAppliedMigrations(client);
     const migrations = loadMigrations();
@@ -98,6 +122,10 @@ async function runMigrations(): Promise<void> {
 
     console.log('[migrate] All migrations applied successfully.');
   } finally {
+    // Ending the pool drops the session and would release the lock anyway;
+    // unlocking explicitly keeps that true if this ever runs on a shared pool.
+    // Swallowed so a failure here cannot mask the real migration error.
+    await client.query('SELECT pg_advisory_unlock($1)', [MIGRATION_LOCK_ID]).catch(() => {});
     client.release();
     await pool.end();
   }
