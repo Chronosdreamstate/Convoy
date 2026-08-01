@@ -27,6 +27,14 @@ interface MemberInfo {
   isMuted?: boolean;
 }
 
+/** A group PTT channel as returned by GET /api/v1/groups/:id/channels. */
+interface PttChannel {
+  id: string;
+  name: string;
+  isAll: boolean;
+  memberIds?: string[];
+}
+
 /** Active-vehicle summary returned by GET /api/v1/vehicles/active/:userId (Req 29.4/29.5). */
 interface MemberVehicle {
   id: string;
@@ -115,6 +123,8 @@ export default function MemberDetailModal({
   const [vehicle, setVehicle] = useState<MemberVehicle | null>(null);
   const [vehicleLoading, setVehicleLoading] = useState(false);
   const [etaSeconds, setEtaSeconds] = useState<number | null>(null);
+  const [pttChannels, setPttChannels] = useState<PttChannel[]>([]);
+  const [assigningChannelId, setAssigningChannelId] = useState<string | null>(null);
 
   // Fetch the member's active vehicle when the sheet opens (Req 29.4/29.5).
   // The vehicle is static garage data, so it's pulled on demand rather than
@@ -155,6 +165,24 @@ export default function MemberDetailModal({
       .catch(() => { if (!cancelled) setEtaSeconds(null); });
     return () => { cancelled = true; };
   }, [visible, memberUserId, activeGroupId]);
+
+  // PTT channels for the Admin's assign control (Req 26.3). Only fetched for
+  // Admins — everyone else has no use for the roster here, and the member's
+  // own channel switcher lives on the convoy screen. memberIds is what makes
+  // the target's CURRENT channel visible; a server that omits it (older build)
+  // simply renders no selection rather than a wrong one.
+  useEffect(() => {
+    if (!visible || !isCurrentUserAdmin || !activeGroupId) {
+      setPttChannels([]);
+      return;
+    }
+    let cancelled = false;
+    apiClient
+      .get<{ channels: PttChannel[] }>(`/api/v1/groups/${activeGroupId}/channels`)
+      .then((res) => { if (!cancelled) setPttChannels(res.data.channels ?? []); })
+      .catch(() => { if (!cancelled) setPttChannels([]); });
+    return () => { cancelled = true; };
+  }, [visible, isCurrentUserAdmin, activeGroupId]);
 
   // Friend state when the sheet opens — without this the modal offered "Add
   // Friend" to existing friends and to members with a request already pending
@@ -213,6 +241,35 @@ export default function MemberDetailModal({
       Alert.alert('Error', 'Could not send friend request. Try again.');
     } finally {
       setAddingFriend(false);
+    }
+  };
+
+  // Where the member sits right now. Membership is exactly one channel per
+  // group (Req 26.6), so the first match is the only match.
+  const memberChannelId = pttChannels.find((c) => c.memberIds?.includes(member.userId))?.id ?? null;
+
+  const handleAssignChannel = async (channelId: string) => {
+    if (!activeGroupId || assigningChannelId || channelId === memberChannelId) return;
+    setAssigningChannelId(channelId);
+    try {
+      await apiClient.post(
+        `/api/v1/groups/${activeGroupId}/channels/${channelId}/members`,
+        { userId: member.userId },
+      );
+      // Reflect the move locally — the server pushed the switch to the target's
+      // device, but nothing echoes it back to the Admin's own channel list.
+      setPttChannels((prev) =>
+        prev.map((c) => ({
+          ...c,
+          memberIds: c.id === channelId
+            ? [...(c.memberIds ?? []).filter((u) => u !== member.userId), member.userId]
+            : (c.memberIds ?? []).filter((u) => u !== member.userId),
+        })),
+      );
+    } catch {
+      Alert.alert('Error', 'Could not move this member to that channel. Try again.');
+    } finally {
+      setAssigningChannelId(null);
     }
   };
 
@@ -412,6 +469,43 @@ export default function MemberDetailModal({
         {/* Admin controls */}
         {showAdminControls && (
           <View style={styles.adminSection}>
+            {/* PTT channel assignment (Req 26.3) */}
+            {pttChannels.length > 1 && (
+              <View style={styles.channelSection} testID="member-ptt-channels">
+                <Text style={styles.channelLabel}>PTT CHANNEL</Text>
+                <View style={styles.channelChips}>
+                  {pttChannels.map((ch) => {
+                    const isCurrent = ch.id === memberChannelId;
+                    const isAssigning = assigningChannelId === ch.id;
+                    const label = ch.isAll ? 'All Members' : `#${ch.name}`;
+                    return (
+                      <TouchableOpacity
+                        key={ch.id}
+                        style={[
+                          styles.channelChip,
+                          isCurrent && styles.channelChipActive,
+                          assigningChannelId && !isAssigning && styles.channelChipDimmed,
+                        ]}
+                        onPress={() => void handleAssignChannel(ch.id)}
+                        disabled={isCurrent || !!assigningChannelId}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Move ${member.displayName} to ${label}`}
+                        accessibilityState={{ checked: isCurrent, disabled: isCurrent || !!assigningChannelId }}
+                      >
+                        {isAssigning ? (
+                          <ActivityIndicator color={colors.accent} size="small" />
+                        ) : (
+                          <Text style={[styles.channelChipText, isCurrent && styles.channelChipTextActive]}>
+                            {label}
+                          </Text>
+                        )}
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+            )}
+
             <View style={styles.adminRow}>
               <TouchableOpacity
                 style={[styles.outlineBtn, muting && styles.outlineBtnDisabled]}
@@ -679,6 +773,47 @@ function makeStyles(colors: ThemeColors) {
   adminRow: {
     flexDirection: 'row',
     gap: 10,
+  },
+  channelSection: {
+    width: '100%',
+    gap: 8,
+  },
+  channelLabel: {
+    color: colors.textSubtle,
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 1,
+  },
+  channelChips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  channelChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 100,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    minHeight: 44,
+  },
+  channelChipActive: {
+    borderColor: colors.accent,
+    backgroundColor: colors.accentMuted,
+  },
+  channelChipDimmed: {
+    opacity: 0.5,
+  },
+  channelChipText: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  channelChipTextActive: {
+    color: colors.accent,
   },
   outlineBtn: {
     flex: 1,

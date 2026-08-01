@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { Socket } from 'socket.io-client';
+import { useGroupStore } from './groupStore';
 
 interface SocketState {
   socket: Socket | null;
@@ -41,6 +42,7 @@ export const useSocketStore = create<SocketState>((set, get) => ({
       prev.off('member:online');
       prev.off('member:offline');
       prev.off('presence:update');
+      prev.off('ptt:channel_assigned');
       if (liveHandlers) {
         prev.off('connect', liveHandlers.onConnect);
         prev.off('disconnect', liveHandlers.onDisconnect);
@@ -81,6 +83,15 @@ export const useSocketStore = create<SocketState>((set, get) => ({
 
       socket.on('presence:update', (data: { userId: string; isOnline: boolean; lastSeen: string }) => {
         get()._handlePresenceUpdate(data);
+      });
+
+      // The Admin moved this device to another PTT channel (Req 26.3). It's
+      // handled here rather than on a screen because the switch has to land
+      // whichever convoy surface is showing — MapScreen's PTT effect keys off
+      // the store's pttChannelId and rejoins Agora as soon as it changes.
+      socket.on('ptt:channel_assigned', ({ groupId, channelId }: { groupId: string; channelId: string }) => {
+        if (!groupId || !channelId) return;
+        useGroupStore.getState().applyAssignedPttChannel(groupId, channelId);
       });
     }
 

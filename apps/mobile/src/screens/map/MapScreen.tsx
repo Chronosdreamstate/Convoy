@@ -496,6 +496,7 @@ export default function MapScreen({ groupId, socketUrl, isAdmin: isAdminProp = f
   const groupMemberCount = useGroupStore((s) => s.memberCount);
   const gapThresholdM = useGroupStore((s) => s.gapThresholdM);
   const groupPttMaxSeconds = useGroupStore((s) => s.pttMaxSeconds);
+  const assignedPttChannelId = useGroupStore((s) => s.assignedPttChannelId);
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
   const reduceMotion = useReduceMotion();
@@ -1040,6 +1041,30 @@ export default function MapScreen({ groupId, socketUrl, isAdmin: isAdminProp = f
       );
     }, 6000);
   }, [announcementAnim]);
+
+  // Announce an Admin-initiated channel move (Req 26.3). The PTT lifecycle
+  // effect has already swung the Agora session over by the time this runs, so
+  // the driver must be told by name — otherwise their next transmission
+  // silently reaches a different set of people. The name isn't on the socket
+  // payload, so it's resolved from the channel list; a failed lookup still
+  // announces the move rather than staying quiet about it.
+  useEffect(() => {
+    if (!assignedPttChannelId || !groupId) return;
+    let cancelled = false;
+    const announce = (name: string | null) => {
+      if (cancelled) return;
+      showAnnouncement(name ? `Admin moved you to ${name}` : 'Admin moved you to another PTT channel');
+      useGroupStore.getState().clearAssignedPttChannelNotice();
+    };
+    apiClient
+      .get<{ channels: { id: string; name: string; isAll: boolean }[] }>(`/api/v1/groups/${groupId}/channels`)
+      .then((res) => {
+        const ch = res.data.channels.find((c) => c.id === assignedPttChannelId);
+        announce(ch ? (ch.isAll ? 'All Members' : `#${ch.name}`) : null);
+      })
+      .catch(() => announce(null));
+    return () => { cancelled = true; };
+  }, [assignedPttChannelId, groupId, showAnnouncement]);
 
   const sendQuickAlert = useCallback((type: string, message: string) => {
     if (!socketRef.current || !groupId) return;

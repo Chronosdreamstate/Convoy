@@ -12,6 +12,7 @@
 
 import type { Socket } from 'socket.io-client';
 import { useSocketStore } from './socketStore';
+import { useGroupStore } from './groupStore';
 
 type Handler = (...args: unknown[]) => void;
 
@@ -55,6 +56,7 @@ const asSocket = (s: FakeSocket) => s as unknown as Socket;
 
 afterEach(() => {
   useSocketStore.getState().reset();
+  useGroupStore.getState().leaveGroup();
 });
 
 describe('socketStore.isConnected', () => {
@@ -140,6 +142,54 @@ describe('socketStore.isConnected', () => {
     s.connected = true;
     useSocketStore.getState().setSocket(asSocket(s));
     expect(useSocketStore.getState().isConnected).toBe(true);
+  });
+
+  // Req 26.3 — an Admin moving this device to another PTT channel arrives on
+  // the socket, not on a screen, so the store has to carry it into groupStore
+  // (which the map reads to drive the Agora session).
+  describe('ptt:channel_assigned', () => {
+    it('switches the active PTT channel and flags the move for announcement', () => {
+      useGroupStore.setState({ activeGroupId: 'g1', pttChannelId: 'all' });
+      const s = makeFakeSocket(true);
+      useSocketStore.getState().setSocket(asSocket(s));
+
+      s.fire('ptt:channel_assigned', { groupId: 'g1', channelId: 'lead' });
+
+      expect(useGroupStore.getState().pttChannelId).toBe('lead');
+      expect(useGroupStore.getState().assignedPttChannelId).toBe('lead');
+    });
+
+    it('ignores an assignment for a group this device is no longer in', () => {
+      useGroupStore.setState({ activeGroupId: 'g1', pttChannelId: 'all' });
+      const s = makeFakeSocket(true);
+      useSocketStore.getState().setSocket(asSocket(s));
+
+      s.fire('ptt:channel_assigned', { groupId: 'g-old', channelId: 'lead' });
+
+      expect(useGroupStore.getState().pttChannelId).toBe('all');
+      expect(useGroupStore.getState().assignedPttChannelId).toBeNull();
+    });
+
+    it('does not announce a move to the channel already active', () => {
+      useGroupStore.setState({ activeGroupId: 'g1', pttChannelId: 'lead' });
+      const s = makeFakeSocket(true);
+      useSocketStore.getState().setSocket(asSocket(s));
+
+      s.fire('ptt:channel_assigned', { groupId: 'g1', channelId: 'lead' });
+
+      expect(useGroupStore.getState().assignedPttChannelId).toBeNull();
+    });
+
+    it('detaches with the socket so a replaced socket cannot move the channel', () => {
+      useGroupStore.setState({ activeGroupId: 'g1', pttChannelId: 'all' });
+      const stale = makeFakeSocket(true);
+      useSocketStore.getState().setSocket(asSocket(stale));
+      useSocketStore.getState().setSocket(asSocket(makeFakeSocket(true)));
+
+      stale.fire('ptt:channel_assigned', { groupId: 'g1', channelId: 'lead' });
+
+      expect(useGroupStore.getState().pttChannelId).toBe('all');
+    });
   });
 
   it('reset() clears the socket, connectivity, and presence state', () => {

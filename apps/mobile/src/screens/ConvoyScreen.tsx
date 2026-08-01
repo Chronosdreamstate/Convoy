@@ -12,7 +12,6 @@ import {
   Image,
   Modal,
   SafeAreaView,
-  ScrollView,
   Share,
   StyleSheet,
   Text,
@@ -170,7 +169,6 @@ export default function ConvoyScreen({ userId }: Props) {
   const [view, setView] = useState<'home' | 'join' | 'discover'>('home');
 
   const [pttChannels, setPttChannels] = useState<PttChannel[]>([]);
-  const [activePttChannelId, setActivePttChannelId] = useState<string | null>(null);
   const [joiningChannelId, setJoiningChannelId] = useState<string | null>(null);
   const [showNewChannel, setShowNewChannel] = useState(false);
   const [newChannelName, setNewChannelName] = useState('');
@@ -203,7 +201,12 @@ export default function ConvoyScreen({ userId }: Props) {
 
   const activeGroupId = useGroupStore((s) => s.activeGroupId);
   const setActiveGroupId = useGroupStore((s) => s.setActiveGroupId);
-  const setPttChannelId = useGroupStore((s) => s.setPttChannelId);
+  // The active PTT channel lives in the group store rather than in local state:
+  // the map reads it to drive the Agora session, and the Admin can move this
+  // device to another channel over the socket (Req 26.3) — this list has to
+  // reflect that push, not just taps made here.
+  const activePttChannelId = useGroupStore((s) => s.pttChannelId);
+  const setActivePttChannelId = useGroupStore((s) => s.setPttChannelId);
   const setGroupMeta = useGroupStore((s) => s.setGroupMeta);
   const clearGroupMeta = useGroupStore((s) => s.clearGroupMeta);
 
@@ -249,23 +252,17 @@ export default function ConvoyScreen({ userId }: Props) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Sync active PTT channel to global store
-  useEffect(() => {
-    setPttChannelId(activePttChannelId);
-  }, [activePttChannelId, setPttChannelId]);
-
   // Fetch PTT channels when group loads / changes
   const fetchChannels = useCallback(async (groupId: string) => {
     try {
       const res = await apiClient.get<{ channels: PttChannel[] }>(`/api/v1/groups/${groupId}/channels`);
       setPttChannels(res.data.channels);
       // Auto-join "All" channel if not already in a channel
-      setActivePttChannelId((prev) => {
-        if (prev) return prev;
-        return res.data.channels.find((c) => c.isAll)?.id ?? null;
-      });
+      if (!useGroupStore.getState().pttChannelId) {
+        setActivePttChannelId(res.data.channels.find((c) => c.isAll)?.id ?? null);
+      }
     } catch { /* silently fail */ }
-  }, []);
+  }, [setActivePttChannelId]);
 
   useEffect(() => {
     if (!group) {
@@ -274,7 +271,7 @@ export default function ConvoyScreen({ userId }: Props) {
       return;
     }
     void fetchChannels(group.id);
-  }, [group?.id, fetchChannels]);
+  }, [group?.id, fetchChannels, setActivePttChannelId]);
 
   // Fetch upcoming event for the group
   useEffect(() => {
@@ -333,7 +330,7 @@ export default function ConvoyScreen({ userId }: Props) {
     } finally {
       setJoiningChannelId(null);
     }
-  }, [group, activePttChannelId, joiningChannelId]);
+  }, [group, activePttChannelId, joiningChannelId, setActivePttChannelId]);
 
   const handleCreateChannel = useCallback(async () => {
     if (!group || !newChannelName.trim() || creatingChannel) return;

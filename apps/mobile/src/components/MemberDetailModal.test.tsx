@@ -13,17 +13,18 @@
  */
 
 import React from 'react';
-import { act, render, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 
 // ---------------------------------------------------------------------------
 // Mocks
 // ---------------------------------------------------------------------------
 
 const mockGet = jest.fn();
+const mockPost = jest.fn();
 jest.mock('../services/apiClient', () => ({
   apiClient: {
     get: (...args: unknown[]) => mockGet(...args),
-    post: jest.fn(),
+    post: (...args: unknown[]) => mockPost(...args),
     delete: jest.fn(),
   },
 }));
@@ -297,5 +298,127 @@ describe('MemberDetailModal friend button state', () => {
     const screen = renderModal();
 
     await waitFor(() => expect(screen.getByText('Add Friend')).toBeTruthy());
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Admin PTT channel assignment (Req 26.3) — the Admin moves a member to a
+// sub-channel from this sheet; the server pushes the switch to that member.
+// ---------------------------------------------------------------------------
+
+describe('MemberDetailModal PTT channel assignment', () => {
+  const CHANNELS = [
+    { id: 'ch-all', name: 'All', isAll: true, memberIds: ['user-42'] },
+    { id: 'ch-lead', name: 'lead', isAll: false, memberIds: [] as string[] },
+  ];
+
+  function mockRoutes(channels: unknown = CHANNELS) {
+    mockGet.mockImplementation(async (url: string) => {
+      if (url.endsWith('/channels')) return { data: { channels } };
+      if (url.startsWith('/api/v1/users/')) return { data: { friendStatus: null } };
+      if (url.startsWith('/api/v1/vehicles/')) return { data: { vehicle: null } };
+      if (url.endsWith('/eta')) return { data: { etaSeconds: null } };
+      throw new Error(`unmocked GET ${url}`);
+    });
+  }
+
+  function renderAsAdmin(isCurrentUserAdmin = true) {
+    return render(
+      <MemberDetailModal
+        visible
+        member={MEMBER}
+        isCurrentUserAdmin={isCurrentUserAdmin}
+        onClose={jest.fn()}
+      />,
+    );
+  }
+
+  beforeEach(() => {
+    act(() => { useGroupStore.getState().setActiveGroupId('group-7'); });
+  });
+
+  afterEach(() => {
+    act(() => { useGroupStore.getState().setActiveGroupId(null); });
+  });
+
+  it("marks the member's current channel as selected and disabled", async () => {
+    mockRoutes();
+    const screen = renderAsAdmin();
+
+    await waitFor(() => expect(screen.getByTestId('member-ptt-channels')).toBeTruthy());
+    const current = screen.getByLabelText('Move Dana Driver to All Members');
+    expect(current.props.accessibilityState.checked).toBe(true);
+    expect(current.props.accessibilityState.disabled).toBe(true);
+    expect(
+      screen.getByLabelText('Move Dana Driver to #lead').props.accessibilityState.checked,
+    ).toBe(false);
+  });
+
+  it('assigns the member to the tapped channel and moves the selection', async () => {
+    mockRoutes();
+    mockPost.mockResolvedValue({ data: { channelId: 'ch-lead', userId: 'user-42' } });
+    const screen = renderAsAdmin();
+
+    await waitFor(() => expect(screen.getByTestId('member-ptt-channels')).toBeTruthy());
+    await act(async () => {
+      fireEvent.press(screen.getByLabelText('Move Dana Driver to #lead'));
+    });
+
+    expect(mockPost).toHaveBeenCalledWith(
+      '/api/v1/groups/group-7/channels/ch-lead/members',
+      { userId: 'user-42' },
+    );
+    // Selection follows the move without a refetch — nothing echoes the
+    // server's push back to the Admin's own device.
+    expect(
+      screen.getByLabelText('Move Dana Driver to #lead').props.accessibilityState.checked,
+    ).toBe(true);
+    expect(
+      screen.getByLabelText('Move Dana Driver to All Members').props.accessibilityState.checked,
+    ).toBe(false);
+  });
+
+  it('keeps the previous selection when the assign call fails', async () => {
+    mockRoutes();
+    mockPost.mockRejectedValue(new Error('403'));
+    const screen = renderAsAdmin();
+
+    await waitFor(() => expect(screen.getByTestId('member-ptt-channels')).toBeTruthy());
+    await act(async () => {
+      fireEvent.press(screen.getByLabelText('Move Dana Driver to #lead'));
+    });
+
+    expect(
+      screen.getByLabelText('Move Dana Driver to All Members').props.accessibilityState.checked,
+    ).toBe(true);
+  });
+
+  it('hides the picker from non-Admins', async () => {
+    mockRoutes();
+    const screen = renderAsAdmin(false);
+
+    await waitFor(() => expect(screen.getByText('No vehicle set')).toBeTruthy());
+    await act(async () => {});
+    expect(screen.queryByTestId('member-ptt-channels')).toBeNull();
+    expect(mockGet).not.toHaveBeenCalledWith(expect.stringContaining('/channels'));
+  });
+
+  it('hides the picker when the group has only the "All" channel', async () => {
+    mockRoutes([CHANNELS[0]]);
+    const screen = renderAsAdmin();
+
+    await waitFor(() => expect(screen.getByText('No vehicle set')).toBeTruthy());
+    await act(async () => {});
+    expect(screen.queryByTestId('member-ptt-channels')).toBeNull();
+  });
+
+  it('renders no selection when the server omits memberIds', async () => {
+    mockRoutes(CHANNELS.map(({ memberIds: _ignored, ...c }) => c));
+    const screen = renderAsAdmin();
+
+    await waitFor(() => expect(screen.getByTestId('member-ptt-channels')).toBeTruthy());
+    expect(
+      screen.getByLabelText('Move Dana Driver to All Members').props.accessibilityState.checked,
+    ).toBe(false);
   });
 });
