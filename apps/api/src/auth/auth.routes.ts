@@ -19,6 +19,7 @@ import {
   setRefreshCookie,
 } from './auth.service';
 import { sendOtpSms } from './sms';
+import { normalizeEmail } from './email';
 import { env } from '../config/env';
 
 // ---------------------------------------------------------------------------
@@ -435,8 +436,12 @@ async function authRoutes(fastify: FastifyInstance, _opts: FastifyPluginOptions)
     try {
       const verified = await verifyProviderToken(provider, idToken);
       providerId = verified.sub;
+      // Providers echo back whatever casing the user typed when they created
+      // the account, so this has to be folded like every other email we store
+      // — otherwise Google returning "Foo@x.com" for someone who signed up
+      // here as "foo@x.com" would create a second, parallel account.
       if (verified.email) {
-        email = verified.email;
+        email = normalizeEmail(verified.email);
       }
     } catch {
       return reply.status(401).send({

@@ -1,4 +1,16 @@
 import { z } from 'zod';
+import { normalizeEmail } from './email';
+
+/**
+ * Email as an account identity: validated, then folded to its canonical form
+ * so that capitalisation can never split one person across two accounts or
+ * turn a correct password into "invalid credentials". See email.ts.
+ */
+const emailField = z
+  .string()
+  .max(254, 'Email must be at most 254 characters')
+  .email('Invalid email address')
+  .transform(normalizeEmail);
 
 /** E.164 phone number format: +[country code][number] */
 const e164Regex = /^\+[1-9]\d{1,14}$/;
@@ -13,12 +25,12 @@ export const otpVerifySchema = z.object({
 });
 
 export const emailSignupSchema = z.object({
-  email: z.string().max(254, 'Email must be at most 254 characters').email('Invalid email address'),
+  email: emailField,
   password: z.string().min(8, 'Password must be at least 8 characters').max(128, 'Password must be at most 128 characters'),
 });
 
 export const emailLoginSchema = z.object({
-  email: z.string().max(254, 'Email must be at most 254 characters').email('Invalid email address'),
+  email: emailField,
   password: z.string().min(1, 'Password is required').max(128, 'Password must be at most 128 characters'),
 });
 

@@ -3,6 +3,7 @@ import { Pool } from 'pg';
 import Redis from 'ioredis';
 import jwt from 'jsonwebtoken';
 import { randomUUID, randomInt } from 'node:crypto';
+import { normalizeEmail } from './email';
 import { env } from '../config/env';
 
 // 30 days in seconds — must match JWT_REFRESH_TTL config
@@ -100,10 +101,14 @@ export async function upsertUserByPhone(phone: string, pool: Pool): Promise<User
  * Upsert a user by email + hashed password; upsert an auth_providers row for provider='email'.
  */
 export async function upsertUserByEmail(
-  email: string,
+  rawEmail: string,
   hashedPassword: string,
   pool: Pool,
 ): Promise<UserRow> {
+  // Normalized here as well as in the request schema: this is exported, and an
+  // un-folded address reaching ON CONFLICT (email) would create the duplicate
+  // account the whole normalization exists to prevent.
+  const email = normalizeEmail(rawEmail);
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -151,9 +156,10 @@ export async function upsertUserByEmail(
 export async function upsertUserBySocial(
   provider: 'apple' | 'google',
   providerId: string,
-  email: string | null,
+  rawEmail: string | null,
   pool: Pool,
 ): Promise<UserRow> {
+  const email = rawEmail === null ? null : normalizeEmail(rawEmail);
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
