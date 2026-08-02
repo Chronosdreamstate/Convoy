@@ -780,6 +780,26 @@ describeLive('LIVE smoke: real app against docker Postgres + Redis', () => {
     expect(hazard.status).toBe('active');
     expect(hazard.lat).toBeCloseTo(lat, 5);
     expect(hazard.lng).toBeCloseTo(lng, 5);
+
+    // The live report above is exactly what HazardService queues when its
+    // reply is lost as the connection dies: the same hazard comes back through
+    // /hazards/bulk stamped with the CLIENT's clock, while the row already
+    // stored carries the server's now(). It must not become a second pin.
+    const replay = await api('POST', '/hazards/bulk', {
+      token: users.a.token,
+      body: { hazards: [{ type: 'pothole', lat, lng, createdAt: Date.now() - 4000 }] },
+    });
+    expect(replay.status).toBe(201);
+    expect(replay.json.count).toBe(0);        // nothing inserted
+    expect(replay.json.accepted).toBe(1);     // but settled, so the client clears it
+
+    const afterReplay = await api('GET', `/hazards?lat=${lat}&lng=${lng}&radius=1000`, {
+      token: users.b.token,
+    });
+    const potholesHere = (afterReplay.json.hazards as Array<{ id: string; type: string }>)
+      .filter((h) => h.type === 'pothole');
+    expect(potholesHere).toHaveLength(1);
+    expect(potholesHere[0].id).toBe(created.json.id);
   }, 30_000);
 
   it('rally point: rally:set broadcast, GET /rally/active backfill, cancel permissions and rally:cancelled cleanup', async () => {

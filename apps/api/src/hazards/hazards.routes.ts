@@ -245,24 +245,38 @@ export default async function hazardsRoutes(fastify: FastifyInstance): Promise<v
         // Clamp future timestamps to now so offline reports don't expire immediately
         const created = h.createdAt ? new Date(Math.min(h.createdAt, now)) : new Date();
         const expires = computeExpiresAt(created.getTime());
-        // Skip a report this user already filed at the same spot and instant.
+        // Skip a report this user already filed at the same spot moments ago.
         // This endpoint is replayed at least once by design: if the response is
         // lost after the transaction commits (dead zone drops the connection
         // mid-reply), the device still holds the batch and re-sends it, which
         // used to insert a second copy of every hazard AND re-broadcast it to
-        // the convoy. A replay carries byte-identical reporter/type/location/
-        // createdAt, so that tuple is the natural idempotency key — no client
-        // change and no new column needed. Guarded rather than a UNIQUE index
-        // because several genuinely distinct offline reports can share a
-        // created_at once the clamp above pins future timestamps to `now`.
+        // the convoy.
+        //
+        // The window matters as much as the tuple. A batch replay carries a
+        // byte-identical createdAt, but the commoner case crosses paths:
+        // HazardService.report() POSTs a hazard live, the reply is lost as the
+        // connection dies, and it queues the report — so the SAME hazard comes
+        // back through this endpoint stamped with the client's clock while the
+        // live row carries the server's `now()`. Exact-timestamp matching
+        // missed that entirely, which is the case that happens every time a
+        // rider drives into a dead zone mid-report. Two minutes is far wider
+        // than that gap and still far narrower than any real re-report: the
+        // same rider filing the same hazard type within a metre of the same
+        // spot inside two minutes is a duplicate, and the app's answer to
+        // "it's still there" is the confirm action, not a second report.
+        //
+        // Guarded rather than a UNIQUE index because several genuinely
+        // distinct offline reports can share a created_at once the clamp above
+        // pins future timestamps to `now`.
         const r = await client.query<{ id: string }>(
           `INSERT INTO hazard_reports (reporter_id, hazard_type, location, expires_at, created_at)
-           SELECT $1, $2, ST_SetSRID(ST_MakePoint($3, $4), 4326)::geography, $5, $6
+           SELECT $1::uuid, $2::text, ST_SetSRID(ST_MakePoint($3, $4), 4326)::geography, $5, $6::timestamptz
            WHERE NOT EXISTS (
              SELECT 1 FROM hazard_reports
-             WHERE reporter_id = $1
-               AND hazard_type = $2
-               AND created_at = $6
+             WHERE reporter_id = $1::uuid
+               AND hazard_type = $2::text
+               AND created_at BETWEEN $6::timestamptz - interval '2 minutes'
+                                  AND $6::timestamptz + interval '2 minutes'
                AND ST_DWithin(location, ST_SetSRID(ST_MakePoint($3, $4), 4326)::geography, 1)
            )
            RETURNING id`,
