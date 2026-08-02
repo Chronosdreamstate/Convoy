@@ -11,7 +11,22 @@ const baseURL = API_URL;
 const MAX_RETRIES = 3;
 const RETRY_BASE_MS = 500;
 
-function isRetryable(error: AxiosError): boolean {
+/**
+ * Whether re-sending this request can only ever repeat its effect, never add
+ * to it. A retry fires when the app has NO idea whether the server acted:
+ * either no response came back at all (dead zone, the normal case here) or the
+ * response was a 5xx, which a proxy also returns for a request the API is
+ * still processing.
+ *
+ * POST is therefore excluded. None of the ~90 POST routes this client calls is
+ * idempotent — a lost 201 from `POST /groups` re-sent means two convoys, and
+ * the same goes for chat messages, fuel logs, vehicles and friend requests.
+ * Everything else the app sends is a full-value write (PATCH /settings,
+ * PATCH /users/me) or a delete, both of which land on the same state whether
+ * applied once or four times.
+ */
+function isRetryable(error: AxiosError, method: string | undefined): boolean {
+  if ((method ?? 'get').toLowerCase() === 'post') return false;
   if (!error.response) return true; // network timeout / no response
   return error.response.status >= 500;
 }
@@ -67,13 +82,21 @@ function processQueue(error: unknown, token: string | null): void {
 apiClient.interceptors.response.use(
   (response) => response,
   async (error: AxiosError) => {
-    const originalRequest = error.config as InternalAxiosRequestConfig & {
-      _retry?: boolean;
-      _retryCount?: number;
-    };
+    const originalRequest = error.config as
+      | (InternalAxiosRequestConfig & { _retry?: boolean; _retryCount?: number })
+      | undefined;
+
+    // No config means the failure happened before a request was ever built —
+    // a rejected request interceptor (a locked keychain makes
+    // SecureStore.getItemAsync throw) lands here too. There is nothing to
+    // re-send, and touching originalRequest would replace the error the caller
+    // needs to see with a TypeError.
+    if (!originalRequest) {
+      return Promise.reject(error);
+    }
 
     // 5xx / network-timeout retry with exponential backoff (Req 43.1)
-    if (isRetryable(error) && error.response?.status !== 401) {
+    if (isRetryable(error, originalRequest.method) && error.response?.status !== 401) {
       const attempt = originalRequest._retryCount ?? 0;
       if (attempt < MAX_RETRIES) {
         originalRequest._retryCount = attempt + 1;
