@@ -137,6 +137,23 @@ import { useGroupStore } from '../stores/groupStore';
 // Screens under test
 // ---------------------------------------------------------------------------
 
+import AchievementsScreen from './AchievementsScreen';
+import ConvoyEndScreen from './ConvoyEndScreen';
+import ConvoyHistoryScreen from './ConvoyHistoryScreen';
+import EventDetailScreen from './EventDetailScreen';
+import FuelLogScreen from './FuelLogScreen';
+import GroupChatScreen from './GroupChatScreen';
+import GroupLeaderboardScreen from './GroupLeaderboardScreen';
+import GroupSettingsScreen from './GroupSettingsScreen';
+import GroupStatsScreen from './GroupStatsScreen';
+import JoinByCodeScreen from './JoinByCodeScreen';
+import NotificationCenterScreen from './NotificationCenterScreen';
+import RouteReplayScreen from './RouteReplayScreen';
+import SearchScreen from './SearchScreen';
+import UserProfileScreen from './UserProfileScreen';
+import GarageScreen from './garage/GarageScreen';
+import ProfileScreen from './profile/ProfileScreen';
+import SettingsScreen from './settings/SettingsScreen';
 import ConvoyLobbyScreen from './ConvoyLobbyScreen';
 import ConvoyScreen from './ConvoyScreen';
 import CreateEventScreen from './CreateEventScreen';
@@ -160,8 +177,32 @@ import BlockedUsersScreen from './settings/BlockedUsersScreen';
 
 const USER_ID = '11111111-1111-1111-1111-111111111111';
 
-/** Screens that need props get them here; the rest take none. */
+/**
+ * Screens that need props get them here; the rest take none.
+ *
+ * Screens that already have behaviour tests are included too. Those suites
+ * feed them well-formed fixtures, so none of them ever asked what happens when
+ * the server answers 200 with a body the screen did not expect — which is how
+ * five list-rendering crashes went unnoticed.
+ */
 const SCREENS: Array<[string, () => React.ReactElement]> = [
+  ['AchievementsScreen', () => <AchievementsScreen />],
+  ['ConvoyEndScreen', () => <ConvoyEndScreen />],
+  ['ConvoyHistoryScreen', () => <ConvoyHistoryScreen />],
+  ['EventDetailScreen', () => <EventDetailScreen />],
+  ['FuelLogScreen', () => <FuelLogScreen />],
+  ['GroupChatScreen', () => <GroupChatScreen />],
+  ['GroupLeaderboardScreen', () => <GroupLeaderboardScreen />],
+  ['GroupSettingsScreen', () => <GroupSettingsScreen />],
+  ['GroupStatsScreen', () => <GroupStatsScreen />],
+  ['JoinByCodeScreen', () => <JoinByCodeScreen />],
+  ['NotificationCenterScreen', () => <NotificationCenterScreen />],
+  ['RouteReplayScreen', () => <RouteReplayScreen />],
+  ['SearchScreen', () => <SearchScreen />],
+  ['UserProfileScreen', () => <UserProfileScreen />],
+  ['GarageScreen', () => <GarageScreen />],
+  ['ProfileScreen', () => <ProfileScreen />],
+  ['SettingsScreen', () => <SettingsScreen />],
   ['PrivacyPolicyScreen', () => <PrivacyPolicyScreen />],
   ['TermsScreen', () => <TermsScreen />],
   ['AddVehiclePromptScreen', () => <AddVehiclePromptScreen />],

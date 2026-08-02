@@ -252,18 +252,21 @@ export default function SettingsScreen() {
   const [themeMode, setThemeMode] = useState<'light' | 'dark' | 'system'>(storedThemeMode);
   const [visibleToNearby, setVisibleToNearby] = useState(false);
 
+  // Every field falls back to the same default its useState above declares.
+  // Two of these were already defensive, for exactly the reason that applies to
+  // all of them: a deployment may not serve a field this build expects. Without
+  // the fallbacks a settings response missing mapStyle threw on `.charAt` in
+  // render, and a missing toggle silently flipped its Switch to uncontrolled.
   const applySettings = useCallback((s: Settings) => {
-    setMapStyle(s.mapStyle);
-    setHazardDistM(s.hazardAlertDistanceM);
-    setCacheMb(s.tileCacheLimitMb);
-    setScenicRouting(s.scenicRouting);
-    setNotifHazard(s.notifHazard);
-    setNotifGroupEvents(s.notifGroupEvents);
-    setNotifFriendRequests(s.notifFriendRequests);
-    setNotifNavigation(s.notifNavigation);
+    setMapStyle(s.mapStyle ?? 'standard');
+    setHazardDistM(s.hazardAlertDistanceM ?? 805);
+    setCacheMb(s.tileCacheLimitMb ?? 500);
+    setScenicRouting(s.scenicRouting ?? false);
+    setNotifHazard(s.notifHazard ?? true);
+    setNotifGroupEvents(s.notifGroupEvents ?? true);
+    setNotifFriendRequests(s.notifFriendRequests ?? true);
+    setNotifNavigation(s.notifNavigation ?? true);
     setVisibleToNearby(s.visibleToNearby ?? false);
-    // Defensive: the backend field may not exist yet if the friend-location-sharing
-    // work hasn't landed on this deployment — default to off (not sharing) either way.
     setShareLocationWithFriends(s.shareLocationWithFriends ?? false);
   }, []);
 

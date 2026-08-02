@@ -128,7 +128,8 @@ export default function GarageScreen() {
     setError(null);
     try {
       const res = await apiClient.get<{ vehicles: Vehicle[]; mods?: string[] }>('/api/v1/vehicles');
-      setVehicles(res.data.vehicles);
+      // ?? [] — the header reads vehicles.length during render.
+      setVehicles(res.data.vehicles ?? []);
       if (res.data.mods) setMods(res.data.mods);
     } catch { setError('Failed to load garage. Please try again.'); }
     finally { if (!silent) setIsLoading(false); }

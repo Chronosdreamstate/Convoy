@@ -287,7 +287,9 @@ export default function FuelLogScreen() {
     setLoadError(null);
     try {
       const r = await apiClient.get<{ logs: FuelEntry[] }>('/api/v1/fuel/logs');
-      setEntries(r.data.logs);
+      // ?? [] — the mpg/spend totals reduce() straight over this, so a 200
+      // without the key crashed the screen instead of showing the empty state.
+      setEntries(r.data.logs ?? []);
     } catch {
       // Distinct from the "no logs yet" empty state — a failed load must
       // never be mistaken for a genuinely empty fuel log.
