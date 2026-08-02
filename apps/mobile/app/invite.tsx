@@ -98,7 +98,15 @@ export default function InviteScreen() {
     setState({ kind: 'loading' });
     try {
       const res = await apiClient.get<UserProfile>(`/api/v1/users/${userId}`);
-      setState({ kind: 'ready', profile: res.data });
+      // A 200 carrying no displayName threw out of render — initials() calls
+      // .trim() on it — so a shape mismatch took down the very first screen a
+      // shared invite link shows a brand-new user, with no way back. Treat an
+      // unusable profile as a failed load, which already has a real UI.
+      if (!res.data?.displayName) {
+        setState({ kind: 'error', message: 'Could not load profile. Please try again.' });
+      } else {
+        setState({ kind: 'ready', profile: res.data });
+      }
       animateIn();
     } catch (err: unknown) {
       const status =

@@ -4,8 +4,11 @@ import IdleMapScreen from '../../src/screens/map/IdleMapScreen';
 import { useAuthStore } from '../../src/stores/authStore';
 import { useGroupStore } from '../../src/stores/groupStore';
 import { withErrorBoundary } from '../../src/components/ErrorBoundary';
+import { API_URL } from '../../src/config/env';
 
-const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
+// http -> ws, https -> wss. This is the convoy's live-location socket, so it
+// has to follow the same configured host as every REST call rather than keep
+// its own copy of the fallback.
 const SOCKET_URL = API_URL.replace(/^http/, 'ws');
 
 function MapTab() {
