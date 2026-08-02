@@ -125,7 +125,8 @@ export default function ConvoyHistoryScreen() {
     }
     try {
       const res = await apiClient.get<{ drives: ConvoyDrive[] }>(`/api/v1/groups/${groupId}/drives`);
-      setDrives(res.data.drives);
+      // ?? [] — drives.length is read during render.
+      setDrives(res.data.drives ?? []);
       setError(false);
     } catch {
       setError(true);

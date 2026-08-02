@@ -156,7 +156,8 @@ export default function GroupPhotoLibraryScreen() {
     setError(null);
     try {
       const res = await apiClient.get<{ photos: Photo[] }>(`/api/v1/groups/${groupId}/photos`);
-      setPhotos(res.data.photos);
+      // ?? [] — photos.length is read during render.
+      setPhotos(res.data.photos ?? []);
     } catch { setError('Could not load photos.'); } finally {
       setLoading(false);
     }

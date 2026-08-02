@@ -27,7 +27,26 @@ jest.mock('expo-router', () => {
   const R = jest.requireActual<typeof import('react')>('react');
   return {
     useRouter: () => ({ push: jest.fn(), replace: jest.fn(), back: jest.fn(), setParams: jest.fn() }),
-    useLocalSearchParams: () => ({}),
+    // Every route param any screen reads, supplied at once. Returning {} — the
+    // obvious stub — is worse than useless here: fifteen screens key their
+    // whole fetch-and-render off an id from the route, so without one they
+    // early-return and the test proves nothing about the path a user actually
+    // takes. Union of the keys rather than per-screen values, since no screen
+    // reads a key belonging to another.
+    useLocalSearchParams: () => ({
+      id: 'id-1',
+      groupId: 'g-1',
+      groupName: 'Canyon Run',
+      userId: '11111111-1111-1111-1111-111111111111',
+      driveId: 'drive-1',
+      eventId: 'event-1',
+      phone: '+15555550100',
+      prefillCode: 'ABC123',
+      isAdmin: 'true',
+      tab: 'requests',
+      focusFriendId: 'friend-1',
+      focusFriendName: 'Dana',
+    }),
     // Must behave like an effect, not run during render — expo-router's real
     // implementation is useEffect-based, and calling the callback inline makes
     // any screen that setStates on focus re-render forever.
@@ -104,14 +123,32 @@ jest.mock('expo-av', () => ({
 
 // No screen may reach the network in this suite: an unmocked request would make
 // the result depend on timing and on whatever a dev machine can dial out to.
+//
+// The mode is switchable because two different things are being asked. An
+// empty-but-successful body is a shape mismatch — an app build meeting an API
+// of another vintage. A rejection is a dead zone, which for a driving app is
+// ordinary rather than exceptional: a screen opened with no signal must show
+// its error state, not fall over.
+type ApiMode = 'empty' | 'offline';
+let mockApiMode: ApiMode = 'empty';
+
+function mockRespond() {
+  if (mockApiMode === 'offline') {
+    // Axios-shaped "no HTTP response", which is what the app's own
+    // isOfflineError() looks for.
+    return Promise.reject(Object.assign(new Error('Network Error'), { response: undefined }));
+  }
+  return Promise.resolve({ data: {} });
+}
+
 jest.mock('../services/apiClient', () => ({
   apiClient: {
-    get: jest.fn().mockResolvedValue({ data: {} }),
-    post: jest.fn().mockResolvedValue({ data: {} }),
-    patch: jest.fn().mockResolvedValue({ data: {} }),
-    put: jest.fn().mockResolvedValue({ data: {} }),
-    delete: jest.fn().mockResolvedValue({ data: {} }),
-    request: jest.fn().mockResolvedValue({ data: {} }),
+    get: jest.fn(() => mockRespond()),
+    post: jest.fn(() => mockRespond()),
+    patch: jest.fn(() => mockRespond()),
+    put: jest.fn(() => mockRespond()),
+    delete: jest.fn(() => mockRespond()),
+    request: jest.fn(() => mockRespond()),
   },
 }));
 
@@ -246,27 +283,61 @@ beforeEach(() => {
 
 afterEach(() => {
   jest.clearAllTimers();
+  mockApiMode = 'empty';
 });
+
+/**
+ * Mount, settle, unmount — failing on anything thrown, anything React reported
+ * through console.error (bad element types, invalid styles, setState after
+ * unmount), or any promise rejection nobody caught.
+ *
+ * The last one matters most in offline mode: a screen that fires a fetch and
+ * never attaches a .catch does not crash, it just leaves a floating rejection.
+ * On a device that is a red-box in development and a silently stuck screen in
+ * production, and no other assertion here would notice.
+ */
+async function mountsCleanly(mount: () => React.ReactElement): Promise<void> {
+  const errors: unknown[][] = [];
+  const rejections: unknown[] = [];
+  const onRejection = (reason: unknown) => { rejections.push(reason); };
+  process.on('unhandledRejection', onRejection);
+  const spy = jest.spyOn(console, 'error').mockImplementation((...args) => { errors.push(args); });
+
+  try {
+    // render() already wraps in act; calling it INSIDE act() detaches the
+    // renderer in RNTL 13 ("Can't access .root on unmounted test renderer").
+    const view = render(mount());
+    // Let mount effects (fetches, permission prompts, timers) resolve.
+    await act(async () => { await Promise.resolve(); });
+    await act(async () => { await new Promise((r) => setImmediate(r)); });
+    view.unmount();
+  } finally {
+    spy.mockRestore();
+    process.off('unhandledRejection', onRejection);
+  }
+
+  expect(errors.map((e) => String(e[0]))).toEqual([]);
+  expect(rejections.map(String)).toEqual([]);
+}
 
 describe('every screen mounts, settles and unmounts without throwing', () => {
   it.each(SCREENS)('%s', async (_name, mount) => {
-    // React surfaces some render problems (bad element types, invalid style
-    // values, updates on unmounted components) through console.error rather
-    // than by throwing, so a silent one of those must fail the test too.
-    const errors: unknown[][] = [];
-    const spy = jest.spyOn(console, 'error').mockImplementation((...args) => { errors.push(args); });
+    await mountsCleanly(mount);
+  });
+});
 
-    try {
-      // render() already wraps in act; calling it INSIDE act() detaches the
-      // renderer in RNTL 13 ("Can't access .root on unmounted test renderer").
-      const view = render(mount());
-      // Let mount effects (fetches, permission prompts, timers) resolve.
-      await act(async () => { await Promise.resolve(); });
-      view.unmount();
-    } finally {
-      spy.mockRestore();
-    }
+// ---------------------------------------------------------------------------
+// The same screens with every request failing.
+//
+// A convoy app is used in exactly the places phones lose signal — canyons,
+// tunnels, rural passes — so opening a screen with no connectivity is an
+// ordinary state, not an edge case. Each screen must reach its own error or
+// empty state instead of throwing or leaving a rejection nobody handled.
+// ---------------------------------------------------------------------------
 
-    expect(errors.map((e) => String(e[0]))).toEqual([]);
+describe('every screen survives being opened with no connectivity', () => {
+  it.each(SCREENS)('%s', async (_name, mount) => {
+    mockApiMode = 'offline';
+    await mountsCleanly(mount);
   });
 });

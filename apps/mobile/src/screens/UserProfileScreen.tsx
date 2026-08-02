@@ -83,6 +83,12 @@ export default function UserProfileScreen() {
     setError(null);
     try {
       const res = await apiClient.get<UserProfile>(`/api/v1/users/${userId}`);
+      // Same guard as app/invite.tsx: the header renders initials(displayName),
+      // so a 200 without that field threw .trim() of undefined out of render.
+      if (!res.data?.displayName) {
+        setError('Could not load profile.');
+        return;
+      }
       setProfile(res.data);
       setFriendStatus(res.data.friendStatus);
       setRequestDirection(res.data.friendRequestDirection ?? null);

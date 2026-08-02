@@ -90,7 +90,15 @@ export default function GroupStatsScreen() {
     setError(null);
     try {
       const r = await apiClient.get<GroupStats>(`/api/v1/groups/${id}/stats`);
-      setStats(r.data);
+      // A 200 without the numbers is not a usable stats payload: `stats` is
+      // rendered as truthy-or-loading, so storing a shapeless object threw on
+      // totalDriveKm.toFixed() during render. Fall into the error state, which
+      // already offers a retry.
+      if (typeof r.data?.totalDriveKm !== 'number') {
+        setError('Could not load stats.');
+      } else {
+        setStats(r.data);
+      }
     } catch {
       setError('Could not load stats.');
     } finally {
