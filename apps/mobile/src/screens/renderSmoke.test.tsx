@@ -341,3 +341,30 @@ describe('every screen survives being opened with no connectivity', () => {
     await mountsCleanly(mount);
   });
 });
+
+// ---------------------------------------------------------------------------
+// The same screens again, mid-convoy.
+//
+// The passes above run with no active group, which is the app's idle state,
+// not the one it spends a drive in. Several screens switch branch entirely on
+// activeGroupId — the convoy controls, the gap threshold, the admin-only rows
+// — so that half of them had never been rendered at all.
+// ---------------------------------------------------------------------------
+
+describe('every screen survives being opened mid-convoy', () => {
+  it.each(SCREENS)('%s', async (_name, mount) => {
+    useGroupStore.setState({
+      activeGroupId: 'g-1',
+      pttChannelId: 'ch-1',
+      name: 'Canyon Run',
+      memberCount: 4,
+      // The signed-in user IS the admin here, so the admin-only controls
+      // render rather than being skipped.
+      adminId: USER_ID,
+      leaderId: USER_ID,
+      gapThresholdM: 1000,
+      pttMaxSeconds: 30,
+    });
+    await mountsCleanly(mount);
+  });
+});
