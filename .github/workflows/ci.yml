@@ -10,6 +10,29 @@ jobs:
   api:
     name: API
     runs-on: ubuntu-latest
+    # Postgres and Redis are here so src/integration/live.smoke.test.ts actually
+    # RUNS. It gates itself on a TCP probe of these ports and silently registers
+    # as describe.skip when they are absent — which is what happened on every CI
+    # run until now, quietly skipping the only 15 tests that exercise real
+    # sockets, Redis-backed presence, SOS, rally, PTT fan-out and uploads end to
+    # end. The suite uses its own scratch database and Redis DB 15.
+    services:
+      postgres:
+        image: postgis/postgis:16-3.4-alpine
+        env:
+          POSTGRES_USER: convoy
+          POSTGRES_PASSWORD: convoy
+          POSTGRES_DB: convoy
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U convoy" --health-interval 10s
+          --health-timeout 5s --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 10s
+          --health-timeout 5s --health-retries 5
     steps:
       - uses: actions/checkout@v4
 
@@ -27,6 +50,19 @@ jobs:
       - run: pnpm --filter @convoy/api lint
       - run: pnpm --filter @convoy/api typecheck
       - run: pnpm --filter @convoy/api test
+
+      # The live suite skips itself when it cannot reach Postgres/Redis, so a
+      # green API job is NOT evidence that it ran. Assert it did — otherwise a
+      # broken service definition would quietly take this coverage away again
+      # and nothing would go red.
+      - name: Live smoke suite must actually run
+        run: |
+          out=$(pnpm --filter @convoy/api exec jest src/integration/live.smoke.test.ts 2>&1)
+          echo "$out"
+          if echo "$out" | grep -qi 'skipped'; then
+            echo "::error::live.smoke.test.ts skipped itself — Postgres/Redis were not reachable."
+            exit 1
+          fi
 
   mobile:
     name: Mobile
