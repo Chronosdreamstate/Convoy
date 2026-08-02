@@ -286,7 +286,7 @@ const MemberMarkerView = React.memo(function MemberMarkerView({ member, isStale,
   useEffect(() => {
     if (isStale) return;
     // OS reduce-motion: hold a static ring instead of the continuous pulse
-    // (mirrors PTTButton / ConvoyScreen's PulsingDot).
+    // (mirrors PTTLogPanel / ConvoyScreen's PulsingDot).
     if (reduceMotion) {
       ringScale.setValue(1.2);
       return;
@@ -832,7 +832,7 @@ export default function MapScreen({ groupId, socketUrl, isAdmin: isAdminProp = f
   useEffect(() => {
     if (isPttTransmitting) {
       // OS reduce-motion: a static, steady ring conveys "transmitting" without
-      // the continuous pulse (mirrors PTTButton's reduce-motion path).
+      // the continuous pulse (mirrors PTTLogPanel's reduce-motion path).
       if (reduceMotion) {
         pttRingScale.setValue(1.35);
         pttRingOpacity.setValue(0.5);
