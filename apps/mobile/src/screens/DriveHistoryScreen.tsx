@@ -29,13 +29,17 @@ import SkeletonCard from '../components/SkeletonLoader';
 import { MotionCapNotice, useMotionCappedData } from '../components/MotionAwareList';
 import { NetworkError } from '../components/NetworkError';
 import { apiClient } from '../services/apiClient';
+import { MAPBOX_TOKEN } from '../config/env';
 import { useSettingsStore, type DistanceUnit } from '../stores/settingsStore';
 import { useTheme, type ThemeColors } from '../theme';
 
 // Text that always sits on the crimson accent fill — stays light in both themes.
 const ON_ACCENT = '#FFFFFF';
 
-const MAPBOX_TOKEN = process.env.EXPO_PUBLIC_MAPBOX_TOKEN ?? '';
+/** Page size for the CSV export sweep — the API clamps `limit` to 50. */
+const EXPORT_PAGE_SIZE = 50;
+/** Bound on the export sweep: 100 pages × 50 = 5,000 drives. */
+const MAX_EXPORT_PAGES = 100;
 
 function buildStaticMapUrl(coords: [number, number][]): string | null {
   if (!MAPBOX_TOKEN || coords.length < 2) return null;
@@ -357,7 +361,7 @@ function applyFilter(drives: DriveRecord[], filter: DriveFilter): DriveRecord[] 
 // Total stats header
 // ---------------------------------------------------------------------------
 
-function TotalStatsHeader({ drives, stats, onExport }: { drives: DriveRecord[]; stats: LifetimeStats | null; onExport: () => void }) {
+function TotalStatsHeader({ drives, stats, onExport, exporting }: { drives: DriveRecord[]; stats: LifetimeStats | null; onExport: () => void; exporting: boolean }) {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const distanceUnit = useSettingsStore((s) => s.distanceUnit);
@@ -386,11 +390,15 @@ function TotalStatsHeader({ drives, stats, onExport }: { drives: DriveRecord[]; 
       <TouchableOpacity
         style={styles.exportBtn}
         onPress={onExport}
+        disabled={exporting}
         hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         accessibilityRole="button"
         accessibilityLabel="Export drive history as CSV"
+        accessibilityState={{ disabled: exporting, busy: exporting }}
       >
-        <Ionicons name="share-outline" size={18} color={colors.textMuted} />
+        {exporting
+          ? <ActivityIndicator color={colors.textMuted} size="small" />
+          : <Ionicons name="share-outline" size={18} color={colors.textMuted} />}
       </TouchableOpacity>
     </View>
   );
@@ -641,6 +649,7 @@ export default function DriveHistoryScreen() {
   // clips taller content — see toggleExpand/onLayout below for the self-correcting fix.
   const [expandContentHeights, setExpandContentHeights] = useState<Record<string, number>>({});
   const [lifetimeStats, setLifetimeStats] = useState<LifetimeStats | null>(null);
+  const [exporting, setExporting] = useState(false);
   const router = useRouter();
 
   // Lifetime aggregates for the header — fetched separately from the paged
@@ -785,11 +794,45 @@ export default function DriveHistoryScreen() {
     );
   }, [fetchLifetimeStats]);
 
+  /**
+   * Every drive the user has, not just the pages the list has scrolled to.
+   * The header reports lifetime totals straight from /drives/stats, so a
+   * 137-drive history that exported the 20 loaded rows produced a file that
+   * looked complete and silently wasn't.
+   */
+  const fetchAllDrivesForExport = useCallback(async (): Promise<DriveRecord[]> => {
+    const collected: DriveRecord[] = [];
+    let pageNum = 1;
+    let pages = 1;
+    do {
+      const res = await apiClient.get<{
+        drives: DriveRecord[];
+        pagination: { pages: number };
+      }>(`/api/v1/drives?page=${pageNum}&limit=${EXPORT_PAGE_SIZE}`);
+      collected.push(...(res.data.drives ?? []));
+      pages = res.data.pagination?.pages ?? 1;
+      pageNum += 1;
+    } while (pageNum <= pages && pageNum <= MAX_EXPORT_PAGES);
+    return collected;
+  }, []);
+
   const handleExport = useCallback(async () => {
+    if (exporting) return;
+    setExporting(true);
+    let allDrives: DriveRecord[];
+    try {
+      allDrives = await fetchAllDrivesForExport();
+    } catch {
+      // Say so rather than writing a partial file the user would trust.
+      setExporting(false);
+      Alert.alert('Export failed', 'Could not load your full drive history. Check your connection and try again.');
+      return;
+    }
+
     const header = csvRow([
       'Date', 'Distance', 'Duration', 'Avg Speed (km/h)', 'Top Speed (km/h)', 'Type', 'Group Name', 'Members',
     ]);
-    const rows = drives.map((d) =>
+    const rows = allDrives.map((d) =>
       csvRow([
         formatDate(d.endedAt),
         formatDistance(d.distanceM, distanceUnit),
@@ -818,7 +861,8 @@ export default function DriveHistoryScreen() {
         await Share.share({ message: csv, title: 'CORTEGE Drive History' });
       }
     } catch { /* cancelled or failed to write/share */ }
-  }, [drives, distanceUnit]);
+    finally { setExporting(false); }
+  }, [exporting, fetchAllDrivesForExport, distanceUnit]);
 
   const filteredDrives = useMemo(() => applyFilter(drives, activeFilter), [drives, activeFilter]);
 
@@ -1085,7 +1129,7 @@ export default function DriveHistoryScreen() {
         ListHeaderComponent={
           drives.length > 0 ? (
             <View>
-              <TotalStatsHeader drives={drives} stats={lifetimeStats} onExport={handleExport} />
+              <TotalStatsHeader drives={drives} stats={lifetimeStats} onExport={handleExport} exporting={exporting} />
               <MonthlySummaryCard drives={drives} />
               <WeeklyStreakCard drives={drives} />
               <FilterPills active={activeFilter} onChange={setActiveFilter} />
