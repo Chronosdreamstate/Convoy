@@ -301,7 +301,10 @@ function PTTLogPanel({ socket, initialEntries = [], groupId, isInMotion = false 
           callsign: string | null;
         }>;
       }>(`/api/v1/groups/${groupId}/ptt-log`);
-      const backlog: PttLogEntry[] = res.data.log.map((r) => ({
+      // ?? [] — this backfills the PTT log during a live convoy; a 200 without
+      // the key would have thrown out of the fetch instead of leaving the
+      // panel empty until the next transmission arrives over the socket.
+      const backlog: PttLogEntry[] = (res.data.log ?? []).map((r) => ({
         id: r.id,
         userId: r.userId,
         displayName: r.displayName,

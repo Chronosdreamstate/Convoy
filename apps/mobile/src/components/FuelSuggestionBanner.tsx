@@ -91,11 +91,14 @@ function FuelSuggestionBanner({
       const res = await apiClient.get<{ stations: FuelStation[]; message?: string }>(
         `/api/v1/places/fuel?lat=${myLat}&lng=${myLng}`,
       );
-      if (res.data.stations.length === 0) {
+      // ?? [] — a 200 without the key otherwise threw on .length, and this
+      // banner renders over the live map mid-drive.
+      const stations = res.data.stations ?? [];
+      if (stations.length === 0) {
         setNoResults(true);
         setStations([]);
       } else {
-        setStations(res.data.stations);
+        setStations(stations);
         setStationIndex(0);
       }
     } catch {
