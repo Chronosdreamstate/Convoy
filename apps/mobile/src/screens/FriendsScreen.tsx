@@ -297,7 +297,7 @@ function FriendsTab({ query }: { query: string }) {
     setLoading(true); setError(null);
     try {
       const { data } = await apiClient.get<{ friends: Friend[] }>('/api/v1/friends');
-      setFriends(data.friends);
+      setFriends(data.friends ?? []);
     } catch { setError('Failed to load friends.'); }
     finally { setLoading(false); }
   }, []);
@@ -577,8 +577,11 @@ function RequestsTab({ onCount }: { onCount: (n: number) => void }) {
       apiClient.get<{ requests: FriendRequest[] }>('/api/v1/friends/requests'),
       apiClient.get<{ requests: SentRequest[] }>('/api/v1/friends/requests/sent'),
     ]);
-    if (incoming.status === 'fulfilled') setReqs(incoming.value.data.requests);
-    if (outgoing.status === 'fulfilled') setSent(outgoing.value.data.requests);
+    // ?? [] because a fulfilled response is not necessarily a well-shaped one.
+    // Storing undefined here surfaced much later, as a bare "cannot read
+    // properties of undefined (reading 'filter')" while building the list.
+    if (incoming.status === 'fulfilled') setReqs(incoming.value.data.requests ?? []);
+    if (outgoing.status === 'fulfilled') setSent(outgoing.value.data.requests ?? []);
     if (incoming.status === 'rejected' && outgoing.status === 'rejected') {
       setError('Failed to load requests.');
     } else if (incoming.status === 'rejected') {

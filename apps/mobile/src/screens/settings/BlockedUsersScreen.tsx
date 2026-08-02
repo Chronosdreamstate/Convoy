@@ -56,7 +56,9 @@ export default function BlockedUsersScreen() {
     setError(null);
     try {
       const { data } = await apiClient.get<{ blocked: BlockedUser[] }>('/api/v1/friends/blocked');
-      setBlocked(data.blocked);
+      // ?? [] — a 200 without the key would otherwise blow up in render on
+      // `blocked.length` rather than showing the empty state.
+      setBlocked(data.blocked ?? []);
     } catch {
       setError('Failed to load blocked users.');
     } finally {

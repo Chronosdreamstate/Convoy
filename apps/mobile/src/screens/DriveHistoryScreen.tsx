@@ -675,8 +675,13 @@ export default function DriveHistoryScreen() {
         drives: DriveRecord[];
         pagination: { pages: number };
       }>(`/api/v1/drives?page=${pageNum}&limit=20&includeRoute=true`);
-      setDrives((prev) => (replace ? res.data.drives : [...prev, ...res.data.drives]));
-      setHasMore(pageNum < res.data.pagination.pages);
+      // A 200 whose body lacks these keys — an installed build talking to an
+      // API that has moved on, which mobile cannot force-update away — used to
+      // throw "drives is not iterable" out of render rather than degrade to an
+      // empty list.
+      const batch = res.data.drives ?? [];
+      setDrives((prev) => (replace ? batch : [...prev, ...batch]));
+      setHasMore(pageNum < (res.data.pagination?.pages ?? 0));
       if (replace) setPage(1);
       return true;
     } catch {

@@ -238,7 +238,9 @@ export default function ConvoyLobbyScreen({ groupId, groupName, onConvoyStart }:
         setMembers((prev) => {
           // Preserve existing ready flags when refreshing the list
           const readySet = new Set(prev.filter((m) => m.isReady).map((m) => m.userId));
-          return res.data.members.map((m) => ({
+          // ?? [] — this runs on a timer while the lobby is open, so a single
+          // oddly-shaped 200 would otherwise throw out of a setState callback.
+          return (res.data.members ?? []).map((m) => ({
             userId: m.userId,
             displayName: m.displayName ?? '',
             callsign: m.pttCallsign ?? null,
