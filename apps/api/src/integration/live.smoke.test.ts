@@ -1165,6 +1165,51 @@ describeLive('LIVE smoke: real app against docker Postgres + Redis', () => {
     fs.unlinkSync(path.join(smokeUploadsDir, storedName));
   }, 30_000);
 
+  it('speed cameras: one vote per user, and a replayed report is not a second pin', async () => {
+    // Both guards are SQL (a NOT EXISTS insert and a votes primary key), so
+    // they are asserted against real Postgres rather than a mocked pool.
+    const lat = 51.5074 + Math.random() * 0.01;
+    const lng = -0.1278 + Math.random() * 0.01;
+    const report = { lat, lng, type: 'fixed', source: 'community' };
+
+    const first = await api('POST', '/speed-cameras', { token: users.a.token, body: report });
+    expect(first.status).toBe(201);
+    const cameraId = first.json.id as string;
+
+    // The offline queue replays a report whose response was lost.
+    const replay = await api('POST', '/speed-cameras', { token: users.a.token, body: report });
+    expect(replay.status).toBe(200);
+    expect(replay.json.id).toBe(cameraId);
+
+    const nearby = await api('GET', `/speed-cameras?lat=${lat}&lng=${lng}&radius=1`, { token: users.a.token });
+    expect(nearby.status).toBe(200);
+    expect((nearby.json.cameras as Array<{ id: string }>).filter((c) => c.id === cameraId)).toHaveLength(1);
+
+    // One deny counts; the same user's second deny is refused, so five taps
+    // from one account can no longer deactivate a camera for everyone.
+    const deny = await api('POST', `/speed-cameras/${cameraId}/vote`, { token: users.a.token, body: { vote: 'deny' } });
+    expect(deny.status).toBe(200);
+    expect(deny.json.downvotes).toBe(1);
+
+    for (let i = 0; i < 4; i++) {
+      const again = await api('POST', `/speed-cameras/${cameraId}/vote`, { token: users.a.token, body: { vote: 'deny' } });
+      expect(again.status).toBe(409);
+    }
+
+    // A different user's vote still counts, and the camera is still standing.
+    const otherVote = await api('POST', `/speed-cameras/${cameraId}/vote`, { token: users.b.token, body: { vote: 'deny' } });
+    expect(otherVote.status).toBe(200);
+    expect(otherVote.json.downvotes).toBe(2);
+    expect(otherVote.json.isActive ?? otherVote.json.is_active).not.toBe(false);
+
+    // A vote for a camera that doesn't exist is a 404, not a 500.
+    const missing = await api('POST', '/speed-cameras/00000000-0000-4000-8000-000000000000/vote', {
+      token: users.a.token,
+      body: { vote: 'confirm' },
+    });
+    expect(missing.status).toBe(404);
+  }, 30_000);
+
   it('a drive saved twice is stored once, and counted once by history and stats', async () => {
     // The client saves a drive when it ends and queues it offline if that
     // POST fails — so an ended-in-a-dead-zone drive whose 201 was lost after

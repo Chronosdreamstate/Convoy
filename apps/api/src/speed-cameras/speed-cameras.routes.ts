@@ -92,12 +92,60 @@ export default async function speedCamerasRoutes(fastify: FastifyInstance): Prom
 
       const { lat, lng, type, speedLimitKph, direction, source } = parsed.data;
 
+      // Camera reports are queued offline and replayed on reconnect, so a
+      // report whose 201 was lost after the INSERT committed arrives a second
+      // time and used to become a second pin on everyone's map — with the
+      // deactivation votes then split across the copies. Same reporter, same
+      // type, within ~11 m of a camera that is still active is a replay, not a
+      // new camera. (Matches the drive and hazard-bulk guards; the client's
+      // own dedupeKey only collapses duplicates still sitting in the queue.)
       const result = await pool.query<{ id: string; created_at: Date }>(
         `INSERT INTO speed_cameras (lat, lng, type, speed_limit_kph, direction, source, reporter_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         -- Casts are required: $1..$3 appear both as inserted values and in
+         -- the guard's comparisons, which Postgres otherwise deduces
+         -- inconsistent types for.
+         SELECT $1::double precision, $2::double precision, $3::varchar,
+                $4::integer, $5::integer, $6::varchar, $7::uuid
+         WHERE NOT EXISTS (
+           SELECT 1 FROM speed_cameras
+            WHERE reporter_id = $7::uuid AND type = $3::varchar AND is_active = TRUE
+              AND abs(lat - $1::double precision) < 0.0001
+              AND abs(lng - $2::double precision) < 0.0001
+         )
          RETURNING id, created_at`,
         [lat, lng, type, speedLimitKph ?? null, direction ?? null, source, userId],
       );
+
+      if (result.rows.length === 0) {
+        const existing = await pool.query<{ id: string; created_at: Date }>(
+          `SELECT id, created_at FROM speed_cameras
+            WHERE reporter_id = $3 AND type = $4 AND is_active = TRUE
+              AND abs(lat - $1) < 0.0001 AND abs(lng - $2) < 0.0001
+            ORDER BY created_at ASC LIMIT 1`,
+          [lat, lng, userId, type],
+        );
+        const row = existing.rows[0];
+        if (row) {
+          // 200, not 201 — this report is already on the map.
+          return reply.code(200).send({
+            id: row.id,
+            lat, lng, type, source,
+            createdAt: row.created_at.toISOString(),
+          });
+        }
+        // Deactivated between the two statements — report it as new after all.
+        const retry = await pool.query<{ id: string; created_at: Date }>(
+          `INSERT INTO speed_cameras (lat, lng, type, speed_limit_kph, direction, source, reporter_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)
+           RETURNING id, created_at`,
+          [lat, lng, type, speedLimitKph ?? null, direction ?? null, source, userId],
+        );
+        return reply.code(201).send({
+          id: retry.rows[0].id,
+          lat, lng, type, source,
+          createdAt: retry.rows[0].created_at.toISOString(),
+        });
+      }
 
       return reply.code(201).send({
         id: result.rows[0].id,
@@ -116,8 +164,31 @@ export default async function speedCamerasRoutes(fastify: FastifyInstance): Prom
       const parsed = voteSchema.safeParse(request.body);
       if (!parsed.success) return reply.badRequest(parsed.error.errors[0].message);
 
+      const userId = (request.user as { sub: string }).sub;
       const { vote } = parsed.data;
       const col = vote === 'confirm' ? 'upvotes' : 'downvotes';
+
+      // One vote per user, as hazard_votes has always enforced. Without this,
+      // five denies from a SINGLE user deactivated a camera for everyone, and
+      // a vote replayed from the offline queue counted again. Recording the
+      // vote first means the counter can only move when the row is new.
+      //
+      // The 409 is also what the offline queue needs to hear: it treats a
+      // conflict as "already applied" and drops the item, instead of retrying
+      // a vote that landed.
+      try {
+        await pool.query(
+          `INSERT INTO speed_camera_votes (camera_id, user_id, vote) VALUES ($1, $2, $3)`,
+          [id, userId, vote],
+        );
+      } catch (err: unknown) {
+        const code = (err as { code?: string }).code;
+        if (code === '23505') return reply.conflict('Already voted on this camera');
+        // FK violation — the camera id doesn't exist; report it as such rather
+        // than as a 500.
+        if (code === '23503') return reply.notFound('Speed camera not found');
+        throw err;
+      }
 
       const result = await pool.query<{
         id: string; upvotes: number; downvotes: number; is_active: boolean;
@@ -132,7 +203,16 @@ export default async function speedCamerasRoutes(fastify: FastifyInstance): Prom
         [id, vote],
       );
 
-      if ((result.rowCount ?? 0) === 0) return reply.notFound('Speed camera not found');
+      if ((result.rowCount ?? 0) === 0) {
+        // The camera exists (the FK held) but is already deactivated, so no
+        // counter moved. Drop the vote row again — keeping it would bar this
+        // user from voting if the camera is ever reported afresh.
+        await pool.query(
+          `DELETE FROM speed_camera_votes WHERE camera_id = $1 AND user_id = $2`,
+          [id, userId],
+        );
+        return reply.notFound('Speed camera not found');
+      }
 
       return result.rows[0];
     },
