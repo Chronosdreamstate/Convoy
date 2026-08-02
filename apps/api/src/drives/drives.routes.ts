@@ -337,26 +337,71 @@ const drivesRoutes: FastifyPluginAsync = async (fastify) => {
       }
     }
 
+    // A drive is saved once when it ends, and queued offline if that POST
+    // fails — so the same drive arrives twice whenever a response is lost
+    // after the INSERT committed, which is the normal outcome of ending a
+    // drive in a dead zone. Without a guard the replay writes a second copy,
+    // and every duplicate is counted again by /drives/stats and the group
+    // leaderboard.
+    //
+    // (user_id, started_at, ended_at) is the natural key: one person cannot
+    // drive two convoys over the same span, and a replay re-sends the exact
+    // timestamps it queued. Same choice as the hazard bulk guard — a UNIQUE
+    // index isn't used because existing rows may already contain duplicates
+    // this can't safely delete. Covered by idx_drive_history_ended_at.
+    const insertParams = [
+      userId,
+      body.groupId ?? null,
+      JSON.stringify(body.routeTrace),
+      body.distanceM,
+      body.durationS,
+      body.avgSpeedKph ?? null,
+      body.topSpeedKph ?? null,
+      body.memberCount,
+      body.startedAt,
+      body.endedAt,
+    ];
     const result = await fastify.db.query<{ id: string; created_at: Date }>(
       `INSERT INTO drive_history
          (user_id, group_id, route_trace, distance_m, duration_s,
           avg_speed_kph, top_speed_kph, member_count, started_at, ended_at, synced_at)
-       VALUES ($1, $2, $3::jsonb, $4, $5, $6, $7, $8, $9, $10, now())
+       SELECT $1, $2, $3::jsonb, $4, $5, $6, $7, $8, $9, $10, now()
+       WHERE NOT EXISTS (
+         SELECT 1 FROM drive_history
+          WHERE user_id = $1 AND started_at = $9 AND ended_at = $10
+       )
        RETURNING id, created_at`,
-      [
-        userId,
-        body.groupId ?? null,
-        JSON.stringify(body.routeTrace),
-        body.distanceM,
-        body.durationS,
-        body.avgSpeedKph ?? null,
-        body.topSpeedKph ?? null,
-        body.memberCount,
-        body.startedAt,
-        body.endedAt,
-      ],
+      insertParams,
     );
-    const row = result.rows[0];
+
+    let row = result.rows[0];
+    let created = true;
+    if (!row) {
+      // Already stored — return the drive the earlier attempt created so the
+      // client ends up holding the same id it would have on the happy path.
+      created = false;
+      const existing = await fastify.db.query<{ id: string; created_at: Date }>(
+        `SELECT id, created_at FROM drive_history
+          WHERE user_id = $1 AND started_at = $2 AND ended_at = $3
+          ORDER BY created_at ASC LIMIT 1`,
+        [userId, body.startedAt, body.endedAt],
+      );
+      row = existing.rows[0];
+      // Nothing inserted and nothing found means the row was deleted between
+      // the two statements; treat it as a fresh save rather than 500ing.
+      if (!row) {
+        const retry = await fastify.db.query<{ id: string; created_at: Date }>(
+          `INSERT INTO drive_history
+             (user_id, group_id, route_trace, distance_m, duration_s,
+              avg_speed_kph, top_speed_kph, member_count, started_at, ended_at, synced_at)
+           VALUES ($1, $2, $3::jsonb, $4, $5, $6, $7, $8, $9, $10, now())
+           RETURNING id, created_at`,
+          insertParams,
+        );
+        row = retry.rows[0];
+        created = true;
+      }
+    }
 
     const drive: DriveResponse = {
       id: row.id,
@@ -374,7 +419,8 @@ const drivesRoutes: FastifyPluginAsync = async (fastify) => {
       createdAt: row.created_at.toISOString(),
     };
 
-    return reply.status(201).send(drive);
+    // 200 for a replay of a drive already stored, 201 for a new one.
+    return reply.status(created ? 201 : 200).send(drive);
   });
 
   // ── POST /drives/:id/summary-card ─────────────────────────────────────────

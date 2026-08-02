@@ -1165,6 +1165,61 @@ describeLive('LIVE smoke: real app against docker Postgres + Redis', () => {
     fs.unlinkSync(path.join(smokeUploadsDir, storedName));
   }, 30_000);
 
+  it('a drive saved twice is stored once, and counted once by history and stats', async () => {
+    // The client saves a drive when it ends and queues it offline if that
+    // POST fails — so an ended-in-a-dead-zone drive whose 201 was lost after
+    // the row committed gets re-sent verbatim. Asserted against real Postgres
+    // because the guard IS the SQL (a mocked pool would only prove the mock).
+    const startedAt = new Date(Date.now() - 3_600_000).toISOString();
+    const endedAt = new Date().toISOString();
+    const driveBody = {
+      groupId,
+      routeTrace: { type: 'LineString', coordinates: [[-0.1, 51.5], [-0.2, 51.6]] },
+      distanceM: 12_345,
+      durationS: 3600,
+      avgSpeedKph: 42,
+      topSpeedKph: 88,
+      memberCount: 2,
+      startedAt,
+      endedAt,
+    };
+
+    const statsBefore = await api('GET', '/drives/stats', { token: users.a.token });
+    expect(statsBefore.status).toBe(200);
+    const drivesBefore = Number(statsBefore.json.totalDrives ?? 0);
+    const distanceBefore = Number(statsBefore.json.totalDistanceM ?? 0);
+
+    const first = await api('POST', '/drives', { token: users.a.token, body: driveBody });
+    expect(first.status).toBe(201);
+    expect(first.json.id).toBeTruthy();
+
+    const replay = await api('POST', '/drives', { token: users.a.token, body: driveBody });
+    expect(replay.status).toBe(200); // stored already, not created again
+    expect(replay.json.id).toBe(first.json.id);
+
+    const history = await api('GET', '/drives?page=1&limit=50', { token: users.a.token });
+    expect(history.status).toBe(200);
+    const matching = (history.json.drives as Array<{ id: string }>).filter((d) => d.id === first.json.id);
+    expect(matching).toHaveLength(1);
+    expect(history.json.pagination.total).toBe(drivesBefore + 1);
+
+    const statsAfter = await api('GET', '/drives/stats', { token: users.a.token });
+    expect(Number(statsAfter.json.totalDrives)).toBe(drivesBefore + 1);
+    expect(Number(statsAfter.json.totalDistanceM)).toBe(distanceBefore + driveBody.distanceM);
+
+    // A genuinely different drive still saves — the guard keys on the span,
+    // not on the user.
+    const later = await api('POST', '/drives', {
+      token: users.a.token,
+      body: { ...driveBody, startedAt: endedAt, endedAt: new Date(Date.now() + 60_000).toISOString() },
+    });
+    expect(later.status).toBe(201);
+    expect(later.json.id).not.toBe(first.json.id);
+
+    await api('DELETE', `/drives/${first.json.id}`, { token: users.a.token });
+    await api('DELETE', `/drives/${later.json.id}`, { token: users.a.token });
+  }, 30_000);
+
   it('presence flips offline (with lastSeen) after a socket disconnects', async () => {
     socketB.disconnect();
 
