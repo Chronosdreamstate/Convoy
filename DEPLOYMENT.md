@@ -28,6 +28,15 @@ migrations as a separate release step.
 A migration failure kills the container by design: an API must never serve
 traffic against a schema it does not match.
 
+**Give the container a restart policy.** That same rule means it also exits if
+the database is not reachable *yet* — which is normal on a first deploy, or
+against a managed database that is still provisioning. A freshly-initialising
+Postgres in particular accepts connections briefly and then restarts itself, so
+"the database is up" is not the same as "the database is ready". Any
+orchestrator that restarts the container (`restart: unless-stopped`, a
+Kubernetes Deployment, or a platform's default) resolves this on the next
+attempt; without one, the first deploy against a cold database simply stops.
+
 ### Required environment
 
 The API **refuses to start in production** if any of these is missing or left
