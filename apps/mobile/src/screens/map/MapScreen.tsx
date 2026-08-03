@@ -521,6 +521,8 @@ export default function MapScreen({ groupId, socketUrl, isAdmin: isAdminProp = f
   const [sosPins, setSosPins]         = useState<Map<string, SosPin>>(new Map());
   const [sosAlerts, setSosAlerts]     = useState<SosAlert[]>([]);
   const [mySosId, setMySosId]         = useState<string | null>(null);
+  /** Responder user ids per SOS id — drives the "N coming" count on my own SOS. */
+  const [sosResponders, setSosResponders] = useState<Map<string, string[]>>(new Map());
   const [showSosConfirm, setShowSosConfirm]   = useState(false);
   const [pendingSosCoord, setPendingSosCoord]  = useState<{ lat: number; lng: number } | null>(null);
   const [pendingSosName, setPendingSosName]    = useState<string>('');
@@ -1437,6 +1439,11 @@ export default function MapScreen({ groupId, socketUrl, isAdmin: isAdminProp = f
     socket.on('rally:cancelled', ({ rallyId }: { rallyId: string }) => { setRallyPoints((p) => { const n = new Map(p); n.delete(rallyId); return n; }); setRallyAlert((p) => p?.id === rallyId ? null : p); });
     socket.on('sos:alert', (data: SosPin) => {
       setSosPins((p) => new Map(p).set(data.id, data));
+      // Adopt my own pin from the server's echo, exactly as the backfill does.
+      // confirmSos sets this optimistically, but if its POST response was lost
+      // after the SOS was created the sender was told "SOS Not Sent" while the
+      // convoy's maps lit up — with no Cancel control for a pin that is live.
+      if (data.userId === user?.id && !mySosIdRef.current) setMySosId(data.id);
       setSosAlerts((prev) => {
         if (prev.some((a) => a.pin.id === data.id)) return prev;
         // Prefer the local member list, then the server-sent senderName (Req 25.5,
@@ -1445,7 +1452,31 @@ export default function MapScreen({ groupId, socketUrl, isAdmin: isAdminProp = f
         return [...prev, { pin: data, memberName: name }];
       });
     });
-    socket.on('sos:cancelled', ({ sosId }: { sosId: string }) => { setSosPins((p) => { const n = new Map(p); n.delete(sosId); return n; }); setSosAlerts((p) => p.filter((a) => a.pin.id !== sosId)); if (mySosIdRef.current === sosId) setMySosId(null); });
+    socket.on('sos:cancelled', ({ sosId }: { sosId: string }) => { setSosPins((p) => { const n = new Map(p); n.delete(sosId); return n; }); setSosAlerts((p) => p.filter((a) => a.pin.id !== sosId)); if (mySosIdRef.current === sosId) setMySosId(null); setSosResponders((p) => { if (!p.has(sosId)) return p; const n = new Map(p); n.delete(sosId); return n; }); });
+
+    // Someone is coming. The server has relayed this to the group room and to
+    // the sender's personal room since SOS shipped, and nothing on this side
+    // listened — so a rider who tapped "I'm responding" told no one, and the
+    // person in trouble sat watching a screen that never changed.
+    socket.on('sos:acknowledged', ({ sosId, memberName, acknowledgedBy }: { sosId: string; memberName?: string; acknowledgedBy: string }) => {
+      if (acknowledgedBy === user?.id) return; // don't narrate your own tap back to you
+      // acknowledgedBy is the server's own view of who acknowledged;
+      // memberName is client-supplied, so it is only a fallback.
+      const name = memberNamesRef.current[acknowledgedBy] ?? memberName ?? 'A member';
+      setSosResponders((prev) => {
+        const already = prev.get(sosId) ?? [];
+        if (already.includes(acknowledgedBy)) return prev;
+        return new Map(prev).set(sosId, [...already, acknowledgedBy]);
+      });
+      if (mySosIdRef.current === sosId) {
+        showAnnouncement(`🆘 ${name} is on the way`);
+        HapticService.trigger('success');
+      } else if (sosPinsRef.current.has(sosId)) {
+        // Everyone else sees who already responded, so the convoy doesn't all
+        // peel off for the same rider.
+        showQuickAlert(`${name} is responding to the SOS`);
+      }
+    });
 
     socket.on('convoy:alert', ({ message, senderCallsign }: { message: string; senderCallsign: string }) => {
       showQuickAlert(`${senderCallsign}: ${message}`);
@@ -1968,6 +1999,7 @@ export default function MapScreen({ groupId, socketUrl, isAdmin: isAdminProp = f
 
   const rallies = useMemo(() => Array.from(rallyPoints.values()), [rallyPoints]);
   const sosPinList = useMemo(() => Array.from(sosPins.values()), [sosPins]);
+  const mySosResponderCount = mySosId ? (sosResponders.get(mySosId)?.length ?? 0) : 0;
   // Materialized once per hazardPins change; the JSX previously ran
   // Array.from() on every render. The expiry .filter() stays inline in the JSX
   // on purpose — it depends on Date.now(), so memoizing it would keep expired
@@ -2028,10 +2060,13 @@ export default function MapScreen({ groupId, socketUrl, isAdmin: isAdminProp = f
   const handleSosAcknowledge = useCallback(() => {
     const first = sosAlerts[0];
     if (socketRef.current && first) {
-      socketRef.current.emit('sos:acknowledge', { sosId: first.pin.id, memberName: first.memberName });
+      // memberName is who is RESPONDING — the server relays it to the rider in
+      // trouble as "<name> is on the way". This used to send first.memberName,
+      // which is the name of the SOS sender, so the relay named the victim.
+      socketRef.current.emit('sos:acknowledge', { sosId: first.pin.id, memberName: user?.displayName });
     }
     setSosAlerts((p) => p.slice(1));
-  }, [sosAlerts]);
+  }, [sosAlerts, user?.displayName]);
 
   // Safe-area-aware top offset for floating UI elements.
   // ConvoyBanner (rendered below, always visible on this screen) is a self-positioned,
@@ -2319,11 +2354,19 @@ export default function MapScreen({ groupId, socketUrl, isAdmin: isAdminProp = f
                 <TouchableOpacity
                   style={[styles.fabItem, styles.fabSosCancelItem, { flexDirection: 'row', gap: 4 }]}
                   onPress={() => { setFabOpen(false); void cancelMySos(); }}
-                  accessibilityLabel="Cancel SOS"
+                  // The count is the only lasting sign that help is coming —
+                  // the announcement banner that reports each responder fades.
+                  accessibilityLabel={
+                    mySosResponderCount > 0
+                      ? `Cancel SOS. ${mySosResponderCount} ${mySosResponderCount === 1 ? 'member is' : 'members are'} responding.`
+                      : 'Cancel SOS'
+                  }
                   accessibilityRole="button"
                 >
                   <Ionicons name="close" size={14} color={colors.text} />
-                  <Text style={styles.fabItemText}>SOS</Text>
+                  <Text style={styles.fabItemText}>
+                    {mySosResponderCount > 0 ? `SOS · ${mySosResponderCount}` : 'SOS'}
+                  </Text>
                 </TouchableOpacity>
               ) : (
                 <TouchableOpacity
