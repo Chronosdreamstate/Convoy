@@ -1623,12 +1623,14 @@ async function groupsRoutes(
 
       const { title, scheduled_for } = eventRow.rows[0];
 
-      // Get device tokens for all users with going RSVP (excluding requester)
-      const tokenRows = await fastify.db.query<{ token: string }>(
-        `SELECT DISTINCT pd.token
-         FROM event_rsvps r
-         JOIN push_devices pd ON pd.user_id = r.user_id
-         WHERE r.event_id = $1 AND r.status = 'going' AND r.user_id != $2`,
+      // Everyone who said they're going, except whoever pressed the button.
+      // Keyed on the RSVP, not on push_devices: this used to select device
+      // TOKENS and write one history row per token, so a rider with a phone
+      // and a tablet got the reminder twice while a rider with no registered
+      // device got nothing at all — not even the in-app entry.
+      const recipients = await fastify.db.query<{ user_id: string }>(
+        `SELECT user_id FROM event_rsvps
+          WHERE event_id = $1 AND status = 'going' AND user_id != $2`,
         [eventId, userId],
       );
 
@@ -1638,20 +1640,27 @@ async function groupsRoutes(
         scheduledFor: scheduled_for,
       });
 
-      // Push notify via notification history (best-effort)
       const when = new Date(scheduled_for).toLocaleString('en-US', {
         month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
       });
-      for (const { token } of tokenRows.rows) {
-        await fastify.db.query(
-          `INSERT INTO notification_history (user_id, type, title, body, data)
-           SELECT user_id, 'event_reminder', $2, $3, $4::jsonb
-           FROM push_devices WHERE token = $1 LIMIT 1`,
-          [token, `Reminder: ${title}`, `Coming up ${when}`, JSON.stringify({ groupId: id, eventId })],
-        ).catch(() => {});
-      }
+      // Through the notification queue, which is what actually delivers a push
+      // — the previous version looked up push tokens and then never sent to
+      // them, writing history rows only. "Remind attendees" reported
+      // `sent: <n>` and no phone ever buzzed. The worker also applies the
+      // user's notification preferences and writes the single history row.
+      Promise.all(
+        recipients.rows.map((r) =>
+          fastify.enqueueNotification({
+            userId: r.user_id,
+            type: 'event_reminder',
+            title: `Reminder: ${title}`,
+            body: `Coming up ${when}`,
+            data: { groupId: id, eventId },
+          }),
+        ),
+      ).catch((err: unknown) => fastify.log.error({ err }, 'event_reminder notification push failed'));
 
-      return reply.send({ sent: tokenRows.rows.length });
+      return reply.send({ sent: recipients.rows.length });
     },
   );
 

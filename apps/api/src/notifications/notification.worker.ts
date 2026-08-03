@@ -20,7 +20,8 @@ export type NotificationType =
   | 'sos_alert'
   | 'gap_alert'
   | 'fuel_suggest'
-  | 'friend_request';
+  | 'friend_request'
+  | 'event_reminder';
 
 export interface NotificationJob {
   userId: string;
@@ -68,6 +69,7 @@ const PREFERENCE_KEY: Record<NotificationType, PrefKey> = {
   rally_point:            'notif_group_events',
   sos_alert:              'notif_group_events', // always sent — key unused for SOS
   friend_request:         'notif_friend_requests',
+  event_reminder:         'notif_group_events',
 } as const;
 
 // ---------------------------------------------------------------------------

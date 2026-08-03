@@ -131,6 +131,12 @@ export function routeNotificationTap(
       }
       break;
     case 'group_event':
+    // A reminder for an event you said you're going to — same destination as
+    // the announcement that created it. It only started reaching devices as a
+    // real push when the remind endpoint stopped writing history rows instead
+    // of sending; before that its tap could never happen, and `default` would
+    // have done nothing if it had.
+    case 'event_reminder':
       if (data?.eventId && data?.groupId) {
         router.push({ pathname: '/event/[id]', params: { id: data.eventId, groupId: data.groupId } });
       } else {

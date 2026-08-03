@@ -122,6 +122,17 @@ describe('routeNotificationTap — other categories unchanged', () => {
     expect(withoutIds.pushed).toEqual(['/(tabs)/convoy']);
   });
 
+  it('event_reminder lands on the event, like the announcement that created it', () => {
+    // "Remind attendees" delivers this as a real push now (it used to write
+    // history rows and send nothing), so its tap has to go somewhere — it
+    // would previously have fallen through to `default`.
+    const router = buildRouter();
+    routeNotificationTap(router, { type: 'event_reminder', eventId: 'e1', groupId: 'g1' });
+    expect(router.pushed).toEqual([
+      { pathname: '/event/[id]', params: { id: 'e1', groupId: 'g1' } },
+    ]);
+  });
+
   it('does nothing for an unknown or missing type', () => {
     const router = buildRouter();
     routeNotificationTap(router, { type: 'mystery' });
