@@ -279,6 +279,23 @@ describe('MapScreen SOS acknowledgement', () => {
     expect(hasTextContaining(renderer.root, 'is responding to the SOS')).toBe(true);
   });
 
+  it('shows the convoy when a rider reaches a waypoint, without echoing their text', async () => {
+    // The server relays this to the rest of the group; nothing listened, so a
+    // photo stop reached no one. The relayed `message` comes from the sender's
+    // device, so it must not be rendered verbatim.
+    const renderer = await mountMap();
+
+    await fire('waypoint:reached', {
+      waypointId: 'w-1',
+      type: 'photo_stop',
+      message: '<script>not rendered</script>',
+      userId: RESCUER,
+    });
+
+    expect(hasTextContaining(renderer.root, 'stopped for photos')).toBe(true);
+    expect(hasTextContaining(renderer.root, 'not rendered')).toBe(false);
+  });
+
   it('forgets responders once the SOS is cancelled', async () => {
     const renderer = await mountMap();
     await fire('sos:alert', sosPin('sos-1', ME));

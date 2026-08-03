@@ -274,16 +274,15 @@ export default function ConvoyScreen({ userId }: Props) {
   }, [group?.id, fetchChannels, setActivePttChannelId]);
 
   // Fetch upcoming event for the group
-  useEffect(() => {
-    if (!group) { setUpcomingEvent(null); setEventRsvp({ going: 0, maybe: 0, notGoing: 0, myStatus: null }); return; }
-    apiClient.get<{ events: Array<{ id: string; title: string; scheduledFor: string }> }>(`/api/v1/groups/${group.id}/events`)
+  const fetchUpcomingEvent = useCallback(async (groupId: string) => {
+    return apiClient.get<{ events: Array<{ id: string; title: string; scheduledFor: string }> }>(`/api/v1/groups/${groupId}/events`)
       .then(async (res) => {
         const ev = res.data.events[0] ?? null;
         setUpcomingEvent(ev);
         if (!ev) return;
         try {
           const rsvpRes = await apiClient.get<{ rsvps: Array<{ userId: string; status: string }> }>(
-            `/api/v1/groups/${group.id}/events/${ev.id}/rsvps`
+            `/api/v1/groups/${groupId}/events/${ev.id}/rsvps`
           );
           const rsvps = rsvpRes.data.rsvps ?? [];
           setEventRsvp({
@@ -295,7 +294,12 @@ export default function ConvoyScreen({ userId }: Props) {
         } catch { /* RSVP fetch is non-fatal */ }
       })
       .catch(() => {});
-  }, [group?.id, userId]);
+  }, [userId]);
+
+  useEffect(() => {
+    if (!group) { setUpcomingEvent(null); setEventRsvp({ going: 0, maybe: 0, notGoing: 0, myStatus: null }); return; }
+    void fetchUpcomingEvent(group.id);
+  }, [group?.id, fetchUpcomingEvent]);
 
   // Update countdown every second
   useEffect(() => {
@@ -439,6 +443,36 @@ export default function ConvoyScreen({ userId }: Props) {
       Alert.alert('Unmuted', 'The group admin has unmuted your PTT microphone.');
     };
     const handleMemberMuteChanged = () => { fetchMembers(group.id); };
+    // Admin powers have to move the moment the server says they did. Nothing
+    // listened for this, so a handover stayed invisible until something
+    // refetched the group: the new Admin saw none of their controls, and the
+    // outgoing one kept being offered kick/mute/announce buttons the API now
+    // answers with 403 — usually just as they are leaving the convoy.
+    const handleAdminTransferred = (data: { groupId: string; newAdminId: string }) => {
+      if (data.groupId !== group.id) return;
+      setGroup((prev) => (prev ? { ...prev, adminId: data.newAdminId } : null));
+      // MapScreen gates its own admin affordances on the store copy.
+      setGroupMeta({ adminId: data.newAdminId });
+      showMemberToast(
+        data.newAdminId === userId
+          ? 'You are now the convoy admin'
+          : `${membersRef.current.find((m) => m.userId === data.newAdminId)?.displayName ?? 'A rider'} is now the convoy admin`,
+      );
+      fetchMembers(group.id);
+    };
+    // The events card is fetched once when the group loads, and the API
+    // broadcasts every change to it — created, cancelled, RSVP counts — none
+    // of which anything listened for. A rider watching the convoy screen saw a
+    // cancelled event still counting down, and RSVP totals frozen at whatever
+    // they were when the screen mounted.
+    const handleEventChanged = (data: { groupId?: string }) => {
+      if (data?.groupId && data.groupId !== group.id) return;
+      void fetchUpcomingEvent(group.id);
+    };
+    socket.on('group:event_created', handleEventChanged);
+    socket.on('group:event_cancelled', handleEventChanged);
+    socket.on('event:rsvp_updated', handleEventChanged);
+    socket.on('group:admin_transferred', handleAdminTransferred);
     socket.on('group:ended', handleGroupEnded);
     socket.on('member:joined', handleMemberJoined);
     socket.on('member:left', handleMemberLeft);
@@ -448,6 +482,10 @@ export default function ConvoyScreen({ userId }: Props) {
     socket.on('ptt:unmuted', handlePttUnmuted);
     socket.on('member:mute_changed', handleMemberMuteChanged);
     return () => {
+      socket.off('group:event_created', handleEventChanged);
+      socket.off('group:event_cancelled', handleEventChanged);
+      socket.off('event:rsvp_updated', handleEventChanged);
+      socket.off('group:admin_transferred', handleAdminTransferred);
       socket.off('group:ended', handleGroupEnded);
       socket.off('member:joined', handleMemberJoined);
       socket.off('member:left', handleMemberLeft);
@@ -457,7 +495,7 @@ export default function ConvoyScreen({ userId }: Props) {
       socket.off('ptt:unmuted', handlePttUnmuted);
       socket.off('member:mute_changed', handleMemberMuteChanged);
     };
-  }, [socket, group, fetchMembers, showMemberToast]);
+  }, [socket, group, fetchMembers, showMemberToast, setGroupMeta, userId, fetchUpcomingEvent]);
 
   // ── Gap threshold (Admin only) ────────────────────────────────────────────
   const handleSetGapThreshold = useCallback(async (metres: number) => {

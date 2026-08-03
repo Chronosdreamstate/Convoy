@@ -1478,6 +1478,17 @@ export default function MapScreen({ groupId, socketUrl, isAdmin: isAdminProp = f
       }
     });
 
+    // A rider reaching a waypoint is relayed to the rest of the group and was
+    // landing nowhere, so "photo stop!" reached no one but the rider who
+    // tapped it. The relayed `message` is composed on the sender's device, so
+    // it is deliberately NOT rendered — the text is built here from the type
+    // and the member's known name instead.
+    socket.on('waypoint:reached', ({ type, userId: reachedBy }: { waypointId: string; type?: string; message?: string; userId?: string }) => {
+      const name = (reachedBy && memberNamesRef.current[reachedBy]) || 'A rider';
+      showQuickAlert(type === 'photo_stop' ? `📸 ${name} stopped for photos` : `📍 ${name} reached a waypoint`);
+      HapticService.trigger('light');
+    });
+
     socket.on('convoy:alert', ({ message, senderCallsign }: { message: string; senderCallsign: string }) => {
       showQuickAlert(`${senderCallsign}: ${message}`);
       HapticService.trigger("warning");

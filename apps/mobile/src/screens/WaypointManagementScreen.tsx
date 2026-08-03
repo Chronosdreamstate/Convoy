@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -68,6 +68,16 @@ function getTypeConfig(type?: WaypointType): TypeConfig {
 
 let _nextId = 1;
 function makeId() { return `local-${_nextId++}`; }
+
+/**
+ * Whether two lists hold the same stops in the same order. Used to tell an
+ * untouched screen (safe to refresh from a broadcast) from one the user has
+ * been editing (must not be overwritten). Compares identity and order, which
+ * is what add/remove/reorder — every edit this screen offers — changes.
+ */
+function sameWaypointIds(a: { id: string }[], b: { id: string }[]): boolean {
+  return a.length === b.length && a.every((w, i) => w.id === b[i].id);
+}
 
 // ─── WaypointRow ─────────────────────────────────────────────────────────────
 // Extracted so that useFuelPrice (a hook) can be called per-item.
@@ -222,6 +232,11 @@ export default function WaypointManagementScreen() {
   const [saveError, setSaveError]       = useState(false);
   const [reachedIds, setReachedIds]     = useState<Set<string>>(new Set());
 
+  /** The list as the server last gave it — the baseline for "has this device edited?". */
+  const lastServerWaypointsRef = useRef<Waypoint[]>([]);
+  const waypointsRef = useRef<Waypoint[]>([]);
+  useEffect(() => { waypointsRef.current = waypoints; }, [waypoints]);
+
   // Req 6.4 — cap the number of waypoints per route.
   const atMaxWaypoints = waypoints.length >= MAX_WAYPOINTS;
 
@@ -322,7 +337,9 @@ export default function WaypointManagementScreen() {
     setLoadError(false);
     try {
       const res = await apiClient.get<{ waypoints: Waypoint[] }>(`/api/v1/groups/${groupId}/waypoints`);
-      setWaypoints(res.data.waypoints ?? []);
+      const loaded = res.data.waypoints ?? [];
+      lastServerWaypointsRef.current = loaded;
+      setWaypoints(loaded);
     } catch {
       setLoadError(true);
     } finally {
@@ -331,6 +348,24 @@ export default function WaypointManagementScreen() {
   }, [groupId]);
 
   useEffect(() => { void loadWaypoints(); }, [loadWaypoints]);
+
+  // The Admin's saved list is broadcast to the whole group, and nothing
+  // consumed it: a rider with this screen open kept looking at the stops as
+  // they were when it opened. Applied only when this device has no unsaved
+  // edits — otherwise the broadcast would wipe out what the user is in the
+  // middle of arranging.
+  useEffect(() => {
+    if (!socket || !groupId) return;
+    const handleWaypointsUpdated = (data: { groupId?: string; waypoints?: Waypoint[] }) => {
+      if (data?.groupId && data.groupId !== groupId) return;
+      if (!sameWaypointIds(waypointsRef.current, lastServerWaypointsRef.current)) return;
+      const incoming = data?.waypoints ?? [];
+      lastServerWaypointsRef.current = incoming;
+      setWaypoints(incoming);
+    };
+    socket.on('group:waypoints_updated', handleWaypointsUpdated);
+    return () => { socket.off('group:waypoints_updated', handleWaypointsUpdated); };
+  }, [socket, groupId]);
 
   const broadcast = async () => {
     if (!groupId) { router.back(); return; }
