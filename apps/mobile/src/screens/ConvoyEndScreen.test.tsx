@@ -11,7 +11,8 @@
 
 import React from 'react';
 import TestRenderer, { act, ReactTestInstance } from 'react-test-renderer';
-import { Animated } from 'react-native';
+import { Alert, Animated } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -68,6 +69,22 @@ async function renderScreen(): Promise<ReactTestInstance> {
     renderer = TestRenderer.create(<ConvoyEndScreen />);
   });
   return renderer.root;
+}
+
+/** Renders and hands back the renderer so a test can unmount mid-flight. */
+async function mountScreen(): Promise<TestRenderer.ReactTestRenderer> {
+  let renderer!: TestRenderer.ReactTestRenderer;
+  await act(async () => {
+    renderer = TestRenderer.create(<ConvoyEndScreen />);
+  });
+  // Both delayed prompts are scheduled from async effects — let those settle.
+  await act(async () => {});
+  return renderer;
+}
+
+async function advance(ms: number): Promise<void> {
+  await act(async () => { jest.advanceTimersByTime(ms); });
+  await act(async () => {});
 }
 
 /** Every rendered Text string (flattened) in the tree. */
@@ -152,5 +169,85 @@ describe('ConvoyEndScreen', () => {
     await renderScreen();
 
     expect(stagger).toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Delayed prompts. Both are scheduled on a timer, and the summary is a screen
+// people leave quickly — so both have to survive being left.
+// ---------------------------------------------------------------------------
+
+describe('ConvoyEndScreen delayed prompts', () => {
+  beforeEach(async () => {
+    await AsyncStorage.clear();
+  });
+
+  it('does not fire the review prompt after the user has left the screen', async () => {
+    await AsyncStorage.setItem('convoy:completed_count', '2'); // this drive is the 3rd
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    const renderer = await mountScreen();
+
+    // Tapping Done a second in is entirely normal; the alert used to arrive
+    // three seconds later on whatever screen the user had moved to.
+    await act(async () => { renderer.unmount(); });
+    await advance(5000);
+
+    expect(alertSpy).not.toHaveBeenCalled();
+  });
+
+  it('keeps the review ask for next time when the user leaves before it appears', async () => {
+    await AsyncStorage.setItem('convoy:completed_count', '2');
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+
+    const first = await mountScreen();
+    await act(async () => { first.unmount(); });
+    await advance(5000);
+    expect(alertSpy).not.toHaveBeenCalled();
+    // Nothing recorded — the ask was never made.
+    expect(await AsyncStorage.getItem('convoy:review_prompted')).toBeNull();
+
+    // Next convoy: the ask still happens (it used to be gated on the count
+    // being exactly 3, so leaving early burned the only chance forever).
+    await mountScreen();
+    await advance(3000);
+
+    expect(alertSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Loving CORTEGE'),
+      expect.any(String),
+      expect.any(Array),
+    );
+    expect(await AsyncStorage.getItem('convoy:review_prompted')).toBe('true');
+  });
+
+  it('asks only once across later convoys', async () => {
+    await AsyncStorage.setItem('convoy:completed_count', '2');
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+
+    await mountScreen();
+    await advance(3000);
+    expect(alertSpy).toHaveBeenCalledTimes(1);
+
+    await mountScreen();
+    await advance(3000);
+    expect(alertSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('records the first-convoy unlock only when the card is actually shown', async () => {
+    // First convoy ever.
+    const renderer = await mountScreen();
+    await act(async () => { renderer.unmount(); });
+    await advance(3000);
+
+    // Left before the 1.8s reveal — nothing was granted, and nothing animated
+    // into an unmounted tree.
+    expect(await AsyncStorage.getItem('achievement:first_convoy')).toBeNull();
+  });
+
+  it('shows and records the first-convoy unlock when the user stays', async () => {
+    const renderer = await mountScreen();
+    await advance(2000);
+
+    expect(hasText(renderer.root, 'First Convoy')).toBe(true);
+    expect(await AsyncStorage.getItem('achievement:first_convoy')).toBe('true');
   });
 });

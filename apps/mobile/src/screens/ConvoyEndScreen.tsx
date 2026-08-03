@@ -677,21 +677,77 @@ export default function ConvoyEndScreen() {
   const [photos, setPhotos] = useState<string[]>([]);
   const [previewPhoto, setPreviewPhoto] = useState<string | null>(null);
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reviewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const achievementTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     incrementWeeklyDrives().then(setWeeklyDrives);
   }, []);
 
-  // App Store review prompt — shown after 3rd completed convoy
+  // First-convoy achievement unlock
+  const [showFirstConvoyAchievement, setShowFirstConvoyAchievement] = useState(false);
+  const achievementScale = useRef(new Animated.Value(0)).current;
+  const achievementOpacity = useRef(new Animated.Value(0)).current;
+
+  // Both end-of-convoy prompts hang off the same completed-convoy count, so
+  // they run in ONE sequence. They used to be two effects that each read
+  // `convoy:completed_count` concurrently — the review one incremented it, the
+  // achievement one expected to read the incremented value, and which landed
+  // first was a race. Whenever the read won, a genuine first convoy silently
+  // failed its "convoyCount === 1" check and the unlock card never appeared.
   useEffect(() => {
-    async function maybeAskForReview() {
+    async function runEndOfConvoyPrompts() {
+      let count: number;
       try {
         const raw = await AsyncStorage.getItem('convoy:completed_count');
-        const count = (parseInt(raw ?? '0', 10) || 0) + 1;
+        count = (parseInt(raw ?? '0', 10) || 0) + 1;
         await AsyncStorage.setItem('convoy:completed_count', String(count));
+      } catch {
+        return; // no count, nothing below can be decided — both are best-effort
+      }
+
+      // First-convoy achievement.
+      try {
+        if (count === 1 && !(await AsyncStorage.getItem('achievement:first_convoy'))) {
+          achievementTimerRef.current = setTimeout(() => {
+            // Granted when the card is actually shown. Writing it up front
+            // recorded an unlock the user never saw if they left first.
+            void AsyncStorage.setItem('achievement:first_convoy', 'true').catch(() => {});
+            setShowFirstConvoyAchievement(true);
+            if (reduceMotionRef.current) {
+              // Static equivalent — the unlock card appears in place.
+              achievementScale.setValue(1);
+              achievementOpacity.setValue(1);
+              return;
+            }
+            Animated.spring(achievementScale, {
+              toValue: 1,
+              useNativeDriver: true,
+              tension: 140,
+              friction: 7,
+            }).start();
+            Animated.timing(achievementOpacity, {
+              toValue: 1,
+              duration: 200,
+              useNativeDriver: true,
+            }).start();
+          }, 1800);
+        }
+      } catch {
+        // intentionally empty — achievement unlock check is best-effort only
+      }
+
+      // App Store review prompt — from the 3rd completed convoy onwards.
+      try {
         const hasReviewed = await AsyncStorage.getItem('convoy:has_reviewed');
-        if (count === 3 && !hasReviewed) {
-          setTimeout(() => {
+        const alreadyPrompted = await AsyncStorage.getItem('convoy:review_prompted');
+        // `>= 3`, not `=== 3`: the prompt is on a 3s delay, so tapping Done
+        // first — normal on a summary screen — used to consume the one convoy
+        // that could ever trigger it, and the ask was never made again.
+        if (count >= 3 && !hasReviewed && !alreadyPrompted) {
+          reviewTimerRef.current = setTimeout(() => {
+            // Recorded when the ask is actually made, not when it's scheduled.
+            void AsyncStorage.setItem('convoy:review_prompted', 'true').catch(() => {});
             Alert.alert(
               '❤️ Loving CORTEGE?',
               'A quick rating helps us grow the community of drivers.',
@@ -712,51 +768,15 @@ export default function ConvoyEndScreen() {
         // intentionally empty — review prompt is best-effort only
       }
     }
-    maybeAskForReview();
-  }, []);
+    void runEndOfConvoyPrompts();
 
-  // First-convoy achievement unlock
-  const [showFirstConvoyAchievement, setShowFirstConvoyAchievement] = useState(false);
-  const achievementScale = useRef(new Animated.Value(0)).current;
-  const achievementOpacity = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    async function checkFirstConvoy() {
-      try {
-        const raw = await AsyncStorage.getItem('convoy:completed_count');
-        const convoyCount = parseInt(raw ?? '0', 10) || 0;
-        // convoyCount was already incremented in maybeAskForReview; treat convoyCount===1 as first
-        if (convoyCount === 1) {
-          const alreadyGranted = await AsyncStorage.getItem('achievement:first_convoy');
-          if (!alreadyGranted) {
-            await AsyncStorage.setItem('achievement:first_convoy', 'true');
-            setTimeout(() => {
-              setShowFirstConvoyAchievement(true);
-              if (reduceMotionRef.current) {
-                // Static equivalent — the unlock card appears in place.
-                achievementScale.setValue(1);
-                achievementOpacity.setValue(1);
-                return;
-              }
-              Animated.spring(achievementScale, {
-                toValue: 1,
-                useNativeDriver: true,
-                tension: 140,
-                friction: 7,
-              }).start();
-              Animated.timing(achievementOpacity, {
-                toValue: 1,
-                duration: 200,
-                useNativeDriver: true,
-              }).start();
-            }, 1800);
-          }
-        }
-      } catch {
-        // intentionally empty — achievement unlock check is best-effort only
-      }
-    }
-    checkFirstConvoy();
+    // Leaving the summary must take both pending prompts with it: the alert
+    // would otherwise surface seconds later on whatever screen the user moved
+    // on to, and the unlock timer would animate into an unmounted tree.
+    return () => {
+      if (achievementTimerRef.current) clearTimeout(achievementTimerRef.current);
+      if (reviewTimerRef.current) clearTimeout(reviewTimerRef.current);
+    };
   }, []);
 
   const dismissFirstConvoyAchievement = () => {
