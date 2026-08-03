@@ -81,7 +81,13 @@ export default function SearchScreen() {
     AsyncStorage.getItem(STORAGE_KEY)
       .then((raw) => { if (raw) setRecentSearches(JSON.parse(raw) as string[]); })
       .catch(() => {});
-    setTimeout(() => inputRef.current?.focus(), 100);
+    const focusTimer = setTimeout(() => inputRef.current?.focus(), 100);
+    return () => {
+      clearTimeout(focusTimer);
+      // Leaving mid-keystroke otherwise fires one more search 300 ms later,
+      // against a screen that no longer exists.
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
   }, []);
 
   const saveRecent = useCallback(async (q: string) => {

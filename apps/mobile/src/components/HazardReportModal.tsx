@@ -4,7 +4,7 @@
  * Requirements: 11.1, 31.1–31.3
  */
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Modal,
   Pressable,
@@ -83,15 +83,28 @@ function HazardReportModal({ visible, onClose, lat, lng, isInMotion = false }: P
     ? ALL_TYPES.filter((t) => MOTION_TYPE_KEYS.includes(t.key))
     : ALL_TYPES;
 
-  // Reset form when sheet opens
+  // The confirmation toast holds the sheet open for 2.2s and then closes it.
+  // That timer has to die with the sheet: it used to survive a manual close,
+  // so reporting a hazard, dismissing the sheet, and opening it again within
+  // those 2.2 seconds had the old timer fire onClose() and shut the new sheet
+  // in the user's face — mid-drive, on the report they were still filling in.
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelCloseTimer = useCallback(() => {
+    if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
+    closeTimerRef.current = null;
+  }, []);
+  useEffect(() => cancelCloseTimer, [cancelCloseTimer]);
+
+  // Reset form when the sheet opens or closes
   useEffect(() => {
+    cancelCloseTimer();
     if (visible) {
       setType(null);
       setSeverity('medium');
       setNote('');
       setToast(null);
     }
-  }, [visible]);
+  }, [visible, cancelCloseTimer]);
 
   // Always closeable, even mid-submit — the in-flight request (success, failure,
   // and offline-queue fallback) already runs to completion independent of whether
@@ -114,7 +127,8 @@ function HazardReportModal({ visible, onClose, lat, lng, isInMotion = false }: P
         note: note.trim() || undefined,
       });
       setToast('success');
-      setTimeout(() => {
+      closeTimerRef.current = setTimeout(() => {
+        closeTimerRef.current = null;
         setToast(null);
         onClose();
       }, 2200);
@@ -136,7 +150,8 @@ function HazardReportModal({ visible, onClose, lat, lng, isInMotion = false }: P
         }).catch(() => {});
       }
       setToast('queued');
-      setTimeout(() => {
+      closeTimerRef.current = setTimeout(() => {
+        closeTimerRef.current = null;
         setToast(null);
         onClose();
       }, 2200);
