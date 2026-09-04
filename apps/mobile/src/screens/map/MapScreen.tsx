@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   Animated,
   FlatList,
@@ -554,6 +555,10 @@ export default function MapScreen({ groupId, socketUrl, isAdmin: isAdminProp = f
   const [showRouteModal, setShowRouteModal]       = useState(false);
   const [routeDestInput, setRouteDestInput]       = useState('');
   const [isCalcRoute, setIsCalcRoute]             = useState(false);
+  // "Push to Group" had no in-flight state at all: on a slow link the button
+  // looked dead, so the Admin tapped again and the whole convoy got the route
+  // broadcast twice. Guards the second tap and gives the first one feedback.
+  const [isPushingRoute, setIsPushingRoute]       = useState(false);
   const [postedSpeedLimitKph, setPostedSpeedLimitKph] = useState<number | null>(null);
   // Scenic-vs-fastest route picker sheet — offered after picking a destination
   // from the top search bar (Req 22.3's "present scenic as default, standard as
@@ -1117,9 +1122,15 @@ export default function MapScreen({ groupId, socketUrl, isAdmin: isAdminProp = f
             confirmationCount: number; dismissalCount: number; createdAt: string; expiresAt?: string;
           }>;
         }>('/api/v1/hazards', { params: { lat: loc.lat, lng: loc.lng, radius: 20_000 } });
-        setHazardPins((prev) => {
+        // Normalise BEFORE the updater: React runs a state updater during the
+        // next render, outside this try/catch, so iterating an absent/malformed
+        // `hazards` in there threw a TypeError mid-render and took the whole map
+        // down instead of degrading to "no backfill" (Req 11.4 is best-effort —
+        // the live socket push is the primary delivery path).
+        const incoming = Array.isArray(res.data?.hazards) ? res.data.hazards : [];
+        if (incoming.length > 0) setHazardPins((prev) => {
           const m = new Map(prev);
-          for (const h of res.data.hazards) {
+          for (const h of incoming) {
             m.set(h.id, {
               id: h.id,
               type: h.type,
@@ -1849,7 +1860,8 @@ export default function MapScreen({ groupId, socketUrl, isAdmin: isAdminProp = f
 
   const handlePushRoute = useCallback(async () => {
     const alt = routeAlternatives[selectedRouteIdx];
-    if (!groupId || !alt) return;
+    if (!groupId || !alt || isPushingRoute) return;
+    setIsPushingRoute(true);
     try {
       await apiClient.post(`/api/v1/groups/${groupId}/route`, {
         route: {
@@ -1868,8 +1880,10 @@ export default function MapScreen({ groupId, socketUrl, isAdmin: isAdminProp = f
       setShowRouteModal(false);
     } catch {
       Alert.alert('Error', 'Could not push route to group.');
+    } finally {
+      setIsPushingRoute(false);
     }
-  }, [groupId, routeAlternatives, selectedRouteIdx]);
+  }, [groupId, routeAlternatives, selectedRouteIdx, isPushingRoute]);
 
   const handleHazardSelect = useCallback(async (type: HazardType) => {
     // myLocationRef read at press time (always current) — a myLocation state dep
@@ -2946,12 +2960,16 @@ export default function MapScreen({ groupId, socketUrl, isAdmin: isAdminProp = f
               </TouchableOpacity>
               {isAdmin && routeAlternatives.length > 0 && (
                 <TouchableOpacity
-                  style={styles.modalConfirm}
+                  style={[styles.modalConfirm, isPushingRoute && styles.modalConfirmDisabled]}
                   onPress={() => void handlePushRoute()}
+                  disabled={isPushingRoute}
                   accessibilityRole="button"
-                  accessibilityLabel="Push selected route to all group members"
+                  accessibilityLabel={isPushingRoute ? 'Pushing route to group' : 'Push selected route to all group members'}
+                  accessibilityState={{ disabled: isPushingRoute, busy: isPushingRoute }}
                 >
-                  <Text style={styles.modalConfirmText}>Push to Group</Text>
+                  {isPushingRoute
+                    ? <ActivityIndicator color="#fff" />
+                    : <Text style={styles.modalConfirmText}>Push to Group</Text>}
                 </TouchableOpacity>
               )}
             </View>
@@ -3412,6 +3430,7 @@ return StyleSheet.create({
   modalCancelText: { color: colors.text, fontWeight: '600' },
   modalConfirm: { flex: 1, paddingVertical: 12, borderRadius: 8, backgroundColor: colors.accent, alignItems: 'center', borderWidth: 2, borderColor: '#FF8080' },
   modalConfirmText: { color: '#fff', fontWeight: '900', fontSize: 15 },
+  modalConfirmDisabled: { opacity: 0.6 },
 
   // Person picker modal
   pickerBox: { borderColor: colors.accent, paddingHorizontal: 20, paddingVertical: 24, width: '100%' },

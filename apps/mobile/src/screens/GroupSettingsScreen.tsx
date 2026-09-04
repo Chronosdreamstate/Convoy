@@ -356,6 +356,35 @@ export default function GroupSettingsScreen() {
     );
   };
 
+  // ---- No group id ----
+  // /group-settings is a static route whose groupId rides in the query string,
+  // so a deep link (or a navigation that lost its params) lands here with
+  // nothing to fetch. loadSettings bails in that case and `loading` starts
+  // true, so the screen used to sit on its skeleton forever; a "Try Again"
+  // button would be a lie, so show an explicit dead-end instead (same pattern
+  // as GroupStatsScreen / ConvoyHistoryScreen).
+  if (!groupId) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.header}>
+          <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} accessibilityRole="button" accessibilityLabel="Go back">
+            <Text style={styles.backBtnText}>
+              <Ionicons name="chevron-back" size={16} color={colors.accent} /> Back
+            </Text>
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Group Settings</Text>
+        </View>
+        <View style={styles.goneWrap}>
+          <Ionicons name="settings-outline" size={44} color={colors.textMuted} />
+          <Text style={styles.goneTitle}>Settings unavailable</Text>
+          <Text style={styles.goneText}>
+            This link is missing its group. Go back and open settings from the convoy screen.
+          </Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   // ---- Loading ----
   if (loading) {
     return (
@@ -730,6 +759,10 @@ export default function GroupSettingsScreen() {
 function createStyles(colors: ThemeColors) {
   return StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
+  // Dead-end state shown when the route arrives with no groupId.
+  goneWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32, gap: 8 },
+  goneTitle: { color: colors.text, fontSize: 18, fontWeight: '700' as const, marginTop: 4 },
+  goneText: { color: colors.textMuted, fontSize: 14, textAlign: 'center' as const, lineHeight: 20 },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32 },
 
   header: {

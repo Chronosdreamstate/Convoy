@@ -152,7 +152,13 @@ export default function GroupPhotoLibraryScreen() {
   const apiUrl = API_URL;
 
   const load = useCallback(async () => {
-    if (!groupId) return;
+    if (!groupId) {
+      // Nothing to fetch — without clearing `loading` (which starts true) the
+      // screen sat on its skeleton grid forever. The render below shows an
+      // explicit dead-end for this case rather than a retry that can't work.
+      setLoading(false);
+      return;
+    }
     setError(null);
     try {
       const res = await apiClient.get<{ photos: Photo[] }>(`/api/v1/groups/${groupId}/photos`);
@@ -278,7 +284,18 @@ export default function GroupPhotoLibraryScreen() {
         </TouchableOpacity>
       </View>
 
-      {loading ? (
+      {!groupId ? (
+        // Opened without a group (broken link / stale navigation) — no fetch
+        // can ever succeed, so say so instead of skeletons or "No Photos Yet"
+        // (same pattern as GroupStatsScreen / ConvoyHistoryScreen).
+        <View style={styles.centered}>
+          <Ionicons name="images-outline" size={48} color={colors.textMuted} />
+          <Text style={styles.emptyTitle}>Photos unavailable</Text>
+          <Text style={styles.emptySubtitle}>
+            This link is missing its group. Go back and open photos from the convoy screen.
+          </Text>
+        </View>
+      ) : loading ? (
         <View style={styles.skeletonGrid}>
           {[0, 1, 2, 3, 4, 5].map((i) => (
             <SkeletonBox key={i} width={CELL_SIZE} height={CELL_SIZE} borderRadius={0} />

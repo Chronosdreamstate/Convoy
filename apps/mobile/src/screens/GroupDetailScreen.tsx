@@ -123,7 +123,14 @@ export default function GroupDetailScreen() {
 
   const hasLoadedRef = useRef(false);
   const fetchGroup = useCallback(async () => {
-    if (!id) return;
+    if (!id) {
+      // No id to fetch — `loading` starts true, so returning without clearing
+      // it left the skeleton up permanently. The error branch below renders a
+      // real dead-end with a way back.
+      setLoading(false);
+      setError('This link is missing its group. Go back and open it from your convoy list.');
+      return;
+    }
     // Skeleton only on first load — pull-to-refresh (onRefresh) also calls this,
     // and setting loading here blanked the loaded group back to the skeleton.
     // Ref (not `group`) keeps fetchGroup's identity stable to avoid a refetch loop.

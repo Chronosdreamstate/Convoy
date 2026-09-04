@@ -53,6 +53,29 @@ function buildMockPool(): Pool {
       if (s.startsWith('SELECT id, date, gallons')) {
         return { rows: state.logs, rowCount: state.logs.length };
       }
+      // GET /fuel/logs also asks for lifetime totals over EVERY fill-up, not
+      // just the page it returns. Answered the way Postgres would (aggregates
+      // as strings, always exactly one row).
+      if (s.startsWith('SELECT COUNT(*)') && s.includes('FROM fuel_logs')) {
+        const rows = state.logs as Array<{ gallons: string; price_per_gallon: string; mpg: string | null }>;
+        const gallons = rows.reduce((sum, l) => sum + parseFloat(l.gallons), 0);
+        const spent = rows.reduce(
+          (sum, l) => sum + parseFloat(l.gallons) * parseFloat(l.price_per_gallon),
+          0,
+        );
+        const withMpg = rows.filter((l) => l.mpg != null);
+        return {
+          rows: [{
+            entry_count: String(rows.length),
+            total_gallons: rows.length ? String(gallons) : null,
+            total_spent: rows.length ? String(spent) : null,
+            avg_mpg: withMpg.length
+              ? String(withMpg.reduce((sum, l) => sum + parseFloat(l.mpg as string), 0) / withMpg.length)
+              : null,
+          }],
+          rowCount: 1,
+        };
+      }
       if (s.startsWith('SELECT odometer_km FROM fuel_logs')) {
         return state.prevOdometerKm === null
           ? { rows: [], rowCount: 0 }

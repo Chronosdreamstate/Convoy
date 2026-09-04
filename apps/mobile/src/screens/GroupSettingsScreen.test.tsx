@@ -32,8 +32,9 @@ jest.mock('../services/apiClient', () => ({
 }));
 
 const mockRouterPush = jest.fn();
+let mockParams: { groupId?: string; isAdmin?: string } = { groupId: 'g-1', isAdmin: 'true' };
 jest.mock('expo-router', () => ({
-  useLocalSearchParams: () => ({ groupId: 'g-1', isAdmin: 'true' }),
+  useLocalSearchParams: () => mockParams,
   useRouter: () => ({ push: mockRouterPush, back: jest.fn(), replace: jest.fn() }),
 }));
 
@@ -138,5 +139,48 @@ describe('GroupSettingsScreen — accent contrast', () => {
     )[0];
     expect(saveText).toBeDefined();
     expect((StyleSheet.flatten(saveText.props.style) as { color?: string }).color).toBe('#FFFFFF');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Failure path: opened with no group id
+// ---------------------------------------------------------------------------
+
+describe('GroupSettingsScreen — opened without a group', () => {
+  afterEach(() => {
+    mockParams = { groupId: 'g-1', isAdmin: 'true' };
+  });
+
+  it('shows a dead-end instead of a skeleton that never resolves', async () => {
+    // /group-settings is a static route whose groupId rides in the query
+    // string, so a deep link (or a navigation that dropped its params) lands
+    // here with nothing to fetch. loadSettings bails and `loading` starts true
+    // — the screen used to sit on its skeleton forever.
+    mockParams = { isAdmin: 'true' };
+    mockApiGet.mockImplementation((url: string) => Promise.reject(new Error(`unexpected GET ${url}`)));
+
+    let renderer!: TestRenderer.ReactTestRenderer;
+    await act(async () => { renderer = TestRenderer.create(<GroupSettingsScreen />); });
+    await act(async () => {});
+
+    expect(mockApiGet).not.toHaveBeenCalled();
+
+    const text: string[] = [];
+    const walk = (node: unknown): void => {
+      if (node == null) return;
+      if (typeof node === 'string') { text.push(node); return; }
+      if (Array.isArray(node)) { node.forEach(walk); return; }
+      walk((node as { children?: unknown }).children);
+    };
+    walk(renderer.toJSON());
+    const rendered = text.join(' ');
+
+    expect(rendered).toContain('Settings unavailable');
+    expect(rendered).toContain('This link is missing its group.');
+    // No editable form for a group that doesn't exist, and a way back remains.
+    expect(rendered).not.toContain('Save Changes');
+    expect(byLabel(renderer.root, 'Go back')).toBeDefined();
+
+    renderer.unmount();
   });
 });

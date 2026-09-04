@@ -949,6 +949,42 @@ export default function GroupChatScreen() {
     hiddenCount: hiddenMessageCount,
   } = useMotionCappedData(messages);
 
+  // Opened without a conversation id — /group-chat is a static route whose
+  // groupId rides in the query string, so a deep link (or a navigation that
+  // lost its params) lands here with nothing to fetch. loadInitialMessages
+  // bails in that case, and `loading` starts true, so the screen used to sit
+  // on its message skeleton forever. Show an explicit dead-end with a way back
+  // instead (same pattern as GroupStatsScreen / ConvoyHistoryScreen).
+  if (!groupId) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.header}>
+          <TouchableOpacity
+            onPress={() => router.back()}
+            hitSlop={theme.hitSlop}
+            accessibilityRole="button"
+            accessibilityLabel="Go back"
+          >
+            <Ionicons name="chevron-back" size={22} color={colors.textMuted} style={styles.backBtn} />
+          </TouchableOpacity>
+          <View style={styles.headerTitleWrap}>
+            <Text style={styles.headerTitle}>GROUP CHAT</Text>
+          </View>
+          <View style={styles.headerRight} />
+        </View>
+        <View style={styles.emptyContainer}>
+          <Ionicons name="chatbubbles-outline" size={44} color={colors.textMuted} />
+          <Text style={styles.emptyText}>
+            This chat link is missing its conversation.
+          </Text>
+          <Text style={styles.emptyText}>
+            Go back and open the chat from your convoy or friends list.
+          </Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.container}>
       {/* Header */}

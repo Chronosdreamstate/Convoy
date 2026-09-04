@@ -164,6 +164,11 @@ export default function ConvoyScreen({ userId }: Props) {
 
   const [group, setGroup] = useState<ConvoyGroup | null>(null);
   const [members, setMembers] = useState<GroupMember[]>([]);
+  // A failed members fetch used to render exactly like a genuinely empty
+  // convoy ("Waiting for members to join…", MEMBERS (0)) — a lie on the
+  // screen the driver trusts to tell them who is in the convoy. Tracked
+  // separately so the empty slot can offer a retry instead.
+  const [membersError, setMembersError] = useState(false);
   const [loading, setLoading] = useState(false);
   const [joinCode, setJoinCode] = useState('');
   const [view, setView] = useState<'home' | 'join' | 'discover'>('home');
@@ -398,15 +403,25 @@ export default function ConvoyScreen({ userId }: Props) {
           vehicleType: (m as unknown as { vehicleType?: string }).vehicleType,
         }));
         setMembers(normalised);
+        setMembersError(false);
         setGroupMeta({ memberCount: res.data.members.length });
         return normalised;
       })
-      .catch(() => { /* silently fail – user will see empty list */ return membersRef.current; });
+      .catch(() => {
+        // Keep whatever was already on screen (a transient refresh failure must
+        // not blank a loaded roster) but flag the failure so an empty list shows
+        // a retry rather than "Waiting for members to join…".
+        setMembersError(true);
+        return membersRef.current;
+      });
   }, [setGroupMeta]);
 
   // ── Load members when group becomes non-null ──────────────────────────────
   useEffect(() => {
     if (!group) return;
+    // Clear a previous group's failure so switching convoys never opens on a
+    // stale "couldn't load members" while the new fetch is still in flight.
+    setMembersError(false);
     fetchMembers(group.id);
   }, [group?.id, fetchMembers]);
 
@@ -1317,9 +1332,20 @@ export default function ConvoyScreen({ userId }: Props) {
         renderItem={renderMemberItem}
         ListFooterComponent={<MotionCapNotice hiddenCount={hiddenMemberCount} />}
         ListEmptyComponent={
-          <View style={styles.emptyMembers}>
-            <Text style={styles.emptyMembersText}>Waiting for members to join…</Text>
-          </View>
+          membersError ? (
+            <TouchableOpacity
+              style={styles.emptyMembers}
+              onPress={() => { void fetchMembers(group.id); }}
+              accessibilityRole="button"
+              accessibilityLabel="Retry loading members"
+            >
+              <Text style={styles.emptyMembersText}>Couldn't load members — tap to retry</Text>
+            </TouchableOpacity>
+          ) : (
+            <View style={styles.emptyMembers}>
+              <Text style={styles.emptyMembersText}>Waiting for members to join…</Text>
+            </View>
+          )
         }
       />
 

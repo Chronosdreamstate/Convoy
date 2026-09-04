@@ -302,7 +302,17 @@ export default function ConvoyLobbyScreen({ groupId, groupName, onConvoyStart }:
 
   // -- Actions --------------------------------------------------------------
   const handleToggleReady = useCallback(() => {
-    if (!user || !socket || selfReady) return; // ready is a one-way latch
+    if (!user || selfReady) return; // ready is a one-way latch
+    // Without a socket the emit below would be dropped and the button would
+    // just do nothing — no state change, no message. Tell the member their
+    // ready-up didn't reach the leader instead of latching a lie.
+    if (!socket) {
+      Alert.alert(
+        'Not Connected',
+        "You're not connected to the convoy yet, so the leader wasn't told you're ready. Check your connection and try again.",
+      );
+      return;
+    }
     setSelfReady(true);
     // Optimistically mark self ready in the list
     setMembers((prev) =>
@@ -312,7 +322,14 @@ export default function ConvoyLobbyScreen({ groupId, groupName, onConvoyStart }:
   }, [user, socket, selfReady, groupId]);
 
   const handleStartConvoy = useCallback(() => {
-    if (!socket || isStarting) return;
+    if (isStarting) return;
+    // Same silent-tap problem as "I'm Ready": with no socket there is nothing
+    // to emit on, and the leader got zero feedback. Reuse the error line the
+    // 8-second timeout already renders.
+    if (!socket) {
+      setStartError("Couldn't start the convoy — check your connection and try again.");
+      return;
+    }
     setStartError(null);
     setIsStarting(true);
     socket.emit('convoy:start', { groupId });

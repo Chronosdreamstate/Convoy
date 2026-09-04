@@ -417,3 +417,41 @@ describe('GroupChatScreen — Req 33 in-motion list cap', () => {
     renderer.unmount();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Failure path: opened with no thread id
+// ---------------------------------------------------------------------------
+
+describe('GroupChatScreen — opened without a conversation', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockReduceMotion = false;
+    useAuthStore.setState({ user: ME, accessToken: 'tok', token: 'tok', isAuthenticated: true });
+    useSocketStore.setState({ socket: null as never, isConnected: false });
+    useMotionStore.setState({ isInMotion: false });
+  });
+
+  afterEach(() => {
+    mockGroupIdParam = 'dm-1';
+  });
+
+  it('shows a dead-end instead of a skeleton that never resolves', async () => {
+    // /group-chat is a static route whose groupId rides in the query string, so
+    // a deep link (or a navigation that dropped its params) lands here with
+    // nothing to fetch. loadInitialMessages bails and `loading` starts true —
+    // the screen used to sit on its message skeleton forever.
+    mockGroupIdParam = undefined as unknown as string;
+    mockApiGet.mockImplementation((url: string) => Promise.reject(new Error(`unexpected GET ${url}`)));
+
+    const renderer = await renderChat();
+
+    expect(mockApiGet).not.toHaveBeenCalled();
+    expect(renderedText(renderer)).toContain('This chat link is missing its conversation.');
+    // No composer is offered for a thread that doesn't exist, and a back
+    // affordance must remain so the user isn't stranded.
+    expect(renderer.root.findAll((n) => n.props?.accessibilityLabel === 'Send message')).toHaveLength(0);
+    expect(findByLabel(renderer.root, 'Go back')).toBeDefined();
+
+    renderer.unmount();
+  });
+});
