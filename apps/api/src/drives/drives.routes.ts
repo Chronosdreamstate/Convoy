@@ -198,14 +198,50 @@ const lineStringSchema = z.object({
 /** Max request body for POST /drives — see route registration comment. */
 export const DRIVE_BODY_LIMIT_BYTES = 8 * 1024 * 1024;
 
+/**
+ * drive_history's numeric columns are narrower than a JS number, and a value
+ * the column cannot hold is a 500 the client can never recover from: a failed
+ * POST /drives leaves the drive in SQLite and SyncService re-POSTs it on every
+ * reconnect, forever (DriveService.finishSession catches and returns null), so
+ * the drive never reaches Drive History and the queue never drains.
+ *
+ * distance_m / duration_s are INTEGER and member_count is SMALLINT
+ * (001_initial_schema.sql). No real drive comes close to either ceiling, so a
+ * 400 is the honest answer for those.
+ */
+const MAX_INT4 = 2_147_483_647;
+const MAX_INT2 = 32_767;
+
+/**
+ * avg_speed_kph / top_speed_kph are NUMERIC(5,2) (001_initial_schema.sql), so
+ * anything >= 1000 raises "numeric field overflow" on INSERT.
+ *
+ * Unlike distance/duration these DO occur in the wild. topSpeedKph is the max
+ * of `(coords.speed ?? 0) * 3.6` over every fix (LocationService), and a single
+ * glitched Android fix reporting a few hundred m/s makes it absurd;
+ * avgSpeedKph is distance / duration with no clamp
+ * (DriveService.computeDriveStats), so one jumped fix in a short session does
+ * the same. Rejecting the request would strand a genuine drive in the offline
+ * queue forever, so an unstorable reading is recorded as "no reading" (null —
+ * the UI already renders that as "—") while the drive, its trace, its distance
+ * and its duration are all kept.
+ */
+export const MAX_STORABLE_SPEED_KPH = 999.99;
+
+/** Returns a speed the NUMERIC(5,2) column can hold, or null when it cannot. */
+export function sanitizeSpeedKph(value: number | null | undefined): number | null {
+  if (value == null || !Number.isFinite(value) || value < 0) return null;
+  return value > MAX_STORABLE_SPEED_KPH ? null : value;
+}
+
 const driveBodySchema = z.object({
   groupId: z.string().uuid().nullable().optional(),
   routeTrace: lineStringSchema,
-  distanceM: z.number().int().min(0),
-  durationS: z.number().int().min(0),
+  distanceM: z.number().int().min(0).max(MAX_INT4),
+  durationS: z.number().int().min(0).max(MAX_INT4),
   avgSpeedKph: z.number().min(0).nullable().optional(),
   topSpeedKph: z.number().min(0).nullable().optional(),
-  memberCount: z.number().int().min(1).default(1),
+  memberCount: z.number().int().min(1).max(MAX_INT2).default(1),
   startedAt: z.string().datetime(),
   endedAt: z.string().datetime(),
 }).refine(
@@ -272,7 +308,15 @@ const drivesRoutes: FastifyPluginAsync = async (fastify) => {
               started_at, ended_at, summary_card_url, created_at
        FROM drive_history
        WHERE user_id = $1
-       ORDER BY ended_at DESC
+       -- The id tiebreak makes the ordering total. ended_at is client-supplied
+       -- and not unique, and an OFFSET page over a non-total ordering lets
+       -- Postgres return two drives that share an ended_at in either order
+       -- from one page to the next, so the same drive can appear on two pages
+       -- while another is never returned at all. DriveHistoryScreen pages by
+       -- number and its CSV export sweeps every page, so a tie silently
+       -- duplicates one drive and drops another. Still covered by
+       -- idx_drive_history_ended_at (user_id, ended_at DESC).
+       ORDER BY ended_at DESC, id DESC
        LIMIT $2 OFFSET $3`,
       [userId, limit, offset],
     );
@@ -337,6 +381,11 @@ const drivesRoutes: FastifyPluginAsync = async (fastify) => {
       }
     }
 
+    // Drop readings the NUMERIC(5,2) columns cannot hold rather than 500ing
+    // (see MAX_STORABLE_SPEED_KPH) -- the drive itself must still be saved.
+    const avgSpeedKph = sanitizeSpeedKph(body.avgSpeedKph);
+    const topSpeedKph = sanitizeSpeedKph(body.topSpeedKph);
+
     // A drive is saved once when it ends, and queued offline if that POST
     // fails — so the same drive arrives twice whenever a response is lost
     // after the INSERT committed, which is the normal outcome of ending a
@@ -355,8 +404,8 @@ const drivesRoutes: FastifyPluginAsync = async (fastify) => {
       JSON.stringify(body.routeTrace),
       body.distanceM,
       body.durationS,
-      body.avgSpeedKph ?? null,
-      body.topSpeedKph ?? null,
+      avgSpeedKph,
+      topSpeedKph,
       body.memberCount,
       body.startedAt,
       body.endedAt,
@@ -410,8 +459,8 @@ const drivesRoutes: FastifyPluginAsync = async (fastify) => {
       routeTrace: body.routeTrace,
       distanceM: body.distanceM,
       durationS: body.durationS,
-      avgSpeedKph: body.avgSpeedKph ?? null,
-      topSpeedKph: body.topSpeedKph ?? null,
+      avgSpeedKph,
+      topSpeedKph,
       memberCount: body.memberCount,
       startedAt: body.startedAt,
       endedAt: body.endedAt,

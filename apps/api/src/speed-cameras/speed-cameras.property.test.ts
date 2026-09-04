@@ -327,8 +327,15 @@ describe('POST /speed-cameras — schema validation', () => {
     ['negative speed limit', { lat: 0, lng: 0, speedLimitKph: -1 }],
     ['speed limit above 300', { lat: 0, lng: 0, speedLimitKph: 301 }],
     ['non-integer speed limit', { lat: 0, lng: 0, speedLimitKph: 50.5 }],
+    // The DB says CHECK (direction >= 0 AND direction < 360) on an INTEGER
+    // column (migrations 021/025) and CHECK (speed_limit_kph > 0) (025), so
+    // these must be 400s -- previously 360, a fractional bearing, and 0 all
+    // passed validation and then 500'd on the INSERT.
+    ['direction 360 (the CHECK is < 360)', { lat: 0, lng: 0, direction: 360 }],
     ['direction above 360', { lat: 0, lng: 0, direction: 361 }],
     ['direction below 0', { lat: 0, lng: 0, direction: -1 }],
+    ['non-integer direction', { lat: 0, lng: 0, direction: 45.5 }],
+    ['speed limit 0 (the CHECK is > 0)', { lat: 0, lng: 0, speedLimitKph: 0 }],
     ['invalid source', { lat: 0, lng: 0, source: 'hearsay' }],
     ['missing lat', { lng: 0 }],
   ])('rejects %s with 400 and does not insert', async (_name, body) => {
@@ -341,14 +348,16 @@ describe('POST /speed-cameras — schema validation', () => {
     await app.close();
   });
 
-  it('accepts boundary values lat=±90, lng=±180, speedLimitKph=0/300, direction=0/360', async () => {
+  it('accepts boundary values lat=±90, lng=±180, speedLimitKph=1/300, direction=0/359', async () => {
     const app = buildTestApp();
     resetState();
     const token = await makeToken(app, 'u1');
 
     const cases = [
-      { lat: 90, lng: 180, speedLimitKph: 300, direction: 360 },
-      { lat: -90, lng: -180, speedLimitKph: 0, direction: 0 },
+      // Boundaries are the DB's, not zod's own: 359 is the largest direction
+      // the CHECK allows and 1 the smallest speed limit.
+      { lat: 90, lng: 180, speedLimitKph: 300, direction: 359 },
+      { lat: -90, lng: -180, speedLimitKph: 1, direction: 0 },
     ];
     for (const body of cases) {
       const res = await post(app, token, body);

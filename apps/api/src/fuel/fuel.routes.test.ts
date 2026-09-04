@@ -17,7 +17,7 @@ import fastifySensible from '@fastify/sensible';
 import fp from 'fastify-plugin';
 import { Pool } from 'pg';
 import Redis from 'ioredis';
-import fuelRoutes, { FUEL_DISTANCE_THRESHOLD_M, FUEL_TIME_THRESHOLD_S } from './fuel.routes';
+import fuelRoutes, { FUEL_DISTANCE_THRESHOLD_M, FUEL_TIME_THRESHOLD_S, FUEL_SEARCH_RADIUS_M } from './fuel.routes';
 
 const USER = '00000000-0000-0000-0000-0000000000a1';
 const GROUP = '00000000-0000-0000-0000-0000000000b1';
@@ -262,6 +262,27 @@ describe('GET /places/fuel', () => {
     const { stations } = JSON.parse(res.body);
     expect(stations.map((s: { id: string }) => s.id)).toEqual(['1', '2']);
     expect(stations[0].distanceM).toBeLessThan(stations[1].distanceM);
+  });
+
+  it('sweeps the full search radius east-to-west at temperate latitudes', async () => {
+    // A degree of longitude is 111 km × cos(latitude), so converting the
+    // radius with the latitude figure for both axes shrinks the box
+    // east-to-west by cos(lat) — at London that swept ~6 of the 10 miles and
+    // silently hid stations well inside range. The viewbox is
+    // "minLng,maxLat,maxLng,minLat".
+    mockNominatim([]);
+    await inject('GET', '/places/fuel?lat=51.5&lng=-0.12');
+    const url = new URL((global.fetch as jest.Mock).mock.calls[0][0] as string);
+    const [minLng, maxLat, maxLng, minLat] = (url.searchParams.get('viewbox') ?? '')
+      .split(',').map(Number);
+
+    const halfWidthDeg = (maxLng - minLng) / 2;
+    const halfHeightDeg = (maxLat - minLat) / 2;
+    // Both half-extents must measure the same distance on the ground.
+    const halfWidthM = halfWidthDeg * 111_320 * Math.cos((51.5 * Math.PI) / 180);
+    const halfHeightM = halfHeightDeg * 110_574;
+    expect(halfHeightM).toBeCloseTo(FUEL_SEARCH_RADIUS_M, -2);
+    expect(halfWidthM).toBeCloseTo(FUEL_SEARCH_RADIUS_M, -2);
   });
 
   it('reports an explicit message when nothing is nearby', async () => {

@@ -10,8 +10,14 @@ import { generalLimiter } from '../middleware/rateLimiter';
 import { env } from '../config/env';
 
 const createFuelLogSchema = z.object({
-  gallons: z.number().positive().max(1000),
-  pricePerGallon: z.number().positive().max(100),
+  // Lower bounds are set by the columns, not by taste. `gallons` and
+  // `price_per_gallon` are NUMERIC(8,3) with CHECK (> 0) (migration 015): a
+  // merely-`positive()` value below 0.0005 is ROUNDED to 0.000 on the way in
+  // and then violates the CHECK, so it 500s instead of being stored or
+  // rejected. Same story for `odometer_km`, NUMERIC(10,2) with CHECK (> 0)
+  // (migration 028), which rounds anything below 0.005 to 0.00.
+  gallons: z.number().min(0.001).max(1000),
+  pricePerGallon: z.number().min(0.001).max(100),
   notes: z.string().max(500).optional(),
   location: z.string().max(200).optional(),
   // odometerKm: the reading at this fill-up, in km (canonical metric unit —
@@ -19,7 +25,7 @@ const createFuelLogSchema = z.object({
   // pattern). Used server-side to compute `mpg` from the delta against the
   // user's previous fuel log; not required (first-ever entry has nothing to
   // diff against, and users may skip it).
-  odometerKm: z.number().positive().max(9_999_999).optional(),
+  odometerKm: z.number().min(0.01).max(9_999_999).optional(),
   // Not `.datetime()` — the original behavior accepts any string `new Date()` can parse
   // (e.g. plain "2024-01-01"), not strictly full ISO-8601 with time. Just cap length so
   // an absurdly long string can't be thrown at the date parser.
@@ -27,6 +33,15 @@ const createFuelLogSchema = z.object({
 });
 
 const KM_PER_MILE = 1.609344;
+
+/**
+ * fuel_logs.mpg is NUMERIC(8,2) (migration 015), so anything >= 1_000_000
+ * raises "numeric field overflow" on INSERT. A mistyped odometer reading gets
+ * there easily — 9,999,999 km entered against a previous reading of 50,000 on
+ * a 5-gallon fill-up computes to ~1.2 million mpg — and that would 500 the
+ * whole fill-up rather than just discarding the derived figure.
+ */
+export const MAX_STORABLE_MPG = 999_999.99;
 
 /**
  * Server-side MPG computation — deliberately ignores any client-supplied mpg
@@ -45,7 +60,10 @@ export function computeMpg(
   const distanceKm = currentOdometerKm - previousOdometerKm;
   if (distanceKm <= 0) return null;
   const distanceMiles = distanceKm / KM_PER_MILE;
-  return Math.round((distanceMiles / gallons) * 100) / 100;
+  const mpg = Math.round((distanceMiles / gallons) * 100) / 100;
+  // An unstorable figure is bad data by definition (see MAX_STORABLE_MPG);
+  // report "no mpg for this entry" rather than failing the whole fill-up.
+  return Number.isFinite(mpg) && mpg <= MAX_STORABLE_MPG ? mpg : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -110,11 +128,21 @@ async function searchFuelStations(
   radiusM: number,
   contactEmail: string,
 ): Promise<FuelStation[]> {
-  const radiusDeg = radiusM / 111_320; // rough metres → degrees for the bounding viewbox
-  const minLng = Math.max(-180, lng - radiusDeg);
-  const maxLng = Math.min(180, lng + radiusDeg);
-  const maxLat = Math.min(90, lat + radiusDeg);
-  const minLat = Math.max(-90, lat - radiusDeg);
+  // Metres → degrees for the bounding viewbox. A degree of LATITUDE is ~111 km
+  // everywhere, but a degree of LONGITUDE is only 111 km × cos(latitude), so
+  // using the same figure for both makes the box too narrow east-to-west
+  // everywhere off the equator: at London (51.5°N, cos ≈ 0.62) a 10-mile fuel
+  // search only swept ~6 miles of longitude, and at 60°N barely half the
+  // radius, quietly hiding stations that are well inside range. Clamped so a
+  // search near the poles (cos → 0) widens to the whole world rather than
+  // producing Infinity. Results are still distance-filtered below, so a
+  // slightly generous box only costs a few extra candidates.
+  const latDeg = radiusM / 110_574;
+  const lngDeg = Math.min(180, radiusM / (111_320 * Math.max(0.01, Math.cos((lat * Math.PI) / 180))));
+  const minLng = Math.max(-180, lng - lngDeg);
+  const maxLng = Math.min(180, lng + lngDeg);
+  const maxLat = Math.min(90, lat + latDeg);
+  const minLat = Math.max(-90, lat - latDeg);
 
   const url = new URL('https://nominatim.openstreetmap.org/search');
   url.searchParams.set('format', 'json');

@@ -11,8 +11,16 @@ const createCameraSchema = z.object({
   lat: z.number().min(-90).max(90),
   lng: z.number().min(-180).max(180),
   type: z.enum(CAMERA_TYPES).default('fixed'),
-  speedLimitKph: z.number().int().min(0).max(300).optional(),
-  direction: z.number().min(0).max(360).optional(),
+  // Bounds mirror the DB exactly, because anything zod lets through that the
+  // column rejects is an unexplained 500 rather than a 400:
+  //   speed_limit_kph  CHECK (... > 0)                  -- migration 025
+  //   direction        INTEGER, CHECK (>= 0 AND < 360)  -- migrations 021/025
+  // So `speedLimitKph: 0` (previously allowed by min(0)) violated the CHECK,
+  // `direction: 360` (allowed by the inclusive max) violated the range CHECK,
+  // and a fractional bearing like `direction: 45.5` failed the ::integer cast
+  // with "invalid input syntax for type integer" — all three 500s.
+  speedLimitKph: z.number().int().min(1).max(300).optional(),
+  direction: z.number().int().min(0).max(359).optional(),
   source: z.enum(['community', 'opendata']).default('community'),
 });
 
