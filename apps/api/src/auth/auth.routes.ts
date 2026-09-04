@@ -17,9 +17,14 @@ import {
   upsertUserBySocial,
   issueTokens,
   setRefreshCookie,
+  refreshTokenSetKey,
+  legacyRefreshTokenKey,
+  consumedRefreshTokenKey,
+  CONSUMED_REFRESH_TTL_S,
 } from './auth.service';
 import { sendOtpSms } from './sms';
 import { normalizeEmail } from './email';
+import { randomUUID } from 'node:crypto';
 import { env } from '../config/env';
 
 // ---------------------------------------------------------------------------
@@ -97,7 +102,7 @@ function getJwks(provider: 'google' | 'apple'): ReturnType<typeof createRemoteJW
 async function verifyProviderToken(
   provider: 'google' | 'apple',
   idToken: string,
-): Promise<{ sub: string; email?: string }> {
+): Promise<{ sub: string; email?: string; emailVerified: boolean }> {
   const JWKS = getJwks(provider);
   // jose enforces signature + `exp` itself; we additionally pin the issuer,
   // and the audience must be one of our own client IDs — otherwise a valid
@@ -116,13 +121,34 @@ async function verifyProviderToken(
     throw new Error('Token missing sub claim');
   }
 
+  // Apple sends this claim as the string "true"; Google sends a boolean.
+  // Absent counts as unverified — see the caller for why that matters.
+  const emailVerified =
+    payload.email_verified === true || payload.email_verified === 'true';
+
   return {
     sub: payload.sub,
     ...(typeof payload.email === 'string' ? { email: payload.email } : {}),
+    emailVerified,
   };
 }
 
 const BCRYPT_ROUNDS = 10;
+
+/**
+ * A well-formed bcrypt hash of a value nobody can present, compared against
+ * when the email is unknown so that a login for a non-existent account costs
+ * the same tens of milliseconds as a real one.
+ *
+ * It MUST be a genuine hash. bcryptjs rejects a malformed one and returns
+ * false immediately, and the literal that used to live at the compare site
+ * was malformed (61 characters, invalid digest) — so the mitigation was
+ * inverted into exactly the account-enumeration oracle it exists to close:
+ * an unregistered email answered in microseconds, a registered one in ~50ms.
+ * Hashing a random UUID at module load keeps it valid for whatever
+ * BCRYPT_ROUNDS is set to, and costs one hash at boot.
+ */
+const DUMMY_PASSWORD_HASH = bcrypt.hashSync(randomUUID(), BCRYPT_ROUNDS);
 
 /** OTP rate-limit: 5 requests per phone per 10 minutes */
 const OTP_RATE_LIMIT = 5;
@@ -367,9 +393,9 @@ async function authRoutes(fastify: FastifyInstance, _opts: FastifyPluginOptions)
       | (typeof userResult.rows[0] & { hashed_password: string })
       | undefined;
 
-    // Use constant-time compare even on missing user to avoid timing attacks
-    const dummyHash = '$2a$10$abcdefghijklmnopqrstuuABCDEFGHIJKLMNOPQRSTUVWXYZ012345';
-    const hashToCompare = row?.hashed_password ?? dummyHash;
+    // Run a real bcrypt compare even when the user is missing, so the
+    // response time does not reveal whether the account exists.
+    const hashToCompare = row?.hashed_password ?? DUMMY_PASSWORD_HASH;
     const passwordValid = await bcrypt.compare(password, hashToCompare);
 
     if (!row || !passwordValid) {
@@ -436,12 +462,26 @@ async function authRoutes(fastify: FastifyInstance, _opts: FastifyPluginOptions)
     try {
       const verified = await verifyProviderToken(provider, idToken);
       providerId = verified.sub;
-      // Providers echo back whatever casing the user typed when they created
-      // the account, so this has to be folded like every other email we store
-      // — otherwise Google returning "Foo@x.com" for someone who signed up
-      // here as "foo@x.com" would create a second, parallel account.
-      if (verified.email) {
+      // The email claim is an account-linking key here: upsertUserBySocial
+      // resolves it against users.email, so a social sign-in carrying an
+      // address that already belongs to someone hands over THAT account. Only
+      // an address the provider says it verified may do that — an unverified
+      // claim is discarded and the sign-in creates/uses an account keyed on
+      // the provider subject alone. This is the same rule that already
+      // stopped unauthenticated email signup from linking onto an existing
+      // user, applied on the social side.
+      //
+      // Providers also echo back whatever casing the user typed when they
+      // created the account, so the address is folded like every other email
+      // we store — otherwise Google returning "Foo@x.com" for someone who
+      // signed up here as "foo@x.com" would create a second, parallel account.
+      if (verified.email && verified.emailVerified) {
         email = normalizeEmail(verified.email);
+      } else if (verified.email) {
+        request.log.warn(
+          { provider },
+          'Social sign-in token carried an unverified email claim — ignoring it for account linking',
+        );
       }
     } catch {
       return reply.status(401).send({
@@ -490,12 +530,42 @@ async function authRoutes(fastify: FastifyInstance, _opts: FastifyPluginOptions)
       return reply.unauthorized('Invalid refresh token format');
     }
 
-    // Atomically consume the stored JTI — GETDEL ensures only one concurrent request can rotate
-    const storedJti = await fastify.redis.getdel(`rtk:${userId}`);
-    if (storedJti !== presentedJti) {
-      // Possible token reuse attack — storedJti was already deleted above, so all sessions are revoked
+    // Atomically consume the presented jti out of the user's live-token set.
+    // SREM reports how many members it removed, so exactly one of two
+    // concurrent requests can rotate a given token — and, unlike the single
+    // stored value this replaced, the user's OTHER devices keep their own
+    // tokens instead of being signed out.
+    const consumed = await fastify.redis.srem(refreshTokenSetKey(userId), presentedJti);
+    if (consumed !== 1) {
+      // The signature is valid but this jti is not live. Two very different
+      // reasons land here, and only one of them is an attack:
+      //  - it was already rotated → a replay, i.e. someone is holding a copy
+      //    of a refresh cookie. Revoke every session for the user, the
+      //    standard response. A legitimate client cannot get here: the app
+      //    single-flights refreshes and the network layer no longer retries
+      //    POSTs.
+      //  - it was signed out, or its set has expired → nothing suspicious.
+      //    Answer 401 for this token alone; revoking the user's OTHER devices
+      //    because a signed-out phone still had a stale cookie would be a
+      //    self-inflicted sign-out.
+      const wasRotated = await fastify.redis.exists(
+        consumedRefreshTokenKey(userId, presentedJti),
+      );
+      if (wasRotated) {
+        fastify.log.warn({ userId }, 'Refresh token replay detected — revoking all sessions');
+        await fastify.redis.del(refreshTokenSetKey(userId));
+        await fastify.redis.del(legacyRefreshTokenKey(userId));
+      }
       return reply.unauthorized('Refresh token has already been used or revoked');
     }
+
+    // Remember the jti we just consumed so a later replay of it is recognised
+    // as theft rather than as an ordinary expired token.
+    await fastify.redis.setex(
+      consumedRefreshTokenKey(userId, presentedJti),
+      CONSUMED_REFRESH_TTL_S,
+      '1',
+    );
 
     // Verify the user still exists in the database
     const userCheck = await fastify.db.query<{ id: string }>(
@@ -523,7 +593,13 @@ async function authRoutes(fastify: FastifyInstance, _opts: FastifyPluginOptions)
       try {
         const payload = jwt.verify(token, env.JWT_REFRESH_SECRET) as jwt.JwtPayload;
         if (payload.sub) {
-          await fastify.redis.del(`rtk:${payload.sub}`);
+          // Sign out THIS device only: dropping the whole set would log the
+          // user out of their other phone/tablet as a side effect of tapping
+          // Sign Out here. Account deletion is the path that revokes all.
+          if (payload.jti) {
+            await fastify.redis.srem(refreshTokenSetKey(payload.sub), payload.jti);
+          }
+          await fastify.redis.del(legacyRefreshTokenKey(payload.sub));
         }
       } catch {
         // Token already expired or invalid — nothing to invalidate

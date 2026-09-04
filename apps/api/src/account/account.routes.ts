@@ -6,6 +6,7 @@
 import { FastifyPluginAsync } from 'fastify';
 import { authenticate } from '../middleware/authenticate';
 import { generalLimiter } from '../middleware/rateLimiter';
+import { refreshTokenSetKey, legacyRefreshTokenKey } from '../auth/auth.service';
 
 const accountRoutes: FastifyPluginAsync = async (fastify) => {
   // ── GET /account/export ───────────────────────────────────────────────────
@@ -137,8 +138,12 @@ const accountRoutes: FastifyPluginAsync = async (fastify) => {
       client.release();
     }
 
-    // Invalidate refresh token jti and clear cookie
-    await fastify.redis.del(`rtk:${userId}`);
+    // Invalidate every live refresh token for the deleted account — the whole
+    // set, i.e. all of the user's devices — and clear this device's cookie.
+    // `rtk:` is the pre-multi-device key, cleared too so a token issued before
+    // that change cannot outlive the account.
+    await fastify.redis.del(refreshTokenSetKey(userId));
+    await fastify.redis.del(legacyRefreshTokenKey(userId));
     reply.clearCookie('refreshToken', { path: '/' });
 
     // Explicitly purge the groupless friend-location cache too (Task #69 /

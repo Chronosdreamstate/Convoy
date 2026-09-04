@@ -583,6 +583,58 @@ describeLive('LIVE smoke: real app against docker Postgres + Redis', () => {
     expect(me.json.group).toBeNull();
   }, 30_000);
 
+  it('two devices hold independent sessions, and replaying a rotated refresh token revokes both', async () => {
+    // The refresh store keeps one jti PER DEVICE (a Redis SET). Against the
+    // single-value key this replaced, the second sign-in below evicted the
+    // first and device one was thrown out at its next refresh — i.e. a phone
+    // and a tablet could not stay signed in at the same time. Runs against
+    // real Redis because the whole behaviour is SREM's return value.
+    const login = async () =>
+      httpRequest(
+        'POST',
+        `${baseUrl}/api/v1/auth/email/login`,
+        { 'content-type': 'application/json' },
+        JSON.stringify({ email: users.d.email, password: users.d.password }),
+      );
+
+    const cookieOf = (res: { headers: http.IncomingHttpHeaders }): string => {
+      const raw = res.headers['set-cookie'] ?? [];
+      const cookie = raw.map(String).find((c) => c.startsWith('refreshToken='));
+      if (!cookie) throw new Error('no refreshToken cookie in response');
+      return cookie.split(';')[0];
+    };
+
+    // No content-type: the route takes no body, and declaring JSON with an
+    // empty body makes Fastify's parser answer 400 before the handler runs.
+    const refreshWith = (cookie: string) =>
+      httpRequest('POST', `${baseUrl}/api/v1/auth/refresh`, { cookie });
+
+    const firstLogin = await login();
+    expect(firstLogin.status).toBe(200);
+    const deviceOne = cookieOf(firstLogin);
+    const deviceTwo = cookieOf(await login());
+    expect(deviceOne).not.toBe(deviceTwo);
+
+    // Device one has not touched the app since device two signed in.
+    const oneRefreshed = await refreshWith(deviceOne);
+    expect(oneRefreshed.status).toBe(200);
+    expect(typeof oneRefreshed.json.accessToken).toBe('string');
+    const deviceOneRotated = cookieOf(oneRefreshed);
+
+    // Device two rotates on its own token, unaffected by device one.
+    const twoRefreshed = await refreshWith(deviceTwo);
+    expect(twoRefreshed.status).toBe(200);
+    const deviceTwoRotated = cookieOf(twoRefreshed);
+
+    // Replaying device one's already-consumed token is the theft signal: it
+    // fails AND takes every other session down with it.
+    const replay = await refreshWith(deviceOne);
+    expect(replay.status).toBe(401);
+
+    expect((await refreshWith(deviceOneRotated)).status).toBe(401);
+    expect((await refreshWith(deviceTwoRotated)).status).toBe(401);
+  }, 30_000);
+
   it('user A creates a group and user B joins by code', async () => {
     const created = await api('POST', '/groups', {
       token: users.a.token,

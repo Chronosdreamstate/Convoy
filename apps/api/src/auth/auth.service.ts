@@ -9,6 +9,34 @@ import { env } from '../config/env';
 // 30 days in seconds — must match JWT_REFRESH_TTL config
 const REFRESH_TOKEN_TTL_S = 30 * 24 * 60 * 60;
 
+/** Redis key holding the set of live refresh-token jtis for a user — one
+ * member per signed-in device. See issueTokens. */
+export function refreshTokenSetKey(userId: string): string {
+  return `rtks:${userId}`;
+}
+
+/** Pre-multi-device key: a single string value. Only revocation reads it now,
+ * so that keys left over from an older deploy still get cleared. */
+export function legacyRefreshTokenKey(userId: string): string {
+  return `rtk:${userId}`;
+}
+
+/** Marker key remembering that a refresh jti was consumed by rotation, so a
+ * later replay of it can be told apart from a token that was simply signed out
+ * or expired. Presenting a CONSUMED token is the signal that a refresh cookie
+ * has been stolen; presenting a signed-out one is not. */
+export function consumedRefreshTokenKey(userId: string, jti: string): string {
+  return `rtku:${userId}:${jti}`;
+}
+
+/** How long a consumed jti stays flagged. Bounded (rather than the token's
+ * full 30 days) because each refresh writes one of these and a device rotates
+ * roughly every access-token lifetime: a day of history detects the realistic
+ * theft window — a thief who rotates the stolen token is caught at the real
+ * device's very next refresh, minutes later — without keeping thousands of
+ * keys per user alive for a month. */
+export const CONSUMED_REFRESH_TTL_S = 24 * 60 * 60;
+
 // ---------------------------------------------------------------------------
 // OTP helpers
 // ---------------------------------------------------------------------------
@@ -252,8 +280,18 @@ export async function issueTokens(
     expiresIn: env.JWT_REFRESH_TTL as jwt.SignOptions['expiresIn'],
   });
 
-  // Record the active jti so old tokens can be rejected on next refresh
-  await fastify.redis.setex(`rtk:${userId}`, REFRESH_TOKEN_TTL_S, jti);
+  // Record the active jti so a rotated or forged token can be rejected on the
+  // next refresh. This is a SET with one member per signed-in device, not a
+  // single value: a phone and a tablet each hold their own refresh cookie, and
+  // consuming one must not invalidate the other. While this was a plain string
+  // key, signing in anywhere overwrote the stored jti, so every other device
+  // was silently signed out the next time its access token expired.
+  //
+  // Key is `rtks:` (not the historical `rtk:`) so that a deploy over a Redis
+  // still holding string values cannot hit WRONGTYPE on SADD; the old keys
+  // simply expire. Revocation paths clear both.
+  await fastify.redis.sadd(refreshTokenSetKey(userId), jti);
+  await fastify.redis.expire(refreshTokenSetKey(userId), REFRESH_TOKEN_TTL_S);
 
   return { accessToken, refreshToken, jti };
 }

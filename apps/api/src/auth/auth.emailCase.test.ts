@@ -14,7 +14,12 @@
 
 jest.mock('jose', () => ({
   createRemoteJWKSet: jest.fn(() => jest.fn()),
-  jwtVerify: jest.fn().mockResolvedValue({ payload: { sub: 'social-sub', email: 'Mixed.Case@Example.COM' } }),
+  // email_verified matters: an unverified claim is deliberately NOT used as an
+  // account key (see POST /auth/social), so a fixture without it would fold
+  // nothing and this suite would be testing an empty path.
+  jwtVerify: jest.fn().mockResolvedValue({
+    payload: { sub: 'social-sub', email: 'Mixed.Case@Example.COM', email_verified: true },
+  }),
 }));
 
 import Fastify, { FastifyInstance } from 'fastify';
@@ -24,6 +29,7 @@ import fastifySensible from '@fastify/sensible';
 import fp from 'fastify-plugin';
 import { Pool } from 'pg';
 import Redis from 'ioredis';
+import { jwtVerify } from 'jose';
 import authRoutes from './auth.routes';
 import { normalizeEmail } from './email';
 import { emailSignupSchema, emailLoginSchema } from './auth.schemas';
@@ -72,10 +78,28 @@ function buildApp(): FastifyInstance {
 
   app.register(fp(async (i) => {
     const store = new Map<string, string>();
+    // Refresh-token jtis live in a per-user SET (one member per signed-in
+    // device) — see issueTokens in auth.service.ts.
+    const sets = new Map<string, Set<string>>();
     const redis = {
       get: async (k: string) => store.get(k) ?? null,
       set: async (k: string, v: string) => { store.set(k, v); },
-      del: async (k: string) => { store.delete(k); },
+      del: async (k: string) => { store.delete(k); sets.delete(k); },
+      sadd: async (k: string, m: string) => {
+        const set = sets.get(k) ?? new Set<string>();
+        const had = set.has(m);
+        set.add(m);
+        sets.set(k, set);
+        return had ? 0 : 1;
+      },
+      srem: async (k: string, m: string) => {
+        const set = sets.get(k);
+        if (!set || !set.has(m)) return 0;
+        set.delete(m);
+        return 1;
+      },
+      exists: async (k: string) => (store.has(k) ? 1 : 0),
+      setex: async (k: string, _ttl: number, v: string) => { store.set(k, v); },
       incr: async (k: string) => {
         const next = parseInt(store.get(k) ?? '0', 10) + 1;
         store.set(k, String(next));
@@ -203,5 +227,56 @@ describe('POST /auth/social', () => {
     // jose is mocked to return 'Mixed.Case@Example.COM'
     const insert = paramsFor('INSERT INTO users');
     expect(insert?.[1]).toBe('mixed.case@example.com');
+  });
+});
+
+describe('POST /auth/social — the email claim as an account key', () => {
+  const signIn = () =>
+    app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/social',
+      payload: { provider: 'apple', idToken: 'x'.repeat(20) },
+    });
+
+  // This harness records the parameters the routes send to the DB and returns
+  // stub rows; the response status is not meaningful here (the stub does not
+  // answer the final SELECT), so these assert on what was written.
+  /** Params the route passed to `INSERT INTO users` — [display_name, email]. */
+  const insertedEmail = () => paramsFor('INSERT INTO users')?.[1];
+
+  it('ignores an email the provider has not verified', async () => {
+    // upsertUserBySocial resolves the email against users.email with
+    // ON CONFLICT (email) DO UPDATE ... RETURNING id, so whatever arrives here
+    // is an account-linking key: a token carrying someone else's unverified
+    // address would sign the holder into THAT person's account. OIDC is
+    // explicit that only a verified address may be used this way.
+    (jwtVerify as jest.Mock).mockResolvedValueOnce({
+      payload: { sub: 'social-sub', email: 'victim@example.com', email_verified: false },
+    });
+
+    await signIn();
+
+    expect(insertedEmail()).toBeNull();
+  });
+
+  it('ignores an email claim that arrives without email_verified at all', async () => {
+    (jwtVerify as jest.Mock).mockResolvedValueOnce({
+      payload: { sub: 'social-sub', email: 'victim@example.com' },
+    });
+
+    await signIn();
+
+    expect(insertedEmail()).toBeNull();
+  });
+
+  it("accepts Apple's string form of the claim", async () => {
+    // Apple sends email_verified as the string "true"; Google sends a boolean.
+    (jwtVerify as jest.Mock).mockResolvedValueOnce({
+      payload: { sub: 'social-sub', email: 'Rider@Example.com', email_verified: 'true' },
+    });
+
+    await signIn();
+
+    expect(insertedEmail()).toBe('rider@example.com');
   });
 });

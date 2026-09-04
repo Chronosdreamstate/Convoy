@@ -81,6 +81,7 @@ function buildTestApp(): FastifyInstance {
   app.register(
     fp(async (instance) => {
       const store = new Map<string, { value: string; expiry: number | null }>();
+      const sets = new Map<string, Set<string>>();
 
       const mockRedis = {
         get: async (key: string): Promise<string | null> => {
@@ -100,6 +101,7 @@ function buildTestApp(): FastifyInstance {
         },
         del: async (key: string): Promise<void> => {
           store.delete(key);
+          sets.delete(key);
         },
         incr: async (key: string): Promise<number> => {
           const entry = store.get(key);
@@ -113,6 +115,23 @@ function buildTestApp(): FastifyInstance {
             store.set(key, { value: entry.value, expiry: Date.now() + ttl * 1000 });
           }
         },
+        // Set commands — refresh-token jtis live in a per-user SET, one member
+        // per signed-in device (see issueTokens in auth.service.ts).
+        sadd: async (key: string, member: string): Promise<number> => {
+          const set = sets.get(key) ?? new Set<string>();
+          const had = set.has(member);
+          set.add(member);
+          sets.set(key, set);
+          return had ? 0 : 1;
+        },
+        srem: async (key: string, member: string): Promise<number> => {
+          const set = sets.get(key);
+          if (!set || !set.has(member)) return 0;
+          set.delete(member);
+          return 1;
+        },
+        smembers: async (key: string): Promise<string[]> => [...(sets.get(key) ?? [])],
+        exists: async (key: string): Promise<number> => (store.has(key) ? 1 : 0),
         ping: async () => 'PONG',
         quit: async () => {},
       } as unknown as Redis;
@@ -153,8 +172,11 @@ beforeEach(async () => {
   jest.clearAllMocks();
   delete process.env.GOOGLE_CLIENT_IDS;
   delete process.env.APPLE_CLIENT_IDS;
+  // email_verified: true is the normal case for both providers. It is set
+  // explicitly because the route only uses a VERIFIED address as an
+  // account-linking key — the unverified case has its own tests below.
   mockJwtVerify.mockResolvedValue({
-    payload: { sub: 'provider-sub-123', email: 'driver@example.com' },
+    payload: { sub: 'provider-sub-123', email: 'driver@example.com', email_verified: true },
   });
   app = buildTestApp();
   await app.ready();
