@@ -146,3 +146,76 @@ describe('leaveGroup', () => {
     expect(useGroupStore.getState()).toMatchObject(DEFAULTS);
   });
 });
+
+describe('setActiveGroupId — group switch (leave X, join Y)', () => {
+  it('drops the previous convoy\'s PTT channel and settings when switching groups', () => {
+    // Convoy X: on a sub-channel, with the Admin's own gap/hold settings.
+    const s0 = useGroupStore.getState();
+    s0.setActiveGroupId('group-X');
+    s0.setPttChannelId('chan-X-lead');
+    s0.applyAssignedPttChannel('group-X', 'chan-X-lead2');
+    s0.setGroupMeta({
+      name: 'Canyon Run', memberCount: 6, adminId: 'admin-X', leaderId: 'lead-X',
+      gapThresholdM: 100, pttMaxSeconds: 15,
+    });
+
+    // JoinByCodeScreen / CreateGroupScreen switch straight from X to Y: they
+    // set the id and then only name+adminId, never passing through null.
+    useGroupStore.getState().setActiveGroupId('group-Y');
+
+    const s = useGroupStore.getState();
+    expect(s.activeGroupId).toBe('group-Y');
+    // app/(tabs)/map.tsx feeds pttChannelId straight into PTTService.joinChannel
+    // and `ptt:start` — carrying X's channel into Y kills (or misroutes) voice.
+    expect(s.pttChannelId).toBeNull();
+    expect(s.assignedPttChannelId).toBeNull();
+    expect(s.name).toBeNull();
+    expect(s.memberCount).toBe(0);
+    expect(s.adminId).toBeNull();
+    expect(s.leaderId).toBeNull();
+    expect(s.gapThresholdM).toBe(3219);
+    expect(s.pttMaxSeconds).toBe(30);
+  });
+
+  it('leaves state untouched when re-setting the SAME group id', () => {
+    // ConvoyScreen's sync effect re-runs on every memberCount/name change and
+    // re-sets the same id — that must not bounce the live PTT session.
+    const s0 = useGroupStore.getState();
+    s0.setActiveGroupId('group-X');
+    s0.setPttChannelId('chan-X-lead');
+    s0.setGroupMeta({ name: 'Canyon Run', gapThresholdM: 100 });
+
+    useGroupStore.getState().setActiveGroupId('group-X');
+
+    const s = useGroupStore.getState();
+    expect(s.pttChannelId).toBe('chan-X-lead');
+    expect(s.name).toBe('Canyon Run');
+    expect(s.gapThresholdM).toBe(100);
+  });
+
+  it('leaves state untouched when clearing to null (ConvoyScreen mount transient)', () => {
+    // ConvoyScreen momentarily pushes null on mount before its group loads;
+    // screens clear group state explicitly via leaveGroup/clearGroupMeta.
+    const s0 = useGroupStore.getState();
+    s0.setActiveGroupId('group-X');
+    s0.setPttChannelId('chan-X-lead');
+
+    useGroupStore.getState().setActiveGroupId(null);
+
+    const s = useGroupStore.getState();
+    expect(s.activeGroupId).toBeNull();
+    expect(s.pttChannelId).toBe('chan-X-lead');
+  });
+
+  it('adopts the first group normally (null → X keeps meta set alongside it)', () => {
+    // CreateGroupScreen sets the id and then name/adminId; a reset triggered
+    // by null → X would be harmless but must not fire before those writes.
+    useGroupStore.getState().setActiveGroupId('group-X');
+    useGroupStore.getState().setGroupMeta({ name: 'New Convoy', adminId: 'me' });
+
+    const s = useGroupStore.getState();
+    expect(s.activeGroupId).toBe('group-X');
+    expect(s.name).toBe('New Convoy');
+    expect(s.adminId).toBe('me');
+  });
+});

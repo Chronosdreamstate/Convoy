@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import * as Notifications from 'expo-notifications';
 import Constants from 'expo-constants';
@@ -8,11 +9,56 @@ import { useLocationStore } from '../stores/locationStore';
 import { useSocketStore } from '../stores/socketStore';
 import { useRecentDestinationsStore } from '../stores/recentDestinationsStore';
 import { useSettingsStore } from '../stores/settingsStore';
+import { sharedMotionState } from './MotionStateService';
+import { pttAnalytics } from './PTTAnalyticsService';
+import { SQLiteOfflineDB } from './OfflineCacheService';
 import { onboardingState } from '../utils/onboardingState';
 import { singleFlightRefresh } from './refreshTokenGuard';
 import { API_URL } from '../config/env';
 
 const SECURE_STORE_KEY = 'convoy_access_token';
+
+/**
+ * AsyncStorage keys written outside the zustand stores that hold data
+ * belonging to ONE account. None of them is namespaced by user id, and every
+ * reader loads its key straight into the UI on mount, so leaving them behind
+ * shows the previous account's data to whoever signs in next on this device:
+ *
+ *  - convoy:notifications      Notification Center's local cache — rendered
+ *                              immediately on mount (loadCached), so account B
+ *                              opened the tab to account A's SOS alerts,
+ *                              friend requests and invites.
+ *  - convoy:recent_searches    Destination search history.
+ *  - convoy:completed_count /  Drive-count, first-convoy achievement and
+ *    achievement:first_convoy / store-review prompt state — B inherits A's
+ *    convoy:has_reviewed /     counters, so B never gets the first-convoy
+ *    convoy:review_prompted    moment and is never asked to review.
+ *
+ * Device-level keys are deliberately NOT here: `@convoy/anon_id` (anonymous
+ * analytics id), `coach_marks_shown` and settingsStore's `themeMode` describe
+ * the device, not the person — the same reasoning as settingsStore's
+ * account-vs-device split.
+ */
+const PER_ACCOUNT_STORAGE_KEYS = [
+  'convoy:notifications',
+  'convoy:recent_searches',
+  'convoy:completed_count',
+  'achievement:first_convoy',
+  'convoy:has_reviewed',
+  'convoy:review_prompted',
+];
+
+/** Prefix of the per-drive photo caches (`convoy:drive:<driveId>:photos`). */
+const DRIVE_PHOTO_KEY_PREFIX = 'convoy:drive:';
+
+/**
+ * Own handle on the offline SQLite queue. The tables hold pending hazard
+ * reports, drives and cached member positions, none of them keyed by user, so
+ * they must be wiped at sign-out or SyncService replays them under the next
+ * account's token. Constructing this opens nothing — init() is deferred to the
+ * first clearAll().
+ */
+const offlineDb = new SQLiteOfflineDB();
 
 export interface AuthResult {
   user: User;
@@ -220,6 +266,12 @@ export class AuthService {
     // silently skipped because a previous account had already completed it.
     await SecureStore.deleteItemAsync('onboarding_complete').catch(() => {});
     await onboardingState.reset().catch(() => {});
+    await this.clearPerAccountStorage();
+    try {
+      await offlineDb.clearAll();
+    } catch (err) {
+      console.warn('[AuthService] Failed to clear the offline queue on sign-out:', err);
+    }
 
     // Reset all per-account state so the next sign-in (possibly a different
     // person on this device) doesn't see the previous account's group, member
@@ -237,6 +289,16 @@ export class AuthService {
       // Also rewrites the persisted copy via zustand/persist; device-level
       // settings (themeMode) are intentionally kept — see settingsStore.
       ['settingsStore', () => useSettingsStore.getState().resetForSignOut()],
+      // Motion_State is derived from a GPS feed that stops at sign-out, so its
+      // parked hysteresis can never settle on its own: signing out while
+      // driving used to leave `useMotionStore().isInMotion` true for the next
+      // account, blocking their profile/garage edits (Req 34) with a
+      // "can't do this while driving" guard they had no way to clear.
+      ['motionState', () => sharedMotionState.reset()],
+      // Per-convoy PTT talk-time stats: getLeaderboard() returns everything
+      // ever recorded, so without this the first transmit in the next
+      // account's convoy renders the previous account's members.
+      ['pttAnalytics', () => pttAnalytics.reset()],
     ];
     for (const [name, reset] of resets) {
       try {
@@ -244,6 +306,29 @@ export class AuthService {
       } catch (err) {
         console.warn(`[AuthService] Failed to reset ${name} on sign-out:`, err);
       }
+    }
+  }
+
+  /**
+   * Drop the AsyncStorage caches that belong to the account being signed out.
+   * Best-effort and never rejects — see the signOut() error contract.
+   *
+   * The per-drive photo caches can't be listed statically (their key embeds a
+   * drive id), so they are swept by prefix; a getAllKeys() failure degrades to
+   * clearing just the fixed list rather than skipping the whole cleanup.
+   */
+  private async clearPerAccountStorage(): Promise<void> {
+    let keys = PER_ACCOUNT_STORAGE_KEYS;
+    try {
+      const all = await AsyncStorage.getAllKeys();
+      keys = [...keys, ...all.filter((k) => k.startsWith(DRIVE_PHOTO_KEY_PREFIX))];
+    } catch (err) {
+      console.warn('[AuthService] Failed to enumerate storage keys on sign-out:', err);
+    }
+    try {
+      await AsyncStorage.multiRemove(keys);
+    } catch (err) {
+      console.warn('[AuthService] Failed to clear per-account storage on sign-out:', err);
     }
   }
 

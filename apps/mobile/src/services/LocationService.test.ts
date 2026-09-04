@@ -113,3 +113,20 @@ describe('LocationService shared motion feed', () => {
     expect(useMotionStore.getState().isInMotion).toBe(false); // slow sample 3 — parked
   });
 });
+
+describe('LocationService.stopTracking — motion state must not stick', () => {
+  it('parks the shared motion feed when tracking stops mid-drive', async () => {
+    await LocationService.startTracking();
+    emitGpsFix(rawFix(10)); // 36 km/h — in motion
+    expect(useMotionStore.getState().isInMotion).toBe(true);
+
+    // Leaving a convoy while still moving: MapScreen's cleanup stops tracking,
+    // so no further fixes arrive and the 3-slow-sample hysteresis can never
+    // settle. Without an explicit park, `isInMotion` stays true for the rest of
+    // the session and every Req 34 edit guard / Req 33 list cap stays engaged.
+    await LocationService.stopTracking();
+
+    expect(useMotionStore.getState().isInMotion).toBe(false);
+    expect(sharedMotionState.state).toBe('parked');
+  });
+});

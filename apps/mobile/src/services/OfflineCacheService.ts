@@ -223,6 +223,24 @@ export class SQLiteOfflineDB implements IOfflineDB {
     }));
   }
 
+  /**
+   * Drop every queued row. Called on sign-out: none of these tables is keyed
+   * by user, so anything left behind is replayed under the NEXT account's
+   * token — SyncService bulk-POSTs the previous account's hazard reports and
+   * drives as if they were the new user's, and `last_positions` puts the old
+   * account's convoy members back on the map for any group id that matches.
+   *
+   * Self-initialising (sign-out can run before anything opened the database)
+   * and deliberately not part of IOfflineDB — SyncService has no business
+   * wiping the queue it drains.
+   */
+  async clearAll(): Promise<void> {
+    if (!this.db) await this.init();
+    await this.db!.execAsync(
+      'DELETE FROM offline_hazards; DELETE FROM offline_drives; DELETE FROM last_positions;',
+    );
+  }
+
   private ensureDB(): void {
     if (!this.db) throw new Error('SQLiteOfflineDB not initialised — call init() first');
   }

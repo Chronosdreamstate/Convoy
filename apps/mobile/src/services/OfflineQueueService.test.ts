@@ -396,3 +396,72 @@ describe('persistence', () => {
     queue.destroy();
   });
 });
+
+// ---------------------------------------------------------------------------
+// sign-out racing an in-flight init()
+// ---------------------------------------------------------------------------
+
+describe('init() racing sign-out', () => {
+  it('does not resurrect the signed-out account\'s queue when clear() lands mid-read', async () => {
+    // Account A leaves a queued write behind.
+    const first = freshQueue();
+    await first.enqueue(makeRequestInput({ url: 'https://x.test/api/account-a-write' }));
+    first.destroy();
+
+    // Next session's init() starts; its AsyncStorage read is still in flight.
+    const q = freshQueue();
+    let releaseRead!: (value: string | null) => void;
+    const pendingRead = new Promise<string | null>((resolve) => { releaseRead = resolve; });
+    const getItemSpy = jest
+      .spyOn(AsyncStorage, 'getItem')
+      .mockReturnValue(pendingRead as unknown as ReturnType<typeof AsyncStorage.getItem>);
+
+    const initPromise = q.init();
+
+    // Sign-out: _layout drops the queue so it can never replay under the next
+    // account's token.
+    await q.clear();
+
+    // …and only NOW does the read come back, carrying account A's queue.
+    releaseRead(JSON.stringify([
+      { id: 'a1', method: 'POST', url: '/api/v1/things', body: {}, headers: {}, queuedAt: Date.now(), attempts: 0 },
+    ]));
+    await initPromise;
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(q.size).toBe(0);
+    expect(mockRequest).not.toHaveBeenCalled();
+
+    getItemSpy.mockRestore();
+    q.destroy();
+  });
+
+  it('never orphans an AppState listener when destroy() lands mid-init', async () => {
+    const q = freshQueue();
+    const internals = q as unknown as { appStateSub: { remove: () => void } | null };
+
+    let releaseRead!: (value: string | null) => void;
+    const pendingRead = new Promise<string | null>((resolve) => { releaseRead = resolve; });
+    const getItemSpy = jest
+      .spyOn(AsyncStorage, 'getItem')
+      .mockReturnValue(pendingRead as unknown as ReturnType<typeof AsyncStorage.getItem>);
+
+    const initPromise = q.init();
+
+    // The subscription must exist BEFORE the read resolves: registering it
+    // after the await let a concurrent destroy() null the field first, and the
+    // late assignment then left a listener nothing held a reference to.
+    expect(internals.appStateSub).not.toBeNull();
+    const sub = internals.appStateSub!;
+    const removeSpy = jest.spyOn(sub, 'remove');
+
+    q.destroy();
+    releaseRead(null);
+    await initPromise;
+
+    expect(removeSpy).toHaveBeenCalledTimes(1);
+    expect(internals.appStateSub).toBeNull();
+
+    getItemSpy.mockRestore();
+  });
+});

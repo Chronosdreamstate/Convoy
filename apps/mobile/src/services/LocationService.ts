@@ -195,6 +195,12 @@ export class LocationService {
     LocationService._stopHeartbeat();
     LocationService._lastFix = null;
     LocationService._onLocation = null;
+    // No more fixes will arrive, so the parked hysteresis (3 consecutive slow
+    // samples) can never settle on its own. Leaving a convoy while still
+    // moving would otherwise pin `useMotionStore().isInMotion` at true for the
+    // rest of the session — permanently blocking the Req 34 edit guards and
+    // capping every Req 33 list.
+    sharedMotionState.reset();
   }
 
   static get isTracking(): boolean {

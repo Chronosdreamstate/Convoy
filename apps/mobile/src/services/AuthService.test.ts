@@ -42,16 +42,37 @@ jest.mock('expo-secure-store', () => ({
 const mockAsyncStorageSetItemSpy = jest.fn();
 const mockAsyncStorageRemoveItemSpy = jest.fn();
 const mockAsyncStorageGetItemSpy = jest.fn();
+// signOut also sweeps the per-account AsyncStorage caches that live outside
+// the zustand stores (Notification Center, recent searches, convoy counters).
+const mockAsyncStorageMultiRemoveSpy = jest.fn().mockResolvedValue(undefined);
+let storedAsyncKeys: string[] = [];
+const mockAsyncStorageGetAllKeysSpy = jest.fn(() => Promise.resolve(storedAsyncKeys));
 
 jest.mock('@react-native-async-storage/async-storage', () => ({
   setItem: (...args: unknown[]) => mockAsyncStorageSetItemSpy(...args),
   removeItem: (...args: unknown[]) => mockAsyncStorageRemoveItemSpy(...args),
   getItem: (...args: unknown[]) => mockAsyncStorageGetItemSpy(...args),
   multiSet: jest.fn(),
-  multiRemove: jest.fn(),
+  multiRemove: (...args: unknown[]) => mockAsyncStorageMultiRemoveSpy(...args),
   multiGet: jest.fn(),
+  getAllKeys: () => mockAsyncStorageGetAllKeysSpy(),
 // virtual: module is not installed; jest resolves the factory without hitting the filesystem
 }), { virtual: true });
+
+// ---------------------------------------------------------------
+// Mock expo-sqlite — signOut wipes the offline hazard/drive/position queue,
+// which would otherwise replay under the NEXT account's token.
+// ---------------------------------------------------------------
+const mockSqlExecAsync = jest.fn().mockResolvedValue(undefined);
+jest.mock('expo-sqlite', () => ({
+  openDatabaseAsync: jest.fn(() =>
+    Promise.resolve({
+      execAsync: (...args: unknown[]) => mockSqlExecAsync(...args),
+      runAsync: jest.fn().mockResolvedValue(undefined),
+      getAllAsync: jest.fn().mockResolvedValue([]),
+    }),
+  ),
+}));
 
 // ---------------------------------------------------------------
 // Mock zustand auth store (used by signOut and refreshToken)
@@ -537,5 +558,137 @@ describe('AuthService — secure token storage', () => {
         isFirstLogin: false,
       });
     });
+  });
+});
+
+// ---------------------------------------------------------------
+// Sign-out — per-account state that lives OUTSIDE the zustand stores
+// ---------------------------------------------------------------
+describe('AuthService.signOut — per-account cleanup beyond the stores', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    storedAccessToken = null;
+    storedOnboardingFlag = null;
+    storedAsyncKeys = [];
+    global.fetch = jest.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({}) });
+  });
+
+  /** Flattened list of every key passed to AsyncStorage.multiRemove. */
+  function removedKeys(): string[] {
+    return mockAsyncStorageMultiRemoveSpy.mock.calls.flatMap(
+      (call) => (call[0] as string[] | undefined) ?? [],
+    );
+  }
+
+  it('drops the Notification Center cache so the next account never sees the previous one\'s alerts', async () => {
+    const service = await getAuthService();
+    await service.signOut();
+
+    // NotificationCenterScreen renders this cache immediately on mount
+    // (loadCached), so leaving it behind showed account B account A's SOS
+    // alerts, friend requests and group invites.
+    expect(removedKeys()).toContain('convoy:notifications');
+  });
+
+  it('drops the other un-namespaced per-account caches', async () => {
+    const service = await getAuthService();
+    await service.signOut();
+
+    const removed = removedKeys();
+    expect(removed).toContain('convoy:recent_searches');
+    // Drive counters / achievement / review-prompt state: without this the next
+    // account inherits A's convoy count and never gets the first-convoy moment.
+    expect(removed).toContain('convoy:completed_count');
+    expect(removed).toContain('achievement:first_convoy');
+    expect(removed).toContain('convoy:has_reviewed');
+    expect(removed).toContain('convoy:review_prompted');
+  });
+
+  it('sweeps the per-drive photo caches by prefix', async () => {
+    storedAsyncKeys = [
+      'convoy:drive:drive-1:photos',
+      'convoy:drive:drive-2:photos',
+      '@convoy/anon_id',
+    ];
+
+    const service = await getAuthService();
+    await service.signOut();
+
+    const removed = removedKeys();
+    expect(removed).toContain('convoy:drive:drive-1:photos');
+    expect(removed).toContain('convoy:drive:drive-2:photos');
+    // Device-level keys (anonymous analytics id) are deliberately preserved.
+    expect(removed).not.toContain('@convoy/anon_id');
+  });
+
+  it('still clears the fixed key list when getAllKeys fails', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    mockAsyncStorageGetAllKeysSpy.mockRejectedValueOnce(new Error('storage unavailable'));
+
+    const service = await getAuthService();
+    await expect(service.signOut()).resolves.toBeUndefined();
+
+    expect(removedKeys()).toContain('convoy:notifications');
+    warnSpy.mockRestore();
+  });
+
+  it('wipes the offline SQLite queue so it cannot replay under the next account', async () => {
+    const service = await getAuthService();
+    await service.signOut();
+
+    // offline_hazards / offline_drives / last_positions are keyed by hazard,
+    // drive and group id — never by user — so SyncService would bulk-POST the
+    // signed-out account's reports and drives as if they were the new user's.
+    const sql = mockSqlExecAsync.mock.calls.map((c) => String(c[0])).join(' | ');
+    expect(sql).toContain('DELETE FROM offline_hazards');
+    expect(sql).toContain('DELETE FROM offline_drives');
+    expect(sql).toContain('DELETE FROM last_positions');
+  });
+
+  it('does not reject when the offline queue wipe fails', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    mockSqlExecAsync.mockRejectedValue(new Error('database locked'));
+
+    const service = await getAuthService();
+    await expect(service.signOut()).resolves.toBeUndefined();
+
+    // The store resets after it must still have run.
+    expect(mockStoreSignOut).toHaveBeenCalledTimes(1);
+    mockSqlExecAsync.mockResolvedValue(undefined);
+    warnSpy.mockRestore();
+  });
+
+  it('clears the PTT talk-time leaderboard', async () => {
+    const service = await getAuthService();
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { pttAnalytics } = require('./PTTAnalyticsService') as typeof import('./PTTAnalyticsService');
+    pttAnalytics.recordTransmit('user-a', 'RED LEADER', 4_000);
+    expect(pttAnalytics.getLeaderboard()).toHaveLength(1);
+
+    await service.signOut();
+
+    // getLeaderboard() returns everything ever recorded, so the first transmit
+    // in the next account's convoy would otherwise render A's members.
+    expect(pttAnalytics.getLeaderboard()).toHaveLength(0);
+  });
+
+  it('parks the shared motion state so a sign-out mid-drive does not block the next account', async () => {
+    const service = await getAuthService();
+    // Same post-resetModules instances AuthService itself imported.
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { sharedMotionState } = require('./MotionStateService') as typeof import('./MotionStateService');
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { useMotionStore } = require('../stores/motionStore') as typeof import('../stores/motionStore');
+
+    sharedMotionState.update(30); // driving
+    expect(useMotionStore.getState().isInMotion).toBe(true);
+
+    await service.signOut();
+
+    // The GPS feed stops with the session, so the 3-slow-sample hysteresis can
+    // never settle — account B would inherit "you can't do this while driving"
+    // on their profile/garage edits (Req 34) with no way to clear it.
+    expect(useMotionStore.getState().isInMotion).toBe(false);
+    expect(sharedMotionState.state).toBe('parked');
   });
 });

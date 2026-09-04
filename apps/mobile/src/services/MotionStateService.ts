@@ -65,6 +65,25 @@ export class MotionStateService {
     return this._state;
   }
 
+  /**
+   * Force the machine back to 'parked' and notify listeners.
+   *
+   * The hysteresis in update() only parks after three consecutive slow
+   * samples, so when the GPS feed STOPS while in motion (leaving a convoy /
+   * signing out mid-drive) the state would otherwise stay 'in_motion'
+   * indefinitely — with no further samples coming, nothing could ever clear
+   * it. Everything behind `useMotionStore().isInMotion` (useMotionGuard's
+   * "can't do this while driving" blocks, MotionAwareList's Req 33 caps) then
+   * stayed engaged for the rest of the app session. Call this from whatever
+   * tears the feed down.
+   */
+  reset(): void {
+    this.belowThresholdCount = 0;
+    if (this._state === 'parked') return;
+    this._state = 'parked';
+    this.listeners.forEach((l) => l('parked'));
+  }
+
   subscribe(listener: MotionStateListener): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);

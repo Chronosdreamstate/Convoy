@@ -60,3 +60,40 @@ describe('sharedMotionState store bridge', () => {
     unsubscribe();
   });
 });
+
+describe('reset() — GPS feed torn down mid-motion', () => {
+  it('parks immediately and clears the store, without waiting for three slow samples', () => {
+    sharedMotionState.update(MOVING_KPH);
+    expect(useMotionStore.getState().isInMotion).toBe(true);
+
+    // LocationService.stopTracking / sign-out call this: no further samples are
+    // coming, so the hysteresis could never settle on its own and every Req
+    // 33/34 consumer would stay capped/blocked for the rest of the session.
+    sharedMotionState.reset();
+
+    expect(sharedMotionState.state).toBe('parked');
+    expect(useMotionStore.getState().isInMotion).toBe(false);
+  });
+
+  it('is silent when already parked', () => {
+    const writes: boolean[] = [];
+    const unsubscribe = useMotionStore.subscribe((s) => writes.push(s.isInMotion));
+
+    sharedMotionState.reset();
+
+    expect(writes).toHaveLength(0);
+    unsubscribe();
+  });
+
+  it('clears the below-threshold streak so the next drive parks on a full three samples', () => {
+    sharedMotionState.update(MOVING_KPH);
+    sharedMotionState.update(PARKED_KPH);
+    sharedMotionState.update(PARKED_KPH); // 2 of 3 slow samples banked
+    sharedMotionState.reset();
+
+    // New drive: one slow sample must NOT immediately re-park via a stale count.
+    sharedMotionState.update(MOVING_KPH);
+    sharedMotionState.update(PARKED_KPH);
+    expect(useMotionStore.getState().isInMotion).toBe(true);
+  });
+});

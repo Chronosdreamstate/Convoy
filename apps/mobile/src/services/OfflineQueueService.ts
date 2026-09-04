@@ -43,12 +43,34 @@ class OfflineQueueService {
   private processing = false;
   private appStateSub: { remove: () => void } | null = null;
   private initialized = false;
+  /**
+   * Bumped by destroy() and clear() so an init() whose AsyncStorage read is
+   * still in flight can tell that the session it was restoring for has ended.
+   */
+  private generation = 0;
 
   async init(): Promise<void> {
     if (this.initialized) return;
     this.initialized = true;
+    const generation = this.generation;
+
+    // Registered BEFORE the await: an await here let a concurrent destroy()
+    // (sign-out) null the field out first, so this assignment then orphaned an
+    // AppState listener nothing could ever remove — one more per sign-in.
+    this.appStateSub = AppState.addEventListener('change', (state: AppStateStatus) => {
+      if (state === 'active' && this.queue.length > 0) {
+        void this.processQueue();
+      }
+    });
 
     const saved = await AsyncStorage.getItem(QUEUE_KEY).catch(() => null);
+
+    // Signed out (or the queue was explicitly cleared) while the read was in
+    // flight. Restoring now would resurrect the PREVIOUS account's queued
+    // writes after clear() had already dropped them — and drain them under the
+    // next account's token, which is exactly what clear() exists to prevent.
+    if (this.generation !== generation) return;
+
     if (saved) {
       try {
         this.queue = JSON.parse(saved) as QueuedRequest[];
@@ -56,13 +78,6 @@ class OfflineQueueService {
         this.queue = [];
       }
     }
-
-    // Drain queue whenever the app comes to foreground
-    this.appStateSub = AppState.addEventListener('change', (state: AppStateStatus) => {
-      if (state === 'active' && this.queue.length > 0) {
-        void this.processQueue();
-      }
-    });
 
     // Attempt to drain on init (covers hot restarts where connectivity is already up)
     if (this.queue.length > 0) {
@@ -168,11 +183,13 @@ class OfflineQueueService {
    * token after the next sign-in.
    */
   async clear(): Promise<void> {
+    this.generation += 1; // invalidate any in-flight init() restore
     this.queue = [];
     await AsyncStorage.removeItem(QUEUE_KEY).catch(() => {});
   }
 
   destroy(): void {
+    this.generation += 1; // invalidate any in-flight init() restore
     this.appStateSub?.remove();
     this.appStateSub = null;
     this.initialized = false;
