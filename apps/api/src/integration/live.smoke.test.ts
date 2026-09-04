@@ -1161,6 +1161,42 @@ describeLive('LIVE smoke: real app against docker Postgres + Redis', () => {
     expect(outsiderLog.status).toBe(403);
   }, 30_000);
 
+  it('ptt-log returns the most recent transmissions, capped and still oldest-first', async () => {
+    // The query had no LIMIT at all, so a long-running group answered with
+    // every transmission it had ever made on every panel open. The panel only
+    // backfills recent history, so the cap costs nothing — but it must keep
+    // the NEWEST entries and keep rendering them oldest-first.
+    const SEEDED = 250;
+    const seedPool = new Pool({ connectionString: SMOKE_DATABASE_URL, max: 1 });
+    try {
+      await seedPool.query(
+        `INSERT INTO ptt_log (group_id, user_id, started_at, ended_at)
+         SELECT $1, $2, now() - (g || ' minutes')::interval,
+                now() - (g || ' minutes')::interval + interval '3 seconds'
+         FROM generate_series(1, $3) AS g`,
+        [groupId, users.a.id, SEEDED],
+      );
+
+      const log = await api('GET', `/groups/${groupId}/ptt-log`, { token: users.b.token });
+      expect(log.status).toBe(200);
+
+      const entries = log.json.log as Array<{ startedAt: string }>;
+      expect(entries.length).toBeLessThan(SEEDED);
+
+      const times = entries.map((l) => new Date(l.startedAt).getTime());
+      // Oldest-first, as PTTLogPanel renders it.
+      expect([...times].sort((x, y) => x - y)).toEqual(times);
+
+      // Kept the newest end of the history: the oldest seeded row is 250
+      // minutes back, and it must NOT be in a capped-to-recent answer.
+      const oldestReturned = Math.min(...times);
+      expect(Date.now() - oldestReturned).toBeLessThan(SEEDED * 60 * 1000);
+    } finally {
+      await seedPool.query('DELETE FROM ptt_log WHERE group_id = $1', [groupId]);
+      await seedPool.end();
+    }
+  }, 30_000);
+
   it('uploads: photo stored and served back byte-exact, disallowed mimetype rejected, filename allowlist enforced', async () => {
     // The server only checks the declared mimetype, so an ASCII payload keeps
     // the multipart body safely transportable as a plain string.

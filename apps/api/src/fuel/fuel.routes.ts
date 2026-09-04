@@ -191,6 +191,10 @@ async function searchFuelStations(
 // Route plugin
 // ---------------------------------------------------------------------------
 
+/** Fill-ups returned by GET /fuel/logs. The lifetime totals beside them are
+ * computed over the whole table, so this cap only bounds the rendered list. */
+const FUEL_LOG_PAGE_LIMIT = 200;
+
 const fuelRoutes: FastifyPluginAsync = async (fastify) => {
   // ── GET /fuel/logs ────────────────────────────────────────────────────────
   fastify.get('/fuel/logs', { preHandler: [authenticate, generalLimiter(fastify.redis)] }, async (request, reply) => {
@@ -200,9 +204,32 @@ const fuelRoutes: FastifyPluginAsync = async (fastify) => {
       notes: string | null; location: string | null; mpg: string | null; odometer_km: string | null;
     }>(
       `SELECT id, date, gallons, price_per_gallon, notes, location, mpg, odometer_km
-       FROM fuel_logs WHERE user_id = $1 ORDER BY date DESC LIMIT 200`,
+       FROM fuel_logs WHERE user_id = $1 ORDER BY date DESC LIMIT $2`,
+      [userId, FUEL_LOG_PAGE_LIMIT],
+    );
+
+    // Lifetime totals computed over EVERY fill-up, not the capped page above.
+    // FuelLogScreen's "Total Spent", "Total Gallons" and "Avg $/Gallon" are
+    // presented as lifetime figures but were reduced over whatever the array
+    // held, so the 201st fill-up silently started understating all three with
+    // nothing on screen to say the history had been truncated.
+    const totalsResult = await fastify.db.query<{
+      entry_count: string;
+      total_gallons: string | null;
+      total_spent: string | null;
+      avg_mpg: string | null;
+    }>(
+      `SELECT COUNT(*)                                   AS entry_count,
+              SUM(gallons)                               AS total_gallons,
+              SUM(gallons * price_per_gallon)            AS total_spent,
+              AVG(mpg) FILTER (WHERE mpg IS NOT NULL)    AS avg_mpg
+       FROM fuel_logs WHERE user_id = $1`,
       [userId],
     );
+    const t = totalsResult.rows[0];
+    const totalGallons = t.total_gallons != null ? parseFloat(t.total_gallons) : 0;
+    const totalSpent = t.total_spent != null ? parseFloat(t.total_spent) : 0;
+
     return reply.send({
       logs: result.rows.map((r) => ({
         id: r.id,
@@ -214,6 +241,15 @@ const fuelRoutes: FastifyPluginAsync = async (fastify) => {
         mpg: r.mpg != null ? parseFloat(r.mpg) : undefined,
         odometerKm: r.odometer_km != null ? parseFloat(r.odometer_km) : undefined,
       })),
+      totals: {
+        entryCount: parseInt(t.entry_count, 10),
+        gallons: totalGallons,
+        spent: totalSpent,
+        // Gallon-weighted, matching what the screen computed: the price paid
+        // per gallon across every gallon bought, not the mean of the prices.
+        avgPricePerGallon: totalGallons > 0 ? totalSpent / totalGallons : 0,
+        avgMpg: t.avg_mpg != null ? parseFloat(t.avg_mpg) : null,
+      },
     });
   });
 

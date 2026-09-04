@@ -34,6 +34,16 @@ interface FuelEntry {
   odometerKm?: number;
 }
 
+/** Lifetime figures computed server-side over every fill-up, not just the
+ * page of entries returned alongside them. */
+interface FuelTotals {
+  entryCount: number;
+  gallons: number;
+  spent: number;
+  avgPricePerGallon: number;
+  avgMpg: number | null;
+}
+
 // --- Helpers ---
 
 const KM_PER_MILE = 1.609344;
@@ -277,6 +287,10 @@ export default function FuelLogScreen() {
   const s = useMemo(() => createStyles(colors), [colors]);
   const guardInMotion = useMotionGuard();
   const [entries, setEntries] = useState<FuelEntry[]>([]);
+  // Lifetime figures from the server. The list below is capped, so reducing
+  // over it understated every one of these once a driver passed that many
+  // fill-ups — with nothing on screen to say the history was truncated.
+  const [totals, setTotals] = useState<FuelTotals | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [showModal, setShowModal] = useState(false);
@@ -286,10 +300,13 @@ export default function FuelLogScreen() {
   const load = useCallback(async () => {
     setLoadError(null);
     try {
-      const r = await apiClient.get<{ logs: FuelEntry[] }>('/api/v1/fuel/logs');
+      const r = await apiClient.get<{ logs: FuelEntry[]; totals?: FuelTotals }>(
+        '/api/v1/fuel/logs',
+      );
       // ?? [] — the mpg/spend totals reduce() straight over this, so a 200
       // without the key crashed the screen instead of showing the empty state.
       setEntries(r.data.logs ?? []);
+      setTotals(r.data.totals ?? null);
     } catch {
       // Distinct from the "no logs yet" empty state — a failed load must
       // never be mistaken for a genuinely empty fuel log.
@@ -332,9 +349,14 @@ export default function FuelLogScreen() {
   // (see MotionAwareList). Summary stats above still use every entry.
   const { data: visibleEntries, hiddenCount } = useMotionCappedData(entries);
 
-  const totalGal = entries.reduce((s, e) => s + e.gallons, 0);
-  const totalSpent = entries.reduce((s, e) => s + e.gallons * e.pricePerGallon, 0);
-  const avgPpg = totalGal > 0 ? entries.reduce((s, e) => s + e.pricePerGallon * e.gallons, 0) / totalGal : 0;
+  // Server totals when they are there, the loaded page as a fallback for an
+  // older API. The fallback is the same arithmetic as before, so a mismatched
+  // build degrades to the old (capped) numbers rather than to nothing.
+  const totalGal = totals?.gallons ?? entries.reduce((s, e) => s + e.gallons, 0);
+  const totalSpent = totals?.spent ?? entries.reduce((s, e) => s + e.gallons * e.pricePerGallon, 0);
+  const avgPpg =
+    totals?.avgPricePerGallon ??
+    (totalGal > 0 ? entries.reduce((s, e) => s + e.pricePerGallon * e.gallons, 0) / totalGal : 0);
   const stats: Array<{ icon: React.ReactNode; label: string; val: string }> = [
     { icon: <MaterialCommunityIcons name="gas-station" size={20} color={colors.text} />, label: 'Total Spent', val: entries.length ? fmt$(totalSpent) : '—' },
     { icon: <Ionicons name="cash-outline" size={20} color={colors.text} />, label: 'Avg $/Gallon', val: avgPpg > 0 ? fmt$(avgPpg) : '—' },

@@ -424,4 +424,65 @@ describeLive('live schema contract: zod bounds vs real column constraints', () =
       expect(stored.rowCount).toBe(2);
     });
   });
+
+  // -------------------------------------------------------------------------
+  // Lifetime aggregates: figures presented as "all time" must be computed over
+  // every row, and computed the right way.
+  // -------------------------------------------------------------------------
+  describe('lifetime aggregates', () => {
+    it('reports average speed as distance over time, not the mean of per-drive averages', async () => {
+      // A five-minute crawl and a long motorway run. AVG(avg_speed_kph)
+      // weighed them equally and answered 55; the driver actually covered
+      // 100.3 km in 61 minutes, which is a shade under 99 km/h.
+      await app.inject({
+        method: 'POST', url: '/api/v1/drives', headers: auth.headers,
+        payload: driveBody({
+          distanceM: 300, durationS: 60, avgSpeedKph: 18,
+          startedAt: '2026-02-01T09:00:00.000Z', endedAt: '2026-02-01T09:01:00.000Z',
+        }),
+      });
+      await app.inject({
+        method: 'POST', url: '/api/v1/drives', headers: auth.headers,
+        payload: driveBody({
+          distanceM: 100_000, durationS: 3600, avgSpeedKph: 100,
+          startedAt: '2026-02-01T10:00:00.000Z', endedAt: '2026-02-01T11:00:00.000Z',
+        }),
+      });
+
+      const res = await app.inject({ method: 'GET', url: '/api/v1/drives/stats', headers: auth.headers });
+      expect(res.statusCode).toBe(200);
+      const stats = JSON.parse(res.body) as { avgSpeedKph: number; totalDistanceM: number };
+      expect(stats.totalDistanceM).toBe(100_300);
+      // 100300 m / 3660 s * 3.6 = 98.66 km/h. The unweighted mean was 59.
+      expect(stats.avgSpeedKph).toBeCloseTo(98.66, 1);
+    });
+
+    it('totals every fill-up, not just the page of them it returns', async () => {
+      // FuelLogScreen labels these "Total Spent" / "Total Gallons" and reduced
+      // over the returned array, which the route caps — so the totals silently
+      // stopped growing past the cap with nothing on screen to say so.
+      const OVER_CAP = 250;
+      await pool.query(
+        `INSERT INTO fuel_logs (user_id, date, gallons, price_per_gallon)
+         SELECT $1, now() - (g || ' days')::interval, 10, 4
+         FROM generate_series(1, $2) AS g`,
+        [userId, OVER_CAP],
+      );
+
+      const res = await app.inject({ method: 'GET', url: '/api/v1/fuel/logs', headers: auth.headers });
+      expect(res.statusCode).toBe(200);
+      const body = JSON.parse(res.body) as {
+        logs: unknown[];
+        totals: { entryCount: number; gallons: number; spent: number; avgPricePerGallon: number };
+      };
+
+      // The list is still capped — this is about the totals beside it.
+      expect(body.logs.length).toBeLessThan(OVER_CAP);
+      expect(body.totals.entryCount).toBe(OVER_CAP);
+      expect(body.totals.gallons).toBeCloseTo(OVER_CAP * 10, 2);
+      expect(body.totals.spent).toBeCloseTo(OVER_CAP * 10 * 4, 2);
+      expect(body.totals.avgPricePerGallon).toBeCloseTo(4, 2);
+    });
+  });
+
 });

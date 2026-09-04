@@ -271,7 +271,17 @@ const drivesRoutes: FastifyPluginAsync = async (fastify) => {
          COUNT(*)                     AS total_drives,
          COALESCE(SUM(distance_m), 0) AS total_distance_m,
          COALESCE(SUM(duration_s), 0) AS total_duration_s,
-         AVG(avg_speed_kph)           AS avg_speed_kph,
+         -- Distance over time, NOT AVG(avg_speed_kph): the mean of per-drive
+         -- averages weighs a five-minute crawl the same as a five-hour
+         -- motorway run, so the headline "average speed" drifted well below
+         -- the speed actually driven. The sums are already selected above.
+         -- ::numeric because both columns are INTEGER and Postgres would
+         -- otherwise divide them as integers. Speeds stored as null (a
+         -- reading the column cannot hold, see sanitizeSpeedKph) no longer
+         -- distort this the way they did the old mean.
+         CASE WHEN COALESCE(SUM(duration_s), 0) > 0
+              THEN ROUND(SUM(distance_m)::numeric / SUM(duration_s)::numeric * 3.6, 2)
+         END                          AS avg_speed_kph,
          MAX(top_speed_kph)           AS top_speed_kph,
          MAX(distance_m)              AS longest_drive_m,
          (SELECT id FROM drive_history WHERE user_id = $1

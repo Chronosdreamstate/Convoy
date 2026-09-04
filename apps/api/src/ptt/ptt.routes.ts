@@ -10,6 +10,11 @@ import { RtcTokenBuilder, RtcRole } from 'agora-token';
 import { z } from 'zod';
 import { authenticate } from '../middleware/authenticate';
 import { generalLimiter } from '../middleware/rateLimiter';
+
+/** Most recent transmissions returned by GET /groups/:id/ptt-log. The panel
+ * backfills what was said before it was opened; it has never wanted the whole
+ * history, and an uncapped query grows without bound for the life of a group. */
+const PTT_LOG_LIMIT = 200;
 import { env } from '../config/env';
 
 // ---------------------------------------------------------------------------
@@ -546,8 +551,13 @@ export default async function pttRoutes(fastify: FastifyInstance): Promise<void>
        JOIN users u ON u.id = l.user_id
        LEFT JOIN ptt_channels c ON c.id = l.channel_id
        WHERE l.group_id = $1
-       ORDER BY l.started_at ASC`,
-      [id],
+       -- Newest PTT_LOG_LIMIT entries, re-sorted oldest-first below. Without a
+       -- cap this returned every transmission a group had ever made — a long
+       -- running convoy answers with tens of thousands of rows on every panel
+       -- open, and the panel only ever backfills recent history.
+       ORDER BY l.started_at DESC
+       LIMIT $2`,
+      [id, PTT_LOG_LIMIT],
     );
 
     // Wrapped object for consistency with every other list endpoint.
@@ -556,7 +566,9 @@ export default async function pttRoutes(fastify: FastifyInstance): Promise<void>
     // live ptt:transmit payload so backfilled entries label the channel by its
     // human-readable name, not the raw channel UUID.
     return {
-      log: result.rows.map((r) => ({
+      // Re-sorted oldest-first: the query takes the newest PTT_LOG_LIMIT rows,
+      // but PTTLogPanel renders the backfill in transmission order.
+      log: [...result.rows].reverse().map((r) => ({
         id: r.id,
         userId: r.user_id,
         channelId: r.channel_id,
