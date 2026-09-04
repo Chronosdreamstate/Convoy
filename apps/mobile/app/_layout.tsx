@@ -23,6 +23,8 @@ import {
   type INotificationRouter,
 } from '../src/services/NotificationService';
 import { onboardingState } from '../src/utils/onboardingState';
+import { createDeferredRouter, type PushRouter } from '../src/utils/pendingNavigation';
+import { parseDeepLink } from '../src/utils/deepLink';
 import { currentConfigErrors } from '../src/config/env';
 import { SyncService } from '../src/services/SyncService';
 import { SQLiteOfflineDB } from '../src/services/OfflineCacheService';
@@ -83,7 +85,7 @@ const syncService = new SyncService(
  * The switch lives in NotificationService.routeNotificationTap so it can be
  * unit-tested without importing this module's side effects. */
 function handleNotificationNavigation(
-  router: Router,
+  router: PushRouter,
   data: Record<string, string> | undefined,
 ): void {
   // Router's push accepts the same string/object shapes; the structural
@@ -91,42 +93,11 @@ function handleNotificationNavigation(
   routeNotificationTap(router as unknown as INotificationRouter, data);
 }
 
-/** Route a convoy:// or https://convoy.app/ deep link to the appropriate screen. */
-function handleDeepLink(router: Router, url: string): void {
-  try {
-    const parsed = new URL(url);
-    let path = '';
-    let code: string | null = null;
-    let userId: string | null = null;
-
-    if (parsed.protocol === 'convoy:') {
-      // convoy://join?code=XXX  or  convoy://invite?userId=XXX
-      path = parsed.hostname;
-      code = parsed.searchParams.get('code');
-      userId = parsed.searchParams.get('userId');
-    } else if (parsed.protocol === 'https:' && parsed.hostname === 'convoy.app') {
-      // https://convoy.app/join?code=XXX  or  https://convoy.app/invite/USER_ID
-      const segments = parsed.pathname.replace(/^\//, '').split('/');
-      path = segments[0] ?? '';
-      code = parsed.searchParams.get('code');
-      userId = segments[1] ?? null;
-    } else {
-      return;
-    }
-
-    if (path === 'join' && code) {
-      router.push({ pathname: '/join', params: { prefillCode: code } });
-    } else if (path === 'invite' && userId) {
-      // A user-invite link (e.g. from the Friends "invite" share sheet) — takes
-      // the recipient to app/invite.tsx, NOT a group. Do not confuse this with
-      // the 'group' case below, which shares a group id in the same slot.
-      router.push({ pathname: '/invite', params: { userId } });
-    } else if (path === 'group' && userId) {
-      router.push(`/group/${encodeURIComponent(userId)}`);
-    }
-  } catch {
-    // malformed URL — ignore
-  }
+/** Route a convoy:// or https://convoy.app/ deep link to the appropriate screen.
+ * Parsing lives in utils/deepLink.ts so the link formats can be tested. */
+function handleDeepLink(router: PushRouter, url: string): void {
+  const route = parseDeepLink(url);
+  if (route) router.push(route);
 }
 
 function LoadingSplash() {
@@ -236,6 +207,22 @@ export default function RootLayout() {
   const socketConnected = useSocketStore((s) => s.isConnected);
   const [hasEverConnected, setHasEverConnected] = useState(false);
   const router = useRouter();
+
+  // Deep links and notification taps arrive during the splash, before the
+  // <Stack> below is rendered and before the auth guard has decided where the
+  // user belongs — anything pushed then is thrown away. Hold the intent and
+  // replay it once the app is somewhere it can navigate from, which for a
+  // signed-out visitor means after they finish signing up.
+  const routerRef = useRef(router);
+  routerRef.current = router;
+  const navReadyRef = useRef(false);
+  const deferredRouterRef = useRef(
+    createDeferredRouter({
+      isReady: () => navReadyRef.current,
+      getRouter: () => routerRef.current as unknown as PushRouter,
+    }),
+  );
+  const deferredRouter = deferredRouterRef.current;
   // Track whether socket has ever connected so we don't show offline banner before first connect
   useEffect(() => {
     if (socketConnected) setHasEverConnected(true);
@@ -351,7 +338,7 @@ export default function RootLayout() {
   useEffect(() => {
     const sub = Notifications.addNotificationResponseReceivedListener((response) => {
       const data = response.notification.request.content.data as Record<string, string>;
-      handleNotificationNavigation(router, data);
+      handleNotificationNavigation(deferredRouter, data);
     });
     return () => sub.remove();
   }, []);
@@ -361,7 +348,7 @@ export default function RootLayout() {
     Notifications.getLastNotificationResponseAsync().then((response) => {
       if (!response) return;
       const data = response.notification.request.content.data as Record<string, string>;
-      handleNotificationNavigation(router, data);
+      handleNotificationNavigation(deferredRouter, data);
     }).catch(() => {
       // Non-fatal — silently ignore if getLastNotificationResponseAsync fails
     });
@@ -394,14 +381,14 @@ export default function RootLayout() {
   // Cold-start deep link: app was closed and opened via convoy:// URL
   useEffect(() => {
     Linking.getInitialURL().then((url) => {
-      if (url) handleDeepLink(router, url);
+      if (url) handleDeepLink(deferredRouter, url);
     }).catch(() => {});
   }, []);
 
   // Warm-start deep link: app already running, convoy:// URL received
   useEffect(() => {
     const sub = Linking.addEventListener('url', ({ url }) => {
-      handleDeepLink(router, url);
+      handleDeepLink(deferredRouter, url);
     });
     return () => sub.remove();
   }, []);
@@ -422,6 +409,16 @@ export default function RootLayout() {
       return () => { cancelled = true; };
     }
   }, [isAuthenticated, isLoading, isFirstLogin]);
+
+  // Replay a held deep link / notification tap. Ready means the <Stack> is
+  // rendered and no redirect is about to overwrite the destination: the user
+  // is signed in and past onboarding. Declared after the guard above so the
+  // two run in that order within a commit, and after the children's effects
+  // (app/index.tsx's <Redirect>), whose replace would otherwise land last.
+  useEffect(() => {
+    navReadyRef.current = !isLoading && isAuthenticated && !isFirstLogin;
+    if (navReadyRef.current) deferredRouter.flush();
+  }, [isAuthenticated, isLoading, isFirstLogin, deferredRouter]);
 
   // Ahead of the loading splash: with no usable API URL the startup /me call
   // can only fail, and the user would sit on a splash then land in a
