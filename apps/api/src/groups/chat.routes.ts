@@ -202,9 +202,21 @@ async function chatRoutes(
         [id],
       );
       if (groupTypeResult.rows[0]?.type === 'dm') {
+        // NOTE: deliberately NOT filtered on left_at IS NULL. POST /friends/block
+        // stamps left_at on the *blocked* user's membership row, so scoping this
+        // lookup to active members made the blocker's own side of the thread
+        // resolve to "no other participant" and skip the block check entirely:
+        // the blocker's next message was persisted and broadcast to
+        // `group:<dmId>` — a room the blocked user's already-open socket is
+        // still joined to (socket.handler.ts joins DM rooms at connect and
+        // nothing removes them) — so the person who had just been blocked kept
+        // receiving messages from the blocker in real time. A DM has exactly
+        // two participants and no leave-thread UI, so ignoring left_at here is
+        // the correct way to identify the counterparty.
         const otherMember = await fastify.db.query<{ user_id: string }>(
           `SELECT user_id FROM convoy_members
-           WHERE group_id = $1 AND user_id != $2 AND left_at IS NULL
+           WHERE group_id = $1 AND user_id != $2
+           ORDER BY (left_at IS NULL) DESC
            LIMIT 1`,
           [id, userId],
         );

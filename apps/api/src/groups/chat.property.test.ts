@@ -97,15 +97,22 @@ function buildMockPool(): Pool {
         return { rows: type ? [{ type }] : [], rowCount: type ? 1 : 0 };
       }
 
-      // Other DM member lookup: SELECT user_id FROM convoy_members WHERE group_id = $1 AND user_id != $2 AND left_at IS NULL LIMIT 1
+      // Other DM member lookup:
+      //   SELECT user_id FROM convoy_members
+      //   WHERE group_id = $1 AND user_id != $2
+      //   ORDER BY (left_at IS NULL) DESC LIMIT 1
+      // Deliberately NOT filtered on left_at: POST /friends/block soft-removes
+      // the blocked party's membership row, and this lookup must still resolve
+      // them as the counterparty (see "the blocker cannot keep messaging"
+      // below). Active rows sort first, mirroring the ORDER BY.
       if (
         norm.startsWith('SELECT USER_ID FROM CONVOY_MEMBERS') &&
         norm.includes('USER_ID != $2')
       ) {
         const [groupId, userId] = params as [string, string];
-        const other = state.members.find(
-          (m) => m.groupId === groupId && m.userId !== userId && !m.leftAt,
-        );
+        const other = state.members
+          .filter((m) => m.groupId === groupId && m.userId !== userId)
+          .sort((a, b) => Number(a.leftAt) - Number(b.leftAt))[0];
         return { rows: other ? [{ user_id: other.userId }] : [], rowCount: other ? 1 : 0 };
       }
 
@@ -306,6 +313,61 @@ describe('POST /groups/:id/messages — DM block enforcement', () => {
 
     expect(res.statusCode).toBe(403);
     expect(state.insertedMessages).toHaveLength(0);
+    await app.close();
+  });
+
+  it('stops the BLOCKER from messaging into the thread after the block soft-removed the other party', async () => {
+    // The mirror image of the test above, and the hole it left: POST
+    // /friends/block stamps left_at on the *blocked* user's membership row, so
+    // scoping the counterparty lookup to active members made the blocker's own
+    // side resolve to "no other participant" and skip the block check
+    // entirely. The message was then persisted and broadcast to
+    // `group:<dmId>` — a room the blocked user's already-open socket is still
+    // joined to (socket.handler.ts joins DM rooms on connect and nothing
+    // removes them) — so the person who had just been blocked went on
+    // receiving messages from the blocker in real time.
+    const app = buildTestApp();
+    resetState();
+    setGroupType('dm-1', 'dm');
+    addMember('dm-1', 'u1');                        // u1 blocked u2 and is still active
+    addMember('dm-1', 'u2', /* leftAt */ true);     // u2 soft-removed by the block
+    block('u1', 'u2');
+
+    const token = await makeToken(app, 'u1');
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/groups/dm-1/messages',
+      headers: { Authorization: `Bearer ${token}` },
+      payload: { text: 'still here' },
+    });
+
+    expect(res.statusCode).toBe(403);
+    expect(state.insertedMessages).toHaveLength(0);
+    // Nothing may reach the blocked user's still-joined socket room either.
+    expect(state.emits.filter((e) => e.event === 'group:message')).toHaveLength(0);
+    await app.close();
+  });
+
+  it('still delivers a DM when the counterparty left for a non-block reason', async () => {
+    // Guard against over-correcting: the wider counterparty lookup must not
+    // start rejecting ordinary messages just because a membership row is
+    // inactive. Only an actual block may reject.
+    const app = buildTestApp();
+    resetState();
+    setGroupType('dm-1', 'dm');
+    addMember('dm-1', 'u1');
+    addMember('dm-1', 'u2', /* leftAt */ true);
+
+    const token = await makeToken(app, 'u1');
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/groups/dm-1/messages',
+      headers: { Authorization: `Bearer ${token}` },
+      payload: { text: 'hello' },
+    });
+
+    expect(res.statusCode).toBe(201);
+    expect(state.insertedMessages).toHaveLength(1);
     await app.close();
   });
 });

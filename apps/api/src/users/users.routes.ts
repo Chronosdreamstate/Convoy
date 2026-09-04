@@ -2,6 +2,7 @@
 import { z } from 'zod';
 import { authenticate } from '../middleware/authenticate';
 import { generalLimiter } from '../middleware/rateLimiter';
+import { isBlocked } from '../friends/friends.routes';
 
 const PROFANITY = ['fuck', 'shit', 'ass'];
 // Match whole words only. A substring check rejected legitimate names that
@@ -307,6 +308,20 @@ async function usersRoutes(
              u.display_name ILIKE $2
              OR u.ptt_callsign ILIKE $2
            )
+           -- Block enforcement (Req 17.11). The LEFT JOIN above only excludes
+           -- 'blocked' rows from the friendship STATUS column; it does not
+           -- filter the user out, so blocked pairs still surfaced each other
+           -- here. This is the search the app actually uses (FriendsScreen and
+           -- SearchScreen both call /users/search; /friends/search, which had
+           -- this filter, is unused by mobile) — so blocking someone left them
+           -- listed in Find People with an Add Friend button that then failed
+           -- with a bare 403 from POST /friends/requests.
+           AND NOT EXISTS (
+             SELECT 1 FROM friendships b
+             WHERE b.status = 'blocked'
+               AND ((b.requester_id = $1 AND b.addressee_id = u.id)
+                 OR (b.requester_id = u.id AND b.addressee_id = $1))
+           )
          ORDER BY
            CASE WHEN LOWER(u.ptt_callsign) = LOWER($3) THEN 0 ELSE 1 END,
            u.display_name
@@ -345,6 +360,14 @@ async function usersRoutes(
 
     const u = result.rows[0];
     if (!u) {
+      return reply.send({ user: null });
+    }
+
+    // Block enforcement (Req 17.11) — same rule as the name/callsign branch
+    // above: a blocked pair must not be able to find each other. Reported as
+    // "no such user" rather than a distinct error so the lookup can't be used
+    // to confirm a block.
+    if (await isBlocked(fastify.db, userId, u.id)) {
       return reply.send({ user: null });
     }
 

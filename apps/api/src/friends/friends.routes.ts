@@ -474,6 +474,10 @@ async function friendsRoutes(
       return reply.badRequest('You cannot block yourself');
     }
 
+    // DM channels the block just severed — their rooms are emptied of the
+    // blocked user's sockets after the transaction commits (see below).
+    let severedDmGroupIds: string[] = [];
+
     const client = await fastify.db.connect();
     try {
       await client.query('BEGIN');
@@ -507,7 +511,7 @@ async function friendsRoutes(
       // rather than relying solely on the message-time check in
       // POST /groups/:id/messages. Scoped to type='dm' groups only — this
       // must never remove anyone from a real multi-person convoy group.
-      await client.query(
+      const severed = await client.query<{ group_id: string }>(
         `UPDATE convoy_members
          SET left_at = now()
          WHERE user_id = $2
@@ -517,9 +521,11 @@ async function friendsRoutes(
              JOIN convoy_members m1 ON m1.group_id = g.id AND m1.user_id = $1 AND m1.left_at IS NULL
              JOIN convoy_members m2 ON m2.group_id = g.id AND m2.user_id = $2 AND m2.left_at IS NULL
              WHERE g.type = 'dm'
-           )`,
+           )
+         RETURNING group_id`,
         [blockerId, blockedId],
       );
+      severedDmGroupIds = severed.rows.map((r) => r.group_id);
 
       await client.query('COMMIT');
     } catch (err) {
@@ -527,6 +533,23 @@ async function friendsRoutes(
       throw err;
     } finally {
       client.release();
+    }
+
+    // Revoking the membership row above stops the blocked user from fetching
+    // or posting to the thread, but it does NOT eject their already-open
+    // socket from the `group:<dmId>` room (socket.handler.ts joins DM rooms at
+    // connect time and nothing else leaves them) — so anything still broadcast
+    // to that room, e.g. a `group:reaction` from the blocker, would keep
+    // arriving on the blocked user's live connection until they reconnect.
+    // Pull them out of the room now. Best-effort: `io` is not decorated in
+    // every unit-test harness, and a missed leave is covered by the
+    // membership gates on every read/write path.
+    for (const dmGroupId of severedDmGroupIds) {
+      try {
+        (fastify.io as unknown as {
+          in?: (room: string) => { socketsLeave?: (rooms: string) => void };
+        } | undefined)?.in?.(`user:${blockedId}`)?.socketsLeave?.(`group:${dmGroupId}`);
+      } catch { /* best-effort */ }
     }
 
     return reply.status(200).send({ message: 'User blocked' });

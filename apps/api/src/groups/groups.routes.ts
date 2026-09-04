@@ -1885,18 +1885,40 @@ export async function registerGroupStatsRoute(fastify: FastifyInstance, _opts: F
     { preHandler: [authenticate, generalLimiter(fastify.redis)] },
     async (request, reply) => {
       const { id } = request.params as { id: string };
+      const userId = (request.user as { sub: string }).sub;
 
       // Basic group info
-      const groupRes = await fastify.db.query<{ name: string; member_count: number }>(
-        `SELECT g.name, COUNT(m.user_id)::int AS member_count
+      const groupRes = await fastify.db.query<{
+        name: string;
+        member_count: number;
+        access_type: 'open' | 'invite_only';
+        status: 'active' | 'ended';
+        type: 'group' | 'dm' | null;
+      }>(
+        `SELECT g.name, g.access_type, g.status, g.type, COUNT(m.user_id)::int AS member_count
          FROM convoy_groups g
          LEFT JOIN convoy_members m ON m.group_id = g.id AND m.left_at IS NULL
          WHERE g.id = $1
-         GROUP BY g.id, g.name`,
+         GROUP BY g.id, g.name, g.access_type, g.status, g.type`,
         [id],
       );
       if (!groupRes.rows[0]) return reply.notFound('Group not found');
-      const { name, member_count } = groupRes.rows[0];
+      const { name, member_count, access_type, status, type } = groupRes.rows[0];
+
+      // Authorization. This route was authenticated but never authorized: any
+      // signed-in user could hand it an arbitrary group id and read that
+      // convoy's name, roster size, drive totals and its top members' display
+      // names, callsigns and distances — including invite-only clubs they were
+      // never let into, groups that had already ended, and the convoy_groups
+      // rows that back private 1:1 DM threads.
+      //
+      // The rule mirrors GET /groups/:id, the screen this one is reached from:
+      // active members always; a non-member only for an open, active convoy,
+      // which is the public browse → detail → stats path.
+      const member = await getActiveMember(id, userId, fastify.db);
+      if (!member && !((type ?? 'group') === 'group' && access_type === 'open' && status === 'active')) {
+        return reply.forbidden('You are not a member of this group');
+      }
 
       // Drive aggregates — drives that reference this group
       const driveAgg = await fastify.db.query<{
