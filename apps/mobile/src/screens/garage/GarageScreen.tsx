@@ -12,6 +12,7 @@ import { apiClient } from '../../services/apiClient';
 import SkeletonCard from '../../components/SkeletonLoader';
 import { useMotionGuard } from '../../hooks/useMotionGuard';
 import { useAuthStore } from '../../stores/authStore';
+import { readUploadedUrl, uploadErrorMessage } from '../../utils/upload';
 import { useTheme, withAlpha, ThemeColors } from '../../theme';
 import { API_URL } from '../../config/env';
 
@@ -254,10 +255,14 @@ export default function GarageScreen() {
           headers: { Authorization: `Bearer ${accessToken ?? ''}` },
         },
       );
-      const { url } = JSON.parse(uploadResult.body) as { url: string };
+      // uploadAsync resolves for 4xx/5xx too — see utils/upload.ts. Without
+      // this check a rejected upload (over 10 MB, expired token, rate limited)
+      // staged `photoUrl: undefined`, the tile silently went back to "Add
+      // Photo", and Save persisted the vehicle with no photo and no error.
+      const url = readUploadedUrl(uploadResult);
       setForm((p) => ({ ...p, photoUrl: url }));
-    } catch {
-      setFormError('Failed to upload photo. Please try again.');
+    } catch (err) {
+      setFormError(uploadErrorMessage(err, 'Failed to upload photo. Please try again.'));
     } finally {
       setIsUploadingPhoto(false);
     }

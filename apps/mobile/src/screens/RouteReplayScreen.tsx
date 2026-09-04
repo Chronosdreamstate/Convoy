@@ -19,6 +19,8 @@ import { apiClient } from '../services/apiClient';
 import { SkeletonBox } from '../components/SkeletonLoader';
 import { NetworkError } from '../components/NetworkError';
 import { useReduceMotion } from '../hooks/useReduceMotion';
+import { useSettingsStore } from '../stores/settingsStore';
+import { formatDistanceM, formatSpeedKph } from '../utils/units';
 import { ThemeColors, useTheme } from '../theme';
 
 // ---------------------------------------------------------------------------
@@ -52,10 +54,6 @@ function formatDuration(seconds: number): string {
   const s = seconds % 60;
   if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
   return `${m}:${String(s).padStart(2, '0')}`;
-}
-
-function formatDistance(meters: number): string {
-  return `${(meters / 1000).toFixed(1)} km`;
 }
 
 function geojsonToCoords(coords: [number, number][]): Coordinate[] {
@@ -100,6 +98,9 @@ export default function RouteReplayScreen() {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const reduceMotion = useReduceMotion();
+  // Same preference DriveHistoryScreen reads — without it this screen printed
+  // the same drive in km while the list that linked here printed it in miles.
+  const distanceUnit = useSettingsStore((s) => s.distanceUnit);
 
   const [drive, setDrive] = useState<DriveDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -261,8 +262,8 @@ export default function RouteReplayScreen() {
     setSharing(true);
 
     const shareText =
-      `🏁 I drove ${formatDistance(drive.distanceM)} in ${formatDuration(drive.durationS)} on CORTEGE!\n` +
-      (drive.topSpeedKph ? `⚡ Top speed: ${drive.topSpeedKph.toFixed(0)} km/h\n` : '') +
+      `🏁 I drove ${formatDistanceM(drive.distanceM, distanceUnit)} in ${formatDuration(drive.durationS)} on CORTEGE!\n` +
+      (drive.topSpeedKph ? `⚡ Top speed: ${formatSpeedKph(drive.topSpeedKph, distanceUnit)}\n` : '') +
       `📅 ${new Date(drive.startedAt).toLocaleDateString()}\nJoin CORTEGE: convoy.app/download`;
 
     try {
@@ -285,7 +286,7 @@ export default function RouteReplayScreen() {
     } finally {
       setSharing(false);
     }
-  }, [drive]);
+  }, [drive, distanceUnit]);
 
   // ── Derived display values ─────────────────────────────────────────────────
   const elapsedS = drive
@@ -419,18 +420,18 @@ export default function RouteReplayScreen() {
         {/* Stats row */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.statsScroll} contentContainerStyle={styles.statsRow}>
           <View style={styles.statPill}>
-            <Text style={styles.statValue}>{formatDistance(drive.distanceM)}</Text>
+            <Text style={styles.statValue}>{formatDistanceM(drive.distanceM, distanceUnit)}</Text>
             <Text style={styles.statLabel}>distance</Text>
           </View>
           {drive.topSpeedKph != null && (
             <View style={styles.statPill}>
-              <Text style={styles.statValue}>{drive.topSpeedKph.toFixed(0)} km/h</Text>
+              <Text style={styles.statValue}>{formatSpeedKph(drive.topSpeedKph, distanceUnit)}</Text>
               <Text style={styles.statLabel}>top speed</Text>
             </View>
           )}
           {drive.avgSpeedKph != null && (
             <View style={styles.statPill}>
-              <Text style={styles.statValue}>{drive.avgSpeedKph.toFixed(0)} km/h</Text>
+              <Text style={styles.statValue}>{formatSpeedKph(drive.avgSpeedKph, distanceUnit)}</Text>
               <Text style={styles.statLabel}>avg speed</Text>
             </View>
           )}

@@ -17,6 +17,12 @@ import TestRenderer, { act, ReactTestInstance } from 'react-test-renderer';
 // Mocks
 // ---------------------------------------------------------------------------
 
+jest.mock('expo-secure-store', () => ({
+  getItemAsync: jest.fn().mockResolvedValue(null),
+  setItemAsync: jest.fn().mockResolvedValue(undefined),
+  deleteItemAsync: jest.fn().mockResolvedValue(undefined),
+}));
+
 jest.mock('react-native-maps', () => {
   const ReactActual = require('react');
   const { View } = require('react-native');
@@ -50,6 +56,7 @@ jest.mock('../hooks/useReduceMotion', () => ({
 }));
 
 import RouteReplayScreen, { REDUCE_MOTION_STEPS } from './RouteReplayScreen';
+import { useSettingsStore } from '../stores/settingsStore';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -173,5 +180,46 @@ describe('RouteReplayScreen playback', () => {
     expect(
       root.findAll((n) => n.props?.accessibilityLabel === 'Play' && typeof n.props?.onPress === 'function'),
     ).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Distance-unit preference (Settings > Map > Distance Units)
+// ---------------------------------------------------------------------------
+
+/** Every literal string rendered anywhere in the tree. */
+function renderedStrings(root: ReactTestInstance): string[] {
+  return root
+    .findAll((n) => typeof n.props?.children === 'string')
+    .map((n) => n.props.children as string);
+}
+
+describe('RouteReplayScreen distance units', () => {
+  afterEach(() => {
+    useSettingsStore.setState({ distanceUnit: 'miles' });
+  });
+
+  it('renders distance and speeds in miles when the preference is miles', async () => {
+    // Regression: this screen hard-coded km / km/h, so the exact drive the
+    // Drive History list showed as "7.5 mi" reopened here as "12.0 km".
+    useSettingsStore.setState({ distanceUnit: 'miles' });
+    const { root } = await renderScreen();
+    const text = renderedStrings(root);
+
+    expect(text).toContain('7.5 mi');       // 12,000 m
+    expect(text).toContain('68 mph');       // 110 km/h top
+    expect(text).toContain('45 mph');       // 72 km/h avg
+    expect(text.some((t) => /km|km\/h/.test(t))).toBe(false);
+  });
+
+  it('renders distance and speeds in km when the preference is km', async () => {
+    useSettingsStore.setState({ distanceUnit: 'km' });
+    const { root } = await renderScreen();
+    const text = renderedStrings(root);
+
+    expect(text).toContain('12.0 km');
+    expect(text).toContain('110 km/h');
+    expect(text).toContain('72 km/h');
+    expect(text.some((t) => /mi|mph/.test(t))).toBe(false);
   });
 });

@@ -13,6 +13,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { apiClient } from '../services/apiClient';
+import { useSettingsStore } from '../stores/settingsStore';
+import { formatDistanceKm } from '../utils/units';
 import { SkeletonBox } from '../components/SkeletonLoader';
 import { NetworkError } from '../components/NetworkError';
 import { ThemeColors, useTheme } from '../theme';
@@ -64,6 +66,9 @@ export default function UserProfileScreen() {
   const router = useRouter();
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
+  // The lifetime-distance stat is served in km; this screen used to print it
+  // with a hard-coded "km driven" label even for the (default) miles setting.
+  const distanceUnit = useSettingsStore((s) => s.distanceUnit);
 
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
@@ -493,8 +498,8 @@ export default function UserProfileScreen() {
           </View>
           <View style={styles.statDivider} />
           <View style={styles.statItem}>
-            <Text style={styles.statValue}>{profile.totalDistanceKm.toLocaleString()}</Text>
-            <Text style={styles.statLabel}>km driven</Text>
+            <Text style={styles.statValue}>{formatDistanceKm(profile.totalDistanceKm, distanceUnit)}</Text>
+            <Text style={styles.statLabel}>driven</Text>
           </View>
         </View>
 

@@ -263,6 +263,38 @@ describe('GarageScreen — vehicle CRUD flows', () => {
     expect(renderer.root.findAll((n) => n.props?.accessibilityLabel === 'Photo of My Stang').length).toBeGreaterThan(0);
   });
 
+  it('a rejected photo upload is reported, not staged as if it worked (Req 29.1)', async () => {
+    // expo-file-system's uploadAsync RESOLVES for 4xx/5xx. The old code read
+    // `.url` straight off the parsed body, so a 413 staged `undefined`: the
+    // tile silently went back to "Add Photo" and Save persisted a vehicle
+    // with no photo and no error anywhere.
+    const renderer = await renderGarage([]);
+    mockRequestPermissions.mockResolvedValue({ status: 'granted' });
+    mockLaunchLibrary.mockResolvedValue({
+      canceled: false,
+      assets: [{ uri: 'file:///local/huge.jpg', mimeType: 'image/jpeg' }],
+    });
+    mockUploadAsync.mockResolvedValue({
+      status: 413,
+      body: JSON.stringify({ error: 'File too large (max 10 MB)' }),
+    });
+
+    await act(async () => {
+      findByLabel(renderer.root, 'Add vehicle').props.onPress();
+    });
+    await act(async () => {
+      findByLabel(renderer.root, 'Add vehicle photo').props.onPress();
+    });
+
+    // The form says what went wrong…
+    expect(
+      renderer.root.findAll((n) => n.props?.children === 'File too large (max 10 MB)').length,
+    ).toBeGreaterThan(0);
+    // …and nothing was staged, so the "Add Photo" tile is still the one shown.
+    expect(renderer.root.findAll((n) => n.props?.accessibilityLabel === 'Vehicle photo preview')).toHaveLength(0);
+    expect(renderer.root.findAll((n) => n.props?.accessibilityLabel === 'Add vehicle photo').length).toBeGreaterThan(0);
+  });
+
   it('a denied photo-library permission surfaces an alert instead of silently doing nothing', async () => {
     const renderer = await renderGarage([]);
     mockRequestPermissions.mockResolvedValue({ status: 'denied' });

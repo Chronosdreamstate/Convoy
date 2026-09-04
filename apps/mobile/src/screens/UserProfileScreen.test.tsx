@@ -40,6 +40,12 @@ jest.mock('expo-router', () => ({
   useRouter: () => ({ back: mockRouterBack, push: jest.fn(), replace: jest.fn() }),
 }));
 
+jest.mock('expo-secure-store', () => ({
+  getItemAsync: jest.fn().mockResolvedValue(null),
+  setItemAsync: jest.fn().mockResolvedValue(undefined),
+  deleteItemAsync: jest.fn().mockResolvedValue(undefined),
+}));
+
 jest.mock('react-native-safe-area-context', () => {
   const { View } = jest.requireActual('react-native');
   return {
@@ -49,6 +55,7 @@ jest.mock('react-native-safe-area-context', () => {
 });
 
 import UserProfileScreen from './UserProfileScreen';
+import { useSettingsStore } from '../stores/settingsStore';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -238,5 +245,45 @@ describe('UserProfileScreen — incoming pending request', () => {
 
     expect(mockApiPost).toHaveBeenCalledWith('/api/v1/friends/requests/fr-7/decline');
     expect(byLabel(renderer.root, 'Add Friend')).toBeDefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Lifetime-distance stat units
+// ---------------------------------------------------------------------------
+
+function renderedText(renderer: TestRenderer.ReactTestRenderer): string[] {
+  const out: string[] = [];
+  const walk = (node: unknown): void => {
+    if (typeof node === 'string') { out.push(node); return; }
+    if (Array.isArray(node)) { node.forEach(walk); return; }
+    if (node && typeof node === 'object' && 'children' in (node as Record<string, unknown>)) {
+      walk((node as { children: unknown }).children);
+    }
+  };
+  walk(renderer.toJSON());
+  return out;
+}
+
+describe('UserProfileScreen — distance stat units', () => {
+  afterEach(() => { useSettingsStore.setState({ distanceUnit: 'miles' }); });
+
+  it('converts the server km total when the preference is miles', async () => {
+    // Regression: the stat printed `totalDistanceKm` verbatim under a
+    // hard-coded "km driven" label, so a miles user read a metric number.
+    useSettingsStore.setState({ distanceUnit: 'miles' });
+    const renderer = await renderScreen(null);
+    const text = renderedText(renderer);
+
+    expect(text).toContain('75 mi');   // 120 km
+    expect(text).not.toContain('120');
+    expect(text.some((t) => /km/.test(t))).toBe(false);
+  });
+
+  it('keeps kilometres when the preference is km', async () => {
+    useSettingsStore.setState({ distanceUnit: 'km' });
+    const renderer = await renderScreen(null);
+
+    expect(renderedText(renderer)).toContain('120 km');
   });
 });

@@ -30,7 +30,8 @@ import { MotionCapNotice, useMotionCappedData } from '../components/MotionAwareL
 import { NetworkError } from '../components/NetworkError';
 import { apiClient } from '../services/apiClient';
 import { MAPBOX_TOKEN } from '../config/env';
-import { useSettingsStore, type DistanceUnit } from '../stores/settingsStore';
+import { useSettingsStore } from '../stores/settingsStore';
+import { formatDistanceM as formatDistance, formatSpeedKph } from '../utils/units';
 import { useTheme, type ThemeColors } from '../theme';
 
 // Text that always sits on the crimson accent fill — stays light in both themes.
@@ -102,18 +103,6 @@ type ListItem =
 // Helpers
 // ---------------------------------------------------------------------------
 
-const METERS_PER_MILE = 1609.34;
-
-function formatDistance(m: number, unit: DistanceUnit = 'km'): string {
-  if (unit === 'miles') {
-    const miles = m / METERS_PER_MILE;
-    if (miles >= 0.1) return `${miles.toFixed(1)} mi`;
-    return `${Math.round(m * 3.28084)} ft`;
-  }
-  if (m >= 1000) return `${(m / 1000).toFixed(1)} km`;
-  return `${m} m`;
-}
-
 function formatDuration(s: number): string {
   const h = Math.floor(s / 3600);
   const m = Math.floor((s % 3600) / 60);
@@ -133,8 +122,29 @@ function formatTime(iso: string): string {
   });
 }
 
-function dateKey(iso: string): string {
-  return iso.substring(0, 10); // YYYY-MM-DD
+/**
+ * The LOCAL calendar day an ISO timestamp falls on, as YYYY-MM-DD.
+ *
+ * This used to be `iso.substring(0, 10)` — the UTC day — while every label
+ * built from the same timestamp was rendered with toLocaleDateString (local).
+ * For anyone whose local date differs from UTC that split the list: a drive
+ * finished this morning in Los Angeles keyed to the previous UTC day and got
+ * its own "Wed, Sep 3" header sitting directly under a "Today" header holding
+ * the evening's drives — two groups for one day. It also mis-assigned the
+ * streak dots and the Today/Yesterday labels.
+ *
+ * Exported for tests.
+ */
+export function dateKey(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso.substring(0, 10);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/** Inverse of dateKey — parses a YYYY-MM-DD key back as a LOCAL midnight. */
+function dateFromKey(key: string): Date {
+  const [y, m, d] = key.split('-').map(Number);
+  return new Date(y, (m ?? 1) - 1, d ?? 1);
 }
 
 // Escapes a single field per RFC 4180: wrap in double quotes and double any
@@ -230,15 +240,20 @@ function computeStreak(drives: DriveRecord[]): { current: number; best: number; 
   for (const day of sorted) {
     if (day === cursor) {
       current++;
-      cursor = dateKey(new Date(new Date(day).getTime() - 86400000).toISOString());
+      // Step back one LOCAL day. `new Date('YYYY-MM-DD')` parses as UTC
+      // midnight, so subtracting 24h from it and re-keying locally could skip
+      // or repeat a day west of UTC and silently break the streak count.
+      const prevDay = dateFromKey(day);
+      prevDay.setDate(prevDay.getDate() - 1);
+      cursor = dateKey(prevDay.toISOString());
     } else break;
   }
   // best streak
   let run = 0;
   for (let i = 0; i < sorted.length; i++) {
     if (i === 0) { run = 1; tempBest = 1; continue; }
-    const prev = new Date(sorted[i - 1]);
-    const curr = new Date(sorted[i]);
+    const prev = dateFromKey(sorted[i - 1]);
+    const curr = dateFromKey(sorted[i]);
     const diff = Math.round((prev.getTime() - curr.getTime()) / 86400000);
     if (diff === 1) { run++; tempBest = Math.max(tempBest, run); }
     else run = 1;
@@ -577,8 +592,8 @@ function DriveDetail({ drive, onBack, onShare, onDelete, sharing, deleting }: De
         <View style={styles.statsGrid}>
           <Stat icon={<MaterialCommunityIcons name="map-marker-distance" size={22} color={colors.accent} />} label="Distance" value={formatDistance(drive.distanceM, distanceUnit)} />
           <Stat icon={<Ionicons name="time-outline" size={22} color={colors.accent} />} label="Duration" value={formatDuration(drive.durationS)} />
-          <Stat icon={<Ionicons name="speedometer-outline" size={22} color={colors.accent} />} label="Avg Speed" value={drive.avgSpeedKph ? `${drive.avgSpeedKph.toFixed(0)} km/h` : '—'} />
-          <Stat icon={<MaterialCommunityIcons name="car-sports" size={22} color={colors.accent} />} label="Top Speed" value={drive.topSpeedKph ? `${drive.topSpeedKph.toFixed(0)} km/h` : '—'} />
+          <Stat icon={<Ionicons name="speedometer-outline" size={22} color={colors.accent} />} label="Avg Speed" value={formatSpeedKph(drive.avgSpeedKph, distanceUnit)} />
+          <Stat icon={<MaterialCommunityIcons name="car-sports" size={22} color={colors.accent} />} label="Top Speed" value={formatSpeedKph(drive.topSpeedKph, distanceUnit)} />
         </View>
 
         {drive.memberCount > 0 && (
@@ -728,16 +743,16 @@ export default function DriveHistoryScreen() {
     const drive = drives.find((d) => d.id === driveId);
     setSharingId(driveId);
 
-    const distanceKm = drive ? (drive.distanceM / 1000).toFixed(1) : '?';
+    const distanceLabel = drive ? formatDistance(drive.distanceM, distanceUnit) : '?';
     const duration = drive ? formatDuration(drive.durationS) : null;
-    const maxSpeedKph = drive?.topSpeedKph ? Math.round(drive.topSpeedKph) : null;
+    const maxSpeed = drive?.topSpeedKph ? formatSpeedKph(drive.topSpeedKph, distanceUnit) : null;
     const memberCount = drive?.memberCount ?? 1;
     const groupName = drive?.groupName ?? null;
 
     const shareText = [
-      `Just drove ${distanceKm}km${groupName ? ` with ${groupName}` : ''} on CORTEGE! 🏁`,
+      `Just drove ${distanceLabel}${groupName ? ` with ${groupName}` : ''} on CORTEGE! 🏁`,
       duration ? `⏱ ${duration}` : '',
-      maxSpeedKph ? `⚡ Top speed: ${maxSpeedKph}km/h` : '',
+      maxSpeed ? `⚡ Top speed: ${maxSpeed}` : '',
       memberCount > 1 ? `👥 ${memberCount} cars` : '',
       '',
       'Join us on CORTEGE: convoy.app',
@@ -764,7 +779,7 @@ export default function DriveHistoryScreen() {
     } finally {
       setSharingId(null);
     }
-  }, [drives]);
+  }, [drives, distanceUnit]);
 
   const handleDelete = useCallback((driveId: string) => {
     Alert.alert(
@@ -922,7 +937,7 @@ export default function DriveHistoryScreen() {
             <View style={styles.driveCardContent}>
               <Text style={styles.driveDistDur}>
                 {formatDistance(drive.distanceM, distanceUnit)} · {formatDuration(drive.durationS)}
-                {drive.avgSpeedKph != null ? `  · ${drive.avgSpeedKph.toFixed(0)} km/h avg` : ''}
+                {drive.avgSpeedKph != null ? `  · ${formatSpeedKph(drive.avgSpeedKph, distanceUnit)} avg` : ''}
               </Text>
               <Text style={styles.driveTimeRange}>
                 {formatTime(drive.startedAt)} → {formatTime(drive.endedAt)}
@@ -1005,13 +1020,13 @@ export default function DriveHistoryScreen() {
                 {drive.topSpeedKph != null && (
                   <View style={styles.expandStat}>
                     <Ionicons name="flash" size={13} color={colors.textMuted} />
-                    <Text style={styles.expandStatText}>{drive.topSpeedKph.toFixed(0)} km/h top</Text>
+                    <Text style={styles.expandStatText}>{formatSpeedKph(drive.topSpeedKph, distanceUnit)} top</Text>
                   </View>
                 )}
                 {drive.avgSpeedKph != null && (
                   <View style={styles.expandStat}>
                     <Ionicons name="stats-chart" size={13} color={colors.textMuted} />
-                    <Text style={styles.expandStatText}>{drive.avgSpeedKph.toFixed(0)} km/h avg</Text>
+                    <Text style={styles.expandStatText}>{formatSpeedKph(drive.avgSpeedKph, distanceUnit)} avg</Text>
                   </View>
                 )}
                 <View style={styles.expandStat}>

@@ -424,3 +424,51 @@ describe('SettingsScreen — client-only prefs apply instantly, independent of t
     expect(useSettingsStore.getState().distanceUnit).toBe('km');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Hazard-alert distance honours the Distance Units chip
+// ---------------------------------------------------------------------------
+
+/** Every literal string rendered anywhere in the tree. */
+function renderedStrings(root: ReactTestInstance): string[] {
+  return root
+    .findAll((n) => typeof n.props?.children === 'string')
+    .map((n) => n.props.children as string);
+}
+
+function chipLabels(root: ReactTestInstance, label: string): ReactTestInstance[] {
+  return root.findAll((n) => n.props?.accessibilityLabel === label);
+}
+
+describe('SettingsScreen — hazard alert distance units', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    signInTestUser();
+    mockApiGet.mockResolvedValue(SETTINGS_RESPONSE);
+  });
+
+  afterEach(() => {
+    useSettingsStore.setState({ distanceUnit: 'miles' });
+  });
+
+  it('labels the chips and the summary in miles when miles is selected', async () => {
+    useSettingsStore.setState({ distanceUnit: 'miles' });
+    const root = await renderSettings();
+
+    expect(renderedStrings(root)).toContain('Alert within 0.5 mi');
+    expect(chipLabels(root, '0.25 mi').length).toBeGreaterThan(0);
+  });
+
+  it('labels the chips and the summary in metric when km is selected', async () => {
+    // Regression: these were hard-coded miles, so the row directly under the
+    // "Kilometres" chip the user had just picked still read "0.25 mi" and
+    // "Alert within 0.50 miles".
+    useSettingsStore.setState({ distanceUnit: 'km' });
+    const root = await renderSettings();
+
+    expect(renderedStrings(root)).toContain('Alert within 800 m');
+    expect(chipLabels(root, '400 m').length).toBeGreaterThan(0);
+    expect(chipLabels(root, '1.6 km').length).toBeGreaterThan(0);
+    expect(chipLabels(root, '0.25 mi')).toHaveLength(0);
+  });
+});

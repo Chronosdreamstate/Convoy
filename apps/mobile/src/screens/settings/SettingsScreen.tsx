@@ -24,6 +24,7 @@ import { authService } from '../../services/AuthService';
 import { SiriShortcutsService } from '../../services/SiriShortcutsService';
 import { SkeletonBox } from '../../components/SkeletonLoader';
 import { useSettingsStore } from '../../stores/settingsStore';
+import { formatDistanceM } from '../../utils/units';
 import { useAuthStore } from '../../stores/authStore';
 import { useReduceMotion } from '../../hooks/useReduceMotion';
 import { useTheme } from '../../theme';
@@ -55,7 +56,6 @@ const APP_STORE_ID =
   (Constants.expoConfig?.extra?.appStoreId as string | undefined) || '0000000000';
 const APP_STORE_URL = `https://apps.apple.com/app/id${APP_STORE_ID}`;
 
-const MILES_PER_METRE = 0.000621371;
 const MAP_STYLES: Array<{ label: string; value: Settings['mapStyle'] }> = [
   { label: 'Standard', value: 'standard' },
   { label: 'Satellite', value: 'satellite' },
@@ -70,12 +70,25 @@ const THEME_MODES: Array<{ label: string; value: 'light' | 'dark' | 'system' }> 
   { label: 'Light', value: 'light' },
   { label: 'Dark', value: 'dark' },
 ];
-const HAZARD_DISTANCES = [
-  { label: '0.25 mi', metres: 402 },
-  { label: '0.5 mi', metres: 805 },
-  { label: '1 mi', metres: 1609 },
-  { label: '2 mi', metres: 3219 },
+// The stored value is always metres (the API's hazardAlertDistanceM); only the
+// chip labels change with the user's Distance Units chip two rows above. They
+// used to be hard-coded miles, so a driver on kilometres picked "0.5 mi" and
+// read "Alert within 0.50 miles" in a screen they had just set to metric.
+const HAZARD_DISTANCES: Array<{ metres: number; miles: string; km: string }> = [
+  { metres: 402, miles: '0.25 mi', km: '400 m' },
+  { metres: 805, miles: '0.5 mi', km: '800 m' },
+  { metres: 1609, miles: '1 mi', km: '1.6 km' },
+  { metres: 3219, miles: '2 mi', km: '3.2 km' },
 ];
+
+/** Chip label for a hazard radius, in the user's unit. Also drives the row's
+ *  subtitle so the summary and the selected chip can never disagree. */
+function hazardLabel(metres: number, unit: 'km' | 'miles'): string {
+  const preset = HAZARD_DISTANCES.find((d) => d.metres === metres);
+  if (preset) return unit === 'miles' ? preset.miles : preset.km;
+  // A value the server has but this build doesn't offer as a chip.
+  return formatDistanceM(metres, unit);
+}
 const CACHE_SIZES = [
   { label: '100 MB', mb: 100 },
   { label: '250 MB', mb: 250 },
@@ -785,12 +798,12 @@ export default function SettingsScreen() {
           <SettingRow
             icon="warning-outline"
             label="Hazard Alert Distance"
-            subtitle={`Alert within ${(hazardDistM * MILES_PER_METRE).toFixed(2)} miles`}
+            subtitle={`Alert within ${hazardLabel(hazardDistM, distanceUnit)}`}
             last
           />
           <View style={[styles.chipContainer, styles.chipContainerDivider]}>
             <ChipSelector
-              options={HAZARD_DISTANCES.map((d) => ({ label: d.label, value: d.metres }))}
+              options={HAZARD_DISTANCES.map((d) => ({ label: hazardLabel(d.metres, distanceUnit), value: d.metres }))}
               selected={hazardDistM}
               onSelect={(v) => { setHazardDistM(v); mark(); }}
             />

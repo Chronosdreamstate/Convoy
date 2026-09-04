@@ -41,6 +41,13 @@ export default function OtpScreen() {
   const inputRef = useRef<TextInput>(null);
   const cooldownRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const autoSubmitRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Guards against verifying the same code twice. Typing the sixth digit arms
+  // a 300 ms auto-submit, and the Verify button becomes enabled at the same
+  // moment — tapping it inside that window fired a second POST that burned the
+  // one-time code, so the successful sign-in was followed by an "invalid code"
+  // error over the top of it. A ref (not the `isVerifying` state) because both
+  // paths read it within the same React batch.
+  const verifyingRef = useRef(false);
   const shakeAnim = useRef(new Animated.Value(0)).current;
 
   const startCooldown = () => {
@@ -82,6 +89,11 @@ export default function OtpScreen() {
     const value = code ?? otp;
     if (value.length !== 6) { setError('Please enter the 6-digit code.'); triggerShake(); return; }
     if (!phone) { setError('Phone number is missing. Please go back and try again.'); return; }
+    if (verifyingRef.current) return;
+    // A manual tap supersedes the armed auto-submit; leaving it pending would
+    // re-verify 300 ms later against an already-consumed code.
+    if (autoSubmitRef.current) { clearTimeout(autoSubmitRef.current); autoSubmitRef.current = null; }
+    verifyingRef.current = true;
     setError(null);
     setIsVerifying(true);
     try {
@@ -98,6 +110,7 @@ export default function OtpScreen() {
       setError(message);
       triggerShake();
     } finally {
+      verifyingRef.current = false;
       setIsVerifying(false);
     }
   };

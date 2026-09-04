@@ -26,6 +26,7 @@ import { SkeletonBox } from '../../components/SkeletonLoader';
 import { NetworkError } from '../../components/NetworkError';
 import { authService } from '../../services/AuthService';
 import { useAuthStore } from '../../stores/authStore';
+import { readUploadedUrl, uploadErrorMessage } from '../../utils/upload';
 import { useTheme, ThemeColors } from '../../theme';
 import { API_URL } from '../../config/env';
 
@@ -278,12 +279,17 @@ export default function ProfileScreen() {
           headers: { Authorization: `Bearer ${accessToken ?? ''}` },
         },
       );
-      const { url } = JSON.parse(uploadResult.body) as { url: string };
+      // uploadAsync resolves for 4xx/5xx too, so the status has to be checked
+      // here — see utils/upload.ts. Reading `.url` straight off the parsed body
+      // made a rejected upload (over 10 MB, expired token, rate limited) look
+      // like a success: the avatar quietly fell back to initials and the next
+      // Save changed nothing while reporting "Profile saved successfully."
+      const url = readUploadedUrl(uploadResult);
       setLocalAvatarUri(url);
       setAvatarDirty(true);
       setIsDirty(true);
-    } catch {
-      Alert.alert('Upload Failed', 'Could not upload photo. Try again.');
+    } catch (err) {
+      Alert.alert('Upload Failed', uploadErrorMessage(err, 'Could not upload photo. Try again.'));
     } finally {
       setUploadingAvatar(false);
     }

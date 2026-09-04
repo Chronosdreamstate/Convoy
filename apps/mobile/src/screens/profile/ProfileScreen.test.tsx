@@ -237,3 +237,85 @@ describe('ProfileScreen — on-accent contrast (light theme)', () => {
     expect(StyleSheet.flatten(openChipText.props.style).color).toBe('#FFFFFF');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Avatar upload failures must not read as success
+// ---------------------------------------------------------------------------
+
+const imagePicker = jest.requireMock('expo-image-picker') as {
+  requestMediaLibraryPermissionsAsync: jest.Mock;
+  launchImageLibraryAsync: jest.Mock;
+};
+const fileSystem = jest.requireMock('expo-file-system/legacy') as { uploadAsync: jest.Mock };
+
+describe('ProfileScreen — avatar upload failure', () => {
+  let alertSpy: jest.SpyInstance;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    useAuthStore.setState({ accessToken: 'tok', token: 'tok' });
+    mockProfileApi();
+    imagePicker.requestMediaLibraryPermissionsAsync.mockResolvedValue({ status: 'granted' });
+    imagePicker.launchImageLibraryAsync.mockResolvedValue({
+      canceled: false,
+      assets: [{ uri: 'file:///huge.jpg', mimeType: 'image/jpeg' }],
+    });
+  });
+
+  afterEach(() => {
+    alertSpy.mockRestore();
+  });
+
+  /** Opens the avatar sheet and taps "Choose from Library". */
+  async function pickFromLibrary(renderer: TestRenderer.ReactTestRenderer) {
+    await act(async () => {
+      renderer.root.findAll(
+        (n) => n.props?.accessibilityLabel === 'Change profile photo' && typeof n.props?.onPress === 'function',
+      )[0].props.onPress();
+    });
+    const call = [...alertSpy.mock.calls].reverse().find((c) => c[0] === 'Change Photo');
+    const buttons = call![2] as Array<{ text: string; onPress?: () => void }>;
+    const libraryBtn = buttons.find((b) => b.text.includes('Choose from Library'))!;
+    await act(async () => { libraryBtn.onPress!(); });
+    await act(async () => {});
+  }
+
+  function saveButton(renderer: TestRenderer.ReactTestRenderer): ReactTestInstance {
+    return renderer.root.findAll(
+      (n) => n.props?.accessibilityLabel === 'Save profile' && typeof n.props?.onPress === 'function',
+    )[0];
+  }
+
+  it('surfaces a rejected upload instead of silently dropping the photo', async () => {
+    // uploadAsync RESOLVES for 4xx/5xx. The old code read `.url` straight off
+    // the parsed body, so a 413 staged `undefined`, the avatar fell back to
+    // initials with no error, and Save then reported success.
+    fileSystem.uploadAsync.mockResolvedValue({
+      status: 413,
+      body: JSON.stringify({ error: 'File too large (max 10 MB)' }),
+    });
+    const renderer = await renderProfile();
+
+    await pickFromLibrary(renderer);
+
+    expect(alertSpy).toHaveBeenCalledWith('Upload Failed', 'File too large (max 10 MB)');
+    // Nothing was staged, so there is no phantom change to "save".
+    expect(saveButton(renderer).props.accessibilityState.disabled).toBe(true);
+    expect(mockApiPatch).not.toHaveBeenCalled();
+  });
+
+  it('stages the photo and enables Save when the upload really succeeds', async () => {
+    fileSystem.uploadAsync.mockResolvedValue({
+      status: 201,
+      body: JSON.stringify({ url: 'https://cdn.example.com/new-avatar.jpg' }),
+    });
+    const renderer = await renderProfile();
+
+    await pickFromLibrary(renderer);
+
+    expect(alertSpy).not.toHaveBeenCalledWith('Upload Failed', expect.anything());
+    expect(hasImageWithUri(renderer.root, 'https://cdn.example.com/new-avatar.jpg')).toBe(true);
+    expect(saveButton(renderer).props.accessibilityState.disabled).toBe(false);
+  });
+});

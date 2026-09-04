@@ -138,3 +138,27 @@ describe('OtpScreen verification errors', () => {
     expect(sequenceSpy).not.toHaveBeenCalled();
   });
 });
+
+describe('OtpScreen double-submit', () => {
+  it('verifies the code once when the user taps Verify inside the auto-submit window', async () => {
+    // Typing the sixth digit arms a 300 ms auto-submit and enables the Verify
+    // button at the same moment. Tapping it used to leave the timer armed, so
+    // the one-time code was POSTed twice — the second call failed against the
+    // now-consumed code and painted "Invalid or expired code." over a
+    // sign-in that had already succeeded.
+    mockVerifyOtp.mockResolvedValue({
+      user: { id: 'u-1', displayName: 'Driver', privacy: 'open' },
+      accessToken: 'token-abc',
+    });
+    const screen = render(<OtpScreen />);
+
+    fireEvent.changeText(screen.getByLabelText('Verification code, 6 digits'), '123456');
+    fireEvent.press(screen.getByLabelText('Verify code'));
+    await act(async () => {
+      jest.advanceTimersByTime(300);
+    });
+    await act(async () => {});
+
+    expect(mockVerifyOtp).toHaveBeenCalledTimes(1);
+  });
+});

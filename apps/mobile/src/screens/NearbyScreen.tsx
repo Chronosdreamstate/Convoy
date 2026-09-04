@@ -34,6 +34,7 @@ import { apiClient } from '../services/apiClient';
 import { MotionCapNotice, useMotionCappedData } from '../components/MotionAwareList';
 import { SkeletonRow } from '../components/SkeletonLoader';
 import { useSettingsStore } from '../stores/settingsStore';
+import { formatDistanceM as formatDistance } from '../utils/units';
 import { ThemeColors, useTheme } from '../theme';
 
 // ---------------------------------------------------------------------------
@@ -66,17 +67,6 @@ function avatarColor(name: string): string {
 }
 function initials(name: string): string {
   return name.trim().split(/\s+/).slice(0, 2).map((w) => w[0]?.toUpperCase() ?? '').join('');
-}
-
-/** Formats a distance in metres, respecting the user's km/miles preference (Settings > Map > Distance Units). */
-function formatDistance(metres: number, unit: 'km' | 'miles'): string {
-  if (unit === 'miles') {
-    const miles = metres / 1609.344;
-    if (miles < 0.1) return `${Math.round(metres * 3.28084)} ft`;
-    return `${miles.toFixed(1)} mi`;
-  }
-  if (metres < 1000) return `${Math.round(metres)} m`;
-  return `${(metres / 1000).toFixed(1)} km`;
 }
 
 type LoadState = 'loading' | 'opted-out' | 'needs-location' | 'location-error' | 'ready';
