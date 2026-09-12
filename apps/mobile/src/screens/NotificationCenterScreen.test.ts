@@ -21,7 +21,13 @@ jest.mock('../services/OfflineQueueService', () => ({
   isOfflineError: jest.fn(),
 }));
 
-import { mergeServerNotifications, prependRealtime, NotificationItem } from './NotificationCenterScreen';
+import {
+  buildSections,
+  mergeServerNotifications,
+  prependRealtime,
+  timeAgo,
+  NotificationItem,
+} from './NotificationCenterScreen';
 
 function makeItem(overrides: Partial<NotificationItem> = {}): NotificationItem {
   return {
@@ -130,5 +136,80 @@ describe('prependRealtime — gap-alert de-duplication', () => {
     const prev = [makeItem({ id: 'old' })];
     const merged = prependRealtime(prev, [makeItem({ id: 'new' })], 5);
     expect(merged.map((n) => n.id)).toEqual(['new', 'old']);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Relative timestamps and day bucketing
+// ---------------------------------------------------------------------------
+
+describe('timeAgo', () => {
+  it('never renders a negative age when the server clock leads the phone', () => {
+    // Phone clocks routinely sit a few seconds off real time, and createdAt is
+    // stamped by the server. A notification pushed 4s "in the future" used to
+    // render as "-4s ago" in the row's corner the instant it arrived.
+    const now = new Date(2026, 8, 12, 14, 0, 0).getTime();
+    const createdAt = new Date(now + 4000).toISOString();
+
+    const label = timeAgo(createdAt, now);
+
+    expect(label).not.toContain('-');
+    expect(label).toBe('0s ago');
+  });
+
+  it('still reports real ages normally', () => {
+    const now = new Date(2026, 8, 12, 14, 0, 0).getTime();
+    expect(timeAgo(new Date(now - 30_000).toISOString(), now)).toBe('30s ago');
+    expect(timeAgo(new Date(now - 5 * 60_000).toISOString(), now)).toBe('5m ago');
+    expect(timeAgo(new Date(now - 3 * 3_600_000).toISOString(), now)).toBe('3h ago');
+  });
+});
+
+describe('buildSections', () => {
+  /** A notification created at the given LOCAL wall-clock time. */
+  function at(d: Date, id: string): NotificationItem {
+    return makeItem({ id, createdAt: d.toISOString() });
+  }
+
+  it('does not file yesterday evening under "Today" just after midnight', () => {
+    // 00:30 local. "age < 24h" swept everything back to yesterday 00:30 into a
+    // section headed "Today" — rows whose own label in the same list read
+    // "16h ago" and whose weekday was plainly yesterday.
+    const now = new Date(2026, 8, 12, 0, 30).getTime();
+    const sections = buildSections(
+      [at(new Date(2026, 8, 12, 0, 10), 'after-midnight'), at(new Date(2026, 8, 11, 20, 0), 'last-night')],
+      now,
+    );
+
+    const today = sections.find((s) => s.title === 'Today');
+    expect(today?.data.map((n) => n.id)).toEqual(['after-midnight']);
+    expect(sections.find((s) => s.title === 'This Week')?.data.map((n) => n.id)).toEqual(['last-night']);
+  });
+
+  it('keeps everything from the current local day under "Today"', () => {
+    // 23:00 local, with a notification from 00:05 this morning — 22.9h old but
+    // unambiguously today.
+    const now = new Date(2026, 8, 12, 23, 0).getTime();
+    const sections = buildSections([at(new Date(2026, 8, 12, 0, 5), 'this-morning')], now);
+
+    expect(sections.find((s) => s.title === 'Today')?.data.map((n) => n.id)).toEqual(['this-morning']);
+  });
+
+  it('files a future-dated (clock-skewed) notification under Today, not Earlier', () => {
+    const now = new Date(2026, 8, 12, 14, 0).getTime();
+    const sections = buildSections([at(new Date(2026, 8, 12, 14, 0, 5), 'skewed')], now);
+
+    expect(sections.find((s) => s.title === 'Today')?.data.map((n) => n.id)).toEqual(['skewed']);
+  });
+
+  it('drops notifications older than seven local days into "Earlier"', () => {
+    const now = new Date(2026, 8, 12, 14, 0).getTime();
+    const sections = buildSections(
+      [at(new Date(2026, 8, 7, 9, 0), 'five-days'), at(new Date(2026, 8, 1, 9, 0), 'eleven-days')],
+      now,
+    );
+
+    expect(sections.find((s) => s.title === 'This Week')?.data.map((n) => n.id)).toEqual(['five-days']);
+    expect(sections.find((s) => s.title === 'Earlier')?.data.map((n) => n.id)).toEqual(['eleven-days']);
   });
 });

@@ -32,6 +32,7 @@ import { apiClient } from '../services/apiClient';
 import { MAPBOX_TOKEN } from '../config/env';
 import { useSettingsStore } from '../stores/settingsStore';
 import { formatDistanceM as formatDistance, formatSpeedKph } from '../utils/units';
+import { addLocalDays, localDayDiff, localDayKey } from '../utils/datetime';
 import { useTheme, type ThemeColors } from '../theme';
 
 // Text that always sits on the crimson accent fill — stays light in both themes.
@@ -120,6 +121,22 @@ function formatTime(iso: string): string {
   return new Date(iso).toLocaleTimeString(undefined, {
     hour: '2-digit', minute: '2-digit',
   });
+}
+
+/**
+ * "11:30 PM → 12:45 AM (+1)" — the start/end clock times of one drive.
+ *
+ * A drive that crosses local midnight ends on a LATER calendar day than it
+ * started, but every row is filed under (and dated by) its END day. Without the
+ * day marker the range read as if the car finished ten hours before it set off:
+ * a drive from 23:30 to 00:45 showed up under "Today" as "11:30 PM → 12:45 AM".
+ *
+ * Exported for tests.
+ */
+export function formatTimeRange(startedAt: string, endedAt: string): string {
+  const days = localDayDiff(startedAt, endedAt);
+  const suffix = days > 0 ? ` (+${days})` : '';
+  return `${formatTime(startedAt)} → ${formatTime(endedAt)}${suffix}`;
 }
 
 /**
@@ -221,7 +238,9 @@ function getISOWeekBounds(): { start: Date; end: Date } {
   return { start: mon, end: sun };
 }
 
-function computeStreak(drives: DriveRecord[]): { current: number; best: number; weekDays: boolean[] } {
+export function computeStreak(drives: DriveRecord[]): {
+  current: number; best: number; weekDays: boolean[]; activeToday: boolean;
+} {
   const driveDays = new Set(drives.map((d) => dateKey(d.endedAt)));
   // week dots (Mon-Sun)
   const { start } = getISOWeekBounds();
@@ -236,7 +255,13 @@ function computeStreak(drives: DriveRecord[]): { current: number; best: number; 
   let best = 0;
   let tempBest = 0;
   const today = dateKey(new Date().toISOString());
-  let cursor = today;
+  const yesterday = localDayKey(addLocalDays(new Date(), -1));
+  // A streak is only BROKEN once a whole day has gone by with no drive, so the
+  // walk may start at today or at yesterday. Anchoring it on today alone meant
+  // that the instant the local clock passed midnight — before the rider had any
+  // chance to drive again — a live 12-day streak rendered as "No active
+  // streak", and stayed that way for the rest of the day unless they drove.
+  let cursor = sorted[0] === yesterday ? yesterday : today;
   for (const day of sorted) {
     if (day === cursor) {
       current++;
@@ -259,7 +284,7 @@ function computeStreak(drives: DriveRecord[]): { current: number; best: number; 
     else run = 1;
   }
   best = tempBest;
-  return { current, best, weekDays };
+  return { current, best, weekDays, activeToday: driveDays.has(today) };
 }
 
 // ---------------------------------------------------------------------------
@@ -429,7 +454,7 @@ function WeeklyStreakCard({ drives }: { drives: DriveRecord[] }) {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const distanceUnit = useSettingsStore((s) => s.distanceUnit);
-  const { current, best, weekDays } = useMemo(() => computeStreak(drives), [drives]);
+  const { current, best, weekDays, activeToday } = useMemo(() => computeStreak(drives), [drives]);
   const { start } = getISOWeekBounds();
   const weekDrives = drives.filter((d) => {
     const t = new Date(d.endedAt).getTime();
@@ -458,7 +483,9 @@ function WeeklyStreakCard({ drives }: { drives: DriveRecord[] }) {
           ) : current === 1 ? (
             <View style={styles.streakFireRow}>
               <Ionicons name="car-sport" size={14} color={colors.warning} />
-              <Text style={styles.streakFire}>Active today</Text>
+              {/* A 1-day streak can now be yesterday's drive (the streak only
+                  breaks after a full empty day), so don't claim "today". */}
+              <Text style={styles.streakFire}>{activeToday ? 'Active today' : 'Drove yesterday'}</Text>
             </View>
           ) : (
             <Text style={styles.streakFire}>No active streak</Text>
@@ -554,7 +581,7 @@ function DriveDetail({ drive, onBack, onShare, onDelete, sharing, deleting }: De
       <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
         <Text style={styles.detailTitle}>Drive Summary</Text>
         <Text style={styles.detailDate}>
-          {formatDate(drive.endedAt)} · {formatTime(drive.startedAt)} → {formatTime(drive.endedAt)}
+          {formatDate(drive.endedAt)} · {formatTimeRange(drive.startedAt, drive.endedAt)}
         </Text>
 
         {/* Route map */}
@@ -940,7 +967,7 @@ export default function DriveHistoryScreen() {
                 {drive.avgSpeedKph != null ? `  · ${formatSpeedKph(drive.avgSpeedKph, distanceUnit)} avg` : ''}
               </Text>
               <Text style={styles.driveTimeRange}>
-                {formatTime(drive.startedAt)} → {formatTime(drive.endedAt)}
+                {formatTimeRange(drive.startedAt, drive.endedAt)}
               </Text>
               <View style={styles.driveMembers}>
                 <Ionicons

@@ -26,6 +26,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useReduceMotion } from '../hooks/useReduceMotion';
+import { localDayKey, startOfLocalDay } from '../utils/datetime';
 import { useTheme, ThemeColors } from '../theme';
 
 // ---------------------------------------------------------------------------
@@ -214,11 +215,27 @@ function parseFiniteInt(v: string | string[] | undefined, fallback: number): num
   return Number.isFinite(n) ? n : fallback;
 }
 
-function getWeekKey(): string {
+/**
+ * AsyncStorage bucket for the "N-drive week!" banner — the Monday that starts
+ * the current LOCAL week, as YYYY-MM-DD.
+ *
+ * This used to be `ceil((msSinceJan1 / 86_400_000 + jan1.getDay() + 1) / 7)`,
+ * which put the week boundary on SATURDAY 00:00: a rider who finished their
+ * third drive of the week on Friday night saw "🔥 3-drive week!", then ended
+ * another convoy after midnight and saw nothing at all — while Drive History's
+ * own "This week" card (Mon–Sun, getISOWeekBounds) still counted all four.
+ * Dividing a millisecond span by 86_400_000 also slid that boundary an hour
+ * either way after each DST change.
+ *
+ * Exported for tests.
+ */
+export function getWeekKey(): string {
   const now = new Date();
-  const startOfYear = new Date(now.getFullYear(), 0, 1);
-  const week = Math.ceil(((now.getTime() - startOfYear.getTime()) / 86400000 + startOfYear.getDay() + 1) / 7);
-  return `${now.getFullYear()}-W${week}`;
+  const monday = startOfLocalDay(now);
+  // getDay(): 0=Sun … 6=Sat. Step back to Monday without ±86400000 arithmetic
+  // so a DST day can't move the boundary.
+  monday.setDate(monday.getDate() - ((now.getDay() + 6) % 7));
+  return localDayKey(monday);
 }
 
 async function incrementWeeklyDrives(): Promise<number> {

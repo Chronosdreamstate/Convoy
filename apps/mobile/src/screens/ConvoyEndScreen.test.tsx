@@ -57,7 +57,7 @@ jest.mock('../hooks/useReduceMotion', () => ({
   useReduceMotion: () => mockReduceMotion,
 }));
 
-import ConvoyEndScreen from './ConvoyEndScreen';
+import ConvoyEndScreen, { getWeekKey } from './ConvoyEndScreen';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -249,5 +249,52 @@ describe('ConvoyEndScreen delayed prompts', () => {
 
     expect(hasText(renderer.root, 'First Convoy')).toBe(true);
     expect(await AsyncStorage.getItem('achievement:first_convoy')).toBe('true');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Weekly drive counter bucket
+// ---------------------------------------------------------------------------
+
+describe('getWeekKey', () => {
+  afterEach(() => { jest.useRealTimers(); });
+
+  it('gives every day of one Mon-Sun week the same bucket', () => {
+    // The "🔥 N-drive week!" banner is bucketed by this key. The old
+    // day-of-year arithmetic rolled the week over part-way through SATURDAY,
+    // so the weekend fell into a different bucket from the Mon-Fri drives that
+    // preceded it: a rider who ended their third convoy of the week on Friday
+    // night saw the banner, then ended another on Saturday and saw nothing —
+    // while Drive History's Mon-Sun "this week" card still counted all four.
+    jest.useFakeTimers();
+    // 2026-09-07 is a Monday; noon each day avoids any DST edge.
+    const keys = [7, 8, 9, 10, 11, 12, 13].map((day) => {
+      jest.setSystemTime(new Date(2026, 8, day, 12, 0));
+      return getWeekKey();
+    });
+
+    expect(new Set(keys).size).toBe(1);
+  });
+
+  it('keeps Sunday night and Monday morning in different weeks', () => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date(2026, 8, 13, 23, 30)); // Sunday
+    const sunday = getWeekKey();
+
+    jest.setSystemTime(new Date(2026, 8, 14, 0, 30)); // Monday — new week
+    const monday = getWeekKey();
+
+    expect(monday).not.toBe(sunday);
+  });
+
+  it('keys on the Monday that starts the local week', () => {
+    jest.useFakeTimers();
+    // Wednesday 2026-09-09 → Monday 2026-09-07.
+    jest.setSystemTime(new Date(2026, 8, 9, 14, 0));
+    expect(getWeekKey()).toBe('2026-09-07');
+
+    // Sunday 2026-09-13 still belongs to the week that began Monday the 7th.
+    jest.setSystemTime(new Date(2026, 8, 13, 14, 0));
+    expect(getWeekKey()).toBe('2026-09-07');
   });
 });

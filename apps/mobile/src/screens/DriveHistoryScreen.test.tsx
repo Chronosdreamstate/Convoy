@@ -52,7 +52,7 @@ jest.mock('react-native-maps', () => {
   return { __esModule: true, default: View, Polyline: View, PROVIDER_DEFAULT: 'default' };
 });
 
-import DriveHistoryScreen, { dateKey } from './DriveHistoryScreen';
+import DriveHistoryScreen, { computeStreak, dateKey, formatTimeRange } from './DriveHistoryScreen';
 import { useSettingsStore } from '../stores/settingsStore';
 
 // ---------------------------------------------------------------------------
@@ -426,5 +426,90 @@ describe('DriveHistoryScreen day grouping', () => {
     const label = late.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
     const headers = renderedText(renderer).filter((t) => t === label);
     expect(headers).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Midnight-crossing drives + the daily streak
+// ---------------------------------------------------------------------------
+
+describe('DriveHistoryScreen midnight-crossing drives', () => {
+  it('marks a drive that ran past local midnight with a +1 day offset', async () => {
+    // Set off at 23:30, parked at 00:45. The row is filed under (and dated by)
+    // the END day, so without a marker the range read "11:30 PM → 12:45 AM" —
+    // a drive that appears to finish ten hours before it started.
+    const started = new Date(2026, 8, 11, 23, 30);
+    const ended = new Date(2026, 8, 12, 0, 45);
+    serveDrives([driveAtLocal('d-midnight', ended, { startedAt: started.toISOString() })]);
+
+    const renderer = await renderRenderer();
+    const text = renderedText(renderer);
+
+    expect(text.some((t) => t.includes('(+1)'))).toBe(true);
+  });
+
+  it('leaves a drive contained in one local day unmarked', () => {
+    const started = new Date(2026, 8, 12, 9, 0).toISOString();
+    const ended = new Date(2026, 8, 12, 11, 30).toISOString();
+    expect(formatTimeRange(started, ended)).not.toContain('(+');
+  });
+
+  it('counts every local day crossed, not just the first', () => {
+    // A 30-hour convoy: Friday 20:00 → Sunday 02:00.
+    const started = new Date(2026, 8, 11, 20, 0).toISOString();
+    const ended = new Date(2026, 8, 13, 2, 0).toISOString();
+    expect(formatTimeRange(started, ended)).toContain('(+2)');
+  });
+});
+
+describe('DriveHistoryScreen streak', () => {
+  afterEach(() => { jest.useRealTimers(); });
+
+  /** A one-hour drive ending at the given LOCAL wall-clock time. */
+  function streakDrive(end: Date) {
+    return driveAtLocal(`d-${end.getTime()}`, end) as unknown as Parameters<typeof computeStreak>[0][number];
+  }
+
+  it('keeps a live streak through the day after the last drive', () => {
+    // 00:30 local. The rider drove every evening Sep 5–Sep 11 and has simply
+    // not driven YET today — thirty minutes after midnight. Anchoring the walk
+    // on today alone made the card read "No active streak" the moment the date
+    // flipped, wiping a 7-day streak the rider hadn't actually broken.
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date(2026, 8, 12, 0, 30));
+
+    const drives = Array.from({ length: 7 }, (_, i) =>
+      streakDrive(new Date(2026, 8, 11 - i, 19, 0)),
+    );
+    const { current, activeToday } = computeStreak(drives);
+
+    expect(current).toBe(7);
+    expect(activeToday).toBe(false);
+  });
+
+  it('counts today once the rider has driven', () => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date(2026, 8, 12, 19, 30));
+
+    const drives = [
+      streakDrive(new Date(2026, 8, 12, 9, 0)),
+      streakDrive(new Date(2026, 8, 11, 9, 0)),
+    ];
+    const { current, activeToday } = computeStreak(drives);
+
+    expect(current).toBe(2);
+    expect(activeToday).toBe(true);
+  });
+
+  it('ends the streak once a whole day has passed with no drive', () => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date(2026, 8, 12, 10, 0));
+
+    // Last drive Sep 10 — Sep 11 was empty, so by Sep 12 the streak is gone.
+    const drives = [
+      streakDrive(new Date(2026, 8, 10, 9, 0)),
+      streakDrive(new Date(2026, 8, 9, 9, 0)),
+    ];
+    expect(computeStreak(drives).current).toBe(0);
   });
 });

@@ -20,6 +20,7 @@ import SkeletonCard from '../components/SkeletonLoader';
 import { NetworkError } from '../components/NetworkError';
 import { MotionCapNotice, useMotionCappedData } from '../components/MotionAwareList';
 import { useSocketStore } from '../stores/socketStore';
+import { addLocalDays, startOfLocalDay } from '../utils/datetime';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -94,8 +95,17 @@ function buildTypeMeta(colors: ThemeColors): Record<NotificationType, { icon: Ic
 // Helpers
 // ---------------------------------------------------------------------------
 
-function timeAgo(iso: string): string {
-  const diff = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+/**
+ * "12s ago" / "5m ago" / "Wed" / "Sep 3".
+ *
+ * `createdAt` is stamped by the SERVER's clock while the subtraction uses the
+ * DEVICE's, and phone clocks routinely sit a few seconds either side of real
+ * time. Un-clamped, a notification that had just been pushed rendered as
+ * "-4s ago" in the corner of the row. Clamping at zero makes the worst case
+ * "0s ago" instead of a negative age. Exported for tests.
+ */
+export function timeAgo(iso: string, nowMs: number = Date.now()): string {
+  const diff = Math.max(0, Math.floor((nowMs - new Date(iso).getTime()) / 1000));
   if (diff < 60) return `${diff}s ago`;
   if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
   if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
@@ -144,19 +154,35 @@ export function prependRealtime(
   return [...incoming.filter((n) => !ids.has(n.id)), ...prev].slice(0, max);
 }
 
-function buildSections(items: NotificationItem[]): NotificationSection[] {
-  const now = Date.now();
-  const oneDayMs = 86400000;
-  const oneWeekMs = 7 * oneDayMs;
+/**
+ * Group notifications under "Today" / "This Week" / "Earlier".
+ *
+ * Buckets by the LOCAL CALENDAR day the notification arrived on, not by a
+ * rolling 24-hour window. "age < 86_400_000" put anything from the last 24h
+ * under a header that says "Today", so at 00:30 the "Today" section was 16
+ * hours of yesterday — rows whose own timestamp in the same list read
+ * "16h ago". Exported for tests.
+ */
+export function buildSections(
+  items: NotificationItem[],
+  nowMs: number = Date.now(),
+): NotificationSection[] {
+  const now = new Date(nowMs);
+  // Local midnight today, and local midnight 6 days before that — a
+  // notification from any of the last 7 calendar days counts as "this week".
+  const todayStart = startOfLocalDay(now).getTime();
+  const weekStart = startOfLocalDay(addLocalDays(now, -6)).getTime();
 
   const today: NotificationItem[] = [];
   const thisWeek: NotificationItem[] = [];
   const earlier: NotificationItem[] = [];
 
   for (const n of items) {
-    const age = now - new Date(n.createdAt).getTime();
-    if (age < oneDayMs) today.push(n);
-    else if (age < oneWeekMs) thisWeek.push(n);
+    // >= todayStart also catches a server timestamp a few seconds in the
+    // future (clock skew) rather than filing it under "Earlier".
+    const at = new Date(n.createdAt).getTime();
+    if (at >= todayStart) today.push(n);
+    else if (at >= weekStart) thisWeek.push(n);
     else earlier.push(n);
   }
 
