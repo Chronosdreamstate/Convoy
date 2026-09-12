@@ -11,6 +11,8 @@ import { useRecentDestinationsStore } from '../stores/recentDestinationsStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import { sharedMotionState } from './MotionStateService';
 import { pttAnalytics } from './PTTAnalyticsService';
+import { analytics } from './AnalyticsService';
+import { offlineQueue } from './OfflineQueueService';
 import { SQLiteOfflineDB } from './OfflineCacheService';
 import { onboardingState } from '../utils/onboardingState';
 import { singleFlightRefresh } from './refreshTokenGuard';
@@ -271,6 +273,24 @@ export class AuthService {
       await offlineDb.clearAll();
     } catch (err) {
       console.warn('[AuthService] Failed to clear the offline queue on sign-out:', err);
+    }
+    // There are TWO offline queues, and clearing only the SQLite one above left
+    // the other live. OfflineQueueService is AsyncStorage-backed and holds
+    // speed-camera reports, hazard votes, notification read/deletes and push
+    // token registrations. It stores `headers: {}` and lets apiClient inject
+    // whatever bearer token is current when it drains — so A's queued writes
+    // replayed after B signed in on the same phone were attributed to B: B
+    // became the reporter of A's speed cameras and the author of A's votes.
+    try {
+      await offlineQueue.clear();
+    } catch (err) {
+      console.warn('[AuthService] Failed to clear the offline request queue on sign-out:', err);
+    }
+    // Same cross-account attribution, via the analytics batch queue.
+    try {
+      await analytics.reset();
+    } catch (err) {
+      console.warn('[AuthService] Failed to clear the analytics queue on sign-out:', err);
     }
 
     // Reset all per-account state so the next sign-in (possibly a different

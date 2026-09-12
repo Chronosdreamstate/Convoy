@@ -39,9 +39,12 @@ jest.mock('expo-secure-store', () => ({
 // ---------------------------------------------------------------
 // Spy on AsyncStorage to ensure it is NEVER used for tokens
 // ---------------------------------------------------------------
-const mockAsyncStorageSetItemSpy = jest.fn();
-const mockAsyncStorageRemoveItemSpy = jest.fn();
-const mockAsyncStorageGetItemSpy = jest.fn();
+// These resolve rather than returning undefined: production code chains
+// `.catch()` straight onto setItem/removeItem (the offline request queue and
+// the analytics queue both do), which throws on a bare jest.fn().
+const mockAsyncStorageSetItemSpy = jest.fn().mockResolvedValue(undefined);
+const mockAsyncStorageRemoveItemSpy = jest.fn().mockResolvedValue(undefined);
+const mockAsyncStorageGetItemSpy = jest.fn().mockResolvedValue(null);
 // signOut also sweeps the per-account AsyncStorage caches that live outside
 // the zustand stores (Notification Center, recent searches, convoy counters).
 const mockAsyncStorageMultiRemoveSpy = jest.fn().mockResolvedValue(undefined);
@@ -190,7 +193,12 @@ describe('AuthService — secure token storage', () => {
       expect(mockDeleteItemAsync).toHaveBeenCalledWith('convoy_access_token');
     });
 
-    it('does NOT touch AsyncStorage when signing out', async () => {
+    // The point of this test is the TOKEN: it lives in SecureStore and must
+    // never be written to, read from, or deleted from AsyncStorage. signOut
+    // does legitimately touch AsyncStorage for the per-account caches and
+    // queues it has to clear (multiRemove, and removeItem for the two queue
+    // keys), so assert on the key rather than on the module.
+    it('never routes the access token through AsyncStorage when signing out', async () => {
       global.fetch = jest.fn().mockResolvedValue({
         ok: true,
         json: () => Promise.resolve({}),
@@ -199,9 +207,15 @@ describe('AuthService — secure token storage', () => {
       const service = await getAuthService();
       await service.signOut();
 
-      expect(mockAsyncStorageSetItemSpy).not.toHaveBeenCalled();
-      expect(mockAsyncStorageRemoveItemSpy).not.toHaveBeenCalled();
-      expect(mockAsyncStorageGetItemSpy).not.toHaveBeenCalled();
+      const touchedKeys = [
+        ...mockAsyncStorageSetItemSpy.mock.calls,
+        ...mockAsyncStorageRemoveItemSpy.mock.calls,
+        ...mockAsyncStorageGetItemSpy.mock.calls,
+      ].map(([key]) => key);
+      expect(touchedKeys).not.toContain('convoy_access_token');
+      expect(mockAsyncStorageMultiRemoveSpy.mock.calls.flat(2)).not.toContain(
+        'convoy_access_token',
+      );
     });
 
     it('clears the auth store after signing out', async () => {
@@ -690,5 +704,68 @@ describe('AuthService.signOut — per-account cleanup beyond the stores', () => 
     // on their profile/garage edits (Req 34) with no way to clear it.
     expect(useMotionStore.getState().isInMotion).toBe(false);
     expect(sharedMotionState.state).toBe('parked');
+  });
+
+  // ---------------------------------------------------------------
+  // Cross-account replay: there are THREE queues that outlive sign-out, and
+  // only the SQLite one was being cleared. The other two persist to
+  // AsyncStorage and carry NO auth header of their own — apiClient injects
+  // whatever bearer token is current when they drain — so anything still in
+  // them after A signs out is sent as, and recorded against, account B.
+  // ---------------------------------------------------------------
+  it('clears the offline request queue so queued writes are not replayed as the next account', async () => {
+    const service = await getAuthService();
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { offlineQueue } = require('./OfflineQueueService') as typeof import('./OfflineQueueService');
+
+    // A reports a speed camera and votes on a hazard while in a dead zone.
+    await offlineQueue.enqueue({
+      method: 'POST',
+      url: '/api/v1/speed-cameras',
+      body: { type: 'fixed' },
+      headers: {},
+    });
+    await offlineQueue.enqueue({
+      method: 'POST',
+      url: '/api/v1/speed-cameras/cam-1/vote',
+      body: { vote: 'up' },
+      headers: {},
+    });
+    expect(offlineQueue.size).toBe(2);
+
+    await service.signOut();
+
+    // Both the in-memory queue and its persisted copy must go: B signing in on
+    // this phone would otherwise become the reporter of A's speed camera and
+    // the author of A's vote.
+    expect(offlineQueue.size).toBe(0);
+    expect(mockAsyncStorageRemoveItemSpy).toHaveBeenCalledWith('@convoy/offline_request_queue');
+  });
+
+  it('clears the analytics queue, in memory as well as on disk', async () => {
+    const service = await getAuthService();
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { analytics } = require('./AnalyticsService') as typeof import('./AnalyticsService');
+
+    analytics.track({ name: 'group_created', props: {} });
+    analytics.track({ name: 'friend_added', props: {} });
+
+    await service.signOut();
+
+    expect(mockAsyncStorageRemoveItemSpy).toHaveBeenCalledWith('@convoy/analytics_queue');
+
+    // Clearing only the storage key is not enough — the singleton outlives
+    // sign-out, so A's events would still be in memory for B's next track() to
+    // persist straight back. Proven via flush(): with the queue truly empty it
+    // is a no-op, so nothing is POSTed under B's token.
+    mockAsyncStorageSetItemSpy.mockClear();
+    const postSpy = jest.fn().mockResolvedValue({ data: {} });
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { apiClient } = require('./apiClient') as { apiClient: { post: unknown } };
+    apiClient.post = postSpy;
+
+    await analytics.flush();
+
+    expect(postSpy).not.toHaveBeenCalled();
   });
 });
