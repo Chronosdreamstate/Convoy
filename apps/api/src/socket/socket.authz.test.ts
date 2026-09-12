@@ -19,6 +19,7 @@ import type { Server as SocketIO, Socket } from 'socket.io';
 import {
   CONVOY_ALERT_MAX_MESSAGE_CHARS,
   filterVisiblePresenceIds,
+  handleSosAcknowledge,
   registerSocketHandlers,
   IoBroadcaster,
 } from './socket.handler';
@@ -33,6 +34,7 @@ interface Emission {
   data: unknown;
 }
 
+/** Global (roomless) emits are logged with room '*' — hazard broadcasts use them. */
 function buildMockIO(log: Emission[]): IoBroadcaster {
   return {
     to: (room: string) => ({
@@ -40,7 +42,10 @@ function buildMockIO(log: Emission[]): IoBroadcaster {
         log.push({ room, event, data });
       },
     }),
-  };
+    emit: (event: string, data: unknown) => {
+      log.push({ room: '*', event, data });
+    },
+  } as IoBroadcaster;
 }
 
 type QueryResult = { rows: unknown[]; rowCount: number };
@@ -446,5 +451,322 @@ describe('convoy:alert — rejects payloads the shipped client never sends', () 
     });
     expect(alerts).toHaveLength(0);
     expect(inserts).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// sos:acknowledge — the life-safety path
+//
+// `sosId` is client-supplied and the pin lives 2h, so routing off the pin alone
+// let anyone who had ever seen the alert keep relaying "help is on the way".
+// ---------------------------------------------------------------------------
+
+describe("sos:acknowledge — only the alert's own audience may acknowledge it", () => {
+  /**
+   * @param authorized whether the membership / friendship lookup finds a row.
+   */
+  function ackDb(authorized: boolean, calls: string[] = []): Pool {
+    return {
+      query: async (sql: string) => {
+        calls.push(sql);
+        if (sql.includes('FROM convoy_members') || sql.includes('FROM friendships')) {
+          return authorized ? { rows: [{}], rowCount: 1 } : { rows: [], rowCount: 0 };
+        }
+        if (sql.includes('SELECT display_name, ptt_callsign FROM users')) {
+          return { rows: [{ display_name: 'Real Responder', ptt_callsign: null }], rowCount: 1 };
+        }
+        return { rows: [], rowCount: 1 };
+      },
+    } as unknown as Pool;
+  }
+
+  const groupPin = (groupId: string, ownerId: string) =>
+    ({
+      get: async (key: string) =>
+        key === 'sos:sos-1' ? JSON.stringify({ userId: ownerId, groupId }) : null,
+      set: async () => 'OK',
+    }) as unknown as Redis;
+
+  const standalonePin = (ownerId: string) =>
+    ({
+      get: async (key: string) =>
+        key === 'sos:sos-2' ? JSON.stringify({ userId: ownerId, groupId: null }) : null,
+      set: async () => 'OK',
+    }) as unknown as Redis;
+
+  it("drops an ack from someone who has left the pin's group", async () => {
+    const log: Emission[] = [];
+    const calls: string[] = [];
+    await handleSosAcknowledge({
+      sosId: 'sos-1',
+      ackUserId: 'ex-member',
+      groupId: '',
+      redis: groupPin('pin-group', 'owner-1'),
+      db: ackDb(false, calls),
+      io: buildMockIO(log),
+    });
+
+    // Nothing relayed into the group they no longer belong to…
+    expect(log).toHaveLength(0);
+    // …and no sos_hero credit for an ack that never happened.
+    expect(calls.some((s) => s.includes('user_stat_counters'))).toBe(false);
+  });
+
+  it("relays an ack from a member who is still in the pin's group", async () => {
+    const log: Emission[] = [];
+    await handleSosAcknowledge({
+      sosId: 'sos-1',
+      ackUserId: 'member-1',
+      groupId: 'pin-group',
+      redis: groupPin('pin-group', 'owner-1'),
+      db: ackDb(true),
+      io: buildMockIO(log),
+    });
+
+    expect(log).toHaveLength(1);
+    expect(log[0].room).toBe('group:pin-group');
+  });
+
+  it("drops a standalone-SOS ack from someone who is not the owner's friend", async () => {
+    const log: Emission[] = [];
+    await handleSosAcknowledge({
+      sosId: 'sos-2',
+      ackUserId: 'stranger',
+      groupId: '',
+      redis: standalonePin('owner-2'),
+      db: ackDb(false),
+      io: buildMockIO(log),
+    });
+
+    expect(log).toHaveLength(0);
+  });
+
+  it('relays a standalone-SOS ack from an accepted friend', async () => {
+    const log: Emission[] = [];
+    await handleSosAcknowledge({
+      sosId: 'sos-2',
+      ackUserId: 'friend-1',
+      groupId: '',
+      redis: standalonePin('owner-2'),
+      db: ackDb(true),
+      io: buildMockIO(log),
+    });
+
+    expect(log).toHaveLength(1);
+    expect(log[0].room).toBe('user:owner-2');
+  });
+
+  it('ignores the payload memberName and names the responder from the DB', async () => {
+    const log: Emission[] = [];
+    const query: QueryFn = async (sql) => {
+      if (sql.includes('SELECT id FROM convoy_members')) return { rows: [{ id: 'm1' }], rowCount: 1 };
+      if (sql.includes('SELECT type FROM convoy_groups')) return { rows: [{ type: 'group' }], rowCount: 1 };
+      if (sql.includes('FROM convoy_members')) return { rows: [{}], rowCount: 1 };
+      if (sql.includes('SELECT display_name, ptt_callsign FROM users')) {
+        return { rows: [{ display_name: 'Real Responder', ptt_callsign: null }], rowCount: 1 };
+      }
+      return { rows: [], rowCount: 1 };
+    };
+    const redis = {
+      ...(mockRedis() as unknown as Record<string, unknown>),
+      get: async (key: string) =>
+        key === 'sos:sos-1' ? JSON.stringify({ userId: 'owner-1', groupId: 'g1' }) : null,
+      set: async () => 'OK',
+    } as unknown as Redis;
+
+    const handler = registerSocketHandlers(
+      mockFastify(query, redis),
+      buildMockIO(log) as unknown as SocketIO,
+    );
+    const socket = new MockSocket('sock-sos', { userId: 'u-acker', groupId: 'g1' });
+    handler(socket as unknown as Socket);
+    await flush();
+
+    log.length = 0; // drop connect-time presence emits
+    // A rider in trouble sees "<name> is on the way" — that name must not be
+    // whatever the acknowledging client typed.
+    socket.trigger('sos:acknowledge', { sosId: 'sos-1', memberName: 'Trusted Admin' });
+    await flush();
+    await flush();
+    await flush();
+
+    const acks = log.filter((e) => e.event === 'sos:acknowledged');
+    expect(acks).toHaveLength(1);
+    expect(acks[0].data).toEqual({
+      sosId: 'sos-1',
+      memberName: 'Real Responder',
+      acknowledgedBy: 'u-acker',
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// waypoint:reached — the waypoint must be one of this group's own
+// ---------------------------------------------------------------------------
+
+describe('waypoint:reached — relays only real waypoints of this group', () => {
+  function waypointHarness(stored: { type: string | null } | null) {
+    const query: QueryFn = async (sql) => {
+      if (sql.includes('SELECT id FROM convoy_members')) return { rows: [{ id: 'm1' }], rowCount: 1 };
+      if (sql.includes('SELECT type FROM convoy_groups')) return { rows: [{ type: 'group' }], rowCount: 1 };
+      if (sql.includes('jsonb_array_elements')) {
+        return stored ? { rows: [stored], rowCount: 1 } : { rows: [], rowCount: 0 };
+      }
+      return { rows: [], rowCount: 0 };
+    };
+    const handler = registerSocketHandlers(
+      mockFastify(query, mockRedis()),
+      buildMockIO([]) as unknown as SocketIO,
+    );
+    const socket = new MockSocket('sock-wp', { userId: 'u-wp', groupId: 'g1' });
+    handler(socket as unknown as Socket);
+    return socket;
+  }
+
+  it('drops an invented waypointId instead of toasting the whole convoy', async () => {
+    const socket = waypointHarness(null);
+    await flush();
+
+    socket.trigger('waypoint:reached', { waypointId: 'made-up', type: 'photo_stop', groupId: 'g1' });
+    await flush();
+    await flush();
+
+    expect(socket.emissions.filter((e) => e.event === 'waypoint:reached')).toHaveLength(0);
+  });
+
+  it("relays the stored waypoint type, not the payload's", async () => {
+    const socket = waypointHarness({ type: 'waypoint' });
+    await flush();
+
+    // MapScreen picks its toast wording off `type`, so a member could otherwise
+    // relabel a plain waypoint as a photo stop.
+    socket.trigger('waypoint:reached', {
+      waypointId: 'wp-1',
+      type: 'photo_stop',
+      message: 'Reached: Summit',
+      groupId: 'g1',
+    });
+    await flush();
+    await flush();
+
+    const relays = socket.emissions.filter((e) => e.event === 'waypoint:reached');
+    expect(relays).toHaveLength(1);
+    expect(relays[0].room).toBe('group:g1');
+    expect(relays[0].data).toEqual({
+      waypointId: 'wp-1',
+      type: 'waypoint',
+      message: 'Reached: Summit',
+      userId: 'u-wp',
+    });
+  });
+
+  it('drops an oversized message but still relays the arrival', async () => {
+    const socket = waypointHarness({ type: 'photo_stop' });
+    await flush();
+
+    socket.trigger('waypoint:reached', { waypointId: 'wp-1', message: 'x'.repeat(201) });
+    await flush();
+    await flush();
+
+    const relays = socket.emissions.filter((e) => e.event === 'waypoint:reached');
+    expect(relays).toHaveLength(1);
+    expect(relays[0].data).toMatchObject({ type: 'photo_stop', message: undefined });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// hazard:vote — a counter moves only when the vote row that justifies it did
+// ---------------------------------------------------------------------------
+
+describe('hazard:vote — counters follow the vote row, not the emit', () => {
+  /**
+   * @param existingVote the voter's current row ('confirm' | 'dismiss' | null)
+   * @param insertWins   whether the INSERT actually creates a row (false = lost
+   *                     the race to a concurrent emit and hit ON CONFLICT)
+   */
+  function voteHarness(existingVote: string | null, insertWins: boolean) {
+    const writes: string[] = [];
+    const query: QueryFn = async (sql) => {
+      if (sql.includes('SELECT id FROM convoy_members')) return { rows: [{ id: 'm1' }], rowCount: 1 };
+      if (sql.includes('SELECT type FROM convoy_groups')) return { rows: [{ type: 'group' }], rowCount: 1 };
+      if (sql.includes('SELECT id, confirmation_count')) {
+        return { rows: [{ id: 'h1', confirmation_count: 0, dismissal_count: 0 }], rowCount: 1 };
+      }
+      if (sql.includes('SELECT vote FROM hazard_votes')) {
+        return existingVote
+          ? { rows: [{ vote: existingVote }], rowCount: 1 }
+          : { rows: [], rowCount: 0 };
+      }
+      if (sql.includes('INSERT INTO hazard_votes')) {
+        writes.push(sql);
+        return { rows: [], rowCount: insertWins ? 1 : 0 };
+      }
+      if (sql.includes('UPDATE hazard_votes') || sql.includes('UPDATE hazard_reports')) {
+        writes.push(sql);
+        return { rows: [], rowCount: 1 };
+      }
+      if (sql.includes('SELECT confirmation_count, dismissal_count')) {
+        return { rows: [{ confirmation_count: 1, dismissal_count: 0 }], rowCount: 1 };
+      }
+      return { rows: [], rowCount: 0 };
+    };
+    const handler = registerSocketHandlers(
+      mockFastify(query, mockRedis()),
+      buildMockIO([]) as unknown as SocketIO,
+    );
+    const socket = new MockSocket('sock-vote', { userId: 'u-voter', groupId: 'g1' });
+    handler(socket as unknown as Socket);
+    return { socket, writes };
+  }
+
+  const counterUpdates = (writes: string[]) =>
+    writes.filter((s) => s.includes('UPDATE hazard_reports') && s.includes('confirmation_count ='));
+
+  it('counts the vote when the INSERT wins', async () => {
+    const { socket, writes } = voteHarness(null, true);
+    await flush();
+
+    socket.trigger('hazard:vote', { hazardId: 'h1', vote: 'up' });
+    for (let i = 0; i < 8; i++) await flush();
+
+    expect(counterUpdates(writes)).toHaveLength(1);
+  });
+
+  it('does NOT count a second concurrent emit whose INSERT hit ON CONFLICT', async () => {
+    // Both emits read "no existing vote" (the SELECT and the write are separate
+    // round-trips); only one INSERT actually creates a row. Pre-fix BOTH
+    // incremented confirmation_count — one vote row, two confirmations.
+    const { socket, writes } = voteHarness(null, false);
+    await flush();
+
+    socket.trigger('hazard:vote', { hazardId: 'h1', vote: 'up' });
+    for (let i = 0; i < 8; i++) await flush();
+
+    expect(writes.some((s) => s.includes('INSERT INTO hazard_votes'))).toBe(true);
+    expect(counterUpdates(writes)).toHaveLength(0);
+  });
+
+  it('a first confirmation re-arms the 30-minute expiry', async () => {
+    const { socket, writes } = voteHarness(null, true);
+    await flush();
+
+    socket.trigger('hazard:vote', { hazardId: 'h1', vote: 'up' });
+    for (let i = 0; i < 8; i++) await flush();
+
+    expect(counterUpdates(writes)[0]).toContain('expires_at');
+  });
+
+  it('flipping a dismissal to a confirmation does NOT re-arm the expiry', async () => {
+    // Alternating down/up is unlimited on this path, and every up-vote used to
+    // reset expires_at — one user could pin a hazard on every map indefinitely.
+    const { socket, writes } = voteHarness('dismiss', true);
+    await flush();
+
+    socket.trigger('hazard:vote', { hazardId: 'h1', vote: 'up' });
+    for (let i = 0; i < 8; i++) await flush();
+
+    const updates = counterUpdates(writes);
+    expect(updates).toHaveLength(1);
+    expect(updates[0]).not.toContain('expires_at');
   });
 });

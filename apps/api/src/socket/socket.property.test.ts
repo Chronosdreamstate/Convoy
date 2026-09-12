@@ -991,15 +991,22 @@ describe('SOS acknowledgment routing', () => {
     } as unknown as Redis;
   }
 
+  /**
+   * Authorizes every check (membership / friendship) and resolves the
+   * acknowledger's name — the routing assertions below are about WHICH room the
+   * relay targets, not about who is allowed to send it (socket.authz.test.ts
+   * covers that).
+   */
   function buildStatDb(): Pool {
-    return { query: async () => ({ rows: [], rowCount: 1 }) } as unknown as Pool;
+    return {
+      query: async () => ({ rows: [{ display_name: 'Alice', ptt_callsign: null }], rowCount: 1 }),
+    } as unknown as Pool;
   }
 
   it('group SOS: ack is broadcast to the PINs group room, not the acknowledgers', async () => {
     const log: Emission[] = [];
     await handleSosAcknowledge({
       sosId: 'sos-1',
-      memberName: 'Alice',
       ackUserId: 'acker-1',
       groupId: 'acker-group',
       redis: buildSosRedis({

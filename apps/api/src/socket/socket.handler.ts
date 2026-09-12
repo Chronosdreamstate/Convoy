@@ -447,10 +447,25 @@ export async function handlePttEnd(params: {
 //     learned anyone had seen it (Req 25.5/25.7).
 // When the pin has already expired from Redis, fall back to the acknowledger's
 // own group room (the pre-fix behavior) so an in-convoy ack still relays.
+//
+// Authorization is per-event, against the PIN — not against the socket. `sosId`
+// is client-supplied and the pin lives for 2h, so routing off the pin alone let
+// anyone who had ever seen an `sos:alert` keep relaying "help is on the way"
+// into that group for the rest of the pin's life — including a member who
+// received the alert and then LEFT the convoy. On the life-safety path a stale
+// or hostile "someone is coming" is the worst possible failure, so the
+// acknowledger must still be in the audience the alert was sent to:
+//   - group SOS      → an active member of the pin's group;
+//   - standalone SOS → an accepted friend of the pin's owner (exactly who
+//                      POST /sos emitted `sos:alert` to), or the owner.
+// `memberName` is likewise derived from the DB rather than the payload: the
+// client used to send the name it wanted displayed, and while MapScreen prefers
+// its own trusted member-name map, that map is empty for a standalone friend
+// SOS — so the spoofable string was what actually rendered as "X is on the way"
+// to a person in an emergency.
 // ---------------------------------------------------------------------------
 export async function handleSosAcknowledge(params: {
   sosId: string;
-  memberName?: string;
   ackUserId: string;
   /** The acknowledging socket's resolved groupId ('' when not in a convoy). */
   groupId: string;
@@ -458,8 +473,7 @@ export async function handleSosAcknowledge(params: {
   db: Pool;
   io: IoBroadcaster;
 }): Promise<void> {
-  const { sosId, memberName, ackUserId, groupId, redis, db, io } = params;
-  const payload = { sosId, memberName, acknowledgedBy: ackUserId };
+  const { sosId, ackUserId, groupId, redis, db, io } = params;
 
   let sos: { userId?: string; groupId?: string | null } | null = null;
   try {
@@ -468,10 +482,43 @@ export async function handleSosAcknowledge(params: {
   } catch { /* fall through to the acknowledger's group room below */ }
 
   if (sos?.groupId) {
+    const member = await db.query(
+      `SELECT 1 FROM convoy_members
+       WHERE group_id = $1 AND user_id = $2 AND left_at IS NULL`,
+      [sos.groupId, ackUserId],
+    );
+    if ((member.rowCount ?? 0) === 0) return;
+  } else if (sos?.userId && sos.userId !== ackUserId) {
+    const friend = await db.query(
+      `SELECT 1 FROM friendships
+       WHERE status = 'accepted'
+         AND ((requester_id = $1 AND addressee_id = $2)
+           OR (requester_id = $2 AND addressee_id = $1))`,
+      [ackUserId, sos.userId],
+    );
+    if ((friend.rowCount ?? 0) === 0) return;
+  }
+
+  // Same source as rally.routes' `senderName` on the alert itself, so both
+  // halves of the exchange name people the same way.
+  const ackNameResult = await db.query<{ display_name: string; ptt_callsign: string | null }>(
+    'SELECT display_name, ptt_callsign FROM users WHERE id = $1',
+    [ackUserId],
+  );
+  const ackName = ackNameResult.rows[0];
+  const payload = {
+    sosId,
+    memberName: ackName?.ptt_callsign ?? ackName?.display_name ?? undefined,
+    acknowledgedBy: ackUserId,
+  };
+
+  if (sos?.groupId) {
     io.to(`group:${sos.groupId}`).emit('sos:acknowledged', payload);
   } else if (sos?.userId) {
     io.to(`user:${sos.userId}`).emit('sos:acknowledged', payload);
   } else if (groupId) {
+    // Expired pin: the only room left is the acknowledger's own convoy, which
+    // the connect-time membership check already authorized.
     io.to(`group:${groupId}`).emit('sos:acknowledged', payload);
   }
 
@@ -1224,45 +1271,53 @@ export function registerSocketHandlers(
           [hazardId, userId],
         );
 
-        // Confirming resets the expiry timer to 30 minutes from now (Req 11.5).
-        // This handler is the live app's actual vote path (MapScreen emits
-        // 'hazard:vote', not the REST /confirm endpoint), so without this the
-        // expiry reset described in Req 11.5 never happens in production.
-        const expiresAt = computeExpiresAt(Date.now());
-
+        // Every counter change below is applied ONLY when the hazard_votes write
+        // that justifies it actually changed a row. The SELECT above and the
+        // write are two round-trips, so two emits from the same user (a
+        // double-tap, or a client retry) both saw "no existing vote", both ran
+        // the INSERT — one of which hit ON CONFLICT DO NOTHING — and both then
+        // incremented the counter unconditionally: two confirmations from a
+        // single vote row, visible to every client as an inflated tally and
+        // able to push dismissal_count past the auto-dismiss threshold of 3 on
+        // its own. Gating on rowCount makes the increment conditional on
+        // winning the write.
         if (existing.rows[0]) {
           if (existing.rows[0].vote === dbVote) return; // same vote, no-op
-          // Changed vote — decrement old, increment new
-          await fastify.db.query(
-            `UPDATE hazard_votes SET vote = $3 WHERE hazard_id = $1 AND user_id = $2`,
+          // Changed vote — decrement old, increment new. `AND vote <> $3` makes
+          // the flip idempotent under the same race.
+          const flipped = await fastify.db.query(
+            `UPDATE hazard_votes SET vote = $3
+             WHERE hazard_id = $1 AND user_id = $2 AND vote <> $3`,
             [hazardId, userId, dbVote],
           );
-          if (vote === 'up') {
-            await fastify.db.query(
-              `UPDATE hazard_reports
-               SET ${countCol} = ${countCol} + 1, ${reverseCol} = GREATEST(${reverseCol} - 1, 0),
-                   expires_at = $2, updated_at = now()
-               WHERE id = $1`,
-              [hazardId, expiresAt],
-            );
-          } else {
-            await fastify.db.query(
-              `UPDATE hazard_reports
-               SET ${countCol} = ${countCol} + 1, ${reverseCol} = GREATEST(${reverseCol} - 1, 0),
-                   updated_at = now()
-               WHERE id = $1`,
-              [hazardId],
-            );
-          }
-        } else {
+          if ((flipped.rowCount ?? 0) === 0) return;
+          // Note: NO expires_at reset here, unlike a first-time confirm below.
+          // Flipping is unlimited on this path, and each up-vote used to re-arm
+          // the 30-minute timer — so one user alternating down/up could keep a
+          // hazard pinned on every map in the app indefinitely. A change of mind
+          // is not fresh corroboration; this also matches the REST endpoints,
+          // which allow one vote per user per hazard and no revision at all.
           await fastify.db.query(
+            `UPDATE hazard_reports
+             SET ${countCol} = ${countCol} + 1, ${reverseCol} = GREATEST(${reverseCol} - 1, 0),
+                 updated_at = now()
+             WHERE id = $1`,
+            [hazardId],
+          );
+        } else {
+          const inserted = await fastify.db.query(
             `INSERT INTO hazard_votes (hazard_id, user_id, vote) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
             [hazardId, userId, dbVote],
           );
+          if ((inserted.rowCount ?? 0) === 0) return; // lost the race — the winner counted it
           if (vote === 'up') {
+            // A first confirmation resets the expiry to 30 minutes out (Req
+            // 11.5). This handler is the live app's actual vote path (MapScreen
+            // emits 'hazard:vote', not the REST /confirm endpoint), so without
+            // this the reset never happens in production.
             await fastify.db.query(
               `UPDATE hazard_reports SET ${countCol} = ${countCol} + 1, expires_at = $2, updated_at = now() WHERE id = $1`,
-              [hazardId, expiresAt],
+              [hazardId, computeExpiresAt(Date.now())],
             );
           } else {
             await fastify.db.query(
@@ -1366,14 +1421,15 @@ export function registerSocketHandlers(
     // alert and responded — as the "hero", and increment their counter here.
     // (The person who *raised* the SOS is not the one credited; this is about
     // group members responding to help someone else.)
+    // The payload's `memberName` is deliberately ignored — handleSosAcknowledge
+    // resolves the responder's name from the DB (see its header).
     socket.on('sos:acknowledge', (data: unknown) => {
-      const { sosId, memberName } = (data as { sosId?: string; memberName?: string }) ?? {};
+      const { sosId } = (data as { sosId?: string }) ?? {};
       if (!sosId) return;
       void whenReady().then((ok) => {
         if (!ok) return;
         handleSosAcknowledge({
           sosId,
-          memberName,
           ackUserId: userId,
           groupId,
           redis: fastify.redis,
@@ -1383,15 +1439,45 @@ export function registerSocketHandlers(
       });
     });
 
-    // waypoint:reached — relay waypoint arrival notification to group
+    // waypoint:reached — relay waypoint arrival notification to group.
+    //
+    // The waypoint must be one of THIS group's own waypoints (they live in
+    // convoy_groups.waypoints, a JSONB array written only by the admin-gated
+    // POST /groups/:id/waypoints). Nothing used to check that, so any member
+    // could fire a phantom "📸 photo stop!" / "reached a waypoint" toast at the
+    // whole convoy with an invented id. `type` is read off the stored waypoint
+    // too — MapScreen picks the toast wording from it, so trusting the payload
+    // let a member relabel a plain waypoint as a photo stop.
     socket.on('waypoint:reached', (data: unknown) => {
-      const { waypointId, type, message } =
-        (data as { waypointId?: string; type?: string; message?: string }) ?? {};
-      if (!waypointId) return;
-      void whenReady().then((ok) => {
-        if (!ok) return;
-        socket.to(`group:${groupId}`).emit('waypoint:reached', { waypointId, type, message, userId });
-      });
+      const { waypointId, message } =
+        (data as { waypointId?: string; message?: string }) ?? {};
+      if (!waypointId || typeof waypointId !== 'string') return;
+      void whenReady()
+        .then(async (ok) => {
+          if (!ok || !groupId) return;
+          const waypoint = await fastify.db.query<{ type: string | null }>(
+            `SELECT w->>'type' AS type
+             FROM convoy_groups g, LATERAL jsonb_array_elements(g.waypoints) AS w
+             WHERE g.id = $1 AND w->>'id' = $2
+             LIMIT 1`,
+            [groupId, waypointId],
+          );
+          if (waypoint.rows.length === 0) return;
+          // `message` is composed on the sender's device and MapScreen
+          // deliberately ignores it (it builds its own text from `type`), but it
+          // is still fanned out to the group — bound it rather than relaying an
+          // arbitrary-length client string. The client's own longest message is
+          // ~55 chars.
+          const relayMessage =
+            typeof message === 'string' && message.length <= 200 ? message : undefined;
+          socket.to(`group:${groupId}`).emit('waypoint:reached', {
+            waypointId,
+            type: waypoint.rows[0].type ?? 'waypoint',
+            message: relayMessage,
+            userId,
+          });
+        })
+        .catch((err: unknown) => fastify.log.error({ err }, 'waypoint reached error'));
     });
 
     // Notify group on disconnect and clean up Redis presence (Req 8.3)
