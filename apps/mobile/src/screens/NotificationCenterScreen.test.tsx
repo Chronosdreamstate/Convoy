@@ -15,6 +15,7 @@
 
 import React from 'react';
 import TestRenderer, { act, ReactTestInstance } from 'react-test-renderer';
+import { AppState, Text } from 'react-native';
 import { useMotionStore } from '../stores/motionStore';
 
 // ---------------------------------------------------------------------------
@@ -42,7 +43,7 @@ jest.mock('../hooks/useReduceMotion', () => ({
 }));
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import NotificationCenterScreen from './NotificationCenterScreen';
+import NotificationCenterScreen, { NotificationItem, useTickingNow } from './NotificationCenterScreen';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -190,6 +191,102 @@ describe('NotificationCenterScreen — deep links', () => {
     await act(async () => { row.props.onPress(); });
 
     expect(mockRouterPush).toHaveBeenCalledWith('/group/g-9');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Relative ages. "3s ago" is a promise that the number means something now —
+// a row that arrives while the center is open has to keep counting.
+// ---------------------------------------------------------------------------
+
+describe('NotificationCenterScreen — ticking ages', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date(2026, 8, 12, 14, 0, 0));
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('keeps a row\'s age label up to date while the screen sits open', async () => {
+    // The age used to be computed once per render against Date.now(), and
+    // nothing re-rendered on a clock: an SOS that landed while the center was
+    // open said "0s ago" for as long as the user kept looking at it.
+    const renderer = await renderScreen([notification({ id: 'n-1', title: 'Notif 1' })]);
+    expect(hasText(renderer.root, '0s ago')).toBe(true);
+
+    await act(async () => { jest.advanceTimersByTime(5_000); });
+    expect(hasText(renderer.root, '5s ago')).toBe(true);
+
+    await act(async () => { jest.advanceTimersByTime(60_000); });
+    expect(hasText(renderer.root, '1m ago')).toBe(true);
+  });
+
+  it('stops ticking while the app is backgrounded and resyncs on return', async () => {
+    let onAppStateChange: ((state: string) => void) | undefined;
+    jest.spyOn(AppState, 'addEventListener').mockImplementation((_event, cb) => {
+      onAppStateChange = cb as (state: string) => void;
+      return { remove: jest.fn() } as unknown as ReturnType<typeof AppState.addEventListener>;
+    });
+
+    const renderer = await renderScreen([notification({ id: 'n-1', title: 'Notif 1' })]);
+    await act(async () => { jest.advanceTimersByTime(5_000); });
+    expect(hasText(renderer.root, '5s ago')).toBe(true);
+
+    // Backgrounded: repainting a list nobody can see is pure battery.
+    await act(async () => { onAppStateChange?.('background'); });
+    await act(async () => { jest.advanceTimersByTime(120_000); });
+    expect(hasText(renderer.root, '5s ago')).toBe(true);
+
+    // ...but the first frame the user sees again is current, not two minutes stale.
+    await act(async () => { onAppStateChange?.('active'); });
+    expect(hasText(renderer.root, '2m ago')).toBe(true);
+  });
+});
+
+describe('useTickingNow', () => {
+  function Harness({ items }: { items: NotificationItem[] }) {
+    return <Text>{String(useTickingNow(items))}</Text>;
+  }
+
+  /**
+   * Ids of the timers the clock scheduled for itself. React and RN schedule
+   * timers of their own in this environment, so they're picked out by the two
+   * cadences tickDelayMs can return rather than by counting pending timers.
+   */
+  const TICK_DELAYS = [1_000, 60_000];
+  function tickTimerIds(setSpy: jest.SpyInstance): unknown[] {
+    return setSpy.mock.calls
+      .map((call, i) => (TICK_DELAYS.includes(call[1] as number) ? setSpy.mock.results[i].value : undefined))
+      .filter((id) => id !== undefined);
+  }
+
+  beforeEach(() => { jest.useFakeTimers(); });
+  afterEach(() => { jest.useRealTimers(); });
+
+  it('takes its timer with it when the screen goes away', async () => {
+    const setSpy = jest.spyOn(global, 'setTimeout');
+    const clearSpy = jest.spyOn(global, 'clearTimeout');
+
+    let renderer!: TestRenderer.ReactTestRenderer;
+    await act(async () => {
+      renderer = TestRenderer.create(
+        <Harness items={[notification({ id: 'n-1', title: 'Notif 1' }) as NotificationItem]} />,
+      );
+    });
+    const scheduled = tickTimerIds(setSpy);
+    expect(scheduled).toHaveLength(1);
+
+    await act(async () => { renderer.unmount(); });
+    expect(clearSpy).toHaveBeenCalledWith(scheduled[0]);
+  });
+
+  it('schedules nothing at all for an empty list', async () => {
+    const setSpy = jest.spyOn(global, 'setTimeout');
+    await act(async () => { TestRenderer.create(<Harness items={[]} />); });
+
+    expect(tickTimerIds(setSpy)).toEqual([]);
   });
 });
 

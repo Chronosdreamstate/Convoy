@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Alert,
   Animated,
+  AppState,
   Modal,
   ScrollView,
   StyleSheet,
@@ -279,6 +280,13 @@ export default function IdleMapScreen() {
   // Set once the first proximity-scoped hazard backfill has fired, so the GPS
   // watch callback (every ~2s) doesn't refetch repeatedly (mirrors MapScreen).
   const hazardBackfillDoneRef = useRef(false);
+  // True while the screen is mounted. Both centering passes — the one at mount
+  // and the one the prescreen's "Allow" kicks off — await a permission prompt
+  // and then a GPS fix, either of which can resolve long after the rider has
+  // moved on, so both check this rather than each carrying its own flag (the
+  // prescreen's copy was a fresh object that was never flipped false at all).
+  const mountedRef = useRef(true);
+  useEffect(() => () => { mountedRef.current = false; }, []);
 
   // Animations
   const pulseOpacity = useRef(new Animated.Value(1)).current;
@@ -326,28 +334,41 @@ export default function IdleMapScreen() {
   // Welcome toast (reduce-motion: no fade — appear/disappear instantly, same timing)
   useEffect(() => {
     const fade = reduceMotion ? 0 : 400;
-    Animated.sequence([
+    const toast = Animated.sequence([
       Animated.timing(toastAnim, { toValue: 1, duration: fade, useNativeDriver: true }),
       Animated.delay(2200),
       Animated.timing(toastAnim, { toValue: 0, duration: fade, useNativeDriver: true }),
-    ]).start(() => setShowToast(false));
+    ]);
+    toast.start(() => setShowToast(false));
+    // Three seconds is easily long enough to tap straight through into a
+    // convoy, so the sequence has to come with us: left running it keeps
+    // driving a value on a dead tree and setStates from its completion callback.
+    return () => toast.stop();
   }, [toastAnim, reduceMotion]);
 
   // Idle engagement after 30s
   useEffect(() => {
+    // The suggestion is a ~5.7s sequence started from INSIDE the timer, so
+    // clearing the timer alone isn't enough — leaving after it has fired has to
+    // stop the animation too (same reason as the welcome toast above).
+    let suggestion: Animated.CompositeAnimation | null = null;
     idleTimerRef.current = setTimeout(() => {
       if (!isSuggestionShown.current) {
         isSuggestionShown.current = true;
         setShowSuggestion(true);
         const fade = reduceMotion ? 0 : 350;
-        Animated.sequence([
+        suggestion = Animated.sequence([
           Animated.timing(suggestionAnim, { toValue: 1, duration: fade, useNativeDriver: true }),
           Animated.delay(5000),
           Animated.timing(suggestionAnim, { toValue: 0, duration: fade, useNativeDriver: true }),
-        ]).start(() => setShowSuggestion(false));
+        ]);
+        suggestion.start(() => setShowSuggestion(false));
       }
     }, 30000);
-    return () => { if (idleTimerRef.current) clearTimeout(idleTimerRef.current); };
+    return () => {
+      if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+      suggestion?.stop();
+    };
   }, [suggestionAnim, reduceMotion]);
 
   // Animate selected group card (snap to target under reduce-motion)
@@ -518,11 +539,29 @@ export default function IdleMapScreen() {
       }
     };
 
-    poll();
-    const interval = setInterval(poll, 20000);
+    let interval: ReturnType<typeof setInterval> | null = null;
+    const stop = () => {
+      if (interval) { clearInterval(interval); interval = null; }
+    };
+    const start = () => {
+      if (interval) return;
+      void poll();
+      interval = setInterval(poll, 20000);
+    };
+
+    start();
+    // A 20s network poll behind a backgrounded app spends battery and data
+    // refreshing an overlay nobody can see — and the pins would be stale by the
+    // time anyone did, so they're refetched on the way back in instead.
+    const appStateSub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') start();
+      else stop();
+    });
+
     return () => {
       cancelled = true;
-      clearInterval(interval);
+      stop();
+      appStateSub.remove();
     };
   }, [token]);
 
@@ -690,7 +729,12 @@ export default function IdleMapScreen() {
 
   const startLiveLocation = useCallback(async () => {
     try {
-      locationSubRef.current = await ExpoLocation.watchPositionAsync(
+      // Granting permission from the prescreen runs the same centering path a
+      // second time; without this the first watch is overwritten in the ref and
+      // ticks on forever with nothing left holding a handle to remove it.
+      locationSubRef.current?.remove();
+      locationSubRef.current = null;
+      const sub = await ExpoLocation.watchPositionAsync(
         { accuracy: ExpoLocation.Accuracy.Balanced, timeInterval: 2000, distanceInterval: 5 },
         (loc) => {
           myLocationRef.current = { lat: loc.coords.latitude, lng: loc.coords.longitude };
@@ -722,19 +766,28 @@ export default function IdleMapScreen() {
           }
         },
       );
+      // The screen can be gone by the time the OS hands back a subscription —
+      // the unmount cleanup has already run, so stashing it in the ref now
+      // would leave a GPS watch running for the rest of the session with
+      // nothing left holding a handle to remove it.
+      if (!mountedRef.current) {
+        sub.remove();
+        return;
+      }
+      locationSubRef.current = sub;
     } catch {
       // non-fatal — HUD just stays hidden
     }
   }, []);
 
-  const requestLocationAndCenter = async (mounted: { current: boolean }) => {
+  const requestLocationAndCenter = async () => {
     const { status } = await ExpoLocation.requestForegroundPermissionsAsync();
-    if (!mounted.current || status !== 'granted') {
-      if (mounted.current) setLocating(false);
+    if (!mountedRef.current || status !== 'granted') {
+      if (mountedRef.current) setLocating(false);
       return;
     }
     const loc = await ExpoLocation.getCurrentPositionAsync({ accuracy: ExpoLocation.Accuracy.Balanced });
-    if (!mounted.current) return;
+    if (!mountedRef.current) return;
     const { latitude, longitude } = loc.coords;
     myLocationRef.current = { lat: latitude, lng: longitude };
     const region = { latitude, longitude, latitudeDelta: 0.05, longitudeDelta: 0.05 };
@@ -751,19 +804,18 @@ export default function IdleMapScreen() {
   };
 
   useEffect(() => {
-    const mounted = { current: true };
     (async () => {
       const { status } = await ExpoLocation.getForegroundPermissionsAsync();
       if (status === 'granted') {
-        await requestLocationAndCenter(mounted);
+        await requestLocationAndCenter();
       } else {
         setLocating(false);
         setShowPrescreen(true);
       }
     })();
     return () => {
-      mounted.current = false;
       locationSubRef.current?.remove();
+      locationSubRef.current = null;
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -771,8 +823,7 @@ export default function IdleMapScreen() {
   const handlePrescreenAllow = async () => {
     setShowPrescreen(false);
     setLocating(true);
-    const mounted = { current: true };
-    await requestLocationAndCenter(mounted);
+    await requestLocationAndCenter();
   };
 
   const recenter = () => {

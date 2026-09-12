@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
+  AppState,
   RefreshControl,
   SafeAreaView,
   SectionList,
@@ -117,6 +118,78 @@ export function timeAgo(iso: string, nowMs: number = Date.now()): string {
 }
 
 /**
+ * How long until the labels `timeAgo` renders could next change.
+ *
+ * Only ages under a minute move every second; past that the coarsest thing on
+ * screen is minutes. So the list re-renders once a second ONLY while its
+ * freshest row is still inside its first minute — the ordinary case (an inbox
+ * of hour- and day-old rows) ticks once a minute instead of sixty times.
+ * Exported for tests.
+ */
+export function tickDelayMs(newestAtMs: number, nowMs: number): number {
+  return nowMs - newestAtMs < 60_000 ? 1_000 : 60_000;
+}
+
+/**
+ * A "now" that advances on its own, so the relative ages in the list stay
+ * honest while the screen sits open.
+ *
+ * `timeAgo` was evaluated once per render against `Date.now()`, and nothing
+ * re-rendered the rows on a clock: a notification that arrived while the center
+ * was open said "3s ago" and went on saying "3s ago" until some other state
+ * change happened to repaint it.
+ *
+ * The timer is a self-rescheduling timeout rather than a fixed interval so the
+ * cadence can follow the list (see tickDelayMs), it is torn down on unmount,
+ * and it does not run at all while the app is backgrounded — ticking there only
+ * burns battery repainting a list nobody can see. Returning to the foreground
+ * resyncs immediately so the first visible frame is already correct rather than
+ * however stale the last background frame was. Exported for tests.
+ */
+export function useTickingNow(items: NotificationItem[]): number {
+  const [nowMs, setNowMs] = useState(() => Date.now());
+
+  // The freshest row decides the cadence; recomputed only when the list moves.
+  const newestAt = useMemo(
+    () =>
+      items.reduce((max, n) => {
+        const t = new Date(n.createdAt).getTime();
+        return Number.isFinite(t) && t > max ? t : max;
+      }, Number.NEGATIVE_INFINITY),
+    [items],
+  );
+
+  useEffect(() => {
+    // Nothing on screen has an age to advance.
+    if (!Number.isFinite(newestAt)) return undefined;
+
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const stop = () => {
+      if (timer) { clearTimeout(timer); timer = null; }
+    };
+    const schedule = () => {
+      timer = setTimeout(() => {
+        setNowMs(Date.now());
+        schedule();
+      }, tickDelayMs(newestAt, Date.now()));
+    };
+
+    schedule();
+    const sub = AppState.addEventListener('change', (state) => {
+      stop();
+      if (state === 'active') {
+        setNowMs(Date.now());
+        schedule();
+      }
+    });
+
+    return () => { stop(); sub.remove(); };
+  }, [newestAt]);
+
+  return nowMs;
+}
+
+/**
  * Reconcile a fresh server page with local state. The server is the source of
  * truth for WHICH notifications exist, but local read-state is monotonic: a
  * notification the user already read on this device stays read even when the
@@ -220,9 +293,11 @@ interface RowProps {
   typeMeta: Record<NotificationType, { icon: IconSpec; bg: string }>;
   styles: Styles;
   colors: ThemeColors;
+  /** Ticking clock (see useTickingNow) — the row's age label is rendered against it. */
+  nowMs: number;
 }
 
-const NotificationRow = React.memo(function NotificationRow({ item, onPress, typeMeta, styles, colors }: RowProps) {
+const NotificationRow = React.memo(function NotificationRow({ item, onPress, typeMeta, styles, colors, nowMs }: RowProps) {
   const meta = typeMeta[item.type] ?? { icon: { family: 'ion' as const, name: 'notifications' as const }, bg: colors.card };
   const isUnread = item.readAt === null;
   const scaleAnim = useRef(new Animated.Value(1)).current;
@@ -261,7 +336,7 @@ const NotificationRow = React.memo(function NotificationRow({ item, onPress, typ
           <Text style={styles.rowBody} numberOfLines={2}>{item.body}</Text>
         </View>
 
-        <Text style={styles.rowTime}>{timeAgo(item.createdAt)}</Text>
+        <Text style={styles.rowTime}>{timeAgo(item.createdAt, nowMs)}</Text>
       </TouchableOpacity>
     </Animated.View>
   );
@@ -498,13 +573,16 @@ export default function NotificationCenterScreen() {
   // driving). Sections are built from the capped rows so the 4-row limit holds
   // across section boundaries; the full list returns the moment the car parks.
   const { data: visibleNotifications, hiddenCount } = useMotionCappedData(notifications);
-  const sections = buildSections(visibleNotifications);
+  // One clock for the whole screen: the row ages and the Today/This Week
+  // bucketing are both read off it, so they can never disagree mid-tick.
+  const nowMs = useTickingNow(notifications);
+  const sections = buildSections(visibleNotifications, nowMs);
 
   const renderNotificationItem = useCallback(
     ({ item }: { item: NotificationItem }) => (
-      <NotificationRow item={item} onPress={handlePress} typeMeta={typeMeta} styles={styles} colors={colors} />
+      <NotificationRow item={item} onPress={handlePress} typeMeta={typeMeta} styles={styles} colors={colors} nowMs={nowMs} />
     ),
-    [handlePress, typeMeta, styles, colors],
+    [handlePress, typeMeta, styles, colors, nowMs],
   );
 
   return (

@@ -57,7 +57,7 @@ jest.mock('../hooks/useReduceMotion', () => ({
   useReduceMotion: () => mockReduceMotion,
 }));
 
-import ConvoyEndScreen, { getWeekKey } from './ConvoyEndScreen';
+import ConvoyEndScreen, { getWeekKey, pruneOldWeeklyDrives } from './ConvoyEndScreen';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -169,6 +169,21 @@ describe('ConvoyEndScreen', () => {
     await renderScreen();
 
     expect(stagger).toHaveBeenCalled();
+  });
+
+  it('takes the confetti burst with it when the user leaves mid-celebration', async () => {
+    // "Done" is one tap away on this screen and the burst runs for ~3s, so
+    // leaving early is the normal case, not the edge one — the animation has to
+    // stop rather than keep driving values on an unmounted tree.
+    const stagger = jest.spyOn(Animated, 'stagger');
+    const renderer = await mountScreen();
+
+    const burst = stagger.mock.results[0].value as Animated.CompositeAnimation;
+    const stop = jest.spyOn(burst, 'stop');
+
+    await act(async () => { renderer.unmount(); });
+
+    expect(stop).toHaveBeenCalled();
   });
 });
 
@@ -296,5 +311,68 @@ describe('getWeekKey', () => {
     // Sunday 2026-09-13 still belongs to the week that began Monday the 7th.
     jest.setSystemTime(new Date(2026, 8, 13, 14, 0));
     expect(getWeekKey()).toBe('2026-09-07');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Weekly counter housekeeping. Only the current week's bucket is ever read, so
+// every other one is dead weight in AsyncStorage — and ending a convoy is the
+// only moment anything touches that key space.
+// ---------------------------------------------------------------------------
+
+const WEEK_PREFIX = 'convoy_weekly_drives_';
+
+async function weeklyKeys(): Promise<string[]> {
+  const keys = await AsyncStorage.getAllKeys();
+  return keys.filter((k) => k.startsWith(WEEK_PREFIX)).sort();
+}
+
+describe('weekly drive counters', () => {
+  beforeEach(async () => {
+    await AsyncStorage.clear();
+    // Wednesday of the week that starts Monday 2026-09-07.
+    jest.setSystemTime(new Date(2026, 8, 9, 12, 0));
+  });
+
+  it('drops counters left behind by weeks that have already ended', async () => {
+    // Two months of driving used to leave two months of keys: one row per week,
+    // forever, with nothing that ever read or removed them.
+    await AsyncStorage.setItem(`${WEEK_PREFIX}2026-08-24`, '5');
+    await AsyncStorage.setItem(`${WEEK_PREFIX}2026-08-31`, '2');
+
+    await mountScreen();
+
+    expect(await weeklyKeys()).toEqual([`${WEEK_PREFIX}2026-09-07`]);
+    expect(await AsyncStorage.getItem(`${WEEK_PREFIX}2026-09-07`)).toBe('1');
+  });
+
+  it('keeps counting this week rather than restarting it', async () => {
+    await AsyncStorage.setItem(`${WEEK_PREFIX}2026-09-07`, '2');
+    await AsyncStorage.setItem(`${WEEK_PREFIX}2026-08-31`, '9');
+
+    const renderer = await mountScreen();
+
+    expect(await AsyncStorage.getItem(`${WEEK_PREFIX}2026-09-07`)).toBe('3');
+    expect(await weeklyKeys()).toEqual([`${WEEK_PREFIX}2026-09-07`]);
+    // Third drive of the week — the streak banner is showing.
+    expect(hasText(renderer.root, "🔥 3-drive week! You're on a streak!")).toBe(true);
+  });
+
+  it('leaves untouched anything it does not own', async () => {
+    await AsyncStorage.setItem('convoy:completed_count', '4');
+    await AsyncStorage.setItem(`${WEEK_PREFIX}2026-08-31`, '9');
+
+    await mountScreen();
+
+    expect(await AsyncStorage.getItem('convoy:completed_count')).toBe('5');
+  });
+
+  it('leaves a future-dated bucket alone (a clock that jumped and came back)', async () => {
+    await AsyncStorage.setItem(`${WEEK_PREFIX}2026-09-14`, '1');
+    await AsyncStorage.setItem(`${WEEK_PREFIX}2026-08-31`, '9');
+
+    await pruneOldWeeklyDrives('2026-09-07');
+
+    expect(await weeklyKeys()).toEqual([`${WEEK_PREFIX}2026-09-14`]);
   });
 });

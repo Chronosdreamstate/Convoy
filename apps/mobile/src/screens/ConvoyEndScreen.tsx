@@ -109,7 +109,12 @@ function Confetti() {
         }),
       ]),
     );
-    Animated.stagger(40, anims).start();
+    const burst = Animated.stagger(40, anims);
+    burst.start();
+    // The burst runs for ~3s on a screen whose "Done" is one tap away, so
+    // leaving has to take it with it: 24 particles × 4 timings would otherwise
+    // keep driving Animated values attached to a tree that no longer exists.
+    return () => burst.stop();
   }, [particles]);
 
   return (
@@ -238,12 +243,44 @@ export function getWeekKey(): string {
   return localDayKey(monday);
 }
 
+const WEEKLY_DRIVES_PREFIX = 'convoy_weekly_drives_';
+
+/**
+ * Drop weekly counters from weeks that have already ended.
+ *
+ * The "🔥 N-drive week!" banner only ever reads the CURRENT week's bucket, but
+ * every week the app was used left its own `convoy_weekly_drives_<monday>` row
+ * behind and nothing ever removed one — a key per week, forever, growing for as
+ * long as the app is installed.
+ *
+ * Week keys are the week's Monday as YYYY-MM-DD (see getWeekKey), so they sort
+ * lexicographically and a plain `<` picks out the finished weeks. A key dated
+ * in the FUTURE is left alone: it can't be a stale week, and a device whose
+ * clock briefly jumps forward and back would otherwise erase the very row it is
+ * about to write. Exported for tests.
+ */
+export async function pruneOldWeeklyDrives(currentWeekKey: string): Promise<void> {
+  try {
+    const keys = await AsyncStorage.getAllKeys();
+    const stale = keys.filter(
+      (k) => k.startsWith(WEEKLY_DRIVES_PREFIX) && k.slice(WEEKLY_DRIVES_PREFIX.length) < currentWeekKey,
+    );
+    if (stale.length > 0) await AsyncStorage.multiRemove(stale);
+  } catch {
+    // intentionally empty — pruning old counters is best-effort housekeeping
+  }
+}
+
 async function incrementWeeklyDrives(): Promise<number> {
   try {
-    const key = `convoy_weekly_drives_${getWeekKey()}`;
+    const weekKey = getWeekKey();
+    const key = `${WEEKLY_DRIVES_PREFIX}${weekKey}`;
     const raw = await AsyncStorage.getItem(key);
     const count = (parseInt(raw ?? '0', 10) || 0) + 1;
     await AsyncStorage.setItem(key, String(count));
+    // End of a convoy is the only moment this key space is touched, so it's
+    // also the only chance to clear out the weeks that have already ended.
+    await pruneOldWeeklyDrives(weekKey);
     return count;
   } catch {
     return 1;
@@ -830,7 +867,7 @@ export default function ConvoyEndScreen() {
       contentOpacity.setValue(1);
       return;
     }
-    Animated.parallel([
+    const trophy = Animated.parallel([
       Animated.spring(scale, {
         toValue: 1,
         useNativeDriver: true,
@@ -842,14 +879,20 @@ export default function ConvoyEndScreen() {
         duration: 200,
         useNativeDriver: true,
       }),
-    ]).start();
+    ]);
+    trophy.start();
 
-    Animated.timing(contentOpacity, {
+    const content = Animated.timing(contentOpacity, {
       toValue: 1,
       duration: 480,
       delay: 280,
       useNativeDriver: true,
-    }).start();
+    });
+    content.start();
+
+    // Same reason as the confetti burst: the entrance animation must not
+    // outlive the screen it is animating.
+    return () => { trophy.stop(); content.stop(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reduceMotion]);
 
