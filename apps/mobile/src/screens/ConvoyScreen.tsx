@@ -36,6 +36,7 @@ import { useLocationStore } from '../stores/locationStore';
 import { useMotionGuard } from '../hooks/useMotionGuard';
 import { useReduceMotion } from '../hooks/useReduceMotion';
 import { useTheme, ThemeColors, withAlpha } from '../theme';
+import { initials } from '../utils/avatar';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -80,10 +81,6 @@ interface GroupMember {
 }
 
 // Initials from a display name (up to 2 chars)
-function memberInitials(name: string): string {
-  return name.trim().split(/\s+/).slice(0, 2).map((w) => w[0] ?? '').join('').toUpperCase();
-}
-
 type VehicleIconName = keyof typeof MaterialCommunityIcons.glyphMap;
 
 function getVehicleIconName(vehicleType: string | undefined): VehicleIconName {
@@ -103,6 +100,69 @@ function formatEventDate(scheduledFor: string): string {
   const d = new Date(scheduledFor);
   return d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' }) +
     ' · ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+}
+
+export interface EventCountdown {
+  days: number;
+  hours: number;
+  minutes: number;
+  seconds: number;
+}
+
+/**
+ * Time left until `scheduledFor`, or null once that moment has passed.
+ *
+ * Hours used to be the largest unit, so a meet-up three weeks out rendered
+ * "504 HH : 12 MM : 03 SS" — a three-digit number in a two-digit slot, and a
+ * figure nobody can read as "21 days". Days are split out here, and the card
+ * drops seconds once the event is more than a day away (a per-second tick is
+ * only meaningful when the event is close).
+ *
+ * A NaN `scheduledFor` yields null, same as an event that has started — the
+ * caller distinguishes the two, because an unparseable date must not fire the
+ * "convoy starting" banner.
+ *
+ * Exported for tests.
+ */
+export function computeEventCountdown(scheduledFor: string, nowMs: number): EventCountdown | null {
+  const diffMs = new Date(scheduledFor).getTime() - nowMs;
+  if (!Number.isFinite(diffMs) || diffMs <= 0) return null;
+  return {
+    days: Math.floor(diffMs / 86_400_000),
+    hours: Math.floor((diffMs % 86_400_000) / 3_600_000),
+    minutes: Math.floor((diffMs % 3_600_000) / 60_000),
+    seconds: Math.floor((diffMs % 60_000) / 1_000),
+  };
+}
+
+/**
+ * How the event card should present a countdown.
+ *
+ * The digit row carries NO unit labels — `label` in that map is a React key
+ * and nothing more — so every number in it is read as hours:minutes:seconds.
+ * That is what made a distant event unreadable: hours was the largest unit, so
+ * a meet-up three weeks out rendered "504 : 12 : 03", and simply adding a days
+ * slot would have made it "21 : 00 : 12", which reads as 21 hours. Anything two
+ * days out or more is therefore spelled out in words, which also keeps every
+ * value that does reach the digit row under 48 and inside its two-digit slot.
+ *
+ * Exported for tests — this is the rule that was wrong, so this is the rule
+ * worth pinning.
+ */
+export type EventCountdownDisplay =
+  | { kind: 'none' }
+  | { kind: 'far'; days: number }
+  | { kind: 'clock'; hours: number; minutes: number; seconds: number };
+
+export function eventCountdownDisplay(countdown: EventCountdown | null): EventCountdownDisplay {
+  if (!countdown) return { kind: 'none' };
+  if (countdown.days >= 2) return { kind: 'far', days: countdown.days };
+  return {
+    hours: countdown.days * 24 + countdown.hours,
+    minutes: countdown.minutes,
+    seconds: countdown.seconds,
+    kind: 'clock',
+  };
 }
 
 // Pulsing online indicator — uses Animated so it only runs for online members
@@ -197,8 +257,9 @@ export default function ConvoyScreen({ userId }: Props) {
   const memberListRef = useRef<FlatList<GroupMember>>(null);
 
   const [upcomingEvent, setUpcomingEvent] = useState<{ id: string; title: string; scheduledFor: string } | null>(null);
-  const [eventCountdown, setEventCountdown] = useState<{ hours: number; minutes: number; seconds: number } | null>(null);
+  const [eventCountdown, setEventCountdown] = useState<EventCountdown | null>(null);
   const [convoyStarting, setConvoyStarting] = useState(false);
+  const countdownDisplay = eventCountdownDisplay(eventCountdown);
   const [eventRsvp, setEventRsvp] = useState<{ going: number; maybe: number; notGoing: number; myStatus: string | null }>({ going: 0, maybe: 0, notGoing: 0, myStatus: null });
 
   const { socket } = useSocketStore();
@@ -309,19 +370,14 @@ export default function ConvoyScreen({ userId }: Props) {
   // Update countdown every second
   useEffect(() => {
     if (!upcomingEvent) { setEventCountdown(null); setConvoyStarting(false); return; }
+    const scheduledMs = new Date(upcomingEvent.scheduledFor).getTime();
     const update = () => {
-      const diffMs = new Date(upcomingEvent.scheduledFor).getTime() - Date.now();
-      if (diffMs <= 0) {
-        setEventCountdown(null);
-        setConvoyStarting(true);
-        return;
-      }
-      setConvoyStarting(false);
-      setEventCountdown({
-        hours: Math.floor(diffMs / 3600000),
-        minutes: Math.floor((diffMs % 3600000) / 60000),
-        seconds: Math.floor((diffMs % 60000) / 1000),
-      });
+      const next = computeEventCountdown(upcomingEvent.scheduledFor, Date.now());
+      setEventCountdown(next);
+      // Only a date that genuinely passed starts the convoy. computeEventCountdown
+      // also returns null for an unparseable scheduledFor, and a malformed server
+      // payload must not announce that the convoy is starting.
+      setConvoyStarting(next === null && Number.isFinite(scheduledMs));
     };
     update();
     const id = setInterval(update, 1000);
@@ -791,7 +847,7 @@ export default function ConvoyScreen({ userId }: Props) {
           {/* Initials avatar */}
           <View style={[memberStyles.avatar, { backgroundColor: avatarBg }]}>
             <Text style={[memberStyles.avatarText, { color: avatarText }]}>
-              {memberInitials(m.displayName)}
+              {initials(m.displayName)}
             </Text>
           </View>
 
@@ -1230,15 +1286,20 @@ export default function ConvoyScreen({ userId }: Props) {
               <Text style={styles.eventViewDetails}>View Details ›</Text>
             </View>
 
-            {/* Countdown if event is soon */}
-            {eventCountdown && (
+            {/* Countdown if event is soon — see eventCountdownDisplay() for
+                why a distant event is words rather than digits. */}
+            {countdownDisplay.kind === 'far' && (
+              <Text style={styles.countdownFar}>Starts in {countdownDisplay.days} days</Text>
+            )}
+
+            {countdownDisplay.kind === 'clock' && (
               <View style={styles.countdownRow}>
                 {[
-                  { value: eventCountdown.hours, label: 'HH' },
-                  { value: eventCountdown.minutes, label: 'MM' },
-                  { value: eventCountdown.seconds, label: 'SS' },
+                  { value: countdownDisplay.hours, label: 'HH' },
+                  { value: countdownDisplay.minutes, label: 'MM' },
+                  { value: countdownDisplay.seconds, label: 'SS' },
                 ].map((unit, i) => {
-                  const isUrgent = eventCountdown.hours < 1;
+                  const isUrgent = countdownDisplay.hours < 1;
                   return (
                     <React.Fragment key={unit.label}>
                       {i > 0 && <Text style={[styles.countdownColon, isUrgent && styles.countdownColonUrgent]}>:</Text>}
@@ -1958,6 +2019,9 @@ function createStyles(colors: ThemeColors) {
     textAlign: 'center',
   },
   countdownNumUrgent: { color: colors.accent },
+  // Same weight as the digit row it replaces, sized for a sentence rather
+  // than three big numerals.
+  countdownFar: { color: colors.text, fontSize: 18, fontWeight: '700' },
   countdownColon: { color: colors.textMuted, fontSize: 20, fontWeight: '700', marginHorizontal: 2 },
   countdownColonUrgent: { color: colors.accent },
   startingBanner: {
