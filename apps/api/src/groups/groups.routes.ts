@@ -845,16 +845,43 @@ async function groupsRoutes(
     if (!group || group.status !== 'active') return reply.gone('Group is not active');
 
     let groupEnded = false;
+    let alreadyLeft = false;
 
     const client = await fastify.db.connect();
     try {
       await client.query('BEGIN');
 
-      // Mark member as left
-      await client.query(
-        `UPDATE convoy_members SET left_at = now() WHERE group_id = $1 AND user_id = $2`,
+      // Lock the group row for the whole departure and re-read admin/status
+      // under that lock. Two members leaving at the same moment used to run
+      // this block concurrently, and neither transaction could see the other's
+      // uncommitted left_at: the Admin's transaction handed the admin role to
+      // the very member who was leaving in that instant, so the group stayed
+      // `status = 'active'` with ZERO active members and an Admin who had
+      // already gone — a ghost convoy that still appeared in browse, still
+      // accepted joins by code, and that nobody left could end. Serialising on
+      // the group row makes the second leaver see the first's committed
+      // left_at and correctly end the group (Req 7.8).
+      const lockResult = await client.query<{ admin_id: string; status: string }>(
+        `SELECT admin_id, status FROM convoy_groups WHERE id = $1 FOR UPDATE`,
+        [id],
+      );
+      const locked = lockResult.rows[0];
+      if (!locked || locked.status !== 'active') {
+        await client.query('ROLLBACK');
+        return reply.gone('Group is not active');
+      }
+
+      // Mark member as left. Conditional on the membership still being active
+      // so a double-tapped Leave can't re-stamp left_at (and can't run the
+      // succession logic a second time); the second tap is a no-op that still
+      // reports success.
+      const leftResult = await client.query(
+        `UPDATE convoy_members SET left_at = now()
+         WHERE group_id = $1 AND user_id = $2 AND left_at IS NULL
+         RETURNING id`,
         [id, userId],
       );
+      alreadyLeft = (leftResult.rowCount ?? 0) === 0;
 
       // Remove from PTT channels
       await client.query(
@@ -865,9 +892,9 @@ async function groupsRoutes(
         [userId, id],
       );
 
-      const isAdmin = group.admin_id === userId;
+      const isAdmin = locked.admin_id === userId;
 
-      if (isAdmin) {
+      if (isAdmin && !alreadyLeft) {
         // Find next admin: earliest joined_at among remaining active members (Req 7.8)
         const nextAdmin = await client.query<{ user_id: string }>(
           `SELECT user_id FROM convoy_members
@@ -949,11 +976,25 @@ async function groupsRoutes(
     try {
       await client.query('BEGIN');
 
-      // End the group — join code is effectively expired (Req 38.1)
-      await client.query(
-        `UPDATE convoy_groups SET status = 'ended', ended_at = now() WHERE id = $1`,
+      // End the group — join code is effectively expired (Req 38.1).
+      // Conditional on the group still being active: the status check above
+      // runs outside this transaction, so a double-tapped "End Convoy" (or the
+      // Admin ending from phone and tablet at once) used to run this block
+      // twice. Both emitted `group:ended`, and the second one carried
+      // durationS/distanceM 0 because the first had already deleted the Redis
+      // stat keys — so every Member's end-of-convoy summary was overwritten
+      // with a 0 km / 0 min drive. Whoever flips 'active' -> 'ended' wins;
+      // the loser gets the same 410 a late second request already gets.
+      const endResult = await client.query(
+        `UPDATE convoy_groups SET status = 'ended', ended_at = now()
+         WHERE id = $1 AND status = 'active'
+         RETURNING id`,
         [id],
       );
+      if ((endResult.rowCount ?? 0) === 0) {
+        await client.query('ROLLBACK');
+        return reply.gone('Group is already ended');
+      }
 
       // Mark all active members as left (soft-close the group)
       await client.query(

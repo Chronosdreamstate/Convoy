@@ -397,6 +397,18 @@ async function clientQuery(sql: string, values?: unknown[]): Promise<{ rows: unk
     return { rows: [], rowCount: 0 };
   }
 
+  // SELECT admin_id, status FROM convoy_groups ... FOR UPDATE (leave-endpoint
+  // row lock — the leave handler re-reads admin/status under the lock so two
+  // simultaneous departures can't both act on a stale roster).
+  if (norm.includes('FROM CONVOY_GROUPS') && norm.includes('FOR UPDATE')) {
+    const id = values![0] as string;
+    const g = groups.find((g) => g.id === id);
+    return {
+      rows: g ? [{ admin_id: g.admin_id, status: g.status }] : [],
+      rowCount: g ? 1 : 0,
+    };
+  }
+
   // UPDATE convoy_groups SET last_activity_at = now() ... RETURNING status, join_code_active
   // (join-endpoint row lock + activity bump — Req 38.1)
   if (norm.includes('LAST_ACTIVITY_AT = NOW()') && norm.includes('RETURNING')) {
@@ -561,12 +573,18 @@ async function clientQuery(sql: string, values?: unknown[]): Promise<{ rows: unk
     return { rows: [], rowCount: g ? 1 : 0 };
   }
 
-  // UPDATE convoy_groups SET status = 'ended'
+  // UPDATE convoy_groups SET status = 'ended'. POST /groups/:id/end makes this
+  // conditional on the group still being active (only one concurrent end may
+  // win), so the mock has to honor that predicate rather than always reporting
+  // one row updated.
   if (norm.includes('UPDATE CONVOY_GROUPS') && norm.includes("'ENDED'")) {
     const id = values![0] as string;
     const g = groups.find((g) => g.id === id);
-    if (g) { g.status = 'ended'; g.ended_at = new Date(); }
-    return { rows: [], rowCount: g ? 1 : 0 };
+    const onlyIfActive = norm.includes("STATUS = 'ACTIVE'");
+    if (!g || (onlyIfActive && g.status !== 'active')) return { rows: [], rowCount: 0 };
+    g.status = 'ended';
+    g.ended_at = new Date();
+    return { rows: [{ id: g.id }], rowCount: 1 };
   }
 
   return { rows: [], rowCount: 0 };

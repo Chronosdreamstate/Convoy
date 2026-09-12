@@ -12,12 +12,6 @@ import { authenticate } from '../middleware/authenticate';
 import { generalLimiter } from '../middleware/rateLimiter';
 import { env } from '../config/env';
 
-// Minimal socket.io shape the rally/SOS helpers need (mirrors socket.handler's
-// IoBroadcaster — duplicated here to avoid a routes→socket import cycle).
-export interface RallyIoBroadcaster {
-  to(room: string): { emit(event: string, data: unknown): void };
-}
-
 // ---------------------------------------------------------------------------
 // Interfaces and types
 // ---------------------------------------------------------------------------
@@ -87,29 +81,32 @@ export function serializeRallyRow(row: RawRallyRow): RallyResponse {
   };
 }
 
+/** Anything that can run a parameterised query — the pool or a transaction client. */
+interface RallyQueryable {
+  query(text: string, values: unknown[]): Promise<{ rows: Array<{ id: string }> }>;
+}
+
 /**
- * Deactivates every currently-active rally point for the group and emits
- * `rally:cancelled` for each, so all Members' maps drop the old pin the moment
- * a new one is broadcast. Req 20.3 defines "the active Rally_Point" (singular):
- * previously a second broadcast left the first row is_active=true and its pin
- * on every Member's map forever — stale pins accumulated and Members could
- * navigate to an outdated rally. Returns the deactivated rally ids.
- * Exported for tests.
+ * Deactivates every currently-active rally point for the group and returns
+ * their ids, so the caller can emit `rally:cancelled` for each and every
+ * Member's map drops the old pin the moment a new one is broadcast. Req 20.3
+ * defines "the active Rally_Point" (singular): without this a second broadcast
+ * left the first row is_active = true and its pin on every Member's map
+ * forever — stale pins accumulated and Members could navigate to an outdated
+ * rally.
+ *
+ * Takes any queryable so the retire and the new rally's INSERT can share one
+ * transaction (see POST below). Exported for tests.
  */
-export async function deactivatePreviousRallies(
-  db: Pool,
-  io: RallyIoBroadcaster,
+export async function deactivateActiveRallies(
+  db: RallyQueryable,
   groupId: string,
 ): Promise<string[]> {
-  const result = await db.query<{ id: string }>(
+  const result = await db.query(
     'UPDATE rally_points SET is_active = false WHERE group_id = $1 AND is_active = true RETURNING id',
     [groupId],
   );
-  const ids = result.rows.map((r) => r.id);
-  for (const rallyId of ids) {
-    io.to(`group:${groupId}`).emit('rally:cancelled', { rallyId, groupId });
-  }
-  return ids;
+  return result.rows.map((r) => r.id);
 }
 
 /**
@@ -268,16 +265,46 @@ const rallyRoutes: FastifyPluginAsync = async (fastify) => {
 
       // One active rally per group (Req 20.3): retire any previous rally and
       // tell every Member's map to drop its pin before the new one lands.
-      await deactivatePreviousRallies(fastify.db, fastify.io, groupId);
+      //
+      // Retire + insert must be one transaction serialised per group: two
+      // Members long-pressing "Set rally point" at the same moment each ran the
+      // deactivate (neither seeing the other's uncommitted row) and then each
+      // inserted is_active = true, leaving TWO active rally points. Both
+      // `rally:set` broadcasts landed and no `rally:cancelled` ever followed, so
+      // every Member's map carried two rally pins and different riders navigated
+      // to different ones. The advisory lock (same per-key pattern as
+      // vehicles.routes.ts) makes the loser's deactivate see the winner's
+      // committed row; migration 036's partial unique index is the hard backstop.
+      const client = await fastify.db.connect();
+      let cancelledIds: string[];
+      let row: { id: string; created_at: Date };
+      try {
+        await client.query('BEGIN');
+        await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`rally:${groupId}`]);
 
-      // Persist to DB
-      const result = await fastify.db.query<{ id: string; created_at: Date }>(
-        `INSERT INTO rally_points (group_id, broadcaster_id, location, address, type)
-         VALUES ($1, $2, ST_SetSRID(ST_MakePoint($3, $4), 4326)::geography, $5, $6)
-         RETURNING id, created_at`,
-        [groupId, userId, body.lng, body.lat, address, body.type],
-      );
-      const row = result.rows[0];
+        cancelledIds = await deactivateActiveRallies(client, groupId);
+
+        const result = await client.query<{ id: string; created_at: Date }>(
+          `INSERT INTO rally_points (group_id, broadcaster_id, location, address, type)
+           VALUES ($1, $2, ST_SetSRID(ST_MakePoint($3, $4), 4326)::geography, $5, $6)
+           RETURNING id, created_at`,
+          [groupId, userId, body.lng, body.lat, address, body.type],
+        );
+        row = result.rows[0];
+
+        await client.query('COMMIT');
+      } catch (err) {
+        await client.query('ROLLBACK');
+        throw err;
+      } finally {
+        client.release();
+      }
+
+      // Emitted after the commit so a Member never drops the old pin for a
+      // rally change that then rolled back.
+      for (const rallyId of cancelledIds) {
+        fastify.io.to(`group:${groupId}`).emit('rally:cancelled', { rallyId, groupId });
+      }
 
       const rallyResponse: RallyResponse = {
         id: row.id,
@@ -340,10 +367,9 @@ const rallyRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.status(403).send({ error: 'You are not a member of this group' });
       }
 
-      // At most one rally point is active per group at a time (broadcast-and-cancel
-      // model — POST cancels nothing explicitly, but the client only ever shows one
-      // active rally and idx_rally_points_active is a partial unique-intent index),
-      // so the newest active row is the current one.
+      // At most one rally point is active per group at a time — POST retires the
+      // previous one in the same transaction and uq_rally_points_one_active
+      // (migration 036) enforces it — so the newest active row is the current one.
       const result = await fastify.db.query<RawRallyRow>(
         `SELECT
            rp.id, rp.broadcaster_id, rp.address, rp.is_active, rp.created_at, rp.type,
@@ -430,10 +456,17 @@ const rallyRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.status(403).send({ error: 'You are not a member of this group' });
       }
 
-      // SOS cooldown (Req 37.5)
+      // SOS cooldown (Req 37.5) — claimed atomically with SET NX, not
+      // EXISTS-then-SETEX. Two taps a few hundred ms apart (the SOS button is
+      // held under stress, and a queued SOS can flush at the same moment as a
+      // live one) both passed the old EXISTS check before either wrote the key,
+      // so both broadcast. The second overwrote sos:user:<group>:<user>, which
+      // is the only handle the cancel path has: cancelling cleared one pin while
+      // the other stayed on every Member's map — an emergency that cannot be
+      // stood down — until its 2h TTL expired.
       const cooldownKey = `sos:cooldown:${userId}`;
-      const inCooldown = await fastify.redis.exists(cooldownKey);
-      if (inCooldown) {
+      const claimed = await fastify.redis.set(cooldownKey, '1', 'EX', SOS_COOLDOWN_S, 'NX');
+      if (!claimed) {
         return reply.status(429).send({ error: 'SOS cooldown active. Wait 60 seconds.' });
       }
 
@@ -441,11 +474,11 @@ const rallyRoutes: FastifyPluginAsync = async (fastify) => {
       const createdAt = new Date().toISOString();
       const sosData = JSON.stringify({ groupId, userId, lat: body.lat, lng: body.lng, type: body.type, createdAt });
 
-      // Persist in Redis atomically via pipeline (transient; clears when group ends)
+      // Persist in Redis atomically via pipeline (transient; clears when group ends).
+      // The cooldown key is already set by the claim above.
       const pipeline = fastify.redis.pipeline();
       pipeline.setex(`sos:${sosId}`, SOS_TTL_S, sosData);
       pipeline.setex(`sos:user:${groupId}:${userId}`, SOS_TTL_S, sosId);
-      pipeline.setex(cooldownKey, SOS_COOLDOWN_S, '1');
       await pipeline.exec();
 
       // Req 25.5: the alert must identify the transmitting Member by name — fetched
@@ -599,10 +632,13 @@ const rallyRoutes: FastifyPluginAsync = async (fastify) => {
     }
     const body = bodyParsed3.data;
 
-    // SOS cooldown (Req 37.5)
+    // SOS cooldown (Req 37.5) — same atomic claim as the group SOS above: an
+    // EXISTS-then-SETEX pair let two near-simultaneous taps both through, and
+    // every friend then got two alerts and two pins for one emergency, only one
+    // of which the sender's client could ever cancel.
     const cooldownKey = `sos:cooldown:${userId}`;
-    const inCooldown = await fastify.redis.exists(cooldownKey);
-    if (inCooldown) {
+    const claimed = await fastify.redis.set(cooldownKey, '1', 'EX', SOS_COOLDOWN_S, 'NX');
+    if (!claimed) {
       return reply.status(429).send({ error: 'SOS cooldown active. Wait 60 seconds.' });
     }
 
@@ -620,7 +656,6 @@ const rallyRoutes: FastifyPluginAsync = async (fastify) => {
 
     const sosPipeline = fastify.redis.pipeline();
     sosPipeline.setex(`sos:${sosId}`, SOS_TTL_S, sosData);
-    sosPipeline.setex(cooldownKey, SOS_COOLDOWN_S, '1');
     await sosPipeline.exec();
 
     // Req 25.5: identify the transmitting Member by name — in the socket payload

@@ -10,7 +10,7 @@ import {
   canBroadcastRally,
   canCancelRally,
   canCancelSos,
-  deactivatePreviousRallies,
+  deactivateActiveRallies,
   getActiveGroupSos,
   serializeRallyRow,
   RawRallyRow,
@@ -169,40 +169,23 @@ describe('Property 41: SOS cancellation removes pin from all Members maps', () =
 // retire every previous active row and emit rally:cancelled for each so no
 // stale pin survives on Members' maps.
 // ---------------------------------------------------------------------------
-describe('deactivatePreviousRallies (Req 20.3)', () => {
-  function buildIo(log: Array<{ room: string; event: string; data: unknown }>) {
-    return {
-      to: (room: string) => ({
-        emit: (event: string, data: unknown) => { log.push({ room, event, data }); },
-      }),
-    };
-  }
-
-  test('deactivates every active rally and emits rally:cancelled for each', async () => {
-    const log: Array<{ room: string; event: string; data: unknown }> = [];
+describe('deactivateActiveRallies (Req 20.3)', () => {
+  test('deactivates every active rally and returns their ids for cancellation', async () => {
     const db = {
       query: async () => ({ rows: [{ id: 'r-1' }, { id: 'r-2' }], rowCount: 2 }),
-    } as unknown as import('pg').Pool;
+    };
 
-    const ids = await deactivatePreviousRallies(db, buildIo(log), 'g-1');
-
-    expect(ids).toEqual(['r-1', 'r-2']);
-    expect(log).toEqual([
-      { room: 'group:g-1', event: 'rally:cancelled', data: { rallyId: 'r-1', groupId: 'g-1' } },
-      { room: 'group:g-1', event: 'rally:cancelled', data: { rallyId: 'r-2', groupId: 'g-1' } },
-    ]);
+    // The route emits rally:cancelled for each id it gets back, so every stale
+    // pin is dropped from every Member's map.
+    expect(await deactivateActiveRallies(db, 'g-1')).toEqual(['r-1', 'r-2']);
   });
 
-  test('no active rallies: no emissions, empty result', async () => {
-    const log: Array<{ room: string; event: string; data: unknown }> = [];
+  test('no active rallies: empty result, nothing to cancel', async () => {
     const db = {
       query: async () => ({ rows: [], rowCount: 0 }),
-    } as unknown as import('pg').Pool;
+    };
 
-    const ids = await deactivatePreviousRallies(db, buildIo(log), 'g-1');
-
-    expect(ids).toEqual([]);
-    expect(log).toEqual([]);
+    expect(await deactivateActiveRallies(db, 'g-1')).toEqual([]);
   });
 });
 
