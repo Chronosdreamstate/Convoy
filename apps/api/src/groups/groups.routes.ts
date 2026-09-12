@@ -1790,32 +1790,65 @@ async function groupsRoutes(
       const userId = (request.user as { sub: string }).sub;
       const { id } = request.params as { id: string };
 
-      const groupResult = await fastify.db.query<{ admin_id: string; waypoints: unknown[] }>(
-        'SELECT admin_id, waypoints FROM convoy_groups WHERE id = $1',
-        [id],
-      );
-      const group = groupResult.rows[0];
-      if (!group) return reply.notFound('Group not found');
-      if (group.admin_id !== userId) return reply.forbidden('Only the group admin can set waypoints');
+      // Read the current list and write the new one under a row lock on the
+      // group. This is a read-modify-write — the stored list decides how many
+      // waypoints this save ADDED — and the two halves used to be separate
+      // autocommitted statements: the Admin saving from phone and tablet at
+      // the same moment had both requests read the same "before" list, so a
+      // route that grew 3 -> 5 once was credited as 2 added TWICE and the
+      // waypoint_setter achievement (target 10) ran ahead of the waypoints
+      // actually set. The lock also makes the stored list agree with the save
+      // that wrote it, instead of one request's UPDATE landing between the
+      // other's read and UPDATE.
+      let waypoints: z.infer<typeof setWaypointsSchema>['waypoints'];
+      let addedCount = 0;
 
-      const parsedWaypoints = setWaypointsSchema.safeParse(request.body ?? {});
-      if (!parsedWaypoints.success) {
-        return reply.badRequest(parsedWaypoints.error.errors[0].message);
+      const client = await fastify.db.connect();
+      try {
+        await client.query('BEGIN');
+
+        const groupResult = await client.query<{ admin_id: string; waypoints: unknown[] }>(
+          'SELECT admin_id, waypoints FROM convoy_groups WHERE id = $1 FOR UPDATE',
+          [id],
+        );
+        const group = groupResult.rows[0];
+        if (!group) {
+          await client.query('ROLLBACK');
+          return reply.notFound('Group not found');
+        }
+        if (group.admin_id !== userId) {
+          await client.query('ROLLBACK');
+          return reply.forbidden('Only the group admin can set waypoints');
+        }
+
+        const parsedWaypoints = setWaypointsSchema.safeParse(request.body ?? {});
+        if (!parsedWaypoints.success) {
+          await client.query('ROLLBACK');
+          return reply.badRequest(parsedWaypoints.error.errors[0].message);
+        }
+        waypoints = parsedWaypoints.data.waypoints;
+
+        await client.query(
+          `UPDATE convoy_groups SET waypoints = $1::jsonb WHERE id = $2`,
+          [JSON.stringify(waypoints), id],
+        );
+
+        // waypoint_setter achievement (target: 10 waypoints added): this route replaces
+        // the whole list rather than appending, so a single "waypoint added" event isn't
+        // available here. We treat the net growth of the list on each broadcast as
+        // waypoints added by this admin — e.g. going from 3 -> 5 waypoints counts as 2
+        // added. Removals/reorders (list shrinks or stays the same size) don't count.
+        const previousCount = Array.isArray(group.waypoints) ? group.waypoints.length : 0;
+        addedCount = Math.max(0, waypoints.length - previousCount);
+
+        await client.query('COMMIT');
+      } catch (err) {
+        await client.query('ROLLBACK');
+        throw err;
+      } finally {
+        client.release();
       }
-      const waypoints = parsedWaypoints.data.waypoints;
 
-      await fastify.db.query(
-        `UPDATE convoy_groups SET waypoints = $1::jsonb WHERE id = $2`,
-        [JSON.stringify(waypoints), id],
-      );
-
-      // waypoint_setter achievement (target: 10 waypoints added): this route replaces
-      // the whole list rather than appending, so a single "waypoint added" event isn't
-      // available here. We treat the net growth of the list on each broadcast as
-      // waypoints added by this admin — e.g. going from 3 -> 5 waypoints counts as 2
-      // added. Removals/reorders (list shrinks or stays the same size) don't count.
-      const previousCount = Array.isArray(group.waypoints) ? group.waypoints.length : 0;
-      const addedCount = Math.max(0, waypoints.length - previousCount);
       if (addedCount > 0) {
         incrementStatCounter(fastify.db, userId, 'waypoint_setter', addedCount).catch((err: unknown) =>
           fastify.log.error({ err }, 'waypoint_setter counter increment error'),

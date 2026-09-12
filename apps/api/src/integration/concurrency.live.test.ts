@@ -397,5 +397,99 @@ describeLive('live concurrency: simultaneous requests on one row', () => {
       const handle = await redis.get(`sos:user:${groupId}:${rider}`);
       expect(handle).toBe(winner.id);
     });
+
+    it('stands the emergency down once when the rider and the Admin both clear it', async () => {
+      const admin = await createUser('admin');
+      const rider = await createUser('rider');
+      const groupId = await createGroup([admin, rider]);
+      await redis.del(`sos:cooldown:${rider}`);
+
+      const created = await app.inject({
+        method: 'POST', url: `/api/v1/groups/${groupId}/sos`,
+        headers: authHeaders(rider), payload: { lat: 51.5, lng: -0.12, type: 'medical' },
+      });
+      const { id: sosId } = JSON.parse(created.body) as { id: string };
+      emitted = [];
+
+      // The rider stands their own SOS down at the same moment the Admin clears
+      // it for them — both are allowed to cancel (Req 25.6).
+      const [a, b] = await Promise.all([
+        app.inject({ method: 'DELETE', url: `/api/v1/groups/${groupId}/sos/${sosId}`, headers: authHeaders(rider) }),
+        app.inject({ method: 'DELETE', url: `/api/v1/groups/${groupId}/sos/${sosId}`, headers: authHeaders(admin) }),
+      ]);
+
+      // Pre-fix both read the pin from Redis before either deleted it, so both
+      // announced the stand-down.
+      expect([a.statusCode, b.statusCode].sort()).toEqual([200, 404]);
+      expect(emitted.filter((e) => e.event === 'sos:cancelled')).toHaveLength(1);
+      expect(await redis.get(`sos:${sosId}`)).toBeNull();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // DELETE /groups/:id/rally/:rallyId — the is_active check is a read
+  // -------------------------------------------------------------------------
+  describe('the broadcaster and the Admin cancelling one rally together', () => {
+    it('announces the cancellation once', async () => {
+      const admin = await createUser('admin');
+      const rider = await createUser('rider');
+      const groupId = await createGroup([admin, rider]);
+
+      const created = await app.inject({
+        method: 'POST', url: `/api/v1/groups/${groupId}/rally`,
+        headers: authHeaders(rider), payload: { lat: 51.5, lng: -0.12, type: 'rest' },
+      });
+      const { id: rallyId } = JSON.parse(created.body) as { id: string };
+      emitted = [];
+
+      const [a, b] = await Promise.all([
+        app.inject({ method: 'DELETE', url: `/api/v1/groups/${groupId}/rally/${rallyId}`, headers: authHeaders(rider) }),
+        app.inject({ method: 'DELETE', url: `/api/v1/groups/${groupId}/rally/${rallyId}`, headers: authHeaders(admin) }),
+      ]);
+
+      // Pre-fix both passed the is_active read and both emitted rally:cancelled.
+      expect([a.statusCode, b.statusCode].sort()).toEqual([200, 409]);
+      expect(emitted.filter((e) => e.event === 'rally:cancelled')).toHaveLength(1);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // POST /groups/:id/waypoints — read-then-replace decides the achievement
+  // -------------------------------------------------------------------------
+  describe('the Admin saving the route from two devices at once', () => {
+    it('credits the waypoints added once, not once per device', async () => {
+      const admin = await createUser('admin');
+      const groupId = await createGroup([admin]);
+
+      const wp = (n: number) => Array.from({ length: n }, (_, i) => ({
+        id: `w${i}`, name: `Stop ${i}`, address: `${i} Test Road`, type: 'waypoint' as const,
+      }));
+      // Existing route: 3 stops.
+      await pool.query('UPDATE convoy_groups SET waypoints = $1::jsonb WHERE id = $2', [JSON.stringify(wp(3)), groupId]);
+
+      const headers = authHeaders(admin);
+      const [a, b] = await Promise.all([
+        app.inject({ method: 'POST', url: `/api/v1/groups/${groupId}/waypoints`, headers, payload: { waypoints: wp(5) } }),
+        app.inject({ method: 'POST', url: `/api/v1/groups/${groupId}/waypoints`, headers, payload: { waypoints: wp(5) } }),
+      ]);
+      expect([a.statusCode, b.statusCode]).toEqual([200, 200]);
+
+      // The counter write is fire-and-forget, so let both land before reading.
+      await new Promise((r) => setTimeout(r, 300));
+
+      // Pre-fix both requests read the same 3-stop "before" list and each
+      // credited 2 added, so a route that grew 3 -> 5 once moved the
+      // waypoint_setter achievement (target 10) forward by 4.
+      const counter = await pool.query<{ count: number }>(
+        `SELECT count FROM user_stat_counters WHERE user_id = $1 AND stat_key = 'waypoint_setter'`,
+        [admin],
+      );
+      expect(counter.rows[0]?.count ?? 0).toBe(2);
+
+      const stored = await pool.query<{ waypoints: unknown[] }>(
+        'SELECT waypoints FROM convoy_groups WHERE id = $1', [groupId],
+      );
+      expect(stored.rows[0].waypoints).toHaveLength(5);
+    });
   });
 });

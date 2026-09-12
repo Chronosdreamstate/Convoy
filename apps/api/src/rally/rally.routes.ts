@@ -419,10 +419,18 @@ const rallyRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.status(409).send({ error: 'Rally already cancelled' });
       }
 
-      await fastify.db.query(
-        'UPDATE rally_points SET is_active = false WHERE id = $1',
+      // The check above is a read, so the broadcaster and the Admin both
+      // tapping "Cancel rally" at the same moment both passed it and both
+      // broadcast rally:cancelled. Let the UPDATE decide: only the caller that
+      // actually flips is_active announces the cancellation, the other gets the
+      // same 409 a late second tap already gets.
+      const cancelled = await fastify.db.query(
+        'UPDATE rally_points SET is_active = false WHERE id = $1 AND is_active = true RETURNING id',
         [rallyId],
       );
+      if ((cancelled.rowCount ?? 0) === 0) {
+        return reply.status(409).send({ error: 'Rally already cancelled' });
+      }
 
       // Emit rally:cancelled to group room (Req 20.5)
       fastify.io.to(`group:${groupId}`).emit('rally:cancelled', { rallyId, groupId });
@@ -579,7 +587,14 @@ const rallyRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.status(403).send({ error: 'Only the person who sent this SOS or the group Admin can cancel it' });
       }
 
-      await fastify.redis.del(`sos:${sosId}`);
+      // DEL returns how many keys it removed, so it doubles as the claim: the
+      // rider standing their own SOS down while the Admin clears it for them
+      // both read the pin above and both announced the stand-down. Only the
+      // caller whose DEL actually removed the pin emits.
+      const removed = await fastify.redis.del(`sos:${sosId}`);
+      if (removed === 0) {
+        return reply.status(404).send({ error: 'SOS not found or already expired' });
+      }
       await fastify.redis.del(`sos:user:${groupId}:${sos.userId}`);
 
       // Emit sos:cancelled removes pin from all Members' maps (Req 25.6)
@@ -605,7 +620,13 @@ const rallyRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.status(403).send({ error: 'You can only cancel an SOS you sent' });
       }
 
-      await fastify.redis.del(`sos:${sosId}`);
+      // Same claim-by-DEL as the group cancel above — only the caller that
+      // removed the pin tells the sender's friends it is over. Reachable here
+      // by one rider standing the same SOS down from two devices.
+      const removed = await fastify.redis.del(`sos:${sosId}`);
+      if (removed === 0) {
+        return reply.status(404).send({ error: 'SOS not found or already expired' });
+      }
 
       // Notify friends that SOS was cancelled
       const friendsResult = await fastify.db.query<{ friend_id: string }>(
