@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { rateLimiter } from '../middleware/rateLimiter';
 
@@ -5,6 +6,13 @@ interface AnalyticsEventPayload {
   event: string;
   props: Record<string, unknown>;
   ts: number;
+  /**
+   * Client-generated dedupe key, stamped when the event is recorded rather
+   * than when it is sent, so it survives the client's re-queue-on-failure
+   * (see migration 039). Optional: clients predating it send nothing and get a
+   * server-generated id, leaving them exactly as deduplicated as before.
+   */
+  id?: string;
 }
 
 interface EventsBody {
@@ -57,6 +65,7 @@ export default async function analyticsRoutes(app: FastifyInstance) {
                   event: { type: 'string', maxLength: 64 },
                   props: { type: 'object' },
                   ts: { type: 'number', minimum: TS_MIN, maximum: TS_MAX },
+                  id: { type: 'string', minLength: 1, maxLength: 64 },
                 },
               },
             },
@@ -76,12 +85,14 @@ export default async function analyticsRoutes(app: FastifyInstance) {
         // Unauthenticated — fine, store as anonymous
       }
 
+      let stored = 0;
+
       if (events.length > 0) {
         // Single multi-row INSERT instead of one query per event (up to 50
         // round-trips per request on an unauthenticated endpoint).
         const params: unknown[] = [];
         const tuples = events.map((e, i) => {
-          const base = i * 6;
+          const base = i * 7;
           params.push(
             anonymousId,
             userId,
@@ -89,19 +100,38 @@ export default async function analyticsRoutes(app: FastifyInstance) {
             e.event,
             JSON.stringify(e.props ?? {}),
             new Date(e.ts).toISOString(),
+            // Clients too old to stamp an id fall back to a per-row uuid,
+            // which can never collide — same (un)deduplicated behaviour they
+            // have today, rather than a rejected batch.
+            e.id ?? randomUUID(),
           );
-          return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}::jsonb, $${base + 6})`;
+          return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}::jsonb, $${base + 6}, $${base + 7})`;
         });
 
-        await app.db.query(
-          `INSERT INTO analytics_events (anonymous_id, user_id, platform, event_name, props, created_at)
+        // A single batch can legitimately arrive twice — the client re-queues
+        // it whenever a response is lost — so conflicts are expected, not an
+        // error. The conflict target has to name the unique index (migration
+        // 039); a bare ON CONFLICT DO NOTHING was what made this a no-op
+        // before, since the only other unique constraint is a uuid primary key
+        // that never collides.
+        //
+        // DO NOTHING (unlike DO UPDATE, which raises "cannot affect row a
+        // second time") also handles an id repeated WITHIN one batch, so no
+        // pre-pass over `events` is needed to collapse those.
+        const result = await app.db.query(
+          `INSERT INTO analytics_events
+             (anonymous_id, user_id, platform, event_name, props, created_at, event_id)
            VALUES ${tuples.join(', ')}
-           ON CONFLICT DO NOTHING`,
+           ON CONFLICT (anonymous_id, event_id) DO NOTHING`,
           params,
         );
+        stored = result.rowCount ?? 0;
       }
 
-      return reply.status(200).send({ ok: true, accepted: events.length });
+      // `accepted` stays the number received (the client ignores it, and
+      // changing its meaning would misreport to anything that doesn't);
+      // `stored` reports how many were actually new.
+      return reply.status(200).send({ ok: true, accepted: events.length, stored });
     },
   );
 }

@@ -99,12 +99,42 @@ describe('POST /analytics/events', () => {
     });
 
     expect(res.statusCode).toBe(200);
-    expect(JSON.parse(res.body)).toEqual({ ok: true, accepted: 10 });
+    // `stored` reports how many rows were actually new (the mock pool reports
+    // rowCount 0); `accepted` stays the number received.
+    expect(JSON.parse(res.body)).toEqual({ ok: true, accepted: 10, stored: 0 });
 
     // One INSERT covering all 10 events — not one query per event.
     expect(queries).toHaveLength(1);
     expect(queries[0].sql).toContain('INSERT INTO analytics_events');
-    expect(queries[0].params).toHaveLength(10 * 6);
+    expect(queries[0].params).toHaveLength(10 * 7);
+
+    await app.close();
+  });
+
+  it('dedupes on the client-supplied event id, not on a clause that can never fire', async () => {
+    const app = buildTestApp();
+    await app.ready();
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/analytics/events',
+      payload: {
+        ...basePayload,
+        events: [{ id: 'evt-1', event: 'convoy_started', props: {}, ts: Date.UTC(2026, 0, 2) }],
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+
+    // The original clause was a bare `ON CONFLICT DO NOTHING`. analytics_events
+    // has exactly one unique constraint — the primary key on a column
+    // defaulting to gen_random_uuid() — so nothing could ever conflict and the
+    // clause was decorative. It must name the index migration 039 adds.
+    expect(queries[0].sql).toContain('ON CONFLICT (anonymous_id, event_id) DO NOTHING');
+
+    // The id the client stamped at track() time is what gets stored, so the
+    // same event re-sent after a lost response is recognisable as the same row.
+    expect(queries[0].params).toContain('evt-1');
 
     await app.close();
   });
@@ -120,7 +150,7 @@ describe('POST /analytics/events', () => {
     });
 
     expect(res.statusCode).toBe(200);
-    expect(JSON.parse(res.body)).toEqual({ ok: true, accepted: 0 });
+    expect(JSON.parse(res.body)).toEqual({ ok: true, accepted: 0, stored: 0 });
     expect(queries).toHaveLength(0);
 
     await app.close();
