@@ -319,3 +319,100 @@ describe('ProfileScreen — avatar upload failure', () => {
     expect(saveButton(renderer).props.accessibilityState.disabled).toBe(false);
   });
 });
+
+/**
+ * PATCH /users/me validates every field in the body, and display names the
+ * *server* minted at sign-up need not satisfy those rules: it takes the
+ * email's local part verbatim (auth.service.ts `email.split('@')[0]`), with no
+ * length cap and no profanity check — while patchMeSchema caps the name at 50
+ * characters and rejects banned words.
+ *
+ * This screen used to put `displayName` in every save body, so a user who
+ * signed up as e.g. `smart.ass.racer@example.com` could not change their
+ * callsign or privacy at all: each Save came back "Display name contains
+ * disallowed words" about a field they never touched.
+ */
+describe('ProfileScreen — saving a field other than the name', () => {
+  const SERVER_MINTED = {
+    ...PROFILE,
+    // What the API assigns for smart.ass.racer@example.com — patchMeSchema's
+    // whole-word profanity filter rejects it on the way back in.
+    displayName: 'smart.ass.racer',
+    pttCallsign: null,
+  };
+
+  let alertSpy: jest.SpyInstance;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    useAuthStore.setState({ accessToken: 'tok', token: 'tok' });
+    mockApiGet.mockImplementation((url: string) => {
+      if (url === '/api/v1/users/me') return Promise.resolve({ data: SERVER_MINTED });
+      if (url === '/api/v1/vehicles') return Promise.resolve({ data: { vehicles: [] } });
+      if (url === '/api/v1/friends') return Promise.resolve({ data: { friends: [] } });
+      return Promise.reject(new Error(`unexpected GET ${url}`));
+    });
+    // Stand in for patchMeSchema: any displayName in the body is validated.
+    mockApiPatch.mockImplementation(async (_url: string, body: Record<string, unknown>) => {
+      const name = body.displayName;
+      if (typeof name === 'string' && /\b(fuck|shit|ass)\b/i.test(name)) {
+        throw { response: { data: { message: 'Display name contains disallowed words' } } };
+      }
+      return { data: { ...SERVER_MINTED, ...body } };
+    });
+  });
+
+  afterEach(() => { alertSpy.mockRestore(); });
+
+  function findByLabel(root: ReactTestInstance, label: string, prop: string): ReactTestInstance {
+    const node = root.findAll(
+      (n) => n.props?.accessibilityLabel === label && typeof n.props?.[prop] === 'function',
+    )[0];
+    expect(node).toBeDefined();
+    return node;
+  }
+
+  function hasText(root: ReactTestInstance, text: string): boolean {
+    return root.findAll((n) => {
+      const c = n.props?.children;
+      return (Array.isArray(c) ? c.join('') : c) === text;
+    }).length > 0;
+  }
+
+  it('does not resend an untouched server-minted name, so the callsign saves', async () => {
+    const renderer = await renderProfile();
+
+    await act(async () => {
+      findByLabel(renderer.root, 'PTT callsign input', 'onChangeText').props.onChangeText('Bravo-2');
+    });
+    await act(async () => {
+      findByLabel(renderer.root, 'Save profile', 'onPress').props.onPress();
+    });
+
+    expect(mockApiPatch).toHaveBeenCalledTimes(1);
+    const [, body] = mockApiPatch.mock.calls[0] as [string, Record<string, unknown>];
+    expect(body).not.toHaveProperty('displayName');
+    expect(body.pttCallsign).toBe('Bravo-2');
+    expect(hasText(renderer.root, 'Display name contains disallowed words')).toBe(false);
+    expect(hasText(renderer.root, 'Profile saved successfully.')).toBe(true);
+  });
+
+  it('still sends — and still surfaces the rule for — a name the user edits', async () => {
+    const renderer = await renderProfile();
+
+    await act(async () => {
+      findByLabel(renderer.root, 'Edit display name', 'onPress').props.onPress();
+    });
+    await act(async () => {
+      findByLabel(renderer.root, 'Display name input', 'onChangeText').props.onChangeText('total.ass.hat');
+    });
+    await act(async () => {
+      findByLabel(renderer.root, 'Save profile', 'onPress').props.onPress();
+    });
+
+    const [, body] = mockApiPatch.mock.calls[0] as [string, Record<string, unknown>];
+    expect(body.displayName).toBe('total.ass.hat');
+    expect(hasText(renderer.root, 'Display name contains disallowed words')).toBe(true);
+  });
+});

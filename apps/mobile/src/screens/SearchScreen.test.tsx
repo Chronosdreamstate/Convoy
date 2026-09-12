@@ -217,3 +217,72 @@ describe('SearchScreen — error state contrast', () => {
     expect((StyleSheet.flatten(retryText.props.style) as { color?: string }).color).toBe('#FFFFFF');
   });
 });
+
+/**
+ * GET /users/search rejects a query shorter than two characters with a 400
+ * ("q must be at least 2 characters", users.routes.ts), and rejects anything
+ * over 50 characters the same way. This screen searched on every keystroke
+ * with no floor, so the first letter typed on the People tab produced the
+ * generic "Search failed. Please try again." error state.
+ */
+describe('SearchScreen — People query bounds match the API', () => {
+  /** Renders, switches to the People tab and types `q` through the debounce. */
+  async function typeOnPeopleTab(q: string): Promise<TestRenderer.ReactTestRenderer> {
+    // Stand in for the server's own rule so a too-short query fails the way
+    // the real endpoint does.
+    mockApiGet.mockImplementation(async (url: string) => {
+      const typed = decodeURIComponent(String(url).split('q=')[1] ?? '');
+      if (String(url).includes('/users/search') && typed.length < 2) {
+        throw Object.assign(new Error('Bad Request'), { status: 400 });
+      }
+      return { data: { users: [], groups: [] } };
+    });
+
+    let renderer!: TestRenderer.ReactTestRenderer;
+    await act(async () => { renderer = TestRenderer.create(<SearchScreen />); });
+    await act(async () => { byLabel(renderer.root, 'People').props.onPress(); });
+
+    const input = renderer.root.findAll(
+      (n) => n.props?.accessibilityLabel === 'Search groups and people' && typeof n.props?.onChangeText === 'function',
+    )[0];
+    await act(async () => { input.props.onChangeText(q); });
+    await act(async () => { jest.advanceTimersByTime(350); });
+    await act(async () => {});
+    return renderer;
+  }
+
+  it('does not fire a one-character people search, and says why', async () => {
+    const renderer = await typeOnPeopleTab('j');
+
+    const searchCalls = mockApiGet.mock.calls
+      .map(([url]) => String(url))
+      .filter((url) => url.includes('/users/search'));
+    expect(searchCalls).toEqual([]);
+    expect(hasText(renderer.root, 'Search failed. Please try again.')).toBe(false);
+    expect(
+      renderer.root.findAll((n) => {
+        const c = n.props?.children;
+        return Array.isArray(c) && c.join('') === 'Type at least 2 characters to search for people.';
+      }).length,
+    ).toBeGreaterThan(0);
+  });
+
+  it('still searches once the query reaches two characters', async () => {
+    await typeOnPeopleTab('jo');
+
+    const searchCalls = mockApiGet.mock.calls
+      .map(([url]) => String(url))
+      .filter((url) => url.includes('/users/search'));
+    expect(searchCalls).toHaveLength(1);
+    expect(searchCalls[0]).toContain('q=jo');
+  });
+
+  it('caps the field at the 50 characters /users/search accepts', async () => {
+    let renderer!: TestRenderer.ReactTestRenderer;
+    await act(async () => { renderer = TestRenderer.create(<SearchScreen />); });
+    const input = renderer.root.findAll(
+      (n) => n.props?.accessibilityLabel === 'Search groups and people' && typeof n.props?.onChangeText === 'function',
+    )[0];
+    expect(input.props.maxLength).toBe(50);
+  });
+});

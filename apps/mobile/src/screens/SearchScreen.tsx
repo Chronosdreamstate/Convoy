@@ -22,6 +22,18 @@ import { ThemeColors, useTheme } from '../theme';
 const STORAGE_KEY = 'convoy:recent_searches';
 const MAX_RECENT = 5;
 
+// The People tab hits GET /users/search, which rejects anything shorter than
+// two characters with a 400 (users.routes.ts). This screen searched on every
+// keystroke, so typing the first letter of a name answered with the generic
+// "Search failed. Please try again." — a hard error for a perfectly normal
+// thing to type. Below the minimum we show a hint and don't call at all.
+const MIN_PEOPLE_QUERY = 2;
+
+// Longest query either endpoint accepts: /users/search 400s above 50
+// characters, /groups above 100. Cap the field at the tighter of the two so a
+// long paste can't turn into the same opaque "Search failed" banner.
+const MAX_QUERY_LENGTH = 50;
+
 // Text that always sits on the crimson accent fill (retry button) — stays
 // light in both themes. `colors.text` is near-black in light mode, which
 // would be unreadable on the accent background.
@@ -102,6 +114,11 @@ export default function SearchScreen() {
 
   const search = useCallback(async (q: string) => {
     if (!q.trim()) { setGroups([]); setPeople([]); setError(null); return; }
+    // Below the server's two-character floor the People request can only come
+    // back 400 — hold off and let the hint below tell the user why.
+    if (activeTab === 'people' && q.trim().length < MIN_PEOPLE_QUERY) {
+      setPeople([]); setError(null); return;
+    }
     setLoading(true);
     setError(null);
     try {
@@ -325,6 +342,7 @@ export default function SearchScreen() {
             value={query}
             onChangeText={handleQueryChange}
             returnKeyType="search"
+            maxLength={MAX_QUERY_LENGTH}
             onSubmitEditing={() => search(query)}
             clearButtonMode="while-editing"
             accessibilityLabel="Search groups and people"
@@ -386,6 +404,11 @@ export default function SearchScreen() {
               <Text style={styles.retryBtnText}>Try Again</Text>
             </TouchableOpacity>
           </View>
+        ) : activeTab === 'people' && query.trim().length < MIN_PEOPLE_QUERY ? (
+          // Not "No users found for …" — nothing was searched for yet.
+          <Text style={styles.emptyText}>
+            Type at least {MIN_PEOPLE_QUERY} characters to search for people.
+          </Text>
         ) : activeTab === 'groups' ? (
           <FlatList
             data={visibleGroups}

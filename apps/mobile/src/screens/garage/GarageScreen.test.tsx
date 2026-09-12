@@ -391,4 +391,27 @@ describe('GarageScreen — vehicle CRUD flows', () => {
 
     expect(findByLabel(renderer.root, 'Vehicle nickname').props.value).toBe('My Stang');
   });
+  /**
+   * The vehicle schema (apps/api/src/vehicles/vehicles.routes.ts) caps name,
+   * make and model at 100 characters each. These fields had no maxLength, so
+   * a longer value was accepted by the form, rejected by the PATCH/POST, and
+   * reported only as "Failed to save vehicle. Please try again." — with the
+   * user's typing still on screen and no hint which field was at fault.
+   */
+  it('caps the free-text vehicle fields at the lengths the API accepts', async () => {
+    const renderer = await renderGarage([
+      vehicle({ id: 'v-1', name: null, make: 'Ford', model: 'Mustang' }),
+    ]);
+
+    await act(async () => {
+      findByLabel(renderer.root, 'Options for Ford Mustang').props.onPress();
+    });
+    await act(async () => {
+      alertButton(alertSpy, 'Ford Mustang', /Edit/).onPress!();
+    });
+
+    expect(findByLabel(renderer.root, 'Vehicle make').props.maxLength).toBe(100);
+    expect(findByLabel(renderer.root, 'Vehicle model').props.maxLength).toBe(100);
+    expect(findByLabel(renderer.root, 'Vehicle nickname').props.maxLength).toBe(100);
+  });
 });

@@ -65,9 +65,19 @@ function getTypeConfig(type?: WaypointType): TypeConfig {
 // ─── ID helper ────────────────────────────────────────────────────────────────
 // Prefixed + monotonic so locally-added rows can never collide with a numeric
 // server id (which would break FlatList keys and reorder/remove targeting).
+//
+// The counter alone was not enough: the ids we mint here are *persisted* by
+// the broadcast below and come straight back from GET /waypoints. The counter
+// restarts at 1 with the app, so a second session adding a stop to a saved
+// route minted `local-1` again — a duplicate FlatList key, and remove()/the
+// reorder helpers (which match on id) then hit both rows at once. The random
+// suffix makes a re-mint of a stored id effectively impossible. Stays well
+// inside the API's 64-character id limit.
 
 let _nextId = 1;
-function makeId() { return `local-${_nextId++}`; }
+function makeId() {
+  return `local-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}-${_nextId++}`;
+}
 
 /**
  * Whether two lists hold the same stops in the same order. Used to tell an
@@ -373,13 +383,18 @@ export default function WaypointManagementScreen() {
     setSaveError(false);
     try {
       await apiClient.post(`/api/v1/groups/${groupId}/waypoints`, {
-        waypoints: waypoints.map((w, i) => ({
+        // `id` is REQUIRED by the API's waypoint schema (groups.routes.ts
+        // waypointItemSchema). Omitting it rejected every single broadcast
+        // with a 400, so the admin only ever saw "Couldn't broadcast" and the
+        // route never reached the group. Order is carried by array position —
+        // the server has no `order` field and drops it.
+        waypoints: waypoints.map((w) => ({
+          id:      w.id,
           name:    w.name,
           address: w.address,
           type:    w.type,
           lat:     w.lat,
           lng:     w.lng,
-          order:   i,
         })),
       });
       router.back();
@@ -593,6 +608,10 @@ export default function WaypointManagementScreen() {
                 onChangeText={setDraftName}
                 autoFocus
                 returnKeyType="next"
+                // Matches the API's waypointItemSchema (name max 100,
+                // address max 200) — over the limit the whole broadcast is
+                // rejected and the only feedback is the generic save banner.
+                maxLength={100}
                 accessibilityLabel="Location name"
               />
 
@@ -605,6 +624,7 @@ export default function WaypointManagementScreen() {
                 onChangeText={setDraftAddress}
                 returnKeyType="done"
                 onSubmitEditing={addWaypoint}
+                maxLength={200}
                 accessibilityLabel="Address"
               />
 

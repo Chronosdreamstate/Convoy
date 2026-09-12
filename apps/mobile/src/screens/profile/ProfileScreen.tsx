@@ -227,7 +227,17 @@ export default function ProfileScreen() {
     setSaveSuccess(false);
     try {
       const res = await apiClient.patch<Profile>('/api/v1/users/me', {
-        displayName: trimmed,
+        // Only send the name when the user actually changed it. PATCH
+        // /users/me validates every field it receives, and the display names
+        // the *server* mints at sign-up don't have to pass those rules — it
+        // uses the email's local part verbatim (auth.service.ts), which can
+        // run past the 50-character cap or contain a word the profanity
+        // filter rejects. Re-sending an untouched name made every unrelated
+        // save ("set my callsign", "go invite-only", "remove my photo") fail
+        // with a message about a field the user never touched, with no way to
+        // get the other change through. A name the user *does* edit is still
+        // sent, and still validated.
+        ...(trimmed !== profile?.displayName ? { displayName: trimmed } : {}),
         pttCallsign: pttCallsign.trim() || null,
         privacy,
         ...(avatarDirty ? { avatarUrl: localAvatarUri } : {}),

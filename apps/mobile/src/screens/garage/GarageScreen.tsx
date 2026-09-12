@@ -602,6 +602,10 @@ export default function GarageScreen() {
                     returnKeyType="next"
                     submitBehavior="submit"
                     onSubmitEditing={() => modelInputRef.current?.focus()}
+                    // The API's vehicle schema caps make, model and name at
+                    // 100 characters (vehicles.routes.ts). Past that the PATCH
+                    // 400s and the form only says "Failed to save vehicle."
+                    maxLength={100}
                     accessibilityLabel="Vehicle make"
                   />
                 </View>
@@ -617,6 +621,7 @@ export default function GarageScreen() {
                     returnKeyType="next"
                     submitBehavior="submit"
                     onSubmitEditing={() => nicknameInputRef.current?.focus()}
+                    maxLength={100}
                     accessibilityLabel="Vehicle model"
                   />
                 </View>
@@ -638,6 +643,7 @@ export default function GarageScreen() {
                   returnKeyType="next"
                   submitBehavior="submit"
                   onSubmitEditing={() => yearInputRef.current?.focus()}
+                  maxLength={100}
                   accessibilityLabel="Vehicle nickname"
                 />
               </View>
