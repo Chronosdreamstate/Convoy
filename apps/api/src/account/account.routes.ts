@@ -7,6 +7,26 @@ import { FastifyPluginAsync } from 'fastify';
 import { authenticate } from '../middleware/authenticate';
 import { generalLimiter } from '../middleware/rateLimiter';
 import { refreshTokenSetKey, legacyRefreshTokenKey } from '../auth/auth.service';
+import { createStorage, uploadFilenameFromUrl } from '../uploads/storage';
+
+// ---------------------------------------------------------------------------
+// Force-disconnect every socket in a room. Same helper (and same deliberately
+// defensive shape) as the one POST /groups/:id/leave uses: the socket handler's
+// `location:update` listener resolves the group once at connect time and never
+// re-checks it, so a still-open connection keeps broadcasting GPS to the convoy
+// until the client itself happens to notice. That is unacceptable on a leave;
+// it is worse for an account that no longer exists.
+//
+// `io` is typed loosely and the call is optional-chained because unit tests
+// inject a minimal `{ to() }` mock that doesn't implement `.in()` — this is
+// best-effort cleanup, not required for the route's own correctness.
+// ---------------------------------------------------------------------------
+function disconnectRoomSockets(io: unknown, room: string): void {
+  try {
+    const broadcaster = io as { in?: (room: string) => { disconnectSockets?: (close?: boolean) => void } };
+    broadcaster.in?.(room)?.disconnectSockets?.(true);
+  } catch { /* best-effort */ }
+}
 
 const accountRoutes: FastifyPluginAsync = async (fastify) => {
   // ── GET /account/export ───────────────────────────────────────────────────
@@ -72,9 +92,54 @@ const accountRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.delete('/account', { preHandler: [authenticate, generalLimiter(fastify.redis)] }, async (request, reply) => {
     const userId = (request.user as { sub: string }).sub;
 
+    // Groups whose remaining members must be told this member is gone, and the
+    // uploaded files that go with the account — both collected inside the
+    // transaction below, because convoy_members / group_photos / vehicles all
+    // cascade away with the user row and are unreadable afterwards.
+    let notifyLeftGroupIds: string[] = [];
+    let uploadedFilenames: string[] = [];
+
     const client = await fastify.db.connect();
     try {
       await client.query('BEGIN');
+
+      // Every file this account put in our own upload store: profile photo,
+      // Garage vehicle photos, group photos, voice messages. Their DB rows
+      // cascade with the user, but the files themselves live outside Postgres —
+      // without this they stay on disk (or in the bucket) forever AND stay
+      // downloadable at their immutable public URL, so a deleted user's face is
+      // still served to anyone who kept the link. Req 36.3 asks for a hard
+      // delete of the user's data; a row-only delete isn't one.
+      const fileUrls = await client.query<{ url: string | null }>(
+        `SELECT avatar_url AS url FROM users WHERE id = $1
+         UNION ALL SELECT photo_url FROM vehicles WHERE user_id = $1
+         UNION ALL SELECT photo_url FROM group_photos WHERE user_id = $1
+         UNION ALL SELECT audio_url FROM group_messages WHERE user_id = $1`,
+        [userId],
+      );
+      uploadedFilenames = [
+        ...new Set(
+          fileUrls.rows
+            .map((r) => uploadFilenameFromUrl(r.url))
+            .filter((f): f is string => f !== null),
+        ),
+      ];
+
+      // Convoys this account is still actively in. Deleting the user hard-deletes
+      // their convoy_members row, but nothing tells the other members: the
+      // roster/map is driven by the member:left socket event (ConvoyScreen /
+      // ConvoyLobbyScreen), so without it the deleted member's card and map pin
+      // stay on everyone else's screen — name, avatar and all — until they
+      // navigate away and refetch. Same event POST /groups/:id/leave emits for
+      // the same reason (Req 7.7). DM channels are excluded: they have no
+      // roster UI and no member:left listener.
+      const activeMemberships = await client.query<{ group_id: string }>(
+        `SELECT m.group_id FROM convoy_members m
+         JOIN convoy_groups g ON g.id = m.group_id
+         WHERE m.user_id = $1 AND m.left_at IS NULL AND g.type = 'group'`,
+        [userId],
+      );
+      notifyLeftGroupIds = activeMemberships.rows.map((r) => r.group_id);
 
       // convoy_groups.admin_id has no ON DELETE CASCADE, and this must be resolved
       // for groups of ANY status (not just 'active') — a group the user ended or
@@ -108,6 +173,10 @@ const accountRoutes: FastifyPluginAsync = async (fastify) => {
           // when the user row cascades) before dropping the group itself.
           await client.query(`UPDATE drive_history SET group_id = NULL WHERE group_id = $1`, [groupId]);
           await client.query(`DELETE FROM convoy_groups WHERE id = $1`, [groupId]);
+
+          // The group is gone, so `group:ended` below is the departure signal —
+          // don't also send member:left for it (same rule as the leave route).
+          notifyLeftGroupIds = notifyLeftGroupIds.filter((id) => id !== groupId);
 
           // Notify any open socket connections
           fastify.io.to(`group:${groupId}`).emit('group:ended', { endedBy: userId, groupId });
@@ -157,6 +226,31 @@ const accountRoutes: FastifyPluginAsync = async (fastify) => {
     await fastify.redis.del(`loc:friend:${userId}`).catch((err: unknown) => {
       fastify.log.error({ err }, 'failed to delete loc:friend key on account deletion');
     });
+
+    // Tell every convoy this account was still in that the member is gone, so
+    // the roster and map pin disappear now rather than on the next refetch.
+    for (const groupId of notifyLeftGroupIds) {
+      fastify.io.to(`group:${groupId}`).emit('member:left', { userId });
+    }
+
+    // ...and cut the deleted account's own sockets, so a client that hasn't yet
+    // torn down its connection cannot keep broadcasting location into the
+    // convoy it was just removed from. This also runs socket.handler.ts's
+    // disconnect cleanup, which clears the `loc:<groupId>:<userId>` caches and
+    // flips the member offline for everyone else.
+    disconnectRoomSockets(fastify.io, `user:${userId}`);
+
+    // Finally the files themselves. Best-effort and after the commit: the
+    // account is already gone, and a storage hiccup must not turn a completed
+    // deletion into a 500 the client will retry.
+    if (uploadedFilenames.length > 0) {
+      try {
+        const storage = createStorage();
+        await Promise.all(uploadedFilenames.map((name) => storage.remove(name)));
+      } catch (err: unknown) {
+        fastify.log.error({ err }, 'failed to remove uploaded files on account deletion');
+      }
+    }
 
     return reply.send({ success: true, message: 'Account and all associated data deleted.' });
   });

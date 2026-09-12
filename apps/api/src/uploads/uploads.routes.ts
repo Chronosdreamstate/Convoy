@@ -4,7 +4,7 @@ import { randomUUID } from 'crypto';
 import { authenticate } from '../middleware/authenticate';
 import { generalLimiter } from '../middleware/rateLimiter';
 import { env } from '../config/env';
-import { createStorage } from './storage';
+import { createStorage, UPLOAD_FILENAME_RE } from './storage';
 
 const MIME_TO_EXT: Record<string, string> = {
   'image/jpeg': 'jpg',
@@ -53,11 +53,9 @@ export default async function uploadsRoutes(fastify: FastifyInstance) {
     '/uploads/:filename',
     async (request, reply) => {
       const { filename } = request.params;
-      // Uploaded files are always named `${randomUUID()}.${ext}` by this module,
-      // so anything else is invalid by construction. A strict allowlist (rather
-      // than just blocking `..`/slashes) also rules out Windows-specific tricks
-      // like NTFS alternate data streams (`file.jpg::$DATA`) or trailing dots.
-      if (!/^[0-9a-fA-F-]{36}\.[a-zA-Z0-9]{1,8}$/.test(filename)) {
+      // Shared with uploadFilenameFromUrl (storage.ts) so the "is this one of
+      // ours?" rule can't drift between what we serve and what we delete.
+      if (!UPLOAD_FILENAME_RE.test(filename)) {
         return reply.badRequest('Invalid filename');
       }
       const ext = filename.split('.').pop()?.toLowerCase() ?? '';

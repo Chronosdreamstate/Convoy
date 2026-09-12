@@ -19,6 +19,38 @@ export interface StoredObject {
 }
 
 /**
+ * Every file this module stores is named `${randomUUID()}.${ext}`, so anything
+ * else is not one of ours by construction. A strict allowlist (rather than just
+ * blocking `..`/slashes) also rules out Windows-specific tricks like NTFS
+ * alternate data streams (`file.jpg::$DATA`) or trailing dots.
+ */
+export const UPLOAD_FILENAME_RE = /^[0-9a-fA-F-]{36}\.[a-zA-Z0-9]{1,8}$/;
+
+/**
+ * Recover the stored filename from a URL this API previously handed out
+ * (`${BASE_URL}/api/v1/uploads/<uuid>.<ext>`), or null when the URL does not
+ * point at our own upload store.
+ *
+ * Matched on the path suffix rather than the whole URL because BASE_URL differs
+ * between environments (and changes over a domain move), so rows written by an
+ * earlier deploy still resolve. Anything that isn't `/uploads/<uuid>.<ext>` —
+ * an externally hosted avatar, a Mapbox static-map card, junk — returns null,
+ * so a caller can never be talked into deleting something we don't own.
+ */
+export function uploadFilenameFromUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
+  const match = /\/uploads\/([^/?#]+)(?:[?#]|$)/.exec(url);
+  if (!match) return null;
+  let filename: string;
+  try {
+    filename = decodeURIComponent(match[1]);
+  } catch {
+    return null; // malformed percent-encoding
+  }
+  return UPLOAD_FILENAME_RE.test(filename) ? filename : null;
+}
+
+/**
  * Storage seam for uploaded files. The GET /uploads/:filename URL is always
  * served through the API, so switching the backend never changes stored URLs
  * or requires a public bucket. Local is the default (unchanged behaviour); S3
