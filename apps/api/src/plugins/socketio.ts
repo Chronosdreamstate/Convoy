@@ -13,6 +13,52 @@ declare module 'fastify' {
   }
 }
 
+/**
+ * Who is this handshake, and may it claim the group it names?
+ *
+ * Extracted from the `io.use` middleware so the rule is testable on its own —
+ * it is the only authorization the socket ever performs against the claimed
+ * group, so a silent regression here has no second line of defence.
+ *
+ * Returns null for "reject the connection"; throws nothing on a bad token
+ * (jwt.verify's throw is caught here and reported as a rejection).
+ */
+export async function authorizeHandshake(
+  db: Pick<FastifyInstance['db'], 'query'>,
+  token: string | undefined,
+  claimedGroupId: string | undefined,
+): Promise<{ userId: string; groupId: string } | null> {
+  if (!token) return null;
+
+  let userId: string;
+  try {
+    userId = (jwt.verify(token, env.JWT_SECRET) as { sub: string }).sub;
+  } catch {
+    return null;
+  }
+  if (!userId) return null;
+
+  const groupId = claimedGroupId ?? '';
+  if (!groupId) return { userId, groupId: '' };
+
+  // The user must be an active member of the claimed group, AND the group must
+  // be a convoy rather than a DM thread. DM threads are convoy_groups rows with
+  // real convoy_members entries, so a membership check on its own accepts a
+  // client-supplied DM id as an "active convoy" — which is what turned a DM
+  // into a live location feed for the other participant. socket.handler.ts
+  // carries the same filter on its fallback lookup; this is the other way in.
+  const memberResult = await db.query<{ id: string }>(
+    `SELECT cm.id FROM convoy_members cm
+     JOIN convoy_groups g ON g.id = cm.group_id
+     WHERE cm.group_id = $1 AND cm.user_id = $2 AND cm.left_at IS NULL
+       AND g.type <> 'dm'`,
+    [groupId, userId],
+  );
+  if (memberResult.rows.length === 0) return null;
+
+  return { userId, groupId };
+}
+
 async function socketioPlugin(fastify: FastifyInstance): Promise<void> {
   const io = new SocketIO(fastify.server, {
     cors: {
@@ -34,27 +80,15 @@ async function socketioPlugin(fastify: FastifyInstance): Promise<void> {
 
   // Reject connections with invalid or missing JWT before room join (Req 8.1)
   io.use(async (socket, next) => {
-    const token: string | undefined = socket.handshake.auth.token as string | undefined;
-    if (!token) return next(new Error('Unauthorized'));
     try {
-      const payload = jwt.verify(token, env.JWT_SECRET) as { sub: string };
-      const userId = payload.sub;
-      const groupId = (socket.handshake.auth.groupId as string) ?? '';
-
-      // Verify the user is an active member of the claimed group
-      if (groupId) {
-        const memberResult = await fastify.db.query<{ id: string }>(
-          `SELECT cm.id FROM convoy_members cm
-           WHERE cm.group_id = $1 AND cm.user_id = $2 AND cm.left_at IS NULL`,
-          [groupId, userId],
-        );
-        if (memberResult.rows.length === 0) {
-          return next(new Error('Unauthorized'));
-        }
-      }
-
-      socket.data.userId = userId;
-      socket.data.groupId = groupId;
+      const identity = await authorizeHandshake(
+        fastify.db,
+        socket.handshake.auth.token as string | undefined,
+        socket.handshake.auth.groupId as string | undefined,
+      );
+      if (!identity) return next(new Error('Unauthorized'));
+      socket.data.userId = identity.userId;
+      socket.data.groupId = identity.groupId;
       next();
     } catch {
       next(new Error('Unauthorized'));
