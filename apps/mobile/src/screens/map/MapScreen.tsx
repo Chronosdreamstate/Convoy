@@ -62,6 +62,7 @@ import { LocationService } from '../../services/LocationService';
 import { LiveActivityService } from '../../services/LiveActivityService';
 import { useWeather } from '../../hooks/useWeather';
 import { useReduceMotion } from '../../hooks/useReduceMotion';
+import { initials } from '../../utils/avatar';
 
 interface GapAlert { memberId: string; distanceM: number }
 interface SosAlert { pin: SosPin; memberName: string }
@@ -262,20 +263,11 @@ const QUICK_ACTIONS = [
 const memberKeyExtractor = (m: MemberLocation) => m.userId;
 const noopBannerPress = () => { /* navigation handled by parent tab */ };
 
-function memberInitials(name: string): string {
-  return name
-    .trim()
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((w) => w[0]?.toUpperCase() ?? '')
-    .join('');
-}
-
 const MemberMarkerView = React.memo(function MemberMarkerView({ member, isStale, distanceM, callsign, gapStatus }: { member: MemberLocation; isStale: boolean; distanceM?: number; callsign?: string; gapStatus?: 'ok' | 'warning' | 'alert' }) {
   const { colors } = useTheme();
   const name = member.displayName ?? `M${member.userId.slice(0, 4)}`;
   // Prefer callsign on map markers — more meaningful to car enthusiasts than initials
-  const displayLabel = callsign ? callsign.slice(0, 6).toUpperCase() : memberInitials(name).slice(0, 2) || '?';
+  const displayLabel = callsign ? callsign.slice(0, 6).toUpperCase() : initials(name, '?').slice(0, 2);
   // Status color is themed (matches the app's semantic accent/warning/success tokens);
   // the badge's white ring/text below stay hardcoded on purpose — they need fixed
   // contrast against this marker's own crimson fill as it floats over map imagery,

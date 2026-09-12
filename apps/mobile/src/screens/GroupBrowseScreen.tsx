@@ -412,6 +412,10 @@ export default function GroupBrowseScreen() {
             returnKeyType="search"
             autoCapitalize="none"
             autoCorrect={false}
+            // browseGroupsSchema caps `q` at 100 characters (groups.routes.ts).
+            // A longer query 400s, and the only feedback is the load-failure
+            // banner below — which blames the user's connection.
+            maxLength={100}
             accessibilityLabel="Search groups"
           />
           {search.length > 0 && (

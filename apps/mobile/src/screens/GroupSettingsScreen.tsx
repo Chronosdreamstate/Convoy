@@ -18,6 +18,7 @@ import { apiClient } from '../services/apiClient';
 import { SkeletonBox } from '../components/SkeletonLoader';
 import { NetworkError } from '../components/NetworkError';
 import { useTheme, ThemeColors } from '../theme';
+import { initials } from '../utils/avatar';
 import { useGroupStore } from '../stores/groupStore';
 import { useSocketStore } from '../stores/socketStore';
 import { useMotionGuard } from '../hooks/useMotionGuard';
@@ -529,11 +530,11 @@ export default function GroupSettingsScreen() {
                     <View style={styles.memberInfo}>
                       <View style={styles.memberAvatar}>
                         <Text style={styles.memberAvatarText}>
-                          {r.displayName.trim()[0]?.toUpperCase() ?? '?'}
+                          {initials(r.displayName, '?')}
                         </Text>
                       </View>
-                      <View>
-                        <Text style={styles.memberName}>{r.displayName}</Text>
+                      <View style={styles.memberNameCol}>
+                        <Text style={styles.memberName} numberOfLines={1}>{r.displayName}</Text>
                         {r.callsign ? (
                           <Text style={styles.memberCallsign}>
                             <Ionicons name="radio-outline" size={11} color={colors.textMuted} /> {r.callsign}
@@ -644,11 +645,11 @@ export default function GroupSettingsScreen() {
                   <View style={styles.memberInfo}>
                     <View style={styles.memberAvatar}>
                       <Text style={styles.memberAvatarText}>
-                        {m.displayName.trim()[0]?.toUpperCase() ?? '?'}
+                        {initials(m.displayName, '?')}
                       </Text>
                     </View>
-                    <View>
-                      <Text style={styles.memberName}>{m.displayName}</Text>
+                    <View style={styles.memberNameCol}>
+                      <Text style={styles.memberName} numberOfLines={1}>{m.displayName}</Text>
                       {m.pttCallsign ? (
                         <Text style={styles.memberCallsign}>
                           <Ionicons name="radio-outline" size={11} color={colors.textMuted} /> {m.pttCallsign}
@@ -914,6 +915,13 @@ function createStyles(colors: ThemeColors) {
     justifyContent: 'center',
   },
   memberAvatarText: { color: colors.text, fontSize: 14, fontWeight: '700' },
+  // `flex: 1` + numberOfLines keeps a long display name inside the row's
+  // left column instead of letting it size the column to the full unwrapped
+  // text — the Approve/Decline buttons and the transfer chevron are this
+  // column's siblings. Same pattern as WaypointManagementScreen's `rowInfo`
+  // and SearchScreen's group rows. Names run to 50 characters, and longer
+  // still for the ones the API mints at sign-up from an email local part.
+  memberNameCol: { flex: 1 },
   memberName: { color: colors.text, fontSize: 14, fontWeight: '600' },
   memberCallsign: { color: colors.textMuted, fontSize: 12, marginTop: 2 },
   transferArrow: { color: colors.accent, fontSize: 20, fontWeight: '700', paddingLeft: 8 },

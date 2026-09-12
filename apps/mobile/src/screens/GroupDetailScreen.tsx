@@ -16,6 +16,7 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { apiClient } from '../services/apiClient';
 import { SkeletonBox, SkeletonRow } from '../components/SkeletonLoader';
 import { useTheme, withAlpha, ThemeColors } from '../theme';
+import { initials } from '../utils/avatar';
 
 // Text/icons that always sit on the crimson accent fill — stays light in both themes.
 const ON_ACCENT = '#FFFFFF';
@@ -48,15 +49,6 @@ interface GroupDetail {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function initials(name: string): string {
-  return name
-    .split(' ')
-    .map((w) => w[0] ?? '')
-    .slice(0, 2)
-    .join('')
-    .toUpperCase();
-}
 
 type VehicleIconName = keyof typeof MaterialCommunityIcons.glyphMap;
 

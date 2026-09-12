@@ -25,6 +25,7 @@ import { MotionCapNotice, useMotionCappedData } from '../components/MotionAwareL
 import { apiClient } from '../services/apiClient';
 import { useAuthStore } from '../stores/authStore';
 import { ThemeColors, useTheme, withAlpha } from '../theme';
+import { initials } from '../utils/avatar';
 
 // Fixed white for text/icons sitting on the accent fill — the accent color is
 // the same in both themes, while colors.text flips to near-black in light mode
@@ -95,14 +96,6 @@ function formatValue(value: number, metric: Metric): string {
   return `${hours}h ${mins}m`;
 }
 
-function getInitials(name: string): string {
-  const parts = name.trim().split(/\s+/);
-  if (parts.length >= 2) {
-    return `${parts[0][0] ?? ''}${parts[1][0] ?? ''}`.toUpperCase();
-  }
-  return name.slice(0, 2).toUpperCase();
-}
-
 // ---------------------------------------------------------------------------
 // Sub-components
 // ---------------------------------------------------------------------------
@@ -124,7 +117,7 @@ function Avatar({ uri, name, styles }: { uri?: string; name: string; styles: Sty
   return (
     <View style={[styles.avatar, styles.avatarFallback]}>
       <Text style={styles.avatarInitials} numberOfLines={1}>
-        {getInitials(name)}
+        {initials(name)}
       </Text>
     </View>
   );

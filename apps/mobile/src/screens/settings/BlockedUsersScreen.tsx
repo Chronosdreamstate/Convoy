@@ -20,6 +20,7 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { apiClient } from '../../services/apiClient';
 import { SkeletonRow } from '../../components/SkeletonLoader';
 import { ThemeColors, useTheme } from '../../theme';
+import { avatarColor, initials } from '../../utils/avatar';
 
 interface BlockedUser {
   id: string; // friendship id
@@ -31,16 +32,6 @@ interface BlockedUser {
 
 // Text that always sits on the crimson accent fill — stays light in both themes.
 const ON_ACCENT = '#FFFFFF';
-
-const AVATAR_COLORS = ['#DC143C', '#6366F1', '#0EA5E9', '#10B981', '#F59E0B', '#EC4899', '#8B5CF6', '#14B8A6'];
-function avatarColor(name: string): string {
-  let h = 0;
-  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) & 0xffff;
-  return AVATAR_COLORS[h % AVATAR_COLORS.length];
-}
-function initials(name: string) {
-  return name.trim().split(/\s+/).slice(0, 2).map((w) => w[0]?.toUpperCase() ?? '').join('');
-}
 
 export default function BlockedUsersScreen() {
   const router = useRouter();

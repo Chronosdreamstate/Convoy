@@ -18,6 +18,7 @@ import { useRouter } from 'expo-router';
 import { apiClient } from '../services/apiClient';
 import { MotionCapNotice, useMotionCappedData } from '../components/MotionAwareList';
 import { ThemeColors, useTheme } from '../theme';
+import { avatarColor, initials } from '../utils/avatar';
 
 const STORAGE_KEY = 'convoy:recent_searches';
 const MAX_RECENT = 5;
@@ -53,16 +54,6 @@ interface UserResult {
   pttCallsign?: string;
   isOnline?: boolean;
   friendStatus?: 'none' | 'pending' | 'friends';
-}
-
-// Avatar colors — deterministic per name. Intentionally a fixed decorative
-// palette (not theme chrome) so a given user's initials bubble looks the
-// same regardless of light/dark mode.
-function avatarColor(name: string): string {
-  const colors = ['#DC143C', '#3B82F6', '#22C55E', '#F59E0B', '#8B5CF6', '#EC4899', '#06B6D4', '#F97316'];
-  let hash = 0;
-  for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
-  return colors[Math.abs(hash) % colors.length];
 }
 
 export default function SearchScreen() {
@@ -260,7 +251,7 @@ export default function SearchScreen() {
 
   const renderPerson = useCallback(({ item }: { item: UserResult }) => {
     const status = friendActions[item.id] ?? item.friendStatus ?? 'none';
-    const initial = (item.displayName?.[0] ?? '?').toUpperCase();
+    const initial = initials(item.displayName, '?');
     const isSubmitting = submittingIds.has(item.id);
     return (
       <View style={styles.card}>
@@ -274,7 +265,7 @@ export default function SearchScreen() {
           accessibilityRole="button"
           accessibilityLabel={`View ${item.displayName}'s profile`}
         >
-          <Text style={styles.cardName}>{item.displayName}</Text>
+          <Text style={styles.cardName} numberOfLines={1}>{item.displayName}</Text>
           {item.pttCallsign ? <Text style={styles.muted}>{item.pttCallsign}</Text> : null}
         </TouchableOpacity>
         {status === 'none' && (

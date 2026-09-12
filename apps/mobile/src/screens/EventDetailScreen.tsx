@@ -19,6 +19,7 @@ import { useGroupStore } from '../stores/groupStore';
 import { SkeletonBox } from '../components/SkeletonLoader';
 import { NetworkError } from '../components/NetworkError';
 import { ThemeColors, useTheme, withAlpha } from '../theme';
+import { initials } from '../utils/avatar';
 
 type RsvpStatus = 'going' | 'maybe' | 'not_going';
 
@@ -57,12 +58,6 @@ function formatEventDate(iso: string): string {
 }
 
 function InitialsCircle({ name, size = 32, styles }: { name: string; size?: number; styles: ReturnType<typeof createStyles> }) {
-  const initials = name
-    .split(' ')
-    .map((w) => w[0])
-    .join('')
-    .slice(0, 2)
-    .toUpperCase();
   return (
     <View
       style={[
@@ -71,7 +66,7 @@ function InitialsCircle({ name, size = 32, styles }: { name: string; size?: numb
       ]}
     >
       <Text style={[styles.avatarInitials, { fontSize: size * 0.38 }]}>
-        {initials}
+        {initials(name)}
       </Text>
     </View>
   );

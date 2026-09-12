@@ -18,6 +18,7 @@ import { formatDistanceKm } from '../utils/units';
 import { SkeletonBox } from '../components/SkeletonLoader';
 import { NetworkError } from '../components/NetworkError';
 import { ThemeColors, useTheme } from '../theme';
+import { initials } from '../utils/avatar';
 import { useReduceMotion } from '../hooks/useReduceMotion';
 
 // Text/icons that always sit on the crimson accent fill (Add Friend button) —
@@ -46,10 +47,6 @@ interface UserProfile {
   // pending request and the friendships row id the request endpoints key on.
   friendRequestDirection?: 'outgoing' | 'incoming' | null;
   friendRequestId?: string | null;
-}
-
-function initials(name: string): string {
-  return name.trim().split(/\s+/).slice(0, 2).map((w) => w[0]?.toUpperCase() ?? '').join('');
 }
 
 function memberYear(iso: string): string {

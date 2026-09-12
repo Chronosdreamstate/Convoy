@@ -455,3 +455,58 @@ describe('GroupChatScreen — opened without a conversation', () => {
     renderer.unmount();
   });
 });
+
+/**
+ * Message bubbles are built from other people's payloads. The avatar letters
+ * came from a local `avatarInitials` that opened with `name.trim()`, so a
+ * message row whose `displayName` never arrived took the transcript down with
+ * "Cannot read properties of undefined (reading 'trim')" — the same crash a
+ * render-smoke sweep already caught live on two other screens. It now goes
+ * through utils/avatar's guarded `initials`.
+ */
+describe('GroupChatScreen — a message with no displayName', () => {
+  let socket: FakeSocket;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockReduceMotion = false;
+    socket = makeFakeSocket();
+    useAuthStore.setState({ user: ME, accessToken: 'tok', token: 'tok', isAuthenticated: true });
+    useGroupStore.setState({ activeGroupId: 'convoy-9' });
+    useSocketStore.setState({ socket: socket as never, isConnected: true });
+  });
+
+  afterEach(() => {
+    useSocketStore.setState({ socket: null, isConnected: false });
+    useGroupStore.setState({ activeGroupId: null });
+  });
+
+  it('renders the bubble instead of taking the transcript down', async () => {
+    mockGroupIdParam = 'convoy-9';
+    mockChatApi('convoy-9', 'group', [
+      // A 200 that simply didn't carry the joined display name.
+      { id: 'm-1', userId: 'u-2', avatarUrl: null, text: 'where are we stopping?', createdAt: '2026-07-12T00:00:00.000Z', type: 'text' },
+    ]);
+
+    const renderer = await renderChat();
+
+    expect(renderedText(renderer)).toContain('where are we stopping?');
+    renderer.unmount();
+  });
+
+  it('survives a live socket message with no displayName', async () => {
+    mockGroupIdParam = 'convoy-9';
+    mockChatApi('convoy-9', 'group', [message({ id: 'm-1', text: 'first' })]);
+    const renderer = await renderChat();
+
+    await act(async () => {
+      socket.handlers['group:message']?.({
+        id: 'm-2', groupId: 'convoy-9', userId: 'u-3', avatarUrl: null,
+        text: 'nameless arrival', createdAt: '2026-07-12T00:01:00.000Z', type: 'text',
+      });
+    });
+
+    expect(renderedText(renderer)).toContain('nameless arrival');
+    renderer.unmount();
+  });
+});

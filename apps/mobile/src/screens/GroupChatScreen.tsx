@@ -36,6 +36,7 @@ import { NetworkError } from '../components/NetworkError';
 import { MotionCapNotice, useMotionCappedData } from '../components/MotionAwareList';
 import { useReduceMotion } from '../hooks/useReduceMotion';
 import { theme, useTheme, ThemeColors, withAlpha } from '../theme';
+import { initials } from '../utils/avatar';
 import { API_URL } from '../config/env';
 
 // ---------------------------------------------------------------------------
@@ -77,16 +78,6 @@ const REACTION_EMOJIS = ['👍', '❤️', '😂', '😮', '⚠️'];
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function avatarInitials(name: string): string {
-  return name
-    .trim()
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((w) => w[0] ?? '')
-    .join('')
-    .toUpperCase();
-}
 
 /**
  * Pure reducer applying an add/remove reaction to a message list. Shared by
@@ -354,7 +345,7 @@ function MessageBubble({ item, isOwn, currentUserId, onLongPress, onReact, onRet
               accessibilityLabel={`${item.displayName}'s avatar`}
             />
           ) : (
-            <Text style={styles.avatarInitials}>{avatarInitials(item.displayName)}</Text>
+            <Text style={styles.avatarInitials}>{initials(item.displayName)}</Text>
           )}
         </View>
       )}
@@ -1009,7 +1000,7 @@ export default function GroupChatScreen() {
                   />
                 ) : (
                   <Text style={styles.headerAvatarInitials}>
-                    {avatarInitials(otherParticipant.displayName)}
+                    {initials(otherParticipant.displayName)}
                   </Text>
                 )}
               </View>

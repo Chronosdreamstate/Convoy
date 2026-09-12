@@ -28,6 +28,7 @@ import { authService } from '../../services/AuthService';
 import { useAuthStore } from '../../stores/authStore';
 import { readUploadedUrl, uploadErrorMessage } from '../../utils/upload';
 import { useTheme, ThemeColors } from '../../theme';
+import { initials } from '../../utils/avatar';
 import { API_URL } from '../../config/env';
 
 // Text/icons that always sit on the crimson accent fill (avatar initials,
@@ -72,15 +73,6 @@ interface Profile {
 // ---------------------------------------------------------------------------
 // Avatar with initials fallback
 // ---------------------------------------------------------------------------
-
-function initials(name: string): string {
-  return name
-    .trim()
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((w) => w[0]?.toUpperCase() ?? '')
-    .join('');
-}
 
 function AvatarCircle({
   name,

@@ -3,6 +3,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import { FileSystemUploadType } from 'expo-file-system/legacy';
 import { apiClient } from './apiClient';
+import { readUploadedUrl, uploadErrorMessage } from '../utils/upload';
 
 export async function pickAndUploadPhoto(
   groupId: string,
@@ -37,12 +38,20 @@ export async function pickAndUploadPhoto(
     },
   );
 
-  if (uploadResult.status < 200 || uploadResult.status >= 300) {
-    Alert.alert('Upload Failed', 'Could not upload the photo. Please try again.');
+  // Through the shared helper, like ProfileScreen and GarageScreen. The bare
+  // `JSON.parse(uploadResult.body)` this replaced threw straight out of the
+  // function for any 2xx whose body isn't JSON — a proxy's HTML error page, a
+  // truncated response — so the caller's `await` rejected instead of showing
+  // the "Upload Failed" alert two lines up. readUploadedUrl also surfaces the
+  // server's own reason ("File too large (max 10 MB)") rather than the
+  // generic line, and catches a 2xx that carries no `url` at all.
+  let url: string;
+  try {
+    url = readUploadedUrl(uploadResult);
+  } catch (err) {
+    Alert.alert('Upload Failed', uploadErrorMessage(err, 'Could not upload the photo. Please try again.'));
     return null;
   }
-
-  const { url } = JSON.parse(uploadResult.body) as { url: string };
 
   let photo: { id: string };
   try {

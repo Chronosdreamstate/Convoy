@@ -15,6 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useGroupStore } from '../stores/groupStore';
 import { apiClient } from '../services/apiClient';
 import { ThemeColors, useTheme } from '../theme';
+import { initials } from '../utils/avatar';
 
 interface MemberInfo {
   userId: string;
@@ -55,15 +56,6 @@ interface Props {
   onMute?: (userId: string, mute: boolean) => void;
   onKick?: (userId: string) => void;
   onNavigateTo?: (userId: string) => void;
-}
-
-function initials(name: string): string {
-  return name
-    .trim()
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((w) => w[0]?.toUpperCase() ?? '')
-    .join('');
 }
 
 function formatDistance(m: number): string {

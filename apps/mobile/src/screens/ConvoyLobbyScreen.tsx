@@ -29,6 +29,7 @@ import { useSocketStore } from '../stores/socketStore';
 import { useTheme, ThemeColors } from '../theme';
 import { useReduceMotion } from '../hooks/useReduceMotion';
 import { API_URL } from '../config/env';
+import { initials } from '../utils/avatar';
 
 
 const SOCKET_URL = API_URL.replace(/^http/, 'ws');
@@ -58,16 +59,6 @@ interface MemberApiItem {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function memberInitials(name: string): string {
-  return name
-    .trim()
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((w) => w[0] ?? '')
-    .join('')
-    .toUpperCase();
-}
 
 // ---------------------------------------------------------------------------
 // RadarRing — single pulsing radar ring (scale 1→2, opacity 1→0, loops)
@@ -447,7 +438,7 @@ export default function ConvoyLobbyScreen({ groupId, groupName, onConvoyStart }:
           >
             {/* Avatar circle — crimson background with white initials */}
             <View style={styles.avatar}>
-              <Text style={styles.avatarText}>{memberInitials(m.displayName)}</Text>
+              <Text style={styles.avatarText}>{initials(m.displayName)}</Text>
             </View>
 
             {/* Name + callsign */}

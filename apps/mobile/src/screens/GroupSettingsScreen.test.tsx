@@ -184,3 +184,75 @@ describe('GroupSettingsScreen — opened without a group', () => {
     renderer.unmount();
   });
 });
+
+/**
+ * Rows built from other people's payloads.
+ *
+ * Both member rows derived their avatar letter inline with
+ * `displayName.trim()[0]` — a 200 that omitted the field took the whole
+ * screen down with "Cannot read properties of undefined (reading 'trim')",
+ * the same crash a render-smoke sweep already found live on UserProfileScreen
+ * and app/invite.tsx. Both now go through utils/avatar's guarded `initials`.
+ *
+ * The rows also have to survive a *long* name: display names run to 50
+ * characters (longer for the ones the API mints from an email local part at
+ * sign-up), and the Approve/Decline buttons and the transfer chevron are
+ * siblings of the name column.
+ */
+describe('GroupSettingsScreen — member rows built from other people’s names', () => {
+  const LONG_NAME = 'A'.repeat(60);
+
+  async function renderWithPeople(members: unknown[], requests: unknown[]) {
+    mockApiGet.mockImplementation((url: string) => {
+      if (url === '/api/v1/groups/g-1') {
+        return Promise.resolve({
+          data: { id: 'g-1', name: 'Sunday Rally', gapThresholdM: 1000, pttMaxSeconds: 30, accessType: 'open' },
+        });
+      }
+      if (url === '/api/v1/groups/g-1/members') return Promise.resolve({ data: { members } });
+      if (url === '/api/v1/groups/g-1/join-requests') return Promise.resolve({ data: { requests } });
+      return Promise.reject(new Error(`unexpected GET ${url}`));
+    });
+    let renderer!: TestRenderer.ReactTestRenderer;
+    await act(async () => { renderer = TestRenderer.create(<GroupSettingsScreen />); });
+    await act(async () => {});
+    return renderer;
+  }
+
+  /** Every Text node rendering exactly `value`. */
+  function textsFor(root: ReactTestInstance, value: string): ReactTestInstance[] {
+    return root.findAll((n) => {
+      const c = n.props?.children;
+      return (Array.isArray(c) ? c.join('') : c) === value && n.props?.numberOfLines !== undefined;
+    });
+  }
+
+  it('renders a member and a join request whose payload carries no displayName', async () => {
+    const renderer = await renderWithPeople(
+      [{ userId: 'u-2', isAdmin: false, pttCallsign: null }],
+      [{ id: 'r-1', callsign: null }],
+    );
+
+    // Got here at all = no throw out of render. Both avatars show the
+    // explicit '?' fallback rather than an empty bubble.
+    const fallbacks = renderer.root.findAll((n) => {
+      const c = n.props?.children;
+      return (Array.isArray(c) ? c.join('') : c) === '?';
+    });
+    expect(fallbacks.length).toBeGreaterThan(0);
+  });
+
+  it('keeps a 60-character name to one line in both rows', async () => {
+    const renderer = await renderWithPeople(
+      [{ userId: 'u-2', displayName: LONG_NAME, isAdmin: false, pttCallsign: null }],
+      [{ id: 'r-1', displayName: LONG_NAME, callsign: null }],
+    );
+
+    const nameNodes = textsFor(renderer.root, LONG_NAME);
+    // One in the transfer-admin row, one in the join-request row.
+    expect(nameNodes.length).toBeGreaterThanOrEqual(2);
+    for (const node of nameNodes) {
+      expect(node.props.numberOfLines).toBe(1);
+    }
+  });
+});

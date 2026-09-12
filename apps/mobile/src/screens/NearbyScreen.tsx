@@ -36,6 +36,7 @@ import { SkeletonRow } from '../components/SkeletonLoader';
 import { useSettingsStore } from '../stores/settingsStore';
 import { formatDistanceM as formatDistance } from '../utils/units';
 import { ThemeColors, useTheme } from '../theme';
+import { avatarColor, initials } from '../utils/avatar';
 
 // ---------------------------------------------------------------------------
 // Types — mirrors the #71 backend contract (GET /api/v1/nearby, POST
@@ -54,19 +55,6 @@ interface NearbyUser {
 interface NearbyResponse {
   users: NearbyUser[];
   radiusM: number;
-}
-
-// Avatar colors — deterministic per name. Intentionally a fixed decorative
-// palette (not theme chrome) so a given user's initials bubble looks the
-// same regardless of light/dark mode.
-const AVATAR_COLORS = ['#DC143C', '#6366F1', '#0EA5E9', '#10B981', '#F59E0B', '#EC4899', '#8B5CF6', '#14B8A6'];
-function avatarColor(name: string): string {
-  let h = 0;
-  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) & 0xffff;
-  return AVATAR_COLORS[h % AVATAR_COLORS.length];
-}
-function initials(name: string): string {
-  return name.trim().split(/\s+/).slice(0, 2).map((w) => w[0]?.toUpperCase() ?? '').join('');
 }
 
 type LoadState = 'loading' | 'opted-out' | 'needs-location' | 'location-error' | 'ready';
