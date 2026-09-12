@@ -131,8 +131,25 @@ export class WebSocketService {
       this._startHeartbeat();
     });
 
-    this.socket.on('disconnect', () => {
+    // The server now holds a socket only as long as the token that opened it,
+    // and warns before closing it (api plugins/socketio.ts). Refreshing in
+    // place means a driver's connection survives the token's 15-minute life
+    // with no drop at all.
+    this.socket.on('auth:expiring', () => {
+      void this._refreshAuthInPlace();
+    });
+
+    this.socket.on('disconnect', (reason: string) => {
       this._stopHeartbeat();
+      // socket.io does NOT reconnect on its own when the SERVER closed the
+      // socket — the client is expected to call connect() itself, and nothing
+      // did. So every server-side disconnect (now an expired token, and
+      // already today a kick or an account deleted from another device) left
+      // the app silently offline until it happened to be backgrounded and
+      // foregrounded again.
+      if (reason === 'io server disconnect') {
+        void this._onServerDisconnect();
+      }
     });
 
     this.socket.on('connect_error', (err: Error) => {
@@ -142,6 +159,88 @@ export class WebSocketService {
     this._subscribeAppState();
 
     return this.socket;
+  }
+
+  /**
+   * Swap in a fresh token without dropping the connection.
+   *
+   * Driven by the server's `auth:expiring` warning, which arrives a minute
+   * before the token dies. The new token goes into `s.auth` as well as over
+   * the wire, so a later reconnect presents the good one rather than the
+   * expired one it was opened with.
+   *
+   * Public only so tests can drive it directly.
+   */
+  async _refreshAuthInPlace(): Promise<void> {
+    if (this.authRefreshInFlight || !this.config.onAuthError) return;
+    const s = this.socket;
+    if (!s) return;
+
+    this.authRefreshInFlight = true;
+    try {
+      const newToken = await this.config.onAuthError();
+      if (this.socket !== s) return; // socket replaced mid-refresh
+      s.auth = { ...(s.auth as Record<string, string>), token: newToken };
+      this.authRefreshFailures = 0;
+      s.emit('auth:refresh', { token: newToken });
+    } catch {
+      // No network for the refresh. Nothing to do here: the server will close
+      // the socket when the token actually expires, and _onServerDisconnect
+      // picks it up from there with the usual backoff.
+      this.authRefreshFailures += 1;
+    } finally {
+      this.authRefreshInFlight = false;
+    }
+  }
+
+  /**
+   * Recover from a disconnect the SERVER initiated.
+   *
+   * Refresh first, then reconnect: the commonest cause is a token that just
+   * expired, and reconnecting with the same dead token would only be rejected.
+   *
+   * The loop guard matters. A kicked member is force-disconnected by the API
+   * while `auth.groupId` still names the group they were just removed from,
+   * and the handshake rejects a group you are not a member of — so a plain
+   * refresh-and-retry would spin forever: reject, refresh (which succeeds,
+   * the token is fine), retry, reject. Dropping the claimed group on the
+   * retry is both the fix and the correct end state, since a groupless
+   * connection is exactly what a kicked user should have; the server then
+   * re-resolves whatever convoy they are actually in.
+   *
+   * Public only so tests can drive it directly.
+   */
+  async _onServerDisconnect(): Promise<void> {
+    const s = this.socket;
+    if (!s || !this.config.onAuthError) return;
+
+    if (this.authRefreshInFlight) return;
+    this.authRefreshInFlight = true;
+    try {
+      const newToken = await this.config.onAuthError();
+      if (this.socket !== s) return;
+      s.auth = { ...(s.auth as Record<string, string>), token: newToken };
+      this.authRefreshFailures = 0;
+    } catch {
+      this.authRefreshFailures += 1;
+      if (this.authRefreshFailures >= MAX_AUTH_REFRESH_FAILURES) {
+        this.config.onAuthFailed?.();
+        return;
+      }
+      // Fall through and reconnect anyway — the existing token may still be
+      // valid (a kick, not an expiry), and connect_error handles it if not.
+    } finally {
+      this.authRefreshInFlight = false;
+    }
+
+    if (this.socket !== s || s.connected) return;
+    const auth = s.auth as Record<string, string>;
+    if (auth.groupId) {
+      // See the loop guard above.
+      const { groupId: _dropped, ...rest } = auth;
+      s.auth = rest;
+    }
+    s.connect();
   }
 
   /**

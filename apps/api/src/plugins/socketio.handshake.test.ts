@@ -15,7 +15,12 @@
 import jwt from 'jsonwebtoken';
 import type { Pool } from 'pg';
 import { env } from '../config/env';
-import { authorizeHandshake } from './socketio';
+import {
+  TOKEN_REFRESH_LEAD_MS,
+  attachConnectionHandlers,
+  authorizeHandshake,
+  enforceTokenExpiry,
+} from './socketio';
 
 const USER_ID = '11111111-1111-4111-8111-111111111111';
 const CONVOY_ID = '22222222-2222-4222-8222-222222222222';
@@ -68,6 +73,7 @@ describe('authorizeHandshake', () => {
     expect(await authorizeHandshake(db.pool, signToken(), undefined)).toEqual({
       userId: USER_ID,
       groupId: '',
+      expMs: expect.any(Number),
     });
     expect(db.calls).toHaveLength(0); // nothing to check
   });
@@ -77,6 +83,7 @@ describe('authorizeHandshake', () => {
     expect(await authorizeHandshake(db.pool, signToken(), CONVOY_ID)).toEqual({
       userId: USER_ID,
       groupId: CONVOY_ID,
+      expMs: expect.any(Number),
     });
   });
 
@@ -97,6 +104,187 @@ describe('authorizeHandshake', () => {
     expect(await authorizeHandshake(db.pool, signToken(), CONVOY_ID)).toEqual({
       userId: USER_ID,
       groupId: CONVOY_ID,
+      expMs: expect.any(Number),
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Expiry enforcement
+//
+// The handshake verifies the JWT once and nothing afterwards re-checks it, so
+// before this a socket opened with a 15-minute access token kept emitting
+// location, PTT and chat for as long as it stayed open — days — and a
+// sign-out, password change or account deletion never reached it.
+// ---------------------------------------------------------------------------
+
+interface FakeSocket {
+  data: { userId?: string; tokenExpMs?: number | null };
+  emitted: Array<{ event: string; args: unknown[] }>;
+  listeners: Record<string, (...args: never[]) => void>;
+  disconnected: boolean;
+  emit: (event: string, ...args: unknown[]) => unknown;
+  on: (event: string, listener: (...args: never[]) => void) => unknown;
+  disconnect: (close?: boolean) => unknown;
+}
+
+function buildSocket(tokenExpMs: number | null | undefined, userId = USER_ID): FakeSocket {
+  const socket: FakeSocket = {
+    data: { userId, tokenExpMs },
+    emitted: [],
+    listeners: {},
+    disconnected: false,
+    emit: (event, ...args) => socket.emitted.push({ event, args }),
+    on: (event, listener) => (socket.listeners[event] = listener),
+    disconnect: () => (socket.disconnected = true),
+  };
+  return socket;
+}
+
+const silentLog = { log: { warn: jest.fn(), error: jest.fn(), info: jest.fn() } } as never;
+
+describe('enforceTokenExpiry', () => {
+  const NOW = Date.UTC(2026, 8, 12, 12, 0, 0);
+  const FIFTEEN_MIN = 15 * 60_000;
+
+  beforeEach(() => jest.useFakeTimers());
+  afterEach(() => jest.useRealTimers());
+
+  it('closes a socket when the token that opened it expires', () => {
+    const socket = buildSocket(NOW + FIFTEEN_MIN);
+    enforceTokenExpiry(silentLog, socket, () => ({}), () => NOW);
+
+    // Just before expiry the socket is still live — only warned.
+    jest.advanceTimersByTime(FIFTEEN_MIN - 1);
+    expect(socket.disconnected).toBe(false);
+    expect(socket.emitted.map((e) => e.event)).toContain('auth:expiring');
+
+    jest.advanceTimersByTime(1);
+    expect(socket.emitted.map((e) => e.event)).toContain('auth:expired');
+    expect(socket.disconnected).toBe(true);
+  });
+
+  it('warns a minute ahead so a healthy client can refresh without a drop', () => {
+    const socket = buildSocket(NOW + FIFTEEN_MIN);
+    enforceTokenExpiry(silentLog, socket, () => ({}), () => NOW);
+
+    jest.advanceTimersByTime(FIFTEEN_MIN - TOKEN_REFRESH_LEAD_MS - 1);
+    expect(socket.emitted).toHaveLength(0);
+
+    jest.advanceTimersByTime(1);
+    expect(socket.emitted[0].event).toBe('auth:expiring');
+    expect(socket.disconnected).toBe(false);
+  });
+
+  it('re-arms in place when the client presents a fresh token', () => {
+    const socket = buildSocket(NOW + FIFTEEN_MIN);
+    const newExpSec = (NOW + 2 * FIFTEEN_MIN) / 1000;
+    enforceTokenExpiry(
+      silentLog,
+      socket,
+      () => ({ sub: USER_ID, exp: newExpSec }),
+      () => NOW,
+    );
+
+    socket.listeners['auth:refresh']({ token: 'a-fresh-token' } as never);
+
+    // The original deadline passes with the socket untouched — this is what
+    // keeps a driver connected across the token's 15-minute life.
+    jest.advanceTimersByTime(FIFTEEN_MIN + 1);
+    expect(socket.disconnected).toBe(false);
+    expect(socket.data.tokenExpMs).toBe(newExpSec * 1000);
+
+    jest.advanceTimersByTime(FIFTEEN_MIN);
+    expect(socket.disconnected).toBe(true);
+  });
+
+  it('refuses a token belonging to somebody else', () => {
+    // Presenting another user's valid token must never move an established
+    // socket onto their identity, or extend this one's life.
+    const socket = buildSocket(NOW + FIFTEEN_MIN);
+    enforceTokenExpiry(
+      silentLog,
+      socket,
+      () => ({ sub: 'a-different-user', exp: (NOW + 10 * FIFTEEN_MIN) / 1000 }),
+      () => NOW,
+    );
+
+    socket.listeners['auth:refresh']({ token: 'someone-elses-token' } as never);
+
+    expect(socket.data.userId).toBe(USER_ID);
+    jest.advanceTimersByTime(FIFTEEN_MIN);
+    expect(socket.disconnected).toBe(true);
+  });
+
+  it('ignores an unverifiable token and still closes on schedule', () => {
+    const socket = buildSocket(NOW + FIFTEEN_MIN);
+    enforceTokenExpiry(
+      silentLog,
+      socket,
+      () => { throw new Error('invalid signature'); },
+      () => NOW,
+    );
+
+    socket.listeners['auth:refresh']({ token: 'forged' } as never);
+
+    jest.advanceTimersByTime(FIFTEEN_MIN);
+    expect(socket.disconnected).toBe(true);
+  });
+
+  it('stops its timers when the socket disconnects', () => {
+    const socket = buildSocket(NOW + FIFTEEN_MIN);
+    enforceTokenExpiry(silentLog, socket, () => ({}), () => NOW);
+
+    socket.listeners['disconnect']();
+    jest.advanceTimersByTime(FIFTEEN_MIN * 2);
+
+    // Nothing emitted at all: a closed socket must not be warned or re-closed.
+    expect(socket.emitted).toHaveLength(0);
+  });
+
+  it('warns immediately for a token already inside the lead window', () => {
+    // Reconnecting with a token that has 10s left must not schedule a timer
+    // into the past.
+    const socket = buildSocket(NOW + 10_000);
+    enforceTokenExpiry(silentLog, socket, () => ({}), () => NOW);
+
+    jest.advanceTimersByTime(0);
+    expect(socket.emitted[0].event).toBe('auth:expiring');
+    jest.advanceTimersByTime(10_000);
+    expect(socket.disconnected).toBe(true);
+  });
+});
+
+describe('attachConnectionHandlers', () => {
+  const NOW = Date.UTC(2026, 8, 12, 12, 0, 0);
+
+  beforeEach(() => jest.useFakeTimers());
+  afterEach(() => jest.useRealTimers());
+
+  it('arms expiry on every new connection', () => {
+    // Registration, not just the function: expiry enforcement is a security
+    // control with no fallback, so "attached at all" has to be under test.
+    const connectionHandlers: Array<(socket: unknown) => void> = [];
+    const io = {
+      on: (event: string, handler: (socket: unknown) => void) => {
+        if (event === 'connection') connectionHandlers.push(handler);
+      },
+    };
+    const fastify = {
+      log: { warn: jest.fn(), error: jest.fn(), info: jest.fn() },
+      db: { query: jest.fn() },
+      redis: {},
+    } as never;
+
+    attachConnectionHandlers(io as never, fastify);
+
+    const socket = buildSocket(NOW + 15 * 60_000);
+    jest.setSystemTime(NOW);
+    // Only the expiry handler is driven here; registerSocketHandlers needs a
+    // far larger fixture and is covered by its own suites.
+    connectionHandlers[0](socket);
+
+    jest.advanceTimersByTime(15 * 60_000);
+    expect(socket.disconnected).toBe(true);
   });
 });
