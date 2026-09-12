@@ -40,6 +40,14 @@ export const locationSchema = z.object({
 
 const STALE_THRESHOLD_MS = 30_000; // 30 seconds (Property 40)
 
+/**
+ * Alert types the shipped client emits on `convoy:alert` — MapScreen's
+ * QUICK_ACTIONS pills plus SOSModal's two emergency actions. Exported so the
+ * authorization tests assert against the same set the handler enforces.
+ */
+export const CONVOY_ALERT_TYPES = new Set(['stopping', 'regroup', 'incident', 'sos', 'breakdown']);
+export const CONVOY_ALERT_MAX_MESSAGE_CHARS = 200;
+
 // ---------------------------------------------------------------------------
 // Core location update handler — exported for unit testing
 // ---------------------------------------------------------------------------
@@ -640,6 +648,52 @@ export async function setPresenceOffline(
   return true;
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Which of the requested ids may this viewer see presence for?
+ *
+ * `presence:get` used to answer for ANY user id: the handler checked only that
+ * the socket was authenticated, so a signed-in user could poll the online flag
+ * and last-seen timestamp of any other account in the app — including accounts
+ * that had blocked them — simply by feeding it ids harvested from public
+ * profiles, group browse or the nearby list. Presence is personal data; it is
+ * visible only to people the viewer actually shares a context with: themselves,
+ * an accepted friend, or an active co-member of a group they are both still in
+ * (convoys and DM threads alike, which is exactly the set the client renders
+ * presence dots for).
+ *
+ * Non-uuid ids are dropped before the query so a junk payload can't make the
+ * uuid[] cast throw and turn the whole lookup into an error.
+ */
+export async function filterVisiblePresenceIds(
+  db: Pool,
+  viewerId: string,
+  userIds: string[],
+): Promise<Set<string>> {
+  const candidates = userIds.filter((id) => UUID_RE.test(id));
+  if (candidates.length === 0) return new Set();
+
+  const result = await db.query<{ id: string }>(
+    `SELECT t.id FROM unnest($2::uuid[]) AS t(id)
+     WHERE t.id = $1::uuid
+        OR EXISTS (
+          SELECT 1 FROM friendships f
+          WHERE f.status = 'accepted'
+            AND ((f.requester_id = $1 AND f.addressee_id = t.id)
+              OR (f.requester_id = t.id AND f.addressee_id = $1))
+        )
+        OR EXISTS (
+          SELECT 1 FROM convoy_members mine
+          JOIN convoy_members theirs ON theirs.group_id = mine.group_id
+          WHERE mine.user_id = $1 AND mine.left_at IS NULL
+            AND theirs.user_id = t.id AND theirs.left_at IS NULL
+        )`,
+    [viewerId, candidates],
+  );
+  return new Set(result.rows.map((r) => r.id));
+}
+
 /** Bulk presence lookup backing the `presence:get` socket query. */
 export async function getPresence(
   redis: Redis,
@@ -716,8 +770,25 @@ export function registerSocketHandlers(
       // need their personal `user:<id>` room joined below so standalone events like a
       // friend's SOS (`POST /sos` → `sos:alert`) reach them live.
       if (!groupId) {
+        // Convoys only (g.type <> 'dm'). A DM channel is ALSO a convoy_groups
+        // row with convoy_members entries, so the unfiltered lookup handed a
+        // groupless user — IdleMapScreen connects with no auth.groupId — one of
+        // their DM channels as their "active convoy". Everything downstream
+        // then treated that DM as a convoy: location:update fanned the user's
+        // live GPS into `group:<dmId>`, a room BOTH participants' sockets join
+        // on connect, so the DM partner received a continuous position feed
+        // with no convoy in sight and without the share_location_with_friends
+        // opt-in — while the opt-in-gated friend-location cache was never
+        // written at all, because the groupless branch had become unreachable
+        // for anyone who had ever opened a DM.
+        // ORDER BY makes the pick deterministic (the bare LIMIT 1 could also
+        // shadow a real convoy with a DM row for a user who had both).
         const activeGroup = await fastify.db.query<{ group_id: string }>(
-          `SELECT group_id FROM convoy_members WHERE user_id = $1 AND left_at IS NULL LIMIT 1`,
+          `SELECT group_id FROM convoy_members m
+           JOIN convoy_groups g ON g.id = m.group_id
+           WHERE m.user_id = $1 AND m.left_at IS NULL AND g.type <> 'dm'
+           ORDER BY m.joined_at DESC
+           LIMIT 1`,
           [userId],
         );
         groupId = activeGroup.rows[0]?.group_id ?? '';
@@ -733,6 +804,18 @@ export function registerSocketHandlers(
           socket.disconnect(true);
           return;
         }
+
+        // Same leak from the other direction: `auth.groupId` is client-supplied
+        // and the membership check above passes for a DM channel, so a handshake
+        // naming a DM turned that thread's room into a live location feed. A DM
+        // id is not grounds to drop an otherwise valid connection — degrade to
+        // groupless so the personal room (friend SOS, gap alerts) still works
+        // and location falls back to the opt-in-gated friend cache.
+        const groupTypeCheck = await fastify.db.query<{ type: string }>(
+          `SELECT type FROM convoy_groups WHERE id = $1`,
+          [groupId],
+        );
+        if (groupTypeCheck.rows[0]?.type === 'dm') groupId = '';
       }
 
       // Client vanished during the DB round-trips above — don't write presence
@@ -795,6 +878,34 @@ export function registerSocketHandlers(
       return setupOk;
     };
 
+    /**
+     * The name shown on this socket's typing indicator, read from the DB —
+     * never from the payload. `chat:typing` used to relay whatever
+     * `displayName` the client put in the event, and GroupChatScreen renders it
+     * verbatim (unlike `sos:acknowledged`, which prefers its own trusted name
+     * map), so any member of a convoy chat or DM thread could make it read
+     * "Admin is typing…" — or an unbounded string — for everyone else.
+     *
+     * Cached for the socket, with a short TTL, because this event is driven by
+     * keystrokes: one query per minute per typing socket rather than one per
+     * emit, while a profile rename still catches up without a reconnect.
+     */
+    const TYPING_NAME_TTL_MS = 60_000;
+    let typingNameCache: { value: string; at: number } | null = null;
+    const resolveTypingDisplayName = async (now: number = Date.now()): Promise<string> => {
+      if (typingNameCache && now - typingNameCache.at < TYPING_NAME_TTL_MS) {
+        return typingNameCache.value;
+      }
+      const result = await fastify.db.query<{ display_name: string }>(
+        'SELECT display_name FROM users WHERE id = $1',
+        [userId],
+      );
+      // 'Someone' matches the client's own fallback for a missing profile name.
+      const value = result.rows[0]?.display_name ?? 'Someone';
+      typingNameCache = { value, at: now };
+      return value;
+    };
+
     // ── Event listeners — registered synchronously so first emits are never
     //    lost; anything depending on the async setup awaits whenReady() ─────
 
@@ -831,10 +942,22 @@ export function registerSocketHandlers(
         return;
       }
       whenReady()
-        .then((ok) => {
+        .then(async (ok) => {
           // Never-authorized socket: no ack — it is being disconnected.
           if (!ok) return;
-          return getPresence(fastify.redis, userIds).then(callback);
+          // Authorization is per-id, not per-socket: answer only for users this
+          // viewer shares a friendship or an active group with (see
+          // filterVisiblePresenceIds). Everyone else comes back as the neutral
+          // "not online, never seen" shape rather than leaking their real state,
+          // which keeps the ack's array shape identical for the client.
+          const visible = await filterVisiblePresenceIds(fastify.db, userId, userIds);
+          const ids = userIds.slice(0, 100);
+          const presence = await getPresence(
+            fastify.redis,
+            ids.filter((id) => visible.has(id)),
+          );
+          const byId = new Map(presence.map((p) => [p.id, p]));
+          callback(ids.map((id) => byId.get(id) ?? { id, isOnline: false, lastSeen: null }));
         })
         .catch((err: unknown) => {
           fastify.log.error({ err }, 'presence get error');
@@ -944,14 +1067,25 @@ export function registerSocketHandlers(
       });
     });
 
-    // Quick-action convoy alerts (Stopping / Regrouping / Incident)
+    // Quick-action convoy alerts (Stopping / Regrouping / Incident / SOS / Breakdown)
     socket.on('convoy:alert', (data: unknown) => {
       const { type, message, groupId: alertGroupId } = (data as {
-        type?: 'stopping' | 'regroup' | 'incident';
+        type?: string;
         message?: string;
         groupId?: string;
       }) ?? {};
       if (!type || !message) return;
+      // `type` and `message` were relayed and then persisted verbatim: the type
+      // becomes the notification_history title (`${callsign}: ${type}`) and the
+      // message its body, one row per other member, plus a toast on every
+      // member's map. Neither was validated, so a member on a hand-rolled client
+      // could write arbitrary (and arbitrarily long — up to socket.io's 1MB
+      // frame) text into the whole convoy's Notification Center. The accepted
+      // set is exactly what the shipped client emits: MapScreen's QUICK_ACTIONS
+      // (stopping/regroup/incident) and SOSModal (sos/breakdown); its longest
+      // real message is ~40 chars.
+      if (!CONVOY_ALERT_TYPES.has(type)) return;
+      if (typeof message !== 'string' || message.length > CONVOY_ALERT_MAX_MESSAGE_CHARS) return;
 
       (async () => {
         // The alertGroupId check needs the resolved groupId — gate on setup.
@@ -1033,30 +1167,30 @@ export function registerSocketHandlers(
     // authorizes the relay and lets DM threads show typing indicators.
     // Without a payload groupId, fall back to the socket's convoy room.
     socket.on('chat:typing', (data: unknown) => {
-      const { displayName, groupId: targetGroupId } =
-        (data as { displayName?: string; groupId?: string }) ?? {};
-      if (!displayName) return;
+      const { groupId: targetGroupId } = (data as { groupId?: string }) ?? {};
       // Room membership (socket.rooms) and the convoy-room fallback (groupId)
       // are both produced by the connect-time setup — gate on it.
-      void whenReady().then((ok) => {
-        if (!ok) return;
-        let room: string | null = null;
-        if (targetGroupId && typeof targetGroupId === 'string') {
-          if (!socket.rooms.has(`group:${targetGroupId}`)) return; // not a member of that thread
-          room = `group:${targetGroupId}`;
-        } else if (groupId) {
-          room = `group:${groupId}`;
-        }
-        if (!room) return;
-        // Include userId so recipients can filter out their own echo, and the
-        // thread's groupId so recipients can attribute the event to the right
-        // conversation (GroupChatScreen drops events for other threads).
-        socket.to(room).emit('chat:typing', {
-          userId,
-          displayName,
-          groupId: room.slice('group:'.length),
-        });
-      });
+      void whenReady()
+        .then(async (ok) => {
+          if (!ok) return;
+          let room: string | null = null;
+          if (targetGroupId && typeof targetGroupId === 'string') {
+            if (!socket.rooms.has(`group:${targetGroupId}`)) return; // not a member of that thread
+            room = `group:${targetGroupId}`;
+          } else if (groupId) {
+            room = `group:${groupId}`;
+          }
+          if (!room) return;
+          // Include userId so recipients can filter out their own echo, and the
+          // thread's groupId so recipients can attribute the event to the right
+          // conversation (GroupChatScreen drops events for other threads).
+          socket.to(room).emit('chat:typing', {
+            userId,
+            displayName: await resolveTypingDisplayName(),
+            groupId: room.slice('group:'.length),
+          });
+        })
+        .catch((err: unknown) => fastify.log.error({ err }, 'chat typing error'));
     });
 
     // DEPRECATED — 'chat:react' (persist + broadcast emoji reaction) was
