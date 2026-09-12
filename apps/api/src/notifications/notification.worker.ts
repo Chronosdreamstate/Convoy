@@ -166,6 +166,18 @@ export function createNotificationWorker(
 // Enqueue helper — SOS bypasses queue and sends inline (Req 15.5)
 // ---------------------------------------------------------------------------
 
+/**
+ * Delivery guarantee: BullMQ defaults to a SINGLE attempt with no cleanup —
+ * one transient Redis/Expo hiccup silently lost the notification and completed
+ * jobs accumulated in Redis forever.
+ */
+const QUEUE_JOB_OPTS = {
+  attempts: 5,
+  backoff: { type: 'exponential', delay: 2_000 },
+  removeOnComplete: { count: 1_000 },
+  removeOnFail: { count: 5_000 },
+} as const;
+
 export async function enqueueNotification(
   queue: Queue<NotificationJob>,
   job: NotificationJob,
@@ -179,7 +191,7 @@ export async function enqueueNotification(
     // allSettled: one dead token must not reject the whole SOS fan-out (the
     // caller is often a route/socket handler that must not 500 mid-SOS) —
     // the remaining devices still get the alert.
-    await Promise.allSettled(
+    const results = await Promise.allSettled(
       devices.map((d) =>
         gateway.send(d.token, d.platform, {
           title: job.title,
@@ -190,6 +202,19 @@ export async function enqueueNotification(
         }),
       ),
     );
+    // If EVERY device send failed (Expo outage, per-token rate limit, network
+    // error) the SOS — the one type that skips the retrying queue — was simply
+    // lost: allSettled swallows the rejections and nothing ever retried the
+    // highest-priority notification in the app. Hand it to BullMQ so it gets
+    // the same attempts+backoff as everything else. Total failure only: a
+    // partial re-send would double-push the devices that already got it. The
+    // worker writes the history row for the requeued job, so return before the
+    // inline insert below rather than duplicating the Notification Center entry.
+    const failures = results.filter((r) => r.status === 'rejected');
+    if (devices.length > 0 && failures.length === devices.length) {
+      await queue.add(job.type, job, QUEUE_JOB_OPTS);
+      return;
+    }
     // The queued path persists to notification_history in the worker; the
     // inline SOS path must do it here or SOS alerts never appear in the
     // in-app Notification Center (Req 15.4, 20.5).
@@ -206,13 +231,5 @@ export async function enqueueNotification(
     }
     return;
   }
-  // Delivery guarantee: BullMQ defaults to a SINGLE attempt with no cleanup —
-  // one transient Redis/Expo hiccup silently lost the notification and
-  // completed jobs accumulated in Redis forever.
-  await queue.add(job.type, job, {
-    attempts: 5,
-    backoff: { type: 'exponential', delay: 2_000 },
-    removeOnComplete: { count: 1_000 },
-    removeOnFail: { count: 5_000 },
-  });
+  await queue.add(job.type, job, QUEUE_JOB_OPTS);
 }

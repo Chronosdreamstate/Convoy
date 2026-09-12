@@ -446,3 +446,90 @@ describe('Inline SOS delivery resilience and history', () => {
     expect(calls).toHaveLength(1);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Inline SOS: a TOTAL delivery failure falls back to the retrying queue.
+// The inline path is the only one that skips BullMQ, so an Expo outage or a
+// per-token rate limit used to lose the SOS outright — allSettled swallowed
+// every rejection and nothing retried.
+// ---------------------------------------------------------------------------
+describe('Inline SOS total-failure fallback', () => {
+  function makeDbMock() {
+    const queries: Array<{ sql: string; params: unknown[] }> = [];
+    const db = {
+      query: jest.fn(async (sql: string, params: unknown[]) => {
+        queries.push({ sql, params });
+        return { rows: [], rowCount: 1 };
+      }),
+    };
+    return { db: db as unknown as import('pg').Pool, queries };
+  }
+
+  it('requeues the SOS when EVERY device send fails, so it is retried', async () => {
+    const gateway: IPushGateway = {
+      send: jest.fn(async () => { throw new Error('Expo push HTTP 503'); }),
+    };
+    const deviceStore = makeMockDeviceStore([
+      { token: 'tok-a', platform: 'ios' },
+      { token: 'tok-b', platform: 'android' },
+    ]);
+    const { queue, addedJobs } = makeMockQueue();
+
+    await expect(
+      enqueueNotification(queue, makeJob({ type: 'sos_alert' }), gateway, deviceStore),
+    ).resolves.toBeUndefined();
+
+    expect(addedJobs).toHaveLength(1);
+    expect(addedJobs[0].type).toBe('sos_alert');
+    expect(queue.add).toHaveBeenCalledWith(
+      'sos_alert',
+      expect.objectContaining({ type: 'sos_alert' }),
+      expect.objectContaining({ attempts: 5 }),
+    );
+  });
+
+  it('the requeued SOS does not also write a history row (the worker writes it)', async () => {
+    const gateway: IPushGateway = {
+      send: jest.fn(async () => { throw new Error('Expo push HTTP 503'); }),
+    };
+    const deviceStore = makeMockDeviceStore([{ token: 'tok', platform: 'ios' }]);
+    const { queue } = makeMockQueue();
+    const { db, queries } = makeDbMock();
+
+    await enqueueNotification(queue, makeJob({ type: 'sos_alert' }), gateway, deviceStore, db);
+
+    expect(queries).toHaveLength(0);
+  });
+
+  it('partial failure still delivers inline and is NOT requeued (no double push)', async () => {
+    const gateway: IPushGateway = {
+      send: jest.fn(async (token: string) => {
+        if (token === 'dead') throw new Error('boom');
+      }),
+    };
+    const deviceStore = makeMockDeviceStore([
+      { token: 'dead', platform: 'ios' },
+      { token: 'alive', platform: 'android' },
+    ]);
+    const { queue, addedJobs } = makeMockQueue();
+    const { db, queries } = makeDbMock();
+
+    await enqueueNotification(queue, makeJob({ type: 'sos_alert' }), gateway, deviceStore, db);
+
+    expect(addedJobs).toHaveLength(0);
+    expect(queries).toHaveLength(1);
+  });
+
+  it('zero devices is not a total failure — history is still written, nothing requeued', async () => {
+    const { gateway } = makeMockGateway();
+    const deviceStore = makeMockDeviceStore([]);
+    const { queue, addedJobs } = makeMockQueue();
+    const { db, queries } = makeDbMock();
+
+    await enqueueNotification(queue, makeJob({ type: 'sos_alert' }), gateway, deviceStore, db);
+
+    expect(addedJobs).toHaveLength(0);
+    expect(queries).toHaveLength(1);
+    expect(queries[0].sql).toContain('INSERT INTO notification_history');
+  });
+});

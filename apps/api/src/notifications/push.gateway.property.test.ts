@@ -12,6 +12,12 @@
  *   notification was silently lost); other 4xx are permanent and non-throwing.
  *   No failure path issues a DB query.
  *   Validates: Requirements 15.1, 43.1
+ *
+ * Expo ticket handling
+ *   A per-message MessageRateExceeded ticket (HTTP 200!) is a transient
+ *   failure, not a delivery — it must throw so BullMQ retries. Ticket handling
+ *   works whether Expo answers with a single ticket or an array of them.
+ *   Validates: Requirements 15.1
  */
 
 import fc from 'fast-check';
@@ -200,5 +206,51 @@ describe('Property 104: Transient failures are retryable, permanent ones are not
     // Should propagate DB error — production code does not catch it here,
     // so verifying it propagates (is not silently swallowed)
     await expect(gateway.send('tok', 'ios', validPayload)).rejects.toThrow('DB connection lost');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Expo ticket handling: rate-limit tickets are transient, array shape tolerated
+// ---------------------------------------------------------------------------
+describe('Expo ticket handling', () => {
+  it('MessageRateExceeded ticket throws PushGatewayTransientError so BullMQ retries', async () => {
+    const { db } = makeDb();
+    mockFetch.mockResolvedValue(
+      expoResponse({ status: 'error', details: { error: 'MessageRateExceeded' } }),
+    );
+
+    const gateway = new ExpoPushGateway(db);
+    // Expo answers HTTP 200 here — the ticket is the only signal the push was
+    // not accepted. Swallowing it dropped the notification with no retry.
+    await expect(gateway.send('rate-limited-token', 'ios', validPayload))
+      .rejects.toBeInstanceOf(PushGatewayTransientError);
+
+    expect(db.query).not.toHaveBeenCalled();
+  });
+
+  it('deletes the stale token when Expo answers with an ARRAY of tickets', async () => {
+    const { db, deletedTokens } = makeDb();
+    mockFetch.mockResolvedValue(
+      new Response(
+        JSON.stringify({ data: [{ status: 'error', details: { error: 'DeviceNotRegistered' } }] }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
+
+    const gateway = new ExpoPushGateway(db);
+    await gateway.send('array-shaped-token', 'android', validPayload);
+
+    expect(deletedTokens).toContain('array-shaped-token');
+  });
+
+  it('a missing data field is non-fatal and produces no DB query', async () => {
+    const { db } = makeDb();
+    mockFetch.mockResolvedValue(
+      new Response(JSON.stringify({}), { status: 200, headers: { 'Content-Type': 'application/json' } }),
+    );
+
+    const gateway = new ExpoPushGateway(db);
+    await expect(gateway.send('tok', 'ios', validPayload)).resolves.toBeUndefined();
+    expect(db.query).not.toHaveBeenCalled();
   });
 });

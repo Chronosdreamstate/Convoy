@@ -211,6 +211,70 @@ export async function registerForPushNotificationsAsync(): Promise<string | null
   }
 }
 
+/**
+ * Re-register this device's Expo push token with the API, but only if push
+ * permission has ALREADY been granted. Never prompts — it reads the existing
+ * permission status — so it is safe to run unconditionally on every
+ * authenticated app start.
+ *
+ * Registration used to happen exactly once per install, from the in-context
+ * permission modal in app/_layout.tsx, behind a `push_permission_asked`
+ * AsyncStorage flag that sign-out deliberately does not clear. Three real ways
+ * a user ended up with zero `devices` rows and no push notifications at all,
+ * permanently:
+ *
+ *  • Sign out, sign back in. Sign-out DELETEs the token
+ *    (AuthService.deregisterPushToken → DELETE /api/v1/devices/:token) and
+ *    nothing ever re-created it, because the modal had already been answered.
+ *  • A second account signing in on the same phone — never registered at all,
+ *    so that account got no pushes even though the phone has permission.
+ *  • An Expo/FCM token rotation (restore from backup, app-data clear, a new
+ *    APNs token). The server kept pushing to the old token until Expo answered
+ *    DeviceNotRegistered, at which point the gateway deleted it — and the new
+ *    token was never registered.
+ *
+ * Idempotent: POST /devices upserts on push_token and reassigns user_id, so
+ * running this on every launch just keeps the row fresh.
+ */
+export async function syncPushTokenIfGranted(): Promise<void> {
+  try {
+    // Push tokens are unavailable in the simulator / emulator
+    if (!Device.isDevice) return;
+
+    // Permission-status read only: never surface the system dialog here, the
+    // in-context modal owns the ask.
+    const { status } = await Notifications.getPermissionsAsync();
+    if (status !== 'granted') return;
+
+    const projectId = Constants.expoConfig?.extra?.eas?.projectId as string | undefined;
+    const { data: pushToken } = await Notifications.getExpoPushTokenAsync({ projectId });
+    if (!pushToken) return;
+
+    const body = {
+      pushToken,
+      platform: Platform.OS === 'ios' ? ('ios' as const) : ('android' as const),
+    };
+    try {
+      await apiClient.post('/api/v1/devices', body);
+    } catch (err) {
+      // Offline at launch: queue the upsert rather than waiting for the next
+      // app start. Same idempotent endpoint and same dedupeKey registerToken
+      // uses, so a replay can only ever write the newest token once.
+      if (isOfflineError(err)) {
+        await offlineQueue.enqueue({
+          method: 'POST',
+          url: '/api/v1/devices',
+          body,
+          headers: {},
+          dedupeKey: 'device-register',
+        });
+      }
+    }
+  } catch {
+    // Non-fatal — notifications won't arrive but the app continues
+  }
+}
+
 // ---------------------------------------------------------------------------
 // NotificationService
 // ---------------------------------------------------------------------------

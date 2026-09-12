@@ -71,19 +71,38 @@ export class ExpoPushGateway implements IPushGateway {
       return;
     }
 
-    let result: { data: ExpoReceipt };
+    let result: { data?: ExpoReceipt | ExpoReceipt[] };
     try {
-      result = (await res.json()) as { data: ExpoReceipt };
+      result = (await res.json()) as { data?: ExpoReceipt | ExpoReceipt[] };
     } catch {
       return;
     }
 
-    if (
-      result.data.status === 'error' &&
-      result.data.details?.error === 'DeviceNotRegistered'
-    ) {
-      // Token is stale — remove to avoid future sends
-      await this.db.query('DELETE FROM devices WHERE push_token = $1', [token]);
+    // Expo mirrors the request shape: a single message object answers with a
+    // single ticket, an array of messages with an array of tickets. We send one
+    // message per call, but accept both so a shape difference can never
+    // silently disable ticket handling altogether.
+    const raw = result.data;
+    const tickets: ExpoReceipt[] = Array.isArray(raw) ? raw : raw ? [raw] : [];
+
+    for (const ticket of tickets) {
+      if (ticket.status !== 'error') continue;
+
+      if (ticket.details?.error === 'DeviceNotRegistered') {
+        // Token is stale — remove to avoid future sends
+        await this.db.query('DELETE FROM devices WHERE push_token = $1', [token]);
+        continue;
+      }
+
+      if (ticket.details?.error === 'MessageRateExceeded') {
+        // Expo answers HTTP 200 with a PER-MESSAGE rate-limit ticket when one
+        // token is pushed too fast (an SOS landing on top of a gap alert on top
+        // of a hazard alert for the same phone). That ticket was read as
+        // "delivered" and the notification dropped outright — unlike a 429 on
+        // the HTTP response itself, which is already retried. Throw so BullMQ
+        // redelivers the job with backoff.
+        throw new PushGatewayTransientError('Expo push ticket: MessageRateExceeded');
+      }
     }
   }
 }

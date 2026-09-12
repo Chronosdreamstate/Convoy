@@ -20,6 +20,7 @@ import {
   registerForPushNotificationsAsync,
   routeNotificationTap,
   setupNotificationHandler,
+  syncPushTokenIfGranted,
   type INotificationRouter,
 } from '../src/services/NotificationService';
 import { onboardingState } from '../src/utils/onboardingState';
@@ -333,6 +334,17 @@ export default function RootLayout() {
       setTimeout(() => setShowPushModal(true), 3000);
     });
   }, [isAuthenticated, isLoading, activeGroupId]);
+
+  // Keep the server's copy of this device's push token fresh on every signed-in
+  // launch. The modal above runs ONCE per install (the push_permission_asked
+  // flag survives sign-out), so without this a sign-out — which deregisters the
+  // token — a second account on the same phone, or an Expo token rotation left
+  // the account with no devices row and no pushes at all. Never prompts: it
+  // only re-POSTs the token when permission is already granted.
+  useEffect(() => {
+    if (!isAuthenticated || isLoading) return;
+    void syncPushTokenIfGranted();
+  }, [isAuthenticated, isLoading]);
 
   // Handle notification taps while app is in background (live listener)
   useEffect(() => {
