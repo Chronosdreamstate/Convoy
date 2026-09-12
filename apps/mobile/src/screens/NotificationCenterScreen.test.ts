@@ -25,6 +25,7 @@ import {
   buildSections,
   mergeServerNotifications,
   prependRealtime,
+  tickDelayMs,
   timeAgo,
   NotificationItem,
 } from './NotificationCenterScreen';
@@ -162,6 +163,26 @@ describe('timeAgo', () => {
     expect(timeAgo(new Date(now - 30_000).toISOString(), now)).toBe('30s ago');
     expect(timeAgo(new Date(now - 5 * 60_000).toISOString(), now)).toBe('5m ago');
     expect(timeAgo(new Date(now - 3 * 3_600_000).toISOString(), now)).toBe('3h ago');
+  });
+});
+
+describe('tickDelayMs', () => {
+  // The list repaints on every tick, so the cadence has to buy something: only
+  // a label still inside its first minute changes every second.
+  const now = new Date(2026, 8, 12, 14, 0, 0).getTime();
+
+  it('ticks once a second while the freshest row is under a minute old', () => {
+    expect(tickDelayMs(now - 0, now)).toBe(1_000);
+    expect(tickDelayMs(now - 59_000, now)).toBe(1_000);
+  });
+
+  it('drops to once a minute for an inbox of older rows', () => {
+    expect(tickDelayMs(now - 60_000, now)).toBe(60_000);
+    expect(tickDelayMs(now - 5 * 3_600_000, now)).toBe(60_000);
+  });
+
+  it('treats a clock-skewed future timestamp as fresh, not as an hour-old row', () => {
+    expect(tickDelayMs(now + 4_000, now)).toBe(1_000);
   });
 });
 
